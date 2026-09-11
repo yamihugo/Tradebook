@@ -192,6 +192,12 @@ export default class TradingJournalPlugin extends Plugin {
     this.app.workspace.revealLeaf(target);
   }
 
+  async openImport(leaf?: any) {
+    const target = leaf ?? this.getJournalLeaf();
+    await target.setViewState({ type: IMPORT_VIEW_TYPE, active: true });
+    this.app.workspace.revealLeaf(target);
+  }
+
   /** Opens the Trade Log pre-filtered to a single day (used by Calendar). */
   async openTradeLogForDay(dateKey: string) {
     await this.openTradeLog();

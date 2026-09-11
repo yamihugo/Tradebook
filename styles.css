@@ -2115,3 +2115,99 @@
 /* Trade detail soft tones */
 .tj-td-stat.pos { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); }
 .tj-td-stat.neg { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.25); }
+
+/* ---------------- Journalit Aesthetics & Sidebar ---------------- */
+.tj-app-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 250px;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 100;
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+}
+.tj-app-nav.open {
+  transform: translateX(0);
+}
+.tj-sidebar-search {
+  margin-bottom: 12px;
+  padding: 0 4px;
+}
+.tj-search-input {
+  width: 100%;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.85em;
+  color: var(--text-normal);
+  outline: none;
+}
+.tj-search-input:focus {
+  border-color: var(--interactive-accent);
+}
+.tj-sidebar-category {
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 14px 4px 4px 6px;
+}
+.tj-app-nav-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.85em;
+  color: var(--text-normal);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.tj-app-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-bright);
+}
+.tj-app-nav-item.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+.tj-app-nav-item.tj-app-add {
+  margin-top: auto;
+  border: 1px dashed var(--interactive-accent);
+  justify-content: center;
+  font-weight: 600;
+}
+.tj-app-brand {
+  background: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-weight: 700;
+  font-size: 0.9em;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+.tj-app-brand:hover {
+  background: var(--background-modifier-hover);
+}
+.tj-card, .tj-kpi, .tj-block {
+  border-radius: 12px;
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+

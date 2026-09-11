@@ -159,19 +159,25 @@ export function renderAppShell(
   root.empty();
   root.addClass("tj-app");
 
-  const NAV_ITEMS: { id: string; label: string; fn: () => void }[] = [
-    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard() },
-    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar() },
-    { id: "tradelog", label: "Trade Log", fn: () => plugin.openTradeLog() },
-    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts() },
+  const NAV_ITEMS: { id: string; label: string; fn: () => void; category?: string }[] = [
+    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard(), category: "OVERVIEW" },
+    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar(), category: "OVERVIEW" },
+    { id: "tradelog", label: "Trade Log", fn: () => plugin.openTradeLog(), category: "OVERVIEW" },
+    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts(), category: "OVERVIEW" },
+    // Reviews
+    { id: "drc", label: "Today's DRC", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    { id: "weekly", label: "This Week's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    { id: "monthly", label: "This Month's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    // Tools
+    { id: "import", label: "Trade Import", fn: () => plugin.openImport(), category: "TOOLS" },
   ];
   const LEFT_EXTRA = opts.extraNav ? [...opts.extraNav] : [];
-  const leftItems = [...NAV_ITEMS, ...LEFT_EXTRA.map((e) => ({ id: e.id, label: e.label, fn: e.fn }))];
+  const leftItems = [...NAV_ITEMS, ...LEFT_EXTRA.map((e) => ({ id: e.id, label: e.label, fn: e.fn, category: "TOOLS" }))];
 
   // ---- Slim header: TJ brand (menu) + Centered Tabs (Home, Calendar, Accounts) ----
   const header = root.createDiv({ cls: "tj-app-header" });
-  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Menu (TJ)" } });
-  brand.createSpan({ text: "TJ" });
+  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Menu (Journalit)" } });
+  brand.createSpan({ text: "Journalit" });
   brand.addEventListener("click", (e) => {
     e.stopPropagation();
     nav.classList.toggle("open");
@@ -196,20 +202,34 @@ export function renderAppShell(
   addBtn.createSpan({ text: "+ Add Trade" });
   addBtn.addEventListener("click", () => plugin.openAddPanel());
 
-  // ---- Off-canvas left panel — opens with the TJ brand, closes on choice ----
+  // ---- Journalit-style Sidebar ----
   const nav = root.createDiv({ cls: "tj-app-nav" });
-  nav.createDiv({ cls: "tj-app-nav-title", text: "Trading Journal" });
-  for (const it of leftItems) {
-    const b = nav.createEl("button", {
-      cls: "tj-app-nav-item" + (active === it.id ? " active" : ""),
-      attr: { type: "button", title: it.label },
-    });
-    b.createSpan({ cls: "tj-app-nav-label", text: it.label });
-    b.addEventListener("click", () => {
-      it.fn();
-      nav.classList.remove("open");
-    });
+  
+  // Search bar at top of sidebar
+  const searchWrap = nav.createDiv({ cls: "tj-sidebar-search" });
+  const searchInput = searchWrap.createEl("input", {
+    attr: { type: "text", placeholder: "Search trades & reviews..." },
+    cls: "tj-search-input"
+  });
+
+  const categories = ["OVERVIEW", "REVIEWS", "TOOLS"];
+  for (const cat of categories) {
+    const catItems = leftItems.filter((i) => (i.category || "OVERVIEW") === cat);
+    if (catItems.length === 0) continue;
+    nav.createDiv({ cls: "tj-sidebar-category", text: cat });
+    for (const it of catItems) {
+      const b = nav.createEl("button", {
+        cls: "tj-app-nav-item" + (active === it.id ? " active" : ""),
+        attr: { type: "button", title: it.label },
+      });
+      b.createSpan({ cls: "tj-app-nav-label", text: it.label });
+      b.addEventListener("click", () => {
+        it.fn();
+        nav.classList.remove("open");
+      });
+    }
   }
+
   // Add Trade in sidebar nav so it's globally accessible (and keeps test querySelector('.tj-app-add') passing)
   const navAdd = nav.createEl("button", { cls: "tj-app-nav-item tj-app-add", attr: { type: "button", title: "Add a new trade" } });
   navAdd.createSpan({ cls: "tj-app-nav-label", text: "+ Add Trade" });
