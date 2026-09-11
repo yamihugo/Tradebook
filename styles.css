@@ -1828,13 +1828,15 @@
   color: var(--text-on-accent);
 }
 
-/* App shell — navigation lives in Obsidian's native ribbon / command palette */
+/* App shell — fixed height, no outer page scrollbars. Views handle their own content fitting. */
 .tj-app {
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-height: 100%;
   min-height: 0;
   position: relative;
+  overflow: hidden;
 }
 
 /* ---------------- Theme & appearance ----------------
@@ -1866,10 +1868,14 @@
 /* Off-canvas left panel was removed: navigation now uses Obsidian's native
    left ribbon and command palette (no custom floating menu). */
 .tj-app-main {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-  padding: 18px 22px 28px 22px;
-  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
+  padding: 16px 20px 20px 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Fase 5: Eval passed celebration — dark modal overlay */

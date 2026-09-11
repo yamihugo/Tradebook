@@ -1,4 +1,4 @@
-import { Modal } from "obsidian";
+import { Modal, setIcon } from "obsidian";
 import type TradingJournalPlugin from "./main";
 import { AddTradePanel } from "./views/addTradePanel";
 
@@ -20,9 +20,31 @@ export class AddTradesModal extends Modal {
     const { contentEl } = this;
     contentEl.addClass("tj-addtrade-modal");
     contentEl.empty();
+
+    // Journalit-style header: icon + title + subtitle, close on the right.
+    const header = contentEl.createDiv({ cls: "tj-addtrade-header" });
+    const titleWrap = header.createDiv({ cls: "tj-addtrade-title-wrap" });
+    const iconEl = titleWrap.createDiv({ cls: "tj-addtrade-title-icon" });
+    setIcon(iconEl, "plus");
+    const textWrap = titleWrap.createDiv({ cls: "tj-addtrade-title-text" });
+    textWrap.createDiv({ cls: "tj-addtrade-h1", text: "Add Trade" });
+    textWrap.createDiv({
+      cls: "tj-addtrade-sub",
+      text: "Drop a Tradeovate CSV below to import your round-trips, or log a trade by hand.",
+    });
+    const closeBtn = header.createEl("button", {
+      cls: "tj-addtrade-close",
+      attr: { title: "Close (Esc)", "aria-label": "Close" },
+    });
+    setIcon(closeBtn, "x");
+    closeBtn.addEventListener("click", () => this.close());
+
     try {
       this.panel = new AddTradePanel(this.plugin, {
         onSaveDone: () => {
+          this.close();
+        },
+        onClose: () => {
           this.close();
         },
       });

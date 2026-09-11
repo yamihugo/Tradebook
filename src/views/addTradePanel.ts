@@ -1,4 +1,4 @@
-import { Notice, normalizePath } from "obsidian";
+import { Notice, normalizePath, setIcon } from "obsidian";
 import type TradingJournalPlugin from "../main";
 import { Trade } from "../types";
 import { parseTradeovateCsv } from "../csv";
@@ -8,6 +8,7 @@ import { isDateStr, todayStr } from "../tz";
 
 export interface AddTradePanelOptions {
   onSaveDone?: () => void;
+  onClose?: () => void;
 }
 
 interface AccountPickerHandle {
