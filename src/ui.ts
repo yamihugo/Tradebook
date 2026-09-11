@@ -156,10 +156,16 @@ export function renderAppShell(
   opts: { extraNav?: { id: string; label: string; fn: () => void }[] } = {}
 ): HTMLElement {
   void opts;
-  void plugin;
   void active;
   root.empty();
   root.addClass("tj-app");
+  // Theme & appearance (settings): dotted notebook background + custom accent.
+  const theme = plugin?.settings?.theme;
+  if (theme) {
+    root.toggleClass("tj-theme-dots", theme.background === "dots");
+    root.style.setProperty("--tj-accent", theme.accent || "");
+    root.style.setProperty("--tj-dot", theme.dotColor || "");
+  }
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
 }

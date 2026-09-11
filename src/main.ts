@@ -16,6 +16,15 @@ import { TradingJournalSidebarView, TRADING_JOURNAL_SIDEBAR_VIEW_TYPE } from "./
 import { AddTradesModal } from "./addTradeModal";
 import { openTradeModal } from "./views/tradeModal";
 
+export interface ThemeSettings {
+  /** "default" = follow Obsidian theme; "dots" = dotted notebook background */
+  background: "default" | "dots";
+  /** Hex accent color ("" = Obsidian default) */
+  accent: string;
+  /** Hex dot color for the dotted background ("" = auto) */
+  dotColor: string;
+}
+
 export interface TradingJournalSettings {
   tradesFolder: string;
   journalName: string;
@@ -29,6 +38,7 @@ export interface TradingJournalSettings {
   payouts: Payout[];
   accountMappings: Record<string, string>;
   recentLimit: number;
+  theme: ThemeSettings;
 }
 
 const DEFAULT_SETTINGS: TradingJournalSettings = {
@@ -44,6 +54,7 @@ const DEFAULT_SETTINGS: TradingJournalSettings = {
   payouts: [],
   accountMappings: {},
   recentLimit: 20,
+  theme: { background: "default", accent: "", dotColor: "" },
 };
 
 const ALL_VIEW_TYPES = [

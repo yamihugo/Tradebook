@@ -1866,6 +1866,32 @@
   position: relative;
 }
 
+/* ---------------- Theme & appearance ----------------
+   Custom accent + dotted-notebook background (settings > Appearance).
+   --tj-accent defaults to Obsidian's accent; when the user picks a color it
+   is set inline on .tj-app and overrides Obsidian's vars inside the journal. */
+.tj-app {
+  --tj-accent: var(--interactive-accent);
+  --tj-accent-soft: color-mix(in srgb, var(--tj-accent) 12%, transparent);
+  --tj-dot: color-mix(in srgb, var(--text-muted) 16%, transparent);
+}
+.tj-app.tj-theme-dots {
+  background-image: radial-gradient(circle at 1.5px 1.5px, var(--tj-dot) 1.5px, transparent 2.5px);
+  background-size: 26px 26px;
+  background-repeat: repeat;
+}
+/* Only apply the override when a real hex color was picked ("" stays default) */
+.tj-app[style*="--tj-accent: #"] {
+  --interactive-accent: var(--tj-accent);
+  --interactive-accent-hover: color-mix(in srgb, var(--tj-accent) 85%, black);
+  --interactive-accent-active: color-mix(in srgb, var(--tj-accent) 78%, black);
+  --interactive-accent-strong: color-mix(in srgb, var(--tj-accent) 92%, black);
+  --text-accent: var(--tj-accent);
+  --text-on-accent: #fff;
+  --checkbox-color: var(--tj-accent);
+  --checkbox-color-hover: color-mix(in srgb, var(--tj-accent) 85%, black);
+}
+
 /* Off-canvas left panel was removed: navigation now uses Obsidian's native
    left ribbon and command palette (no custom floating menu). */
 .tj-app-main {

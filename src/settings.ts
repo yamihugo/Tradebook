@@ -5,7 +5,7 @@ import { PROP_FIRMS, effectiveSize, getFirm, getProgram, getSize, makeAccount } 
 import { SCOPE_OPTIONS, kpiCard } from "./ui";
 import { TIMEZONE_OPTIONS } from "./tz";
 
-type SettingsTabId = "main" | "timezone" | "accounts";
+type SettingsTabId = "main" | "timezone" | "accounts" | "appearance";
 
 export class SettingsTab extends PluginSettingTab {
   plugin: TradingJournalPlugin;
@@ -28,6 +28,7 @@ export class SettingsTab extends PluginSettingTab {
 
     if (this.active === "main") this.renderMain(containerEl);
     else if (this.active === "timezone") this.renderTimezone(containerEl);
+    else if (this.active === "appearance") this.renderAppearance(containerEl);
     else this.renderAccounts(containerEl);
   }
 
@@ -36,6 +37,7 @@ export class SettingsTab extends PluginSettingTab {
     const entries: { id: SettingsTabId; label: string }[] = [
       { id: "main", label: "Main" },
       { id: "timezone", label: "Time zone" },
+      { id: "appearance", label: "Appearance" },
       { id: "accounts", label: "Accounts" },
     ];
     for (const e of entries) {
@@ -145,6 +147,82 @@ export class SettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+  }
+
+  // --------------------------------------------------------- Appearance
+  renderAppearance(containerEl: HTMLElement): void {
+    containerEl.createEl("h3", { text: "Theme & colors" });
+    containerEl.createEl("p", {
+      text: "Personalize how the journal looks. Everything is applied live — your Obsidian theme is untouched outside the journal views.",
+      cls: "setting-item-description",
+    });
+
+    new Setting(containerEl)
+      .setName("Background")
+      .setDesc("'Dotted notebook' gives the journal a trading-pad feel (like Journalit's dotted texture).")
+      .addDropdown((dd) => {
+        dd.addOption("default", "Default (Obsidian theme)");
+        dd.addOption("dots", "Dotted notebook");
+        dd.setValue(this.plugin.settings.theme.background).onChange(async (v) => {
+          this.plugin.settings.theme.background = v as "default" | "dots";
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Accent color")
+      .setDesc("Buttons, charts, the drag placeholder, resize handles and highlights. Empty = Obsidian default.")
+      .addColorPicker((cp) => {
+        cp.setValue(this.plugin.settings.theme.accent || "#7C5CFF").onChange(async (v) => {
+          this.plugin.settings.theme.accent = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      })
+      .addExtraButton((btn) => {
+        btn.setIcon("rotate-ccw").setTooltip("Reset to Obsidian default").onClick(async () => {
+          this.plugin.settings.theme.accent = "";
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Dot color")
+      .setDesc("Color of the dots on the 'Dotted notebook' background. Empty = auto (matches your text color).")
+      .addColorPicker((cp) => {
+        cp.setValue(this.plugin.settings.theme.dotColor || "#9A9A9A").onChange(async (v) => {
+          this.plugin.settings.theme.dotColor = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      })
+      .addExtraButton((btn) => {
+        btn.setIcon("rotate-ccw").setTooltip("Reset to auto").onClick(async () => {
+          this.plugin.settings.theme.dotColor = "";
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+          this.display();
+        });
+      });
+
+    containerEl.createEl("h3", { text: "Layout" });
+    containerEl.createEl("p", {
+      text: "Open the dashboard and press 'Edit' to add, remove, resize or drag cards. The layout is saved automatically.",
+      cls: "setting-item-description",
+    });
+    new Setting(containerEl)
+      .setName("Reset dashboard layout")
+      .setDesc("Restores the default cards: Key Stats, Cumulative P&L, Performance Calendar, Score, Symbols, Hourly and Daily.")
+      .addButton((btn) =>
+        btn.setButtonText("Reset layout").onClick(async () => {
+          this.plugin.settings.dashboardLayout = [];
+          await this.plugin.saveSettings();
+          new Notice("Dashboard layout reset to the default.");
+        })
+      );
   }
 
   // ------------------------------------------------------------- Accounts
