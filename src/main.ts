@@ -73,11 +73,23 @@ export default class TradingJournalPlugin extends Plugin {
     this.registerView(ACCOUNTS_LIST_VIEW_TYPE, (leaf) => new AccountsListView(leaf, this));
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
 
-    this.addRibbonIcon("grip", "Open Trading Dashboard", () => {
+    this.addRibbonIcon("grip", "Trading Journal — Home", () => {
       this.openDashboard();
     });
-    this.addRibbonIcon("plus", "Add Trade", () => {
+    this.addRibbonIcon("calendar-days", "Trading Journal — Calendar", () => {
+      this.openCalendar();
+    });
+    this.addRibbonIcon("wallet", "Trading Journal — Accounts", () => {
+      this.openAccounts();
+    });
+    this.addRibbonIcon("list", "Trading Journal — Trade Log", () => {
+      this.openTradeLog();
+    });
+    this.addRibbonIcon("plus", "Trading Journal — Add Trade", () => {
       this.openAddPanel();
+    });
+    this.addRibbonIcon("upload", "Trading Journal — Import CSV", () => {
+      this.openImport();
     });
 
     this.addCommand({

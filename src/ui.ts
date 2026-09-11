@@ -156,32 +156,18 @@ export function renderAppShell(
   active: string,
   opts: { extraNav?: { id: string; label: string; fn: () => void }[] } = {}
 ): HTMLElement {
+  void opts;
   root.empty();
   root.addClass("tj-app");
 
-  const NAV_ITEMS: { id: string; label: string; fn: () => void; category?: string }[] = [
-    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard(), category: "OVERVIEW" },
-    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar(), category: "OVERVIEW" },
-    { id: "tradelog", label: "Trade Log", fn: () => plugin.openTradeLog(), category: "OVERVIEW" },
-    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts(), category: "OVERVIEW" },
-    // Reviews
-    { id: "drc", label: "Today's DRC", fn: () => plugin.openDashboard(), category: "REVIEWS" },
-    { id: "weekly", label: "This Week's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
-    { id: "monthly", label: "This Month's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
-    // Tools
-    { id: "import", label: "Trade Import", fn: () => plugin.openImport(), category: "TOOLS" },
-  ];
-  const LEFT_EXTRA = opts.extraNav ? [...opts.extraNav] : [];
-  const leftItems = [...NAV_ITEMS, ...LEFT_EXTRA.map((e) => ({ id: e.id, label: e.label, fn: e.fn, category: "TOOLS" }))];
-
-  // ---- Slim header: TJ brand (menu) + Centered Tabs (Home, Calendar, Accounts) ----
+  // ---- Slim native header: Trading Journal brand + centered tabs + Add Trade ----
+  // Navigation follows Obsidian's native conventions: the app shell only keeps a
+  // minimal header with the journal brand and quick actions. The main menu lives
+  // in Obsidian's native left ribbon (registered on plugin load).
   const header = root.createDiv({ cls: "tj-app-header" });
-  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Menu (Journalit)" } });
-  brand.createSpan({ text: "Journalit" });
-  brand.addEventListener("click", (e) => {
-    e.stopPropagation();
-    nav.classList.toggle("open");
-  });
+  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Trading Journal" } });
+  brand.createSpan({ text: plugin.settings?.journalName || "Trading Journal" });
+  brand.addEventListener("click", () => plugin.openDashboard());
 
   const centerTrack = header.createDiv({ cls: "tj-app-header-track" });
   const TOP_TABS = [
@@ -201,65 +187,6 @@ export function renderAppShell(
   const addBtn = header.createEl("button", { cls: "mod-cta tj-btn tj-app-add", attr: { type: "button", title: "Add a new trade" } });
   addBtn.createSpan({ text: "+ Add Trade" });
   addBtn.addEventListener("click", () => plugin.openAddPanel());
-
-  // ---- Journalit-style Sidebar ----
-  const nav = root.createDiv({ cls: "tj-app-nav" });
-  
-  // Search bar at top of sidebar
-  const searchWrap = nav.createDiv({ cls: "tj-sidebar-search" });
-  const searchInput = searchWrap.createEl("input", {
-    attr: { type: "text", placeholder: "Search trades & reviews..." },
-    cls: "tj-search-input"
-  });
-
-  const categories = ["OVERVIEW", "REVIEWS", "TOOLS"];
-  for (const cat of categories) {
-    const catItems = leftItems.filter((i) => (i.category || "OVERVIEW") === cat);
-    if (catItems.length === 0) continue;
-    nav.createDiv({ cls: "tj-sidebar-category", text: cat });
-    for (const it of catItems) {
-      const b = nav.createEl("button", {
-        cls: "tj-app-nav-item" + (active === it.id ? " active" : ""),
-        attr: { type: "button", title: it.label },
-      });
-      b.createSpan({ cls: "tj-app-nav-label", text: it.label });
-      b.addEventListener("click", () => {
-        it.fn();
-        nav.classList.remove("open");
-      });
-    }
-  }
-
-  // Add Trade in sidebar nav so it's globally accessible (and keeps test querySelector('.tj-app-add') passing)
-  const navAdd = nav.createEl("button", { cls: "tj-app-nav-item tj-app-add", attr: { type: "button", title: "Add a new trade" } });
-  navAdd.createSpan({ cls: "tj-app-nav-label", text: "+ Add Trade" });
-  navAdd.addEventListener("click", () => {
-    plugin.openAddPanel();
-    nav.classList.remove("open");
-  });
-
-  const docClick = (e: MouseEvent) => {
-    if (!nav.contains(e.target as Node) && !brand.contains(e.target as Node)) {
-      nav.classList.remove("open");
-    }
-  };
-  const docKey = (e: KeyboardEvent) => {
-    if (e.key === "Escape") nav.classList.remove("open");
-  };
-  document.addEventListener("click", docClick);
-  document.addEventListener("keydown", docKey);
-  // Clean up listeners when root is unloaded/emptied
-  const win = window as any;
-  if (win.MutationObserver) {
-    const observer = new win.MutationObserver(() => {
-      if (!document.body.contains(root)) {
-        document.removeEventListener("click", docClick);
-        document.removeEventListener("keydown", docKey);
-        observer.disconnect();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
 
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
