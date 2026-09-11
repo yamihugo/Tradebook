@@ -19,6 +19,7 @@ export const SCOPE_OPTIONS: FilterOption[] = [
   { id: "demo", label: "Demo trades" },
   { id: "eval", label: "Eval trades" },
   { id: "funded", label: "Funded trades" },
+  { id: "live", label: "Live trades" },
   { id: "unknown", label: "Other trades" },
 ];
 

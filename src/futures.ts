@@ -32,7 +32,8 @@ export function futuresSpec(symbol: string): FuturesSpec {
 }
 
 export const DEFAULT_ACCOUNT_RULES: AccountRule[] = [
-  { type: "funded", keywords: ["FUNDED", "FUND", "LIVE", "REAL", "PAID", "PASSED", "CERTIFIED"] },
+  { type: "live", keywords: ["LIVE", "PERSONAL", "BROKERAGE"] },
+  { type: "funded", keywords: ["FUNDED", "FUND", "REAL", "PAID", "PASSED", "CERTIFIED"] },
   { type: "eval", keywords: ["EVAL", "EVALUATION", "COMBINE", "FUNDING", "CHALLENGE", "PROP", "TOPSTEP", "TOPSSTEP", "TOSTEP", "TDF", "AXIO", "KWR", "T4C", "APEX", "TAKEPRO"] },
   { type: "demo", keywords: ["DEMO", "SIM", "SIMU", "SIMULATED", "PAPER", "TRAINING", "PRACTICE"] },
 ];

@@ -428,6 +428,12 @@ export default class TradingJournalPlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    for (const acc of this.settings.propAccounts || []) {
+      if (acc.live && acc.scope === "funded") acc.scope = "live";
+    }
+    for (const acc of this.settings.archivedAccounts || []) {
+      if (acc.live && acc.scope === "funded") acc.scope = "live";
+    }
   }
 
   async saveSettings() {

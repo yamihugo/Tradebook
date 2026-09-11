@@ -80,10 +80,10 @@ export class DashboardView extends ItemView {
     } else if (this.filter !== "all") {
       if (this.filter === "live") {
         // Live = trades whose mapped account is marked live, or a direct name match.
-        const liveNames = new Set(this.plugin.settings.propAccounts.filter((a) => a.live).map((a) => a.name.trim().toLowerCase()));
+        const liveNames = new Set(this.plugin.settings.propAccounts.filter((a) => a.scope === "live" || a.live).map((a) => a.name.trim().toLowerCase()));
         list = list.filter((t) => {
           const mapped = this.plugin.mappedAccount(t.account);
-          if (mapped) return mapped.live === true;
+          if (mapped) return mapped.scope === "live" || mapped.live === true;
           return liveNames.has((t.account || "").trim().toLowerCase());
         });
       } else {
@@ -379,9 +379,9 @@ export class DashboardView extends ItemView {
       const size = effectiveSize(getSize(program, acc.size), acc.rules);
       const firmLabel = firm?.name ?? "Other";
       const sizeLabel = size ? `$${(acc.size / 1000).toFixed(0)}K` : "";
-      const scopeTag = acc.scope === "eval" ? "Eval" : acc.scope === "funded" ? "Funded" : acc.scope === "demo" ? "Demo" : "Other";
+      const scopeTag = acc.scope === "eval" ? "Eval" : acc.scope === "funded" ? "Funded" : acc.scope === "live" ? "Live" : acc.scope === "demo" ? "Demo" : "Other";
       const label = acc.name.length > 0 && acc.name !== "Custom Account" ? acc.name : `${firmLabel} ${sizeLabel} ${scopeTag}`.trim();
-      const order = acc.scope === "funded" ? 0 : acc.scope === "eval" ? 1 : 2;
+      const order = acc.scope === "funded" ? 0 : acc.scope === "live" ? 1 : acc.scope === "eval" ? 2 : 3;
       if (!byFirm.has(firmLabel)) byFirm.set(firmLabel, []);
       byFirm.get(firmLabel)!.push({ acc, scope: acc.scope, label, order });
     }

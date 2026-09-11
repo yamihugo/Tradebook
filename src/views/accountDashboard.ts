@@ -261,7 +261,7 @@ if (acc.scope === "eval" && targetReached && !this.plugin.isCelebrationDismissed
     // Fase 5: breakdown por dia da semana
     this.renderWeekdayBreakdown(main, scoped);
     // Fase 7: payouts — only for funded / live accounts
-    if (acc.scope === "funded" || acc.live) this.renderPayoutTracker(main, acc);
+    if (acc.scope === "funded" || acc.scope === "live" || acc.live) this.renderPayoutTracker(main, acc);
   }
 
   showEvalPassedModal(acc: any, size: any, net: number): void {

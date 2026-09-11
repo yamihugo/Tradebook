@@ -168,14 +168,16 @@ export function effectiveSize(
   };
 }
 
-export function makeAccount(firm: PropFirm, program: PropProgram, size: number, customName?: string): PropAccount {
+export function makeAccount(firm: PropFirm, program: PropProgram, size: number, customName?: string, isLive?: boolean): PropAccount {
   const defaultName = `${firm.name} · ${program.label} · $${(size / 1000).toFixed(0)}K`;
+  const scope = isLive ? "live" : (program.id.includes("funded") ? "funded" : "eval");
   return {
     id: "pa_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: customName && customName.trim() ? customName.trim() : defaultName,
     firmId: firm.id,
     programId: program.id,
     size,
-    scope: "all",
+    scope,
+    live: isLive || scope === "live",
   };
 }

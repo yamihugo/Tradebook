@@ -1,4 +1,4 @@
-export type AccountType = "demo" | "eval" | "funded" | "unknown";
+export type AccountType = "demo" | "eval" | "funded" | "live" | "unknown";
 
 export interface FuturesSpec {
   pointValue: number; // dollar value of 1.0 point movement

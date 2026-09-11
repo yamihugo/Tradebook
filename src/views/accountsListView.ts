@@ -57,10 +57,10 @@ export class AccountsListView extends ItemView {
       });
     } else {
       // Group by firm (non-live) and a separate "Live" group for live accounts.
-      const liveAccs = accounts.filter((a) => a.live);
+      const liveAccs = accounts.filter((a) => a.live || a.scope === "live");
       const firmMap = new Map<string, { firm: any; accs: PropAccount[] }>();
       for (const acc of accounts) {
-        if (acc.live) continue;
+        if (acc.live || acc.scope === "live") continue;
         const firm = getFirm(acc.firmId);
         if (!firm) continue;
         if (!firmMap.has(firm.id)) firmMap.set(firm.id, { firm, accs: [] });
@@ -87,7 +87,7 @@ export class AccountsListView extends ItemView {
         const kpis = card.createDiv({ cls: "tj-account-kpis" });
         kpiCard(kpis, "Target", s.target ? `$${(s.target / 1000).toFixed(0)}K` : "—", s.target ? "pos" : "neutral");
         kpiCard(kpis, "Max Loss", s.maxLoss ? `$${(s.maxLoss / 1000).toFixed(0)}K` : "—", s.maxLoss ? "neg" : "neutral");
-        if (acc.scope === "funded" || acc.live) {
+        if (acc.scope === "funded" || acc.scope === "live" || acc.live) {
           const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
           kpiCard(kpis, "Withdrawn", withdrawn ? `$${withdrawn.toLocaleString()}` : "$0", "pos");
         }

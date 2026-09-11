@@ -149,15 +149,16 @@ export class SettingsTab extends PluginSettingTab {
 
   // ------------------------------------------------------------- Accounts
   renderAccounts(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "Account type classification" });
-    containerEl.createEl("p", {
-      text: "Automatic: order matters (first match wins). Accounts are classified as funded → eval → demo based on keywords in the account name.",
+    const details = containerEl.createEl("details", { cls: "tj-rule-group-details" });
+    details.createEl("summary", { text: "Advanced — account type classification rules" });
+    details.createEl("p", {
+      text: "Automatic: order matters (first match wins). Accounts are classified as live → funded → eval → demo based on keywords in the account name. Do not edit unless necessary.",
       cls: "setting-item-description",
     });
     (() => {
-      containerEl.querySelectorAll(".tj-rule-group").forEach((el) => el.remove());
+      details.querySelectorAll(".tj-rule-group").forEach((el) => el.remove());
       const rules = this.plugin.getAccountRules();
-      const group = containerEl.createDiv({ cls: "tj-rule-group" });
+      const group = details.createDiv({ cls: "tj-rule-group" });
       for (const rule of rules) {
         const row = group.createDiv({ cls: "tj-rule-row" });
         row.createSpan({ text: rule.type, cls: "tj-rule-type" });
@@ -211,8 +212,6 @@ export class SettingsTab extends PluginSettingTab {
     const programSel = form.createEl("select", { cls: "dropdown" });
     const sizeSel = form.createEl("select", { cls: "dropdown" });
     const nameInput = form.createEl("input", { attr: { type: "text", placeholder: "Name (optional)" } });
-    const scopeSel = form.createEl("select", { cls: "dropdown" });
-    for (const s of SCOPE_OPTIONS) scopeSel.createEl("option", { value: s.id, text: s.label });
     const liveBox = form.createEl("label", { cls: "tj-check" });
     liveBox.createEl("input", { type: "checkbox" });
     liveBox.createSpan({ text: " Live account (personal brokerage — payout tracking, no prop rules)" });
@@ -236,10 +235,9 @@ export class SettingsTab extends PluginSettingTab {
       const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
       const program = getProgram(firm, programSel.value) ?? firm.programs[0];
       const size = parseInt(sizeSel.value, 10) || program.sizes[0].size;
-      const acc = makeAccount(firm, program, size, nameInput.value);
-      acc.scope = scopeSel.value as any;
-      acc.live = liveBox.querySelector("input")?.checked ?? false;
-      if (acc.live) acc.scope = "funded";
+      const isLive = liveBox.querySelector("input")?.checked ?? false;
+      const acc = makeAccount(firm, program, size, nameInput.value, isLive);
+      if (isLive) acc.scope = "live";
       plugin.settings.propAccounts.push(acc);
       if (!plugin.settings.primaryAccountId) plugin.settings.primaryAccountId = acc.id;
       await plugin.saveSettings();
