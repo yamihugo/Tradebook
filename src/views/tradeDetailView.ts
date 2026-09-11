@@ -12,7 +12,6 @@ export class TradeDetailView extends ItemView {
   trade: Trade | null = null;
   allTrades: Trade[] = [];
   index = -1;
-  private _currentRecognition: any = null;
 
   constructor(leaf: any, plugin: TradingJournalPlugin) {
     super(leaf);
@@ -147,8 +146,6 @@ export class TradeDetailView extends ItemView {
     stat("Gross P&L", fmtMoney2(t.grossPnl), "neutral");
     const totalCosts = (t.commission || 0) + (t.fees || 0);
     stat("Commissions & Fees", `$${totalCosts.toFixed(2)}`, "neutral");
-    stat("MAE", t.mae != null ? fmtMoney2(t.mae) : "—", (t.mae ?? 0) < 0 ? "neg" : "neutral");
-    stat("MFE", t.mfe != null ? fmtMoney2(t.mfe) : "—", (t.mfe ?? 0) > 0 ? "pos" : "neutral");
 
     // ---- Trade Rating (1-5 stars) ----
     const ratingRow = stats.createDiv({ cls: "tj-td-stat tj-td-rating-row" });
@@ -167,33 +164,6 @@ export class TradeDetailView extends ItemView {
         this.render();
       });
     }
-
-    // ---- MAE / MFE editable fields ----
-    const maeStat = stats.createDiv({ cls: "tj-td-stat tj-td-mae-input" });
-    maeStat.createEl("div", { cls: "tj-td-stat-label", text: "MAE ($)" });
-    const maeInput = maeStat.createEl("input", {
-      cls: "tj-td-stat-value tj-td-num-input",
-      attr: { type: "number", placeholder: "0.00", step: "0.01" },
-    });
-    maeInput.value = t.mae != null ? String(t.mae) : "";
-    maeInput.addEventListener("change", async () => {
-      const v = parseFloat(maeInput.value);
-      this.trade!.mae = isNaN(v) ? undefined : v;
-      await this.saveField("mae" as any, isNaN(v) ? "" : String(v));
-    });
-
-    const mfeStat = stats.createDiv({ cls: "tj-td-stat tj-td-mfe-input" });
-    mfeStat.createEl("div", { cls: "tj-td-stat-label", text: "MFE ($)" });
-    const mfeInput = mfeStat.createEl("input", {
-      cls: "tj-td-stat-value tj-td-num-input",
-      attr: { type: "number", placeholder: "0.00", step: "0.01" },
-    });
-    mfeInput.value = t.mfe != null ? String(t.mfe) : "";
-    mfeInput.addEventListener("change", async () => {
-      const v = parseFloat(mfeInput.value);
-      this.trade!.mfe = isNaN(v) ? undefined : v;
-      await this.saveField("mfe" as any, isNaN(v) ? "" : String(v));
-    });
 
     // Two-column: screenshot/print + review fields
     const cols = body.createDiv({ cls: "tj-td-cols" });
@@ -243,61 +213,6 @@ export class TradeDetailView extends ItemView {
         this.trade![key] = val;
         await this.saveField(key, val);
       });
-
-      // Voice dictation (Web Speech API — runs locally in Electron/Chromium)
-      const micBtn = right.createEl("button", {
-        cls: "tj-td-mic",
-        attr: { type: "button", title: "Dictate with voice (offline)" },
-        text: "🎤",
-      });
-      const setMicState = (active: boolean) => {
-        micBtn.classList.toggle("recording", active);
-        micBtn.textContent = active ? "⏹" : "🎤";
-      };
-      micBtn.addEventListener("click", () => {
-        const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (!SR) {
-          new Notice("Voice dictation is not supported in this environment.");
-          return;
-        }
-        if (micBtn.classList.contains("recording")) {
-          if (this._currentRecognition) this._currentRecognition.stop();
-          setMicState(false);
-          return;
-        }
-        try {
-          const rec = new SR();
-          this._currentRecognition = rec;
-          rec.lang = "en-US";
-          rec.interimResults = false;
-          rec.maxAlternatives = 1;
-          rec.onresult = (ev: any) => {
-            const transcript = Array.from(ev.results).map((r: any) => r[0].transcript).join(" ");
-            area.value = (area.value ? area.value.trimEnd() + " " : "") + transcript;
-            const val = area.value.trim();
-            this.trade![key] = val;
-            void this.saveField(key, val);
-          };
-          rec.onend = () => {
-            setMicState(false);
-            this._currentRecognition = null;
-          };
-          rec.onerror = (ev: any) => {
-            setMicState(false);
-            this._currentRecognition = null;
-            if (ev.error !== "aborted" && ev.error !== "no-speech") {
-              new Notice(`Voice dictation error: ${ev.error}`);
-            }
-          };
-          rec.start();
-          setMicState(true);
-        } catch (err) {
-          setMicState(false);
-          this._currentRecognition = null;
-          new Notice(`Could not start voice dictation: ${String(err)}`);
-        }
-      });
-
       return area;
     };
     field("Setup", t.setup, "setup");
@@ -305,7 +220,7 @@ export class TradeDetailView extends ItemView {
     field("Mistakes", t.mistake, "mistake");
   }
 
-  async saveField(key: "setup" | "review" | "mistake" | "rating" | "mae" | "mfe", value: string): Promise<void> {
+  async saveField(key: "setup" | "review" | "mistake" | "rating", value: string): Promise<void> {
     try {
       if (this.trade?.id) await updateTradeFields(this.app, (this.app.vault.getAbstractFileByPath(this.trade.id) as TFile), { [key]: value });
     } catch (err) {

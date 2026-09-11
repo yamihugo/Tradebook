@@ -515,7 +515,7 @@ export class AccountDashboardView extends ItemView {
       tr.addEventListener("click", async () => {
         const id = tr.getAttr("data-tj-note");
         if (!id) return;
-        await this.plugin.openTradeDetail(t);
+        await this.plugin.openTradeModal(t);
       });
     }
   }

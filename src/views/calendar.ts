@@ -258,8 +258,8 @@ export class CalendarView extends ItemView {
         pnlTd.textContent = fmtMoney(t.pnl);
         tr.addEventListener("click", async () => {
           if (!t.id) return;
-          overlay.remove();
-          await this.plugin.openTradeDetail(t);
+          // Open the trade pop-up ON TOP of the day log — closing it returns to the calendar.
+          await this.plugin.openTradeModal(t);
         });
       }
     };

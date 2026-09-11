@@ -230,74 +230,9 @@
   fill: rgba(16, 185, 129, 0.2);
 }
 
-/* ---------------- Scatter & Radar ---------------- */
+/* ---------------- Chart box ---------------- */
 .tj-chart-box {
   position: relative;
-}
-.tj-scatter, .tj-radar {
-  width: 100%;
-  max-height: 400px;
-}
-.tj-scatter-dot {
-  stroke: #fff;
-  stroke-width: 1;
-  transition: r 0.1s ease;
-}
-.tj-scatter-dot.pos {
-  fill: rgba(16, 185, 129, 0.9);
-}
-.tj-scatter-dot.neg {
-  fill: rgba(239, 68, 68, 0.9);
-}
-.tj-scatter-ref {
-  stroke: var(--text-muted);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-  opacity: 0.5;
-}
-.tj-scatter-label {
-  fill: var(--text-muted);
-  font-size: 12px;
-}
-.tj-radar-ring {
-  fill: none;
-  stroke: var(--background-modifier-border);
-  stroke-width: 1;
-}
-.tj-radar-axis {
-  stroke: var(--background-modifier-border);
-  stroke-width: 1;
-}
-.tj-radar-label {
-  fill: var(--text-muted);
-  font-size: 11px;
-}
-.tj-radar-fill {
-  fill: var(--interactive-accent, #7c5cff);
-  fill-opacity: 0.25;
-  stroke: var(--interactive-accent, #7c5cff);
-  stroke-width: 2;
-}
-.tj-radar-dot {
-  fill: var(--interactive-accent, #7c5cff);
-  stroke: #fff;
-  stroke-width: 1;
-}
-.tj-score-value {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 8px;
-}
-.tj-score-num {
-  font-size: 2em;
-  font-weight: 800;
-  color: var(--text-normal);
-}
-.tj-score-suffix {
-  font-size: 0.9em;
-  color: var(--text-muted);
 }
 
 /* ---------------- Tables ---------------- */
@@ -567,21 +502,32 @@
 .tj-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(auto, auto);
+  grid-auto-flow: row dense;
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
   margin-top: 4px;
 }
 .tj-gridcard {
   margin-bottom: 0;
   position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .tj-g1 { grid-column: span 1; }
 .tj-g2 { grid-column: span 2; }
 .tj-g3 { grid-column: span 3; }
 .tj-g4 { grid-column: 1 / -1; }
+/* vertical sizing (edit mode) */
+.tj-r1 { grid-row: span 1; }
+.tj-r2 { grid-row: span 2; }
 /* charts are appended directly to the card body, so anchor tooltips to it */
 .tj-gridcard-body {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .tj-gridcard-body > :last-child {
   margin-bottom: 0;
@@ -608,20 +554,6 @@
   .tj-form-grid {
     overflow-x: auto;
   }
-}
-.tj-resize {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  cursor: col-resize;
-  touch-action: none;
-  opacity: 0.25;
-}
-.tj-resize:hover {
-  background: var(--interactive-accent);
-  opacity: 0.6;
 }
 .tj-card-controls {
   display: flex;
@@ -667,10 +599,25 @@
 
 /* ---------------- Palette (add cards, edit mode) ---------------- */
 .tj-pallet {
-  border: 1px dashed var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 10px 14px;
+  border: 1.5px dashed var(--interactive-accent);
+  border-radius: 12px;
+  padding: 12px 16px;
   margin-bottom: 16px;
+  background: color-mix(in srgb, var(--interactive-accent) 6%, transparent);
+}
+.tj-pallet-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+.tj-pallet-header strong {
+  color: var(--interactive-accent);
+  font-size: 0.95em;
+}
+.tj-pallet-hint {
+  color: var(--text-muted);
+  font-size: 0.82em;
 }
 .tj-pallet-title {
   color: var(--text-muted);
@@ -686,8 +633,8 @@
   background: var(--background-secondary-alt);
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
-  padding: 3px 12px;
-  font-size: 0.82em;
+  padding: 5px 14px;
+  font-size: 0.85em;
   color: var(--text-normal);
   cursor: pointer;
 }
@@ -695,6 +642,12 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border-color: var(--interactive-accent);
+}
+/* In edit mode, cards get a visible accent outline so the user can see
+   exactly what is resizable/movable. */
+.tj-editing .tj-gridcard {
+  outline: 1.5px dashed rgba(124, 92, 255, 0.55);
+  outline-offset: 3px;
 }
 
 /* ---------------- Needs Review action bar ---------------- */
@@ -1750,6 +1703,81 @@
   margin-bottom: 12px;
 }
 .tj-modal-head h2 { margin: 0; font-size: 1.25em; }
+
+/* ---------------- Trade modal (big edit pop-up) ---------------- */
+.tj-modal.tj-trade-modal {
+  max-width: 1080px;
+  width: 92%;
+  padding: 14px 18px 18px 18px;
+  overflow: hidden;
+}
+.tj-trade-modal-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
+  gap: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.tj-trade-modal-left {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 10px;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tj-trade-modal-img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+}
+.tj-trade-modal-right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.tj-trade-modal-stats {
+  flex-wrap: wrap;
+}
+.tj-trade-modal-kpi {
+  min-width: 84px;
+  padding: 6px 8px;
+}
+.tj-trade-modal-rating {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tj-trade-modal-rating .tj-td-field-label {
+  margin: 0;
+}
+.tj-trade-modal-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 54px;
+}
+.tj-trade-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+}
+@media (max-width: 720px) {
+  .tj-trade-modal-cols {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .tj-trade-modal-left { min-height: 160px; }
+}
 .tj-day-log-content {
   overflow-y: auto;
   flex: 1;
@@ -1796,40 +1824,13 @@
   color: var(--text-on-accent);
 }
 
-/* App shell — slim header + optional off-canvas left panel */
+/* App shell — navigation lives in Obsidian's native ribbon / command palette */
 .tj-app {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   position: relative;
-}
-.tj-app-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.tj-app-brand {
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--interactive-accent);
-  font-weight: 800;
-  font-size: 1.05em;
-  letter-spacing: 0.04em;
-  padding: 4px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.tj-app-brand:hover { background: var(--background-modifier-hover); }
-.tj-app-header-spacer { flex: 1; }
-.tj-app-add {
-  flex-shrink: 0;
-  padding: 5px 12px;
-  font-size: 0.85em;
 }
 
 /* Off-canvas left panel was removed: navigation now uses Obsidian's native
@@ -2120,39 +2121,6 @@
 }
 .tj-td-note-text { margin: 4px 0 0 0; opacity: 0.8; }
 
-/* Top header centered tabs & invisible bar */
-.tj-app-header {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background: transparent;
-  border-bottom: 1px solid var(--background-modifier-border);
-  min-height: 44px;
-}
-.tj-app-brand {
-  position: relative;
-  z-index: 2;
-}
-.tj-app-add {
-  position: relative;
-  z-index: 2;
-  flex-shrink: 0;
-  padding: 5px 12px;
-  font-size: 0.85em;
-}
-.tj-app-header-track {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  z-index: 1;
-}
-
 /* Add Trade Source split side-by-side */
 .tj-src-split {
   display: grid;
@@ -2224,8 +2192,8 @@
 }
 
 /* ---------------- Native Obsidian-style App Shell ---------------- */
-/* No custom floating sidebar: the app now follows Obsidian's native navigation
-   (left ribbon + command palette). The shell keeps only a slim native header. */
+/* No custom floating sidebar or header: the app follows Obsidian's native
+   navigation (left ribbon + command palette) and the calendar view header. */
 .tj-app {
   display: flex;
   flex-direction: column;
@@ -2237,21 +2205,6 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
-}
-.tj-app-brand {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 4px 12px;
-  font-weight: 700;
-  font-size: 0.9em;
-  cursor: pointer;
-  color: var(--text-normal);
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.tj-app-brand:hover {
-  background: var(--background-modifier-hover);
-  border-color: var(--interactive-accent);
 }
 .tj-card, .tj-kpi, .tj-block {
   border-radius: 12px;

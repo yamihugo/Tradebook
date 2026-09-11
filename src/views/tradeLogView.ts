@@ -112,7 +112,7 @@ export class TradeLogView extends ItemView {
       const tr = tbody.createEl("tr", { cls: "tj-clickable-row" });
       if (t.id) tr.setAttr("data-tj-note", t.id);
       tr.addEventListener("click", () => {
-        if (t.id) void this.plugin.openTradeDetail(t);
+        if (t.id) void this.plugin.openTradeModal(t);
       });
       tr.createEl("td", { text: t.date });
       tr.createEl("td", { text: t.entryTime || "—" });

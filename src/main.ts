@@ -12,12 +12,13 @@ import { TradeLogView, TRADE_LOG_VIEW_TYPE } from "./views/tradeLogView";
 import { AccountsListView, ACCOUNTS_LIST_VIEW_TYPE } from "./views/accountsListView";
 import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView";
 import { AddTradesModal } from "./addTradeModal";
+import { openTradeModal } from "./views/tradeModal";
 
 export interface TradingJournalSettings {
   tradesFolder: string;
   journalName: string;
   dashboardTitle: string;
-  dashboardLayout: { id: string; size: number }[];
+  dashboardLayout: { id: string; size: number; rows?: number }[];
   accountRules: AccountRule[];
   timeZone: string;
   propAccounts: PropAccount[];
@@ -224,6 +225,12 @@ export default class TradingJournalPlugin extends Plugin {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNT_DASH_VIEW_TYPE, state: { accountId }, active: true });
     this.app.workspace.revealLeaf(target);
+  }
+
+  async openTradeModal(trade: { id: string }) {
+    const trades = await this.loadTrades();
+    const full = trades.find((t) => t.id === trade.id) ?? (trade as any);
+    openTradeModal(this, full);
   }
 
   async openTradeDetail(trade: { id: string }) {

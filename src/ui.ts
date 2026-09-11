@@ -62,20 +62,6 @@ export function svgPath(svg: SVGSVGElement, d: string, cls?: string): SVGPathEle
   return path;
 }
 
-export function svgCircle(
-  svg: SVGSVGElement,
-  cx: number,
-  cy: number,
-  r: number,
-  cls?: string
-): SVGCircleElement {
-  const circle = svg.createSvg("circle", { cls });
-  circle.setAttribute("cx", String(cx));
-  circle.setAttribute("cy", String(cy));
-  circle.setAttribute("r", String(r));
-  return circle;
-}
-
 export function pathFromPoints(points: { x: number; y: number }[]): string {
   const n = points.length;
   if (n === 0) return "";
@@ -159,10 +145,9 @@ export function attachTooltip(parent: HTMLElement): {
 }
 
 /**
- * App shell with a simple header + optional off-canvas left panel.
- * - No heavy top bar: only a slim header with the TJ brand (clickable) that
- *   opens/closes the left "tools" panel, and a discreet Add Trade action.
- * - Navigation items are plain text (no emojis).
+ * App shell — intentionally minimal: no custom in-app nav.
+ * Navigation lives in Obsidian's native left sidebar (ribbon icons +
+ * command palette), which is the Obsidian-native way to move around.
  */
 export function renderAppShell(
   root: HTMLElement,
@@ -171,37 +156,10 @@ export function renderAppShell(
   opts: { extraNav?: { id: string; label: string; fn: () => void }[] } = {}
 ): HTMLElement {
   void opts;
+  void plugin;
+  void active;
   root.empty();
   root.addClass("tj-app");
-
-  // ---- Slim native header: Trading Journal brand + centered tabs + Add Trade ----
-  // Navigation follows Obsidian's native conventions: the app shell only keeps a
-  // minimal header with the journal brand and quick actions. The main menu lives
-  // in Obsidian's native left ribbon (registered on plugin load).
-  const header = root.createDiv({ cls: "tj-app-header" });
-  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Trading Journal" } });
-  brand.createSpan({ text: plugin.settings?.journalName || "Trading Journal" });
-  brand.addEventListener("click", () => plugin.openDashboard());
-
-  const centerTrack = header.createDiv({ cls: "tj-app-header-track" });
-  const TOP_TABS = [
-    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard() },
-    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar() },
-    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts() },
-  ];
-  for (const t of TOP_TABS) {
-    const tabBtn = centerTrack.createEl("button", {
-      cls: "tj-app-tab" + (active === t.id ? " active" : ""),
-      attr: { type: "button" },
-      text: t.label,
-    });
-    tabBtn.addEventListener("click", () => t.fn());
-  }
-
-  const addBtn = header.createEl("button", { cls: "mod-cta tj-btn tj-app-add", attr: { type: "button", title: "Add a new trade" } });
-  addBtn.createSpan({ text: "+ Add Trade" });
-  addBtn.addEventListener("click", () => plugin.openAddPanel());
-
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
 }
