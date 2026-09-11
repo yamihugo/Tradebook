@@ -1,7 +1,7 @@
 import { ItemView, TFile } from "obsidian";
 import type TradingJournalPlugin from "../main";
 import { Trade } from "../types";
-import { ACCOUNT_FILTERS, attachTooltip, clamp, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
+import { ACCOUNT_FILTERS, attachTooltip, clamp, kpiCard, renderAppShell, svgCircle, svgLine, svgPath } from "../ui";
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
@@ -16,10 +16,12 @@ export const CARD_TITLES: Record<string, string> = {
   recent: "Recent Trades",
   hourly: "Hourly Performance",
   daily: "Day Performance",
+  maemfe: "MFE / MAE Scatter",
+  score: "Zella Score",
 };
 
 const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "needsreview", "daily", "hourly"];
-const WIDE_CARDS = ["kpi", "equity", "recent", "hourly", "daily", "needsreview"];
+const WIDE_CARDS = ["kpi", "equity", "recent", "hourly", "daily", "needsreview", "maemfe", "score"];
 
 function defaultLayout(): { id: string; size: number }[] {
   return DEFAULT_LAYOUT.map((id) => ({ id, size: WIDE_CARDS.includes(id) ? 4 : 2 }));
@@ -311,6 +313,8 @@ export class DashboardView extends ItemView {
           case "recent": this.renderTradesTable(body, trades); break;
           case "hourly": this.renderHourlyBody(body, trades); break;
           case "daily": this.renderDailyBody(body, trades); break;
+          case "maemfe": this.renderMaeMfeScatter(body, trades); break;
+          case "score": this.renderScoreRadar(body, trades); break;
         }
       } catch (err) {
         console.error("[trading-journal] card failed:", item.id, err);
@@ -480,8 +484,32 @@ export class DashboardView extends ItemView {
     values.forEach((v, i) => {
       d += (i === 0 ? "M" : "L") + x(i).toFixed(1) + "," + y(v).toFixed(1) + " ";
     });
-    // area
-    svgPath(svg, d + `L${x(values.length - 1).toFixed(1)},${y(Math.min(0, min)).toFixed(1)} L${x(0).toFixed(1)},${y(Math.min(0, min)).toFixed(1)} Z`, "tj-chart-area");
+    // Gradient area: split above/below zero with soft translucent fills
+    const id = "tjgrad" + Math.random().toString(36).slice(2, 7);
+    let defs = svg.querySelector("defs");
+    if (!defs) {
+      defs = svg.createSvg("defs", {});
+      svg.prepend(defs);
+    }
+    const gradUp = defs.createSvg("linearGradient", { attr: { id: id + "up", x1: "0", y1: "0", x2: "0", y2: "1" } });
+    gradUp.createSvg("stop", { attr: { offset: "0%", "stop-color": "#10b981", "stop-opacity": "0.35" } });
+    gradUp.createSvg("stop", { attr: { offset: "100%", "stop-color": "#10b981", "stop-opacity": "0.02" } });
+    const gradDn = defs.createSvg("linearGradient", { attr: { id: id + "dn", x1: "0", y1: "0", x2: "0", y2: "1" } });
+    gradDn.createSvg("stop", { attr: { offset: "0%", "stop-color": "#ef4444", "stop-opacity": "0.02" } });
+    gradDn.createSvg("stop", { attr: { offset: "100%", "stop-color": "#ef4444", "stop-opacity": "0.35" } });
+    const clipUp = defs.createSvg("clipPath", { attr: { id: id + "clip" } }).createSvg("rect", { attr: { x: "0", y: "0", width: String(w), height: String(zy) } });
+    void clipUp;
+
+    const areaD = `${d} L${x(values.length - 1).toFixed(1)},${zy.toFixed(1)} L${x(0).toFixed(1)},${zy.toFixed(1)} Z`;
+    const areaTop = svgPath(svg, areaD, "tj-chart-area-grad");
+    areaTop.setAttribute("fill", `url(#${id}up)`);
+    areaTop.setAttribute("clip-path", `url(#${id}clip)`);
+    const areaBottom = svgPath(svg, areaD, "tj-chart-area-grad");
+    areaBottom.setAttribute("fill", `url(#${id}dn)`);
+    const clipDn = defs.createSvg("clipPath", { attr: { id: id + "clipdn" } }).createSvg("rect", { attr: { x: "0", y: String(zy), width: String(w), height: String(h - zy) } });
+    void clipDn;
+    areaBottom.setAttribute("clip-path", `url(#${id}clipdn)`);
+
     // line
     svgPath(svg, d, "tj-chart-line");
 
@@ -505,6 +533,170 @@ export class DashboardView extends ItemView {
       guide.style.display = "none";
       hide();
     });
+  }
+
+  renderMaeMfeScatter(body: HTMLElement, trades: Trade[]): void {
+    const data = trades.filter((t) => t.mae != null && t.mfe != null);
+    if (data.length === 0) {
+      body.createDiv({ cls: "tj-empty", text: "No MAE/MFE data yet — add MAE and MFE values to your trades." });
+      return;
+    }
+    const box = body.createDiv({ cls: "tj-chart-box" });
+    const svg = box.createSvg("svg", { cls: "tj-chart tj-scatter" });
+    const w = 600, h = 400, pad = 50;
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    const allX = data.map((t) => t.mae!);
+    const allY = data.map((t) => t.mfe!);
+    const xMin = Math.min(0, ...allX), xMax = Math.max(0, ...allX);
+    const yMin = Math.min(0, ...allY), yMax = Math.max(0, ...allY);
+    const xRange = (xMax - xMin) || 1;
+    const yRange = (yMax - yMin) || 1;
+    const sx = (v: number) => pad + ((v - xMin) / xRange) * (w - pad * 2);
+    const sy = (v: number) => h - pad - ((v - yMin) / yRange) * (h - pad * 2);
+
+    // Grid
+    const zeroX = sx(0), zeroY = sy(0);
+    svgLine(svg, zeroX, pad, zeroX, h - pad, "tj-chart-grid");
+    svgLine(svg, pad, zeroY, w - pad, zeroY, "tj-chart-grid");
+
+    // Axis labels
+    const xLabel = svg.createSvg("text", { cls: "tj-scatter-label" });
+    xLabel.setAttribute("x", String(w / 2));
+    xLabel.setAttribute("y", String(h - 8));
+    xLabel.setAttribute("text-anchor", "middle");
+    xLabel.textContent = "MAE ($)";
+    const yLabel = svg.createSvg("text", { cls: "tj-scatter-label" });
+    yLabel.setAttribute("x", String(12));
+    yLabel.setAttribute("y", String(h / 2));
+    yLabel.setAttribute("text-anchor", "middle");
+    yLabel.setAttribute("transform", `rotate(-90 12 ${h / 2})`);
+    yLabel.textContent = "MFE ($)";
+
+    // Scatter dots
+    const { show, hide } = attachTooltip(box);
+    for (const t of data) {
+      const cx = sx(t.mae!), cy = sy(t.mfe!);
+      const isWin = t.pnl >= 0;
+      const c = svgCircle(svg, cx, cy, 6, isWin ? "tj-scatter-dot pos" : "tj-scatter-dot neg");
+      c.style.cursor = "pointer";
+      c.addEventListener("mouseenter", (ev) => {
+        c.setAttribute("r", "9");
+        show(ev.clientX, ev.clientY, `${t.symbol} ${t.date}  •  MAE: ${fmtMoney2(t.mae!)}  •  MFE: ${fmtMoney2(t.mfe!)}`);
+      });
+      c.addEventListener("mouseleave", () => { c.setAttribute("r", "6"); hide(); });
+    }
+
+    // Diagonal reference line (MAE = MFE absolute symmetry)
+    const diagMin = Math.min(xMin, yMin), diagMax = Math.max(xMax, yMax);
+    svgLine(svg, sx(diagMin), sy(diagMin), sx(diagMax), sy(diagMax), "tj-scatter-ref");
+  }
+
+  renderScoreRadar(body: HTMLElement, trades: Trade[]): void {
+    if (trades.length === 0) {
+      body.createDiv({ cls: "tj-empty", text: "No trades to compute score." });
+      return;
+    }
+    const wins = trades.filter((t) => t.pnl > 0);
+    const losses = trades.filter((t) => t.pnl < 0);
+    const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 100 : 0;
+    const avgWin = wins.length ? grossWin / wins.length : 0;
+    const avgLoss = losses.length ? grossLoss / losses.length : 1;
+    const avgWLRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+    // Recovery factor
+    let cum = 0, peak = 0, maxDd = 0;
+    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+    for (const t of sorted) {
+      cum += t.pnl;
+      peak = Math.max(peak, cum);
+      maxDd = Math.max(maxDd, peak - cum);
+    }
+    const totalNet = cum;
+    const recoveryFactor = maxDd > 0 ? totalNet / maxDd : totalNet > 0 ? 100 : 0;
+    // Consistency: % of days with positive P&L
+    const byDay = new Map<string, number>();
+    for (const t of sorted) byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
+    const posDays = [...byDay.values()].filter((v) => v > 0).length;
+    const consistency = byDay.size > 0 ? (posDays / byDay.size) * 100 : 0;
+
+    const axes = [
+      { label: "Win %", value: clamp(winRate, 0, 100) },
+      { label: "Profit Factor", value: clamp((profitFactor / 3) * 100, 0, 100) },
+      { label: "Avg W/L", value: clamp((avgWLRatio / 3) * 100, 0, 100) },
+      { label: "Recovery", value: clamp((recoveryFactor / 5) * 100, 0, 100) },
+      { label: "Max Drawdown", value: clamp(100 - (maxDd / (totalNet || 1)) * 100, 0, 100) },
+      { label: "Consistency", value: clamp(consistency, 0, 100) },
+    ];
+
+    const n = axes.length;
+    const cx = 300, cy = 200, r = 150;
+    const box = body.createDiv({ cls: "tj-chart-box" });
+    const svg = box.createSvg("svg", { cls: "tj-chart tj-radar" });
+    svg.setAttribute("viewBox", "0 0 600 420");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
+    const pt = (i: number, dist: number) => ({
+      x: cx + Math.cos(angle(i)) * dist,
+      y: cy + Math.sin(angle(i)) * dist,
+    });
+
+    // Concentric rings (25%, 50%, 75%, 100%)
+    for (const pct of [0.25, 0.5, 0.75, 1]) {
+      let d = "";
+      for (let i = 0; i < n; i++) {
+        const p = pt(i, r * pct);
+        d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
+      }
+      svgPath(svg, d + "Z", "tj-radar-ring");
+    }
+
+    // Axis lines
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, r);
+      svgLine(svg, cx, cy, p.x, p.y, "tj-radar-axis");
+    }
+
+    // Axis labels
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, r + 24);
+      const lbl = svg.createSvg("text", { cls: "tj-radar-label" });
+      lbl.setAttribute("x", String(p.x));
+      lbl.setAttribute("y", String(p.y));
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.setAttribute("dominant-baseline", "central");
+      lbl.textContent = axes[i].label;
+    }
+
+    // Data polygon
+    let d = "";
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, (axes[i].value / 100) * r);
+      d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
+    }
+    svgPath(svg, d + "Z", "tj-radar-fill");
+
+    // Data dots
+    const { show, hide } = attachTooltip(box);
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, (axes[i].value / 100) * r);
+      const c = svgCircle(svg, p.x, p.y, 4, "tj-radar-dot");
+      c.addEventListener("mouseenter", (ev) => {
+        c.setAttribute("r", "6");
+        show(ev.clientX, ev.clientY, `${axes[i].label}: ${axes[i].value.toFixed(0)}%`);
+      });
+      c.addEventListener("mouseleave", () => { c.setAttribute("r", "4"); hide(); });
+    }
+
+    // Zella Score = average of all axis values
+    const zellaScore = axes.reduce((s, a) => s + a.value, 0) / n;
+    const scoreEl = body.createDiv({ cls: "tj-score-value" });
+    scoreEl.createSpan({ cls: "tj-score-num", text: zellaScore.toFixed(1) });
+    scoreEl.createSpan({ cls: "tj-score-suffix", text: "/100" });
   }
 
   renderSymbolTable(body: HTMLElement, trades: Trade[]): void {

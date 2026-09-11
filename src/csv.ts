@@ -270,6 +270,9 @@ function pairRoundTrips(executions: Execution[], accountRules: AccountRule[]): T
           thesis: "",
           review: "",
           screenshot: "",
+          rating: 0,
+          mae: undefined,
+          mfe: undefined,
         });
 
         realizedGross = 0;

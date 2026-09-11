@@ -19,6 +19,9 @@ export function tradeToMarkdown(t: Trade): string {
     `mistake: "${t.mistake ?? ""}"`,
     `review: "${t.review ?? ""}"`,
     `screenshot: "${t.screenshot ?? ""}"`,
+    `rating: ${t.rating ?? 0}`,
+    `mae: ${t.mae ?? ""}`,
+    `mfe: ${t.mfe ?? ""}`,
     "tags: []",
   ].join("\n");
 
@@ -119,6 +122,9 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     mistake: get("mistake"),
     review: get("review"),
     screenshot: get("screenshot"),
+    rating: parseInt(get("rating"), 10) || 0,
+    mae: get("mae") ? parseFloat(get("mae")) : undefined,
+    mfe: get("mfe") ? parseFloat(get("mfe")) : undefined,
   };
 }
 

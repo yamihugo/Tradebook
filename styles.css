@@ -226,6 +226,79 @@
 .tj-chart-line.neg {
   stroke: var(--text-error, #ef4444);
 }
+.tj-chart-area-grad {
+  fill: rgba(16, 185, 129, 0.2);
+}
+
+/* ---------------- Scatter & Radar ---------------- */
+.tj-chart-box {
+  position: relative;
+}
+.tj-scatter, .tj-radar {
+  width: 100%;
+  max-height: 400px;
+}
+.tj-scatter-dot {
+  stroke: #fff;
+  stroke-width: 1;
+  transition: r 0.1s ease;
+}
+.tj-scatter-dot.pos {
+  fill: rgba(16, 185, 129, 0.9);
+}
+.tj-scatter-dot.neg {
+  fill: rgba(239, 68, 68, 0.9);
+}
+.tj-scatter-ref {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.5;
+}
+.tj-scatter-label {
+  fill: var(--text-muted);
+  font-size: 12px;
+}
+.tj-radar-ring {
+  fill: none;
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.tj-radar-axis {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.tj-radar-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.tj-radar-fill {
+  fill: var(--interactive-accent, #7c5cff);
+  fill-opacity: 0.25;
+  stroke: var(--interactive-accent, #7c5cff);
+  stroke-width: 2;
+}
+.tj-radar-dot {
+  fill: var(--interactive-accent, #7c5cff);
+  stroke: #fff;
+  stroke-width: 1;
+}
+.tj-score-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.tj-score-num {
+  font-size: 2em;
+  font-weight: 800;
+  color: var(--text-normal);
+}
+.tj-score-suffix {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}
 
 /* ---------------- Tables ---------------- */
 .tj-tablewrap {
@@ -983,6 +1056,14 @@
   background: color-mix(in srgb, var(--text-error, #ef4444) 15%, var(--background-secondary-alt));
   border-color: color-mix(in srgb, var(--text-error, #ef4444) 40%, var(--background-modifier-border));
 }
+.tj-cal-cell.be {
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-secondary-alt));
+  border-color: color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+  border-style: dotted;
+}
+.tj-cal-pnl.tj-be {
+  color: var(--interactive-accent);
+}
 .tj-cal-cell.today {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 1px;
@@ -1674,6 +1755,12 @@
   flex: 1;
   margin-top: 10px;
 }
+.tj-day-log-summary {
+  margin-bottom: 4px;
+}
+.tj-day-log-summary .tj-kpi {
+  min-width: 120px;
+}
 .tj-clickable-cell { cursor: pointer; }
 .tj-clickable-cell:hover { background: var(--background-modifier-hover); }
 
@@ -1998,6 +2085,32 @@
   font-family: inherit;
   resize: vertical;
 }
+.tj-td-mic {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px 0 2px 0;
+  width: 28px;
+  height: 24px;
+  font-size: 13px;
+  line-height: 1;
+  background: var(--background-modifier-border);
+  border: 1px solid var(--background-modifier-border-hover);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+.tj-td-mic:hover { background: var(--background-modifier-border-hover); transform: scale(1.05); }
+.tj-td-mic.recording {
+  background: rgba(239, 68, 68, 0.18);
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  animation: tj-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tj-pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35); }
+}
 .tj-td-note {
   margin-top: 16px;
   padding: 10px 12px;
@@ -2070,6 +2183,45 @@
 /* Trade detail soft tones */
 .tj-td-stat.pos { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); }
 .tj-td-stat.neg { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.25); }
+
+/* Trade Rating stars + MAE/MFE editable fields */
+.tj-td-rating-row {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.tj-td-stars {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+}
+.tj-td-star {
+  background: transparent;
+  border: none;
+  font-size: 1.25em;
+  line-height: 1;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-faint);
+  transition: color 0.1s ease, transform 0.1s ease;
+}
+.tj-td-star:hover { transform: scale(1.2); }
+.tj-td-star.active { color: #f5b942; }
+.tj-td-star.active:hover { color: #ffd166; }
+.tj-td-num-input {
+  width: 100%;
+  font-size: 1.05em;
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 4px;
+  color: var(--text-normal);
+}
+.tj-td-num-input:hover, .tj-td-num-input:focus {
+  border-color: var(--background-modifier-border);
+  background: var(--background-primary);
+}
 
 /* ---------------- Native Obsidian-style App Shell ---------------- */
 /* No custom floating sidebar: the app now follows Obsidian's native navigation

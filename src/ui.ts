@@ -62,6 +62,20 @@ export function svgPath(svg: SVGSVGElement, d: string, cls?: string): SVGPathEle
   return path;
 }
 
+export function svgCircle(
+  svg: SVGSVGElement,
+  cx: number,
+  cy: number,
+  r: number,
+  cls?: string
+): SVGCircleElement {
+  const circle = svg.createSvg("circle", { cls });
+  circle.setAttribute("cx", String(cx));
+  circle.setAttribute("cy", String(cy));
+  circle.setAttribute("r", String(r));
+  return circle;
+}
+
 export function pathFromPoints(points: { x: number; y: number }[]): string {
   const n = points.length;
   if (n === 0) return "";

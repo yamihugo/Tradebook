@@ -43,6 +43,12 @@ export interface Trade {
   thesis: string;
   review: string;
   screenshot: string; // wikilink or empty
+  /** 1-5 star rating of execution/setup quality (0 = unrated). */
+  rating?: number;
+  /** Maximum Adverse Excursion — the worst unrealized loss (in dollars or points). */
+  mae?: number;
+  /** Maximum Favorable Excursion — the best unrealized profit (in dollars or points). */
+  mfe?: number;
 }
 
 export interface ParsedResult {

@@ -160,18 +160,19 @@ export class CalendarView extends ItemView {
       const col = i % 7;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const bucket = byDay.get(key);
+      const dayTone = inMonth && bucket ? (bucket.pnl > 0 ? " pos" : bucket.pnl < 0 ? " neg" : " be") : "";
       const cell = grid.createEl("div", {
-        cls: "tj-cal-cell tj-clickable-cell" + (col < 5 ? " td" : " we") + (inMonth ? (bucket ? (bucket.pnl >= 0 ? " pos" : " neg") : "") : " tj-cal-dim"),
+        cls: "tj-cal-cell tj-clickable-cell" + (col < 5 ? " td" : " we") + (inMonth ? dayTone : " tj-cal-dim"),
       });
       cell.addEventListener("click", () => {
-        // Open the Trade Log pre-filtered to this day, in the same central page.
-        void this.plugin.openTradeLogForDay(key);
+        // Small pop-up with the day summary + trades (TradeZella style).
+        this.openDayLog(key);
       });
       if (inMonth && ty === d.getFullYear() && tm === d.getMonth() && td === d.getDate()) cell.addClass("today");
       cell.createDiv({ cls: "tj-cal-num" + (bucket || !inMonth ? "" : " tj-cal-muted"), text: String(d.getDate()) });
       if (bucket) {
         const pnl = cell.createDiv({ cls: "tj-cal-pnl" });
-        pnl.addClass(bucket.pnl >= 0 ? "tj-pos" : "tj-neg");
+        pnl.addClass(bucket.pnl > 0 ? "tj-pos" : bucket.pnl < 0 ? "tj-neg" : "tj-be");
         pnl.textContent = `${bucket.pnl >= 0 ? "+" : ""}$${bucket.pnl.toFixed(0)}`;
         cell.createDiv({ cls: "tj-cal-trades", text: `${bucket.count} tr · ${Math.round((bucket.wins / bucket.count) * 100)}%` });
         cell.setAttr("title", `${key} — ${bucket.count} trades, ${bucket.wins} wins, ${bucket.pnl >= 0 ? "+" : ""}$${bucket.pnl.toFixed(2)}`);
@@ -217,6 +218,15 @@ export class CalendarView extends ItemView {
     head.createEl("h2", { text: `Trading Log — ${dateKey}` });
     const closeBtn = head.createEl("button", { text: "✕", cls: "tj-btn tj-mini" });
     closeBtn.addEventListener("click", () => overlay.remove());
+
+    // Day summary strip (TradeZella style): Net P&L, trades, win rate.
+    const dayNet = allTradesForDay.reduce((s, t) => s + t.pnl, 0);
+    const wins = allTradesForDay.filter((t) => t.pnl > 0).length;
+    const summary = modal.createDiv({ cls: "tj-kpis tj-day-log-summary" });
+    kpiCard(summary, "Net P&L", `${dayNet >= 0 ? "+" : ""}$${dayNet.toFixed(2)}`, dayNet > 0 ? "pos" : dayNet < 0 ? "neg" : "neutral");
+    kpiCard(summary, "Trades", `${allTradesForDay.length}`, "neutral");
+    kpiCard(summary, "Win Rate", allTradesForDay.length ? `${Math.round((wins / allTradesForDay.length) * 100)}%` : "—", "neutral");
+    kpiCard(summary, "Result", allTradesForDay.length === 0 ? "No trades" : dayNet > 0 ? "Winning day" : dayNet < 0 ? "Losing day" : "Break-even", dayNet > 0 ? "pos" : dayNet < 0 ? "neg" : "neutral");
 
     const filterBar = modal.createDiv({ cls: "tj-filterbar" });
     filterBar.createSpan({ text: "Filter:", cls: "tj-filter-label" });

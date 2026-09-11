@@ -107,6 +107,9 @@ function createDefaultManualTrade(): Trade {
     review: "",
     screenshot: "",
     thesis: "",
+    rating: 0,
+    mae: undefined,
+    mfe: undefined,
   };
 }
 
