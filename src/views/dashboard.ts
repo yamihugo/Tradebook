@@ -19,6 +19,8 @@ import {
   resizeItem as gridResize,
   ROW_PX,
 } from "../lib/grid";
+import { PerformanceCalendarWidget } from "../widgets/performanceCalendarWidget";
+import { openDayLogModal } from "./calendar";
 
 export const DASHBOARD_VIEW_TYPE = "trading-journal-dashboard-view";
 
@@ -27,6 +29,7 @@ export type DashItem = GridItem;
 export const CARD_TITLES: Record<string, string> = {
   kpi: "Key Stats",
   equity: "Cumulative P&L",
+  calendar: "Performance Calendar",
   symbols: "Symbol Breakdown",
   score: "Zella Score & Performance Radar",
   hourly: "Hourly Performance",
@@ -34,18 +37,19 @@ export const CARD_TITLES: Record<string, string> = {
 };
 
 // Default grid (12 columns), mirroring Journalit's proportions:
-// full-width KPI row + big cumulative P&L chart, then two half-width widgets.
+// full-width KPI row + big cumulative P&L chart + calendar, then half-width widgets.
 const DEFAULT_TILES: GridItem[] = [
   { i: "kpi", x: 0, y: 0, w: 12, h: 2 },
   { i: "equity", x: 0, y: 2, w: 12, h: 4 },
-  { i: "score", x: 0, y: 6, w: 6, h: 6 },
-  { i: "symbols", x: 6, y: 6, w: 6, h: 6 },
-  { i: "hourly", x: 0, y: 12, w: 6, h: 6 },
-  { i: "daily", x: 6, y: 12, w: 6, h: 6 },
+  { i: "calendar", x: 0, y: 6, w: 12, h: 6 },
+  { i: "score", x: 0, y: 12, w: 6, h: 6 },
+  { i: "symbols", x: 6, y: 12, w: 6, h: 6 },
+  { i: "hourly", x: 0, y: 18, w: 6, h: 6 },
+  { i: "daily", x: 6, y: 18, w: 6, h: 6 },
 ];
 
-const NEW_W: Record<string, number> = { kpi: 12, equity: 12, score: 6, symbols: 6, hourly: 6, daily: 6 };
-const NEW_H: Record<string, number> = { kpi: 2, equity: 4, score: 6, symbols: 6, hourly: 6, daily: 6 };
+const NEW_W: Record<string, number> = { kpi: 12, equity: 12, calendar: 12, score: 6, symbols: 6, hourly: 6, daily: 6 };
+const NEW_H: Record<string, number> = { kpi: 2, equity: 4, calendar: 6, score: 6, symbols: 6, hourly: 6, daily: 6 };
 
 // Used when the container width is unknown (e.g. jsdom harness).
 const DESIGN_W = 1200;
@@ -491,6 +495,12 @@ export class DashboardView extends ItemView {
           }
           case "symbols": this.renderSymbolTable(body, trades); break;
           case "score": this.renderScoreRadar(body, trades); break;
+          case "calendar":
+            new PerformanceCalendarWidget(body, trades, {
+              timeZone: this.plugin.settings.timeZone,
+              onDayClick: (dateKey) => openDayLogModal(this.plugin, this.trades, dateKey, this.plugin.settings.timeZone),
+            });
+            break;
           case "hourly": this.renderHourlyBody(body, trades); break;
           case "daily": this.renderDailyBody(body, trades); break;
         }
@@ -516,20 +526,37 @@ export class DashboardView extends ItemView {
     const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
     const grossLoss = Math.abs(trades.filter((t) => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
     const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
-    const avgWin = wins.length ? grossWin / wins.length : 0;
-    const losses = trades.filter((t) => t.pnl < 0);
-    const avgLoss = losses.length ? grossLoss / losses.length : 0;
     const avg = trades.length ? net / trades.length : 0;
-    const best = trades.length ? Math.max(...trades.map((t) => t.pnl)) : 0;
-    const worst = trades.length ? Math.min(...trades.map((t) => t.pnl)) : 0;
+
+    // Max drawdown (peak-to-trough) over the time-ordered equity curve
+    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+    let cum = 0, peak = 0, maxDd = 0;
+    for (const t of sorted) {
+      cum += t.pnl;
+      peak = Math.max(peak, cum);
+      maxDd = Math.max(maxDd, peak - cum);
+    }
+
+    // Daily Sharpe ratio (annualized, sqrt(252) daily sessions)
+    const byDay = new Map<string, number>();
+    for (const t of sorted) byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
+    const dailyReturns = [...byDay.values()];
+    const dMean = dailyReturns.length ? dailyReturns.reduce((s, v) => s + v, 0) / dailyReturns.length : 0;
+    const dVar = dailyReturns.length ? dailyReturns.reduce((s, v) => s + (v - dMean) ** 2, 0) / dailyReturns.length : 0;
+    const dSd = Math.sqrt(dVar);
+    const sharpe = dSd > 0 ? (dMean / dSd) * Math.sqrt(252) : 0;
+
+    let bestDay = 0;
+    for (const v of dailyReturns) bestDay = Math.max(bestDay, v);
+
     kpiCard(kpis, "Net P&L", fmtMoney2(net), net >= 0 ? "pos" : "neg", sub);
     kpiCard(kpis, "Win Rate", `${winRate.toFixed(1)}%`, "neutral");
     kpiCard(kpis, "Trades", `${trades.length}`, "neutral");
+    kpiCard(kpis, "Max Drawdown", `-$${maxDd.toFixed(2)}`, maxDd > 0 ? "neg" : "neutral");
     kpiCard(kpis, "Profit Factor", `${profitFactor === Infinity ? "∞" : profitFactor.toFixed(2)}`, profitFactor >= 1 ? "pos" : "neg");
+    kpiCard(kpis, "Sharpe", sharpe === 0 ? "0.00" : sharpe > 0 ? sharpe.toFixed(2) : `-${Math.abs(sharpe).toFixed(2)}`, sharpe >= 0 ? "pos" : "neg");
     kpiCard(kpis, "Expectancy", fmtMoney2(avg), avg >= 0 ? "pos" : "neg");
-    kpiCard(kpis, "Avg Win", fmtMoney2(avgWin), avgWin > 0 ? "pos" : "neg");
-    kpiCard(kpis, "Avg Loss", `-$${avgLoss.toFixed(2)}`, avgLoss > 0 ? "neg" : "neutral");
-    kpiCard(kpis, "Best / Worst", `${best >= 0 ? "+$" : "-$${Math.abs(best).toFixed(0)}"} / ${worst <= 0 ? "-$" : "+$"}${Math.abs(worst).toFixed(0)}`, "neutral");
+    kpiCard(kpis, "Best Day", bestDay >= 0 ? `$${bestDay.toFixed(2)}` : "—", bestDay >= 0 ? "pos" : "neg");
   }
 
   renderNeedsReviewBody(body: HTMLElement, trades: Trade[]): void {
