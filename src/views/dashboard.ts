@@ -18,7 +18,7 @@ export const CARD_TITLES: Record<string, string> = {
   daily: "Day Performance",
 };
 
-const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "recent", "needsreview", "daily", "hourly"];
+const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "needsreview", "daily", "hourly"];
 const WIDE_CARDS = ["kpi", "equity", "recent", "hourly", "daily", "needsreview"];
 
 function defaultLayout(): { id: string; size: number }[] {
@@ -79,11 +79,11 @@ export class DashboardView extends ItemView {
       if (acc) list = list.filter((t) => this.accountMatches(t, acc));
     } else if (this.filter !== "all") {
       if (this.filter === "live") {
-        // Live = trades whose mapped account is marked live, or a direct name match.
-        const liveNames = new Set(this.plugin.settings.propAccounts.filter((a) => a.scope === "live" || a.live).map((a) => a.name.trim().toLowerCase()));
+        // Live = trades whose mapped account is marked live/personal, or a direct name match.
+        const liveNames = new Set(this.plugin.settings.propAccounts.filter((a) => a.type === "live" || a.type === "personal").map((a) => a.name.trim().toLowerCase()));
         list = list.filter((t) => {
           const mapped = this.plugin.mappedAccount(t.account);
-          if (mapped) return mapped.scope === "live" || mapped.live === true;
+          if (mapped) return mapped.type === "live" || mapped.type === "personal";
           return liveNames.has((t.account || "").trim().toLowerCase());
         });
       } else {
@@ -239,8 +239,6 @@ export class DashboardView extends ItemView {
     const titleSub = title.createDiv({ cls: "tj-dash-sub" });
     titleSub.createSpan({ cls: "tj-version-badge", text: `v${this.plugin.manifest.version}` });
     const actions = title.createDiv({ cls: "tj-dash-actions" });
-    actions.createEl("button", { text: "+ Add Trade", cls: "mod-cta tj-add-trade" }).addEventListener("click", () => this.plugin.openAddPanel());
-    actions.createEl("button", { text: "Import CSV", cls: "tj-btn tj-add-trade", attr: { title: "Open the Tradeovate CSV importer" } }).addEventListener("click", () => this.plugin.activateView("trading-journal-import-view"));
     actions.createEl("button", { text: this.editMode ? "Done" : "Edit", cls: this.editMode ? "mod-cta" : "tj-btn" }).addEventListener("click", () => {
       this.editMode = !this.editMode;
       this.render();
@@ -371,19 +369,18 @@ export class DashboardView extends ItemView {
     if (!this.accountId) allOpt.setAttr("selected", "selected");
 
     const accounts = this.plugin.settings.propAccounts;
-    const byFirm = new Map<string, { acc: (typeof accounts)[number]; scope: string; label: string; order: number }[]>();
+    const byFirm = new Map<string, { acc: (typeof accounts)[number]; type: string; label: string; order: number }[]>();
     for (const acc of accounts) {
-      if (acc.scope === "all") continue;
       const firm = getFirm(acc.firmId);
       const program = getProgram(firm, acc.programId);
       const size = effectiveSize(getSize(program, acc.size), acc.rules);
       const firmLabel = firm?.name ?? "Other";
       const sizeLabel = size ? `$${(acc.size / 1000).toFixed(0)}K` : "";
-      const scopeTag = acc.scope === "eval" ? "Eval" : acc.scope === "funded" ? "Funded" : acc.scope === "live" ? "Live" : acc.scope === "demo" ? "Demo" : "Other";
-      const label = acc.name.length > 0 && acc.name !== "Custom Account" ? acc.name : `${firmLabel} ${sizeLabel} ${scopeTag}`.trim();
-      const order = acc.scope === "funded" ? 0 : acc.scope === "live" ? 1 : acc.scope === "eval" ? 2 : 3;
+      const typeTag = acc.type === "eval" ? "Eval" : acc.type === "funded" ? "Funded" : acc.type === "live" ? "Live" : acc.type === "personal" ? "Personal" : acc.type === "demo" ? "Demo" : "Other";
+      const label = acc.name.length > 0 && acc.name !== "Custom Account" ? acc.name : `${firmLabel} ${sizeLabel} ${typeTag}`.trim();
+      const order = acc.type === "funded" ? 0 : acc.type === "live" ? 1 : acc.type === "personal" ? 2 : acc.type === "eval" ? 3 : 4;
       if (!byFirm.has(firmLabel)) byFirm.set(firmLabel, []);
-      byFirm.get(firmLabel)!.push({ acc, scope: acc.scope, label, order });
+      byFirm.get(firmLabel)!.push({ acc, type: acc.type, label, order });
     }
     for (const [firmLabel, list] of [...byFirm.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const group = accSel.createEl("optgroup", { attr: { label: firmLabel } });

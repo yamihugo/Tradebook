@@ -1,4 +1,4 @@
-import { PropAccount } from "./types";
+import { AccountType, PropAccount } from "./types";
 
 export interface PropSize {
   size: number;
@@ -47,6 +47,16 @@ export const PROP_FIRMS: PropFirm[] = [
           { size: 50000, price: "No monthly fee", target: 0, maxLoss: 2000, dailyLoss: 0, consistency: 0, posSize: "5 mini / 50 micro", note: "Payout: 5× $150+ winning days, or 40% consistency path" },
           { size: 100000, price: "No monthly fee", target: 0, maxLoss: 3000, dailyLoss: 0, consistency: 0, posSize: "10 mini / 100 micro", note: "Payout: 5× $150+ winning days, or 40% consistency path" },
           { size: 150000, price: "No monthly fee", target: 0, maxLoss: 4500, dailyLoss: 0, consistency: 0, posSize: "15 mini / 150 micro", note: "Payout: 5× $150+ winning days, or 40% consistency path" },
+        ],
+      },
+      {
+        id: "lfa",
+        label: "Live Funded Account (LFA)",
+        tagline: "TopStep real live CME capital: 20% initial starting balance available to trade, 80% reserve unlocked via profit milestones ($3K/$6K/$9K), Daily Loss Limit $2K/$3K/$4.5K, balance floor at $0.",
+        sizes: [
+          { size: 50000, price: "Live capital", target: 3000, maxLoss: 50000, dailyLoss: 2000, consistency: 0, posSize: "5 mini / 50 micro", note: "20% initial balance to trade ($10K), balance floor $0" },
+          { size: 100000, price: "Live capital", target: 6000, maxLoss: 100000, dailyLoss: 3000, consistency: 0, posSize: "10 mini / 100 micro", note: "20% initial balance to trade ($20K), balance floor $0" },
+          { size: 150000, price: "Live capital", target: 9000, maxLoss: 150000, dailyLoss: 4500, consistency: 0, posSize: "15 mini / 150 micro", note: "20% initial balance to trade ($30K), balance floor $0" },
         ],
       },
     ],
@@ -121,6 +131,17 @@ export const PROP_FIRMS: PropFirm[] = [
           { size: 150000, price: "One-time", target: 0, maxLoss: 5250, dailyLoss: 3000, consistency: 20, posSize: "12 mini / 120 micro" },
         ],
       },
+      {
+        id: "elite-live",
+        label: "Tradeify Elite Live",
+        tagline: "Tradeify real live CME capital after 3+ payouts: $0 starting balance (all funds are profit), 80/20 profit split, fixed EOD drawdown ($2K), daily payouts, no daily loss limit.",
+        sizes: [
+          { size: 25000, price: "Live CME", target: 0, maxLoss: 1000, dailyLoss: 0, consistency: 0, posSize: "1 mini / 10 micro", note: "Starts at $0 balance, 80/20 split, daily payouts" },
+          { size: 50000, price: "Live CME", target: 0, maxLoss: 2000, dailyLoss: 0, consistency: 0, posSize: "4 mini / 40 micro", note: "Starts at $0 balance, 80/20 split, daily payouts" },
+          { size: 100000, price: "Live CME", target: 0, maxLoss: 3000, dailyLoss: 0, consistency: 0, posSize: "8 mini / 80 micro", note: "Starts at $0 balance, 80/20 split, daily payouts" },
+          { size: 150000, price: "Live CME", target: 0, maxLoss: 3500, dailyLoss: 0, consistency: 0, posSize: "12 mini / 120 micro", note: "Starts at $0 balance, 80/20 split, daily payouts" },
+        ],
+      },
     ],
   },
   {
@@ -168,16 +189,15 @@ export function effectiveSize(
   };
 }
 
-export function makeAccount(firm: PropFirm, program: PropProgram, size: number, customName?: string, isLive?: boolean): PropAccount {
+export function makeAccount(firm: PropFirm, program: PropProgram, size: number, customName?: string, accountType: AccountType = "eval"): PropAccount {
   const defaultName = `${firm.name} · ${program.label} · $${(size / 1000).toFixed(0)}K`;
-  const scope = isLive ? "live" : (program.id.includes("funded") ? "funded" : "eval");
+  const type: AccountType = accountType || (program.id.includes("funded") || program.id === "lfa" || program.id === "elite-live" ? "funded" : "eval");
   return {
     id: "pa_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: customName && customName.trim() ? customName.trim() : defaultName,
     firmId: firm.id,
     programId: program.id,
     size,
-    scope,
-    live: isLive || scope === "live",
+    type,
   };
 }

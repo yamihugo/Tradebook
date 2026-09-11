@@ -1,7 +1,7 @@
 {
   "id": "trading-journal",
   "name": "Trading Journal",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "minAppVersion": "1.4.0",
   "description": "Trading journal for Tradovate futures (NQ/ES). Import Tradovate CSV, auto-split demo/evals/fundeds, and review on a journalit-style dashboard.",
   "author": "YamiHugo",

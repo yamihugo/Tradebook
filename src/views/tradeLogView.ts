@@ -184,7 +184,6 @@ export class TradeLogView extends ItemView {
     const accOpt = accSel.createEl("option", { value: "", text: "All accounts" });
     if (!this.accountFilter) accOpt.setAttr("selected", "selected");
     for (const acc of this.plugin.settings.propAccounts) {
-      if (acc.scope === "all") continue;
       const opt = accSel.createEl("option", { value: acc.id, text: acc.name });
       if (this.accountFilter === acc.id) opt.setAttr("selected", "selected");
     }

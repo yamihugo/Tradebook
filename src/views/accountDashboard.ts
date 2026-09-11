@@ -59,7 +59,7 @@ export class AccountDashboardView extends ItemView {
   }
 
   /** Dropdown to switch between configured accounts. */
-  accountPicker(parent: HTMLElement, acc: { id: string; name: string; size: number; scope: string }): void {
+  accountPicker(parent: HTMLElement, acc: { id: string; name: string; size: number; type: string }): void {
     const accounts = this.plugin.settings.propAccounts || [];
     const sel = parent.createEl("select", { cls: "dropdown tj-account-picker" });
     sel.setAttr("aria-label", "Switch account");
@@ -70,8 +70,6 @@ export class AccountDashboardView extends ItemView {
     sel.value = acc.id;
     sel.addEventListener("change", () => {
       this.accountId = sel.value;
-      this.plugin.settings.primaryAccountId = this.accountId ?? "";
-      void this.plugin.saveSettings();
       this.render();
     });
   }
@@ -82,7 +80,6 @@ export class AccountDashboardView extends ItemView {
     return this.trades
       .filter((t) => {
         if (!isFiniteNumber(t.pnl) || !t.date) return false;
-        if (acc.scope === "all") return true;
         const mapped = this.plugin.mappedAccount(t.account);
         return mapped ? mapped.id === acc.id : (t.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase();
       })
@@ -161,7 +158,7 @@ export class AccountDashboardView extends ItemView {
     title.createEl("h1", { text: acc.name });
     title.createEl("p", {
       cls: "tj-account-meta tj-account-meta-big",
-      text: `${firm.name} · ${program.label} · $${(acc.size / 1000).toFixed(0)}K  —  tracks: ${acc.scope === "all" ? "all journal trades" : acc.scope + " trades"}`,
+      text: `${firm.name} · ${program.label} · $${(acc.size / 1000).toFixed(0)}K  —  type: ${acc.type}`,
     });
 
     const scoped = this.scoped();
@@ -199,7 +196,7 @@ export class AccountDashboardView extends ItemView {
     const targetReached = size.target > 0 ? net >= size.target : false;
     const targetPct = size.target > 0 ? Math.min(100, (net / size.target) * 100) : 0;
 
-if (acc.scope === "eval" && targetReached && !this.plugin.isCelebrationDismissed(acc.id)) {
+    if (acc.type === "eval" && targetReached && !this.plugin.isCelebrationDismissed(acc.id)) {
       void this.showEvalPassedModal(acc, size, net);
     }
 
@@ -261,7 +258,7 @@ if (acc.scope === "eval" && targetReached && !this.plugin.isCelebrationDismissed
     // Fase 5: breakdown por dia da semana
     this.renderWeekdayBreakdown(main, scoped);
     // Fase 7: payouts — only for funded / live accounts
-    if (acc.scope === "funded" || acc.scope === "live" || acc.live) this.renderPayoutTracker(main, acc);
+    if (acc.type === "funded" || acc.type === "live" || acc.type === "personal") this.renderPayoutTracker(main, acc);
   }
 
   showEvalPassedModal(acc: any, size: any, net: number): void {

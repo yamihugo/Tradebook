@@ -189,21 +189,6 @@ export class SettingsTab extends PluginSettingTab {
   renderAccountConfig(containerEl: HTMLElement): void {
     const plugin = this.plugin;
 
-    // Primary account selector
-    new Setting(containerEl)
-      .setName("Primary account")
-      .setDesc("The account shown by default when you open the Accounts tab or choose a linked account.")
-      .addDropdown((dd) => {
-        const accounts = plugin.settings.propAccounts || [];
-        if (accounts.length === 0) dd.addOption("", "No accounts yet");
-        for (const acc of accounts) dd.addOption(acc.id, `${acc.name || acc.id} · $${(acc.size / 1000).toFixed(0)}K`);
-        dd.setValue(plugin.settings.primaryAccountId || accounts[0]?.id || "").onChange(async (v) => {
-          plugin.settings.primaryAccountId = v;
-          await plugin.saveSettings();
-          await plugin.reloadAllViews();
-        });
-      });
-
     // Add account form
     const form = containerEl.createEl("div", { cls: "tj-account-card tj-account-form" });
     form.createEl("h4", { text: "Add account" });
@@ -212,9 +197,15 @@ export class SettingsTab extends PluginSettingTab {
     const programSel = form.createEl("select", { cls: "dropdown" });
     const sizeSel = form.createEl("select", { cls: "dropdown" });
     const nameInput = form.createEl("input", { attr: { type: "text", placeholder: "Name (optional)" } });
-    const liveBox = form.createEl("label", { cls: "tj-check" });
-    liveBox.createEl("input", { type: "checkbox" });
-    liveBox.createSpan({ text: " Live account (personal brokerage — payout tracking, no prop rules)" });
+    const typeSel = form.createEl("select", { cls: "dropdown" });
+    const TYPE_LABELS: [string, string][] = [
+      ["eval", "Eval"],
+      ["funded", "Funded"],
+      ["live", "Live (prop firm)"],
+      ["personal", "Personal (own money)"],
+      ["demo", "Demo"],
+    ];
+    for (const [id, label] of TYPE_LABELS) typeSel.createEl("option", { value: id, text: label });
 
     const fillPrograms = () => {
       const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
@@ -235,11 +226,9 @@ export class SettingsTab extends PluginSettingTab {
       const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
       const program = getProgram(firm, programSel.value) ?? firm.programs[0];
       const size = parseInt(sizeSel.value, 10) || program.sizes[0].size;
-      const isLive = liveBox.querySelector("input")?.checked ?? false;
-      const acc = makeAccount(firm, program, size, nameInput.value, isLive);
-      if (isLive) acc.scope = "live";
+      const accType = (typeSel.value as any) || "eval";
+      const acc = makeAccount(firm, program, size, nameInput.value, accType);
       plugin.settings.propAccounts.push(acc);
-      if (!plugin.settings.primaryAccountId) plugin.settings.primaryAccountId = acc.id;
       await plugin.saveSettings();
       nameInput.value = "";
       this.display();
@@ -262,9 +251,8 @@ export class SettingsTab extends PluginSettingTab {
         head.createEl("div", { cls: "tj-account-name", text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
         const meta = head.createEl("div", { cls: "tj-account-meta" });
         meta.createEl("span", { text: `${firm.name} — ${program.label} — ${size.posSize}` });
-        const scopeChip = meta.createEl("span", { cls: `tj-acct-chip ${acc.scope}` });
-        scopeChip.textContent = SCOPE_OPTIONS.find((s) => s.id === acc.scope)?.label ?? acc.scope;
-        if (acc.live) meta.createEl("span", { cls: "tj-acct-chip live", text: "Live" });
+        const typeChip = meta.createEl("span", { cls: `tj-acct-chip ${acc.type}` });
+        typeChip.textContent = acc.type;
         const kpis = card.createEl("div", { cls: "tj-kpis" });
         kpiCard(kpis, "Profit Target", size.target ? `$${size.target.toLocaleString()}` : "None", size.target ? "pos" : "neutral");
         kpiCard(kpis, "Max Loss (trail)", size.maxLoss ? `$${size.maxLoss.toLocaleString()}` : "None", size.maxLoss ? "neg" : "neutral");
@@ -278,28 +266,28 @@ export class SettingsTab extends PluginSettingTab {
           this.editingRulesFor = this.editingRulesFor === acc.id ? null : acc.id;
           this.display();
         });
-        const scopeEdit = actions.createEl("select", { cls: "dropdown", attr: { title: "Change scope…" } });
-        for (const s of SCOPE_OPTIONS) {
-          const opt = scopeEdit.createEl("option", { value: s.id, text: `Scope: ${s.label}` });
-          if (s.id === acc.scope) opt.setAttr("selected", "selected");
+        const typeEdit = actions.createEl("select", { cls: "dropdown", attr: { title: "Change account type…" } });
+        const TYPE_LABELS: [string, string][] = [
+          ["eval", "Eval"],
+          ["funded", "Funded"],
+          ["live", "Live"],
+          ["personal", "Personal"],
+          ["demo", "Demo"],
+          ["unknown", "Other"],
+        ];
+        for (const [id, label] of TYPE_LABELS) {
+          const opt = typeEdit.createEl("option", { value: id, text: label });
+          if (id === acc.type) opt.setAttr("selected", "selected");
         }
-        scopeEdit.value = acc.scope;
-        scopeEdit.addEventListener("change", async () => {
-          acc.scope = scopeEdit.value as any;
-          await plugin.saveSettings();
-          await plugin.reloadAllViews();
-          this.display();
-        });
-        actions.createEl("button", { text: acc.live ? "● Live" : "○ Not live", cls: "tj-btn tj-mini" + (acc.live ? " tj-live-btn" : ""), attr: { title: "Toggle live/personal account (payout tracking)" } }).addEventListener("click", async () => {
-          acc.live = !acc.live;
-          if (acc.live) acc.scope = "funded";
+        typeEdit.value = acc.type;
+        typeEdit.addEventListener("change", async () => {
+          acc.type = typeEdit.value as any;
           await plugin.saveSettings();
           await plugin.reloadAllViews();
           this.display();
         });
         actions.createEl("button", { text: "Remove", cls: "tj-mini tj-del" }).addEventListener("click", async () => {
           plugin.settings.propAccounts = plugin.settings.propAccounts.filter((a) => a.id !== acc.id);
-          if (plugin.settings.primaryAccountId === acc.id) plugin.settings.primaryAccountId = "";
           // Clean orphan mappings so no bound account points to a removed account.
           for (const [name, id] of Object.entries(plugin.settings.accountMappings || {})) {
             if (id === acc.id) delete plugin.settings.accountMappings[name];
@@ -495,12 +483,12 @@ export class SettingsTab extends PluginSettingTab {
       const row = box.createEl("div", { cls: "tj-map-row" });
       const nameBox = row.createDiv({ cls: "tj-map-name" });
       nameBox.createDiv({ cls: "tj-map-acc", text: name });
-      const chip = nameBox.createDiv({ cls: mapped ? `tj-acct-chip ${mapped.scope}` : "tj-acct-chip unknown" });
+      const chip = nameBox.createDiv({ cls: mapped ? `tj-acct-chip ${mapped.type}` : "tj-acct-chip unknown" });
       chip.textContent = mapped ? `Bound to ${mapped.name}` : `Rules say: ${this.plugin.resolveAccountType(name)}`;
       const sel = row.createEl("select", { cls: "dropdown", attr: { title: "Bind this account…" } });
       sel.createEl("option", { value: "", text: "Auto (by rules)" });
       for (const acc of this.plugin.settings.propAccounts) {
-        const opt = sel.createEl("option", { value: acc.id, text: `${acc.name} · ${acc.scope}` });
+        const opt = sel.createEl("option", { value: acc.id, text: `${acc.name} · ${acc.type}` });
         if (mapped?.id === acc.id) opt.setAttr("selected", "selected");
       }
       if (mapped) sel.value = mapped.id;

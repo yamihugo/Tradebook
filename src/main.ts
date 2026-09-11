@@ -1,7 +1,7 @@
 import { App, Notice, Plugin, PluginManifest, TFile, normalizePath } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount } from "./futures";
 import { PropAccount, AccountGroup, Trade, Payout } from "./types";
-import { saveTrade, parseTradeFromMarkdown } from "./storage";
+import { saveTrade, parseTradeFromMarkdown, deleteTradeFile } from "./storage";
 import { SettingsTab } from "./settings";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./views/dashboard";
 import { CalendarView, CALENDAR_VIEW_TYPE } from "./views/calendar";
@@ -25,7 +25,6 @@ export interface TradingJournalSettings {
   archivedAccounts: PropAccount[];
   payouts: Payout[];
   accountMappings: Record<string, string>;
-  primaryAccountId: string;
   recentLimit: number;
 }
 
@@ -41,7 +40,6 @@ const DEFAULT_SETTINGS: TradingJournalSettings = {
   archivedAccounts: [],
   payouts: [],
   accountMappings: {},
-  primaryAccountId: "",
   recentLimit: 20,
 };
 
@@ -255,12 +253,10 @@ export default class TradingJournalPlugin extends Plugin {
     return this.settings.propAccounts.find((a) => a.id === id) ?? null;
   }
 
-  /** The account used as the "primary / linked" account (first configured, or explicitly chosen). */
+  /** The first configured account. */
   getPrimaryAccount(): PropAccount | undefined {
     const accounts = this.settings.propAccounts || [];
-    if (accounts.length === 0) return undefined;
-    const explicit = accounts.find((a) => a.id === this.settings.primaryAccountId);
-    return explicit ?? accounts[0];
+    return accounts.length > 0 ? accounts[0] : undefined;
   }
 
   /** Load all trade notes from the configured folder into Trade objects. */
@@ -327,7 +323,7 @@ export default class TradingJournalPlugin extends Plugin {
           ...t,
           id: "",
           account: acc.name,
-          accountType: acc.scope === "all" ? t.accountType : acc.scope,
+          accountType: acc.type,
         };
         out.push(copy);
       }
@@ -378,6 +374,17 @@ export default class TradingJournalPlugin extends Plugin {
     await this.reloadAllViews();
   }
 
+  async deleteTrade(tradeId: string): Promise<boolean> {
+    const success = await deleteTradeFile(this.app, tradeId);
+    if (success) {
+      new Notice("Trade note deleted.");
+      await this.reloadAllViews();
+    } else {
+      new Notice("Could not delete trade note.");
+    }
+    return success;
+  }
+
   async upgradeAccountToFunded(evalAccountId: string, action: "archive" | "delete" | "keep"): Promise<string> {
     const evalAcc = this.settings.propAccounts.find((a) => a.id === evalAccountId);
     if (!evalAcc) return "";
@@ -385,7 +392,6 @@ export default class TradingJournalPlugin extends Plugin {
     if (evalAcc.linkedFundedId) {
       const existing = this.settings.propAccounts.find((a) => a.id === evalAcc.linkedFundedId);
       if (existing) {
-        this.settings.primaryAccountId = existing.id;
         if (action === "archive") {
           this.settings.archivedAccounts = this.settings.archivedAccounts || [];
           if (!this.settings.archivedAccounts.some((a) => a.id === evalAcc.id)) {
@@ -403,13 +409,13 @@ export default class TradingJournalPlugin extends Plugin {
     const fundedName = evalAcc.name.replace(/eval|evaluation/gi, "").trim() + " Funded";
     // Bidirectional link: eval remembers its funded counterpart, funded remembers its origin eval.
     evalAcc.linkedFundedId = newId;
-    const fundedAcc = {
+    const fundedAcc: PropAccount = {
       id: newId,
       name: fundedName || "Funded Account",
       firmId: evalAcc.firmId,
       programId: evalAcc.programId,
       size: evalAcc.size,
-      scope: "funded" as const,
+      type: "funded",
       linkedEvalId: evalAcc.id,
     };
     if (action === "archive") {
@@ -420,7 +426,6 @@ export default class TradingJournalPlugin extends Plugin {
       this.settings.propAccounts = this.settings.propAccounts.filter((a) => a.id !== evalAccountId);
     }
     this.settings.propAccounts.push(fundedAcc);
-    this.settings.primaryAccountId = newId;
     await this.saveSettings();
     await this.reloadAllViews();
     return newId;
@@ -428,12 +433,18 @@ export default class TradingJournalPlugin extends Plugin {
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    for (const acc of this.settings.propAccounts || []) {
-      if (acc.live && acc.scope === "funded") acc.scope = "live";
-    }
-    for (const acc of this.settings.archivedAccounts || []) {
-      if (acc.live && acc.scope === "funded") acc.scope = "live";
-    }
+    const migrateAcc = (acc: any) => {
+      if (!acc.type) {
+        if (acc.live) acc.type = "personal";
+        else if (acc.scope && acc.scope !== "all") acc.type = acc.scope;
+        else acc.type = "eval";
+      }
+      delete acc.scope;
+      delete acc.live;
+    };
+    for (const acc of this.settings.propAccounts || []) migrateAcc(acc);
+    for (const acc of this.settings.archivedAccounts || []) migrateAcc(acc);
+    delete (this.settings as any).primaryAccountId;
   }
 
   async saveSettings() {

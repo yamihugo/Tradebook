@@ -160,7 +160,7 @@ export function renderAppShell(
   root.addClass("tj-app");
 
   const NAV_ITEMS: { id: string; label: string; fn: () => void }[] = [
-    { id: "dashboard", label: "Dashboard", fn: () => plugin.openDashboard() },
+    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard() },
     { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar() },
     { id: "tradelog", label: "Trade Log", fn: () => plugin.openTradeLog() },
     { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts() },
@@ -168,17 +168,18 @@ export function renderAppShell(
   const LEFT_EXTRA = opts.extraNav ? [...opts.extraNav] : [];
   const leftItems = [...NAV_ITEMS, ...LEFT_EXTRA.map((e) => ({ id: e.id, label: e.label, fn: e.fn }))];
 
-  // ---- Slim header: TJ brand (menu) + Centered Tabs (Dashboard, Calendar, Accounts) ----
+  // ---- Slim header: TJ brand (menu) + Centered Tabs (Home, Calendar, Accounts) ----
   const header = root.createDiv({ cls: "tj-app-header" });
   const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Menu (TJ)" } });
   brand.createSpan({ text: "TJ" });
-  brand.addEventListener("click", () => {
+  brand.addEventListener("click", (e) => {
+    e.stopPropagation();
     nav.classList.toggle("open");
   });
 
   const centerTrack = header.createDiv({ cls: "tj-app-header-track" });
   const TOP_TABS = [
-    { id: "dashboard", label: "Dashboard", fn: () => plugin.openDashboard() },
+    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard() },
     { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar() },
     { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts() },
   ];
@@ -217,11 +218,28 @@ export function renderAppShell(
     nav.classList.remove("open");
   });
 
-  const closeBtn = nav.createEl("button", { cls: "tj-app-nav-item tj-app-nav-close", attr: { type: "button", title: "Close" } });
-  closeBtn.createSpan({ cls: "tj-app-nav-label", text: "Close" });
-  closeBtn.addEventListener("click", () => {
-    nav.classList.remove("open");
-  });
+  const docClick = (e: MouseEvent) => {
+    if (!nav.contains(e.target as Node) && !brand.contains(e.target as Node)) {
+      nav.classList.remove("open");
+    }
+  };
+  const docKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") nav.classList.remove("open");
+  };
+  document.addEventListener("click", docClick);
+  document.addEventListener("keydown", docKey);
+  // Clean up listeners when root is unloaded/emptied
+  const win = window as any;
+  if (win.MutationObserver) {
+    const observer = new win.MutationObserver(() => {
+      if (!document.body.contains(root)) {
+        document.removeEventListener("click", docClick);
+        document.removeEventListener("keydown", docKey);
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
 
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;

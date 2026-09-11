@@ -141,3 +141,12 @@ export async function updateTradeFields(app: App, file: TFile, fields: Record<st
     return out;
   });
 }
+
+export async function deleteTradeFile(app: App, fileId: string): Promise<boolean> {
+  const file = app.vault.getAbstractFileByPath(fileId);
+  if (file instanceof TFile) {
+    await app.vault.trash(file, true);
+    return true;
+  }
+  return false;
+}

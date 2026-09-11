@@ -57,10 +57,10 @@ export class AccountsListView extends ItemView {
       });
     } else {
       // Group by firm (non-live) and a separate "Live" group for live accounts.
-      const liveAccs = accounts.filter((a) => a.live || a.scope === "live");
+      const liveAccs = accounts.filter((a) => a.type === "live" || a.type === "personal");
       const firmMap = new Map<string, { firm: any; accs: PropAccount[] }>();
       for (const acc of accounts) {
-        if (acc.live || acc.scope === "live") continue;
+        if (acc.type === "live" || acc.type === "personal") continue;
         const firm = getFirm(acc.firmId);
         if (!firm) continue;
         if (!firmMap.has(firm.id)) firmMap.set(firm.id, { firm, accs: [] });
@@ -79,15 +79,14 @@ export class AccountsListView extends ItemView {
         head.createEl("div", { cls: "tj-account-name", text: acc.name });
         const meta = head.createEl("div", { cls: "tj-account-meta" });
         meta.createEl("span", { text: `${program.label} · $${(acc.size / 1000).toFixed(0)}K` });
-        meta.createEl("span", { cls: `tj-acct-chip ${acc.scope}` });
-        const scopeLabel = SCOPE_OPTIONS.find((s) => s.id === acc.scope)?.label ?? acc.scope;
-        meta.querySelector(".tj-acct-chip")!.textContent = scopeLabel;
-        if (acc.live) meta.createEl("span", { cls: "tj-acct-chip live", text: "Live" });
+        const chip = meta.createEl("span", { cls: `tj-acct-chip ${acc.type}` });
+        const TYPE_LABELS: Record<string, string> = { eval: "Eval", funded: "Funded", live: "Live", personal: "Personal", demo: "Demo", unknown: "Other" };
+        chip.textContent = TYPE_LABELS[acc.type] ?? acc.type;
 
         const kpis = card.createDiv({ cls: "tj-account-kpis" });
         kpiCard(kpis, "Target", s.target ? `$${(s.target / 1000).toFixed(0)}K` : "—", s.target ? "pos" : "neutral");
         kpiCard(kpis, "Max Loss", s.maxLoss ? `$${(s.maxLoss / 1000).toFixed(0)}K` : "—", s.maxLoss ? "neg" : "neutral");
-        if (acc.scope === "funded" || acc.scope === "live" || acc.live) {
+        if (acc.type === "funded" || acc.type === "live" || acc.type === "personal") {
           const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
           kpiCard(kpis, "Withdrawn", withdrawn ? `$${withdrawn.toLocaleString()}` : "$0", "pos");
         }

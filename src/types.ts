@@ -1,4 +1,4 @@
-export type AccountType = "demo" | "eval" | "funded" | "live" | "unknown";
+export type AccountType = "demo" | "eval" | "funded" | "live" | "personal" | "unknown";
 
 export interface FuturesSpec {
   pointValue: number; // dollar value of 1.0 point movement
@@ -66,10 +66,7 @@ export interface PropAccount {
   firmId: string;
   programId: string;
   size: number;
-  scope: "all" | AccountType;
-  /** True for personal live brokerage accounts (Tradovate, NinjaTrader, ...).
-   *  Live accounts get payout tracking and no prop-firm rules. */
-  live?: boolean;
+  type: AccountType;
   /** Optional rule overrides — when a prop firm changes its rules you can
    *  edit them in Settings instead of waiting for a plugin update. */
   rules?: PropAccountRuleOverrides;

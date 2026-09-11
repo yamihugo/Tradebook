@@ -37,12 +37,29 @@ export class TradeDetailView extends ItemView {
     this.render();
   }
 
+  private keydownHandler = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      void this.prev();
+    } else if (e.key === "ArrowRight") {
+      e.preventDefault();
+      void this.next();
+    }
+  };
+
   async onOpen(): Promise<void> {
     if (!this.trade) {
       const first = await this.plugin.loadTrades();
       if (first.length) await this.setTrade(first[0]);
       else this.render();
     }
+    window.addEventListener("keydown", this.keydownHandler);
+  }
+
+  async onClose(): Promise<void> {
+    window.removeEventListener("keydown", this.keydownHandler);
   }
 
   async prev(): Promise<void> {
@@ -100,6 +117,13 @@ export class TradeDetailView extends ItemView {
         this.trade = found;
         this.index = fresh.findIndex((x) => x.id === t.id);
         this.render();
+      }
+    });
+    const delBtn = headActions.createEl("button", { text: "Delete", cls: "tj-btn tj-mini tj-del", attr: { title: "Delete this trade note" } });
+    delBtn.addEventListener("click", async () => {
+      if (window.confirm(`Delete trade ${t.symbol} (${t.date}, $${t.pnl})?`)) {
+        await this.plugin.deleteTrade(t.id);
+        await this.plugin.openTradeLog();
       }
     });
 
