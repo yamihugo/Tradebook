@@ -2048,6 +2048,30 @@
   box-shadow: 0 0 0 2px var(--background-modifier-border);
 }
 .tj-account-card-btn .tj-account-name { font-size: 0.98em; }
+/* Per-account progress toward the profit target (Journalit-style) */
+.tj-acct-progress {
+  margin-top: 10px;
+}
+.tj-acct-progress-track {
+  height: 7px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+.tj-acct-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+  transition: width 0.3s ease;
+}
+.tj-acct-progress-fill.neg {
+  background: var(--text-error, #ef4444);
+}
+.tj-acct-progress-label {
+  margin-top: 4px;
+  font-size: 0.72em;
+  color: var(--text-muted);
+}
 .tj-kpis-compact {
   display: flex !important;
   flex-wrap: wrap !important;

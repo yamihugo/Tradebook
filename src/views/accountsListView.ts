@@ -1,14 +1,16 @@
 import { ItemView } from "obsidian";
 import type TradingJournalPlugin from "../main";
-import { PropAccount } from "../types";
+import { PropAccount, Trade } from "../types";
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
-import { kpiCard, renderAppShell } from "../ui";
+import { clamp, kpiCard, renderAppShell } from "../ui";
 import { SCOPE_OPTIONS } from "../ui";
+import { fmtMoney, isFiniteNumber } from "../tz";
 
 export const ACCOUNTS_LIST_VIEW_TYPE = "trading-journal-accounts-list-view";
 
 export class AccountsListView extends ItemView {
   plugin: TradingJournalPlugin;
+  trades: Trade[] = [];
 
   constructor(leaf: any, plugin: TradingJournalPlugin) {
     super(leaf);
@@ -28,7 +30,30 @@ export class AccountsListView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    this.trades = await this.plugin.loadTrades();
     this.render();
+  }
+
+  async refresh(): Promise<void> {
+    this.trades = await this.plugin.loadTrades();
+    this.render();
+  }
+
+  /** Net P&L (and trade count) attributed to a configured account. */
+  accountNet(acc: PropAccount): { net: number; count: number } {
+    const name = (acc.name || "").trim().toLowerCase();
+    let net = 0;
+    let count = 0;
+    for (const t of this.trades) {
+      if (!isFiniteNumber(t.pnl)) continue;
+      const mapped = this.plugin.mappedAccount(t.account);
+      const match = mapped ? mapped.id === acc.id : (t.account || "").trim().toLowerCase() === name;
+      if (match) {
+        net += t.pnl;
+        count += 1;
+      }
+    }
+    return { net, count };
   }
 
   render(): void {
@@ -84,11 +109,25 @@ export class AccountsListView extends ItemView {
         chip.textContent = TYPE_LABELS[acc.type] ?? acc.type;
 
         const kpis = card.createDiv({ cls: "tj-account-kpis" });
+        const perf = this.accountNet(acc);
+        kpiCard(kpis, "Net P&L", perf.count ? fmtMoney(perf.net) : "—", perf.net >= 0 ? "pos" : "neg");
         kpiCard(kpis, "Target", s.target ? `$${(s.target / 1000).toFixed(0)}K` : "—", s.target ? "pos" : "neutral");
         kpiCard(kpis, "Max Loss", s.maxLoss ? `$${(s.maxLoss / 1000).toFixed(0)}K` : "—", s.maxLoss ? "neg" : "neutral");
         if (acc.type === "funded" || acc.type === "live" || acc.type === "personal") {
           const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
           kpiCard(kpis, "Withdrawn", withdrawn ? `$${withdrawn.toLocaleString()}` : "$0", "pos");
+        }
+
+        // Progress toward the profit target (Journalit-style account bar).
+        if (s.target > 0) {
+          const pct = clamp((perf.net / s.target) * 100, 0, 100);
+          const bar = card.createDiv({ cls: "tj-acct-progress" });
+          const track = bar.createDiv({ cls: "tj-acct-progress-track" });
+          const fill = track.createDiv({ cls: "tj-acct-progress-fill" });
+          fill.style.width = `${pct}%`;
+          if (perf.net < 0) fill.addClass("neg");
+          const label = perf.net >= s.target ? "Target reached ✓" : `${pct.toFixed(0)}% of target`;
+          bar.createDiv({ cls: "tj-acct-progress-label", text: `${label} · ${fmtMoney(perf.net)}` });
         }
 
         card.addEventListener("click", () => {
