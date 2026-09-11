@@ -12,14 +12,13 @@ export const CARD_TITLES: Record<string, string> = {
   kpi: "Key Stats",
   equity: "Cumulative P&L",
   symbols: "Symbol Breakdown",
-  needsreview: "Needs Review",
-  recent: "Recent Trades",
+  score: "Zella Score & Performance Radar",
   hourly: "Hourly Performance",
   daily: "Day Performance",
 };
 
-const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "needsreview", "daily", "hourly"];
-const WIDE_CARDS = ["kpi", "equity", "recent", "hourly", "daily", "needsreview"];
+const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "score", "hourly", "daily"];
+const WIDE_CARDS = ["kpi", "equity", "hourly", "daily", "score"];
 
 function defaultLayout(): { id: string; size: number }[] {
   return DEFAULT_LAYOUT.map((id) => ({ id, size: WIDE_CARDS.includes(id) ? 4 : 2 }));
@@ -289,21 +288,9 @@ export class DashboardView extends ItemView {
       const header = card.createDiv({ cls: "tj-card-header" });
       header.createEl("h3", { text: CARD_TITLES[item.id] });
       if (this.editMode) {
-        // Explicit controls: move (left/right), width −/+, height −/+, remove.
-        // Drag-and-drop still works too, but these buttons are the reliable way.
         const controls = header.createDiv({ cls: "tj-card-controls" });
-        const mk = (text: string, title: string, fn: () => void, extra = "") => {
-          const b = controls.createEl("button", { text, cls: "tj-mini" + (extra ? " " + extra : ""), attr: { type: "button", title } });
-          b.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
-          return b;
-        };
-        mk("◀", "Move left", () => this.moveItem(item.id, -1));
-        mk("▶", "Move right", () => this.moveItem(item.id, 1));
-        mk("W−", `Decrease width (currently ${size} col)`, () => this.resizeItem(item.id, "w", -1));
-        mk("W＋", `Increase width (currently ${size} col)`, () => this.resizeItem(item.id, "w", 1));
-        mk("H−", `Decrease height (currently ${rows} row)`, () => this.resizeItem(item.id, "h", -1));
-        mk("H＋", `Increase height (currently ${rows} row)`, () => this.resizeItem(item.id, "h", 1));
-        mk("✕", "Remove card", () => this.removeWidget(item.id), "tj-del");
+        const b = controls.createEl("button", { text: "✕", cls: "tj-mini tj-del", attr: { type: "button", title: "Remove card" } });
+        b.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.id); });
       }
       const body = card.createDiv({ cls: "tj-gridcard-body" });
       try {
@@ -321,8 +308,7 @@ export class DashboardView extends ItemView {
             break;
           }
           case "symbols": this.renderSymbolTable(body, trades); break;
-          case "needsreview": this.renderNeedsReviewBody(body, trades); break;
-          case "recent": this.renderTradesTable(body, trades); break;
+          case "score": this.renderScoreRadar(body, trades); break;
           case "hourly": this.renderHourlyBody(body, trades); break;
           case "daily": this.renderDailyBody(body, trades); break;
         }
@@ -545,7 +531,110 @@ export class DashboardView extends ItemView {
     });
   }
 
+
+  renderScoreRadar(body: HTMLElement, trades: Trade[]): void {
+    if (trades.length === 0) {
+      body.createDiv({ cls: "tj-empty", text: "No trades to compute score." });
+      return;
+    }
+    const wins = trades.filter((t) => t.pnl > 0);
+    const losses = trades.filter((t) => t.pnl < 0);
+    const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 100 : 0;
+    const avgWin = wins.length ? grossWin / wins.length : 0;
+    const avgLoss = losses.length ? grossLoss / losses.length : 1;
+    const avgWLRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
+    let cum = 0, peak = 0, maxDd = 0;
+    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+    for (const t of sorted) {
+      cum += t.pnl;
+      peak = Math.max(peak, cum);
+      maxDd = Math.max(maxDd, peak - cum);
+    }
+    const totalNet = cum;
+    const recoveryFactor = maxDd > 0 ? totalNet / maxDd : totalNet > 0 ? 100 : 0;
+    const byDay = new Map<string, number>();
+    for (const t of sorted) byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
+    const posDays = [...byDay.values()].filter((v) => v > 0).length;
+    const consistency = byDay.size > 0 ? (posDays / byDay.size) * 100 : 0;
+
+    const axes = [
+      { label: "Win %", value: clamp(winRate, 0, 100) },
+      { label: "Profit Factor", value: clamp((profitFactor / 3) * 100, 0, 100) },
+      { label: "Avg W/L", value: clamp((avgWLRatio / 3) * 100, 0, 100) },
+      { label: "Recovery", value: clamp((recoveryFactor / 5) * 100, 0, 100) },
+      { label: "Max Drawdown", value: clamp(100 - (maxDd / (totalNet || 1)) * 100, 0, 100) },
+      { label: "Consistency", value: clamp(consistency, 0, 100) },
+    ];
+
+    const n = axes.length;
+    const cx = 300, cy = 200, r = 140;
+    const box = body.createDiv({ cls: "tj-chart-box" });
+    const svg = box.createSvg("svg", { cls: "tj-chart tj-radar" });
+    svg.setAttribute("viewBox", "0 0 600 400");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+
+    const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
+    const pt = (i: number, dist: number) => ({
+      x: cx + Math.cos(angle(i)) * dist,
+      y: cy + Math.sin(angle(i)) * dist,
+    });
+
+    for (const pct of [0.25, 0.5, 0.75, 1]) {
+      let d = "";
+      for (let i = 0; i < n; i++) {
+        const p = pt(i, r * pct);
+        d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
+      }
+      svgPath(svg, d + "Z", "tj-radar-ring");
+    }
+
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, r);
+      svgLine(svg, cx, cy, p.x, p.y, "tj-radar-axis");
+    }
+
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, r + 22);
+      const lbl = svg.createSvg("text", { cls: "tj-radar-label" });
+      lbl.setAttribute("x", String(p.x));
+      lbl.setAttribute("y", String(p.y));
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.setAttribute("dominant-baseline", "central");
+      lbl.textContent = axes[i].label;
+    }
+
+    let d = "";
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, (axes[i].value / 100) * r);
+      d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
+    }
+    svgPath(svg, d + "Z", "tj-radar-fill");
+
+    const { show, hide } = attachTooltip(box);
+    for (let i = 0; i < n; i++) {
+      const p = pt(i, (axes[i].value / 100) * r);
+      const c = svg.createSvg("circle", { cls: "tj-radar-dot" });
+      c.setAttribute("cx", String(p.x));
+      c.setAttribute("cy", String(p.y));
+      c.setAttribute("r", "4");
+      c.addEventListener("mouseenter", (ev) => {
+        c.setAttribute("r", "6");
+        show(ev.clientX, ev.clientY, `${axes[i].label}: ${axes[i].value.toFixed(0)}%`);
+      });
+      c.addEventListener("mouseleave", () => { c.setAttribute("r", "4"); hide(); });
+    }
+
+    const zellaScore = axes.reduce((s, a) => s + a.value, 0) / n;
+    const scoreEl = body.createDiv({ cls: "tj-score-value" });
+    scoreEl.createSpan({ cls: "tj-score-num", text: zellaScore.toFixed(1) });
+    scoreEl.createSpan({ cls: "tj-score-suffix", text: "/100" });
+  }
+
   renderSymbolTable(body: HTMLElement, trades: Trade[]): void {
+
     const groups = new Map<string, Trade[]>();
     for (const t of trades) {
       if (!groups.has(t.symbol)) groups.set(t.symbol, []);

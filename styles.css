@@ -2215,3 +2215,156 @@
   border-radius: 8px;
 }
 
+
+
+/* ---------------- Journalit-style Sidebar (Off-canvas nav) ---------------- */
+.tj-app-nav {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 250px;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 100;
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.3);
+}
+.tj-app-nav.open {
+  transform: translateX(0);
+}
+.tj-sidebar-category {
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 14px 4px 4px 6px;
+}
+.tj-app-nav-item {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.85em;
+  color: var(--text-normal);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.tj-app-nav-item:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-bright);
+}
+.tj-app-nav-item.active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 600;
+}
+.tj-app-nav-item.tj-app-add {
+  margin-top: auto;
+  border: 1px dashed var(--interactive-accent);
+  justify-content: center;
+  font-weight: 600;
+}
+.tj-app-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.tj-app-brand {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+  background: var(--background-secondary-alt);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 4px 12px;
+  font-weight: 700;
+  font-size: 0.9em;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+.tj-app-brand:hover { background: var(--background-modifier-hover); }
+.tj-app-header-spacer { flex: 1; }
+.tj-app-add { flex-shrink: 0; padding: 5px 12px; font-size: 0.85em; }
+.tj-app-header-track {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  z-index: 1;
+}
+.tj-app-tab {
+  background: transparent;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.tj-app-tab:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
+.tj-app-tab.active { background: var(--background-modifier-active); color: var(--text-normal); font-weight: 600; }
+
+/* ---------------- Radar Chart & Zella Score ---------------- */
+.tj-radar {
+  width: 100%;
+  max-height: 360px;
+}
+.tj-radar-ring {
+  fill: none;
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.tj-radar-axis {
+  stroke: var(--background-modifier-border);
+  stroke-width: 1;
+}
+.tj-radar-label {
+  fill: var(--text-muted);
+  font-size: 11px;
+}
+.tj-radar-fill {
+  fill: var(--interactive-accent, #7c5cff);
+  fill-opacity: 0.25;
+  stroke: var(--interactive-accent, #7c5cff);
+  stroke-width: 2;
+}
+.tj-radar-dot {
+  fill: var(--interactive-accent, #7c5cff);
+  stroke: #fff;
+  stroke-width: 1;
+}
+.tj-score-value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+}
+.tj-score-num {
+  font-size: 2em;
+  font-weight: 800;
+  color: var(--text-normal);
+}
+.tj-score-suffix {
+  font-size: 0.9em;
+  color: var(--text-muted);
+}

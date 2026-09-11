@@ -1,6 +1,6 @@
 {
   "name": "trading-journal",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Trading journal for Tradovate futures (NQ/ES) with dashboard and CSV import",
   "main": "main.js",
   "scripts": {

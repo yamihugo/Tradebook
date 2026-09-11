@@ -156,10 +156,92 @@ export function renderAppShell(
   opts: { extraNav?: { id: string; label: string; fn: () => void }[] } = {}
 ): HTMLElement {
   void opts;
-  void plugin;
-  void active;
   root.empty();
   root.addClass("tj-app");
+
+  const NAV_ITEMS: { id: string; label: string; fn: () => void; category?: string }[] = [
+    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard(), category: "OVERVIEW" },
+    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar(), category: "OVERVIEW" },
+    { id: "tradelog", label: "Trade Log", fn: () => plugin.openTradeLog(), category: "OVERVIEW" },
+    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts(), category: "OVERVIEW" },
+    // Reviews
+    { id: "drc", label: "Today's DRC", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    { id: "weekly", label: "This Week's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    { id: "monthly", label: "This Month's Review", fn: () => plugin.openDashboard(), category: "REVIEWS" },
+    // Tools
+    { id: "import", label: "Trade Import", fn: () => plugin.openImport(), category: "TOOLS" },
+  ];
+  const LEFT_EXTRA = opts.extraNav ? [...opts.extraNav] : [];
+  const leftItems = [...NAV_ITEMS, ...LEFT_EXTRA.map((e) => ({ id: e.id, label: e.label, fn: e.fn, category: "TOOLS" }))];
+
+  // ---- Header: TJ brand (menu) + Centered Tabs (Home, Calendar, Accounts) + Add Trade ----
+  const header = root.createDiv({ cls: "tj-app-header" });
+  const brand = header.createEl("button", { cls: "tj-app-brand", attr: { type: "button", title: "Menu" } });
+  brand.createSpan({ text: plugin.settings?.journalName || "Trading Journal" });
+  brand.addEventListener("click", (e) => {
+    e.stopPropagation();
+    nav.classList.toggle("open");
+  });
+
+  const centerTrack = header.createDiv({ cls: "tj-app-header-track" });
+  const TOP_TABS = [
+    { id: "dashboard", label: "Home", fn: () => plugin.openDashboard() },
+    { id: "calendar", label: "Calendar", fn: () => plugin.openCalendar() },
+    { id: "accounts", label: "Accounts", fn: () => plugin.openAccounts() },
+  ];
+  for (const tab of TOP_TABS) {
+    const b = centerTrack.createEl("button", {
+      cls: "tj-app-tab" + (active === tab.id ? " active" : ""),
+      attr: { type: "button" },
+      text: tab.label,
+    });
+    b.addEventListener("click", tab.fn);
+  }
+
+  header.createDiv({ cls: "tj-app-header-spacer" });
+  const addBtn = header.createEl("button", { cls: "tj-btn mod-cta tj-app-add", attr: { type: "button" } });
+  addBtn.createSpan({ text: "+ Add Trade" });
+  addBtn.addEventListener("click", () => plugin.openAddPanel());
+
+  // ---- Journalit-style Sidebar ----
+  const nav = root.createDiv({ cls: "tj-app-nav" });
+
+  const categories = ["OVERVIEW", "REVIEWS", "TOOLS"];
+  for (const cat of categories) {
+    const catItems = leftItems.filter((i) => (i.category || "OVERVIEW") === cat);
+    if (catItems.length === 0) continue;
+    nav.createDiv({ cls: "tj-sidebar-category", text: cat });
+    for (const it of catItems) {
+      const b = nav.createEl("button", {
+        cls: "tj-app-nav-item" + (active === it.id ? " active" : ""),
+        attr: { type: "button", title: it.label },
+      });
+      b.createSpan({ cls: "tj-app-nav-label", text: it.label });
+      b.addEventListener("click", () => {
+        it.fn();
+        nav.classList.remove("open");
+      });
+    }
+  }
+
+  const navAdd = nav.createEl("button", { cls: "tj-app-nav-item tj-app-add", attr: { type: "button", title: "Add a new trade" } });
+  navAdd.createSpan({ cls: "tj-app-nav-label", text: "+ Add Trade" });
+  navAdd.addEventListener("click", () => {
+    plugin.openAddPanel();
+    nav.classList.remove("open");
+  });
+
+  const docClick = (e: MouseEvent) => {
+    if (!nav.contains(e.target as Node) && !brand.contains(e.target as Node)) {
+      nav.classList.remove("open");
+    }
+  };
+  const docKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") nav.classList.remove("open");
+  };
+  document.addEventListener("click", docClick);
+  document.addEventListener("keydown", docKey);
+
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
 }
