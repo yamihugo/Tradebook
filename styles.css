@@ -1371,36 +1371,7 @@
   color: var(--text-on-accent);
 }
 .tj-wizard-steplabel { font-size: 11px; }
-.tj-wizard-nav {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-}
-.tj-wizard-nav .mod-cta { flex: none; }
 
-.tj-src-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.tj-src-card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-}
-.tj-src-card:hover { border-color: var(--interactive-accent); }
-.tj-src-icon { font-size: 22px; flex-shrink: 0; }
-.tj-src-info { display: flex; flex-direction: column; gap: 2px; }
 .tj-src-title { font-weight: 700; font-size: 0.95em; }
 .tj-src-sub { font-size: 0.8em; color: var(--text-muted); }
 

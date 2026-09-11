@@ -125,7 +125,6 @@ export class AddTradePanel {
   mode: "csv" | "manual" = "csv";
   parsed: Trade[] | null = null;
   manualTrades: Trade[] = [createDefaultManualTrade()];
-  csvText = "";
   rowPicks: (PrintPick | null)[] = [];
   rowSetups: string[] = [];
   rowReviews: string[] = [];
@@ -300,53 +299,6 @@ export class AddTradePanel {
     });
   }
 
-  renderCsvInput(area: HTMLElement): void {
-    area.createEl("p", {
-      text: "Drop your Tradeovate CSV below — it processes automatically and opens your review cards.",
-      cls: "tj-hint",
-    });
-    const drop = area.createDiv({ cls: "tj-dropzone tj-csv-rect" });
-    drop.createDiv({ text: "Drop your CSV here", cls: "tj-drop-text" });
-    drop.createDiv({ text: "or click to choose a file", cls: "tj-drop-sub" });
-    const fileInput = drop.createEl("input", { type: "file", attr: { accept: ".csv,.txt,text/csv" } });
-    fileInput.style.display = "none";
-    drop.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", () => {
-      const file = fileInput.files?.[0];
-      if (file) this.processCsvFile(file);
-    });
-    const stop = (e: Event) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    drop.addEventListener("dragenter", (e) => { stop(e); drop.addClass("over"); }, true);
-    drop.addEventListener("dragover", (e) => { stop(e); drop.addClass("over"); }, true);
-    drop.addEventListener("dragleave", (e) => { stop(e); drop.removeClass("over"); }, true);
-    drop.addEventListener("drop", (e) => {
-      stop(e);
-      drop.removeClass("over");
-      const file = e.dataTransfer?.files?.[0];
-      if (file) {
-        if (file.type.startsWith("image/")) {
-          new Notice("Drop CSV files here — image prints go on review cards.");
-          return;
-        }
-        this.processCsvFile(file);
-        return;
-      }
-      const text = e.dataTransfer?.getData("text");
-      if (text && text.trim()) this.ingestCsv(text);
-    }, true);
-    drop.addEventListener("paste", (e) => {
-      const text = e.clipboardData?.getData("text");
-      if (text && text.trim()) {
-        e.preventDefault();
-        e.stopPropagation();
-        this.ingestCsv(text);
-      }
-    });
-  }
-
   async processCsvFile(file: File): Promise<void> {
     try {
       const text = await file.text();
@@ -365,7 +317,6 @@ export class AddTradePanel {
       return;
     }
     this.parsed = result.trades;
-    this.csvText = text;
     for (const p of this.printPicks) p.dispose();
     this.printPicks = [];
     this.rowPicks = result.trades.map(() => null);
