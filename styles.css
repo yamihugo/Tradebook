@@ -498,36 +498,45 @@
   padding: 4px 12px;
 }
 
-/* ---------------- Dashboard grid (edit mode) ---------------- */
+/* ---------------- Dashboard grid (react-grid-layout style) ---------------- */
 .tj-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-auto-rows: minmax(auto, auto);
-  grid-auto-flow: row dense;
-  gap: 14px;
-  align-items: stretch;
-  margin-top: 4px;
-}
-.tj-gridcard {
-  margin-bottom: 0;
   position: relative;
+  display: block;
+  margin-top: 4px;
+  min-height: 120px;
+}
+.tj-grid-abs .tj-gridcard {
+  position: absolute;
+  margin-bottom: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
-.tj-g1 { grid-column: span 1; }
-.tj-g2 { grid-column: span 2; }
-.tj-g3 { grid-column: span 3; }
-.tj-g4 { grid-column: 1 / -1; }
-/* vertical sizing (edit mode) */
-.tj-r1 { grid-row: span 1; }
-.tj-r2 { grid-row: span 2; }
-/* charts are appended directly to the card body, so anchor tooltips to it */
+/* The accent placeholder shows exactly where the dragged card will land */
+.tj-grid-placeholder {
+  position: absolute;
+  z-index: 2;
+  background: var(--interactive-accent);
+  opacity: 0.28;
+  border-radius: 10px;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1.5px var(--interactive-accent);
+}
+.tj-gridcard.tj-moving {
+  opacity: 0.15;
+}
+.tj-gridcard.tj-static {
+  cursor: default;
+}
+/* cards are absolutely positioned, so content must flex-fill + scroll */
 .tj-gridcard-body {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 .tj-gridcard-body > :last-child {
   margin-bottom: 0;
@@ -535,25 +544,13 @@
 .tj-gridcard-body .tj-kpis {
   margin-bottom: 0;
 }
-@media (max-width: 900px) {
-  .tj-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .tj-g3 {
-    grid-column: 1 / -1;
-  }
-}
-@media (max-width: 500px) {
-  .tj-grid {
-    grid-template-columns: 1fr;
-  }
-  .tj-gridcard-body {
-    overflow-x: auto;
-  }
-  .tj-account-card,
-  .tj-form-grid {
-    overflow-x: auto;
-  }
+/* let charts stretch to fill the resizable card (svg preserves nothing, like rgl) */
+.tj-gridcard-body > .tj-chart,
+.tj-gridcard-body > .tj-chart-box {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 120px;
+  margin-top: 4px;
 }
 .tj-card-controls {
   display: flex;
@@ -580,21 +577,63 @@
 .tj-gridcard[draggable] {
   cursor: grab;
 }
-.tj-gridcard.dragging {
-  opacity: 0.4;
-}
-.tj-gridcard.dragging,
-.tj-gridcard[draggable] {
-  cursor: grab;
-}
 .tj-gridcard[draggable]:active {
   cursor: grabbing;
 }
-.tj-drop-before {
-  box-shadow: inset 0 3px 0 0 var(--interactive-accent);
+
+/* ---------------- Drag & Resize (dashboard edit mode) ---------------- */
+/* Floating ghost copy of the card while dragging */
+.tj-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2000;
+  pointer-events: none;
+  opacity: 0.92;
+  transform: translate(-10000px, -10000px);
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  will-change: transform;
 }
-.tj-drop-after {
-  box-shadow: inset 0 -3px 0 0 var(--interactive-accent);
+.tj-gridcard.dragging {
+  opacity: 0.25;
+}
+/* In edit mode every card gets the classic rgl/Journalit dashed outline */
+.tj-grid.is-editing .tj-gridcard::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 2px dashed color-mix(in srgb, var(--interactive-accent) 65%, transparent);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 50;
+}
+/* Corner resize handle (Journalit style: two accent borders in the SE corner) */
+.tj-resize-handle {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+  opacity: 0.35;
+  z-index: 60;
+  display: none;
+  pointer-events: auto;
+  border-right: 3px solid color-mix(in srgb, var(--interactive-accent) 85%, transparent);
+  border-bottom: 3px solid color-mix(in srgb, var(--interactive-accent) 85%, transparent);
+  border-radius: 0 0 5px 0;
+  transition: opacity 0.12s ease;
+}
+.tj-grid.is-editing .tj-resize-handle {
+  display: block;
+  opacity: 0.8;
+}
+.tj-resize-handle:hover {
+  opacity: 1;
+  border-color: var(--interactive-accent);
 }
 
 /* ---------------- Palette (add cards, edit mode) ---------------- */
@@ -642,12 +681,6 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border-color: var(--interactive-accent);
-}
-/* In edit mode, cards get a visible accent outline so the user can see
-   exactly what is resizable/movable. */
-.tj-editing .tj-gridcard {
-  outline: 1.5px dashed rgba(124, 92, 255, 0.55);
-  outline-offset: 3px;
 }
 
 /* ---------------- Needs Review action bar ---------------- */
@@ -2367,4 +2400,28 @@
 .tj-score-suffix {
   font-size: 0.9em;
   color: var(--text-muted);
+}
+
+
+/* ---------------- Obsidian Left Sidebar Pane (Trading Journal Menu) ---------------- */
+.tj-sidebar-pane {
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  background: var(--background-secondary);
+  overflow-y: auto;
+}
+.tj-sb-brand {
+  padding: 6px 8px 12px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+}
+.tj-sb-brand h3 {
+  margin: 0;
+  font-size: 1.05em;
+  color: var(--interactive-accent);
+  font-weight: 800;
+  letter-spacing: 0.03em;
 }

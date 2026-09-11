@@ -5,8 +5,24 @@ import { ACCOUNT_FILTERS, attachTooltip, clamp, kpiCard, renderAppShell, svgLine
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
+import {
+  clamp as gClamp,
+  collides,
+  compactExcept,
+  compactVertical,
+  GAP,
+  GRID_COLS,
+  GridItem,
+  gridRows,
+  moveItem as gridMove,
+  placeNew,
+  resizeItem as gridResize,
+  ROW_PX,
+} from "../lib/grid";
 
 export const DASHBOARD_VIEW_TYPE = "trading-journal-dashboard-view";
+
+export type DashItem = GridItem;
 
 export const CARD_TITLES: Record<string, string> = {
   kpi: "Key Stats",
@@ -17,12 +33,22 @@ export const CARD_TITLES: Record<string, string> = {
   daily: "Day Performance",
 };
 
-const DEFAULT_LAYOUT = ["kpi", "equity", "symbols", "score", "hourly", "daily"];
-const WIDE_CARDS = ["kpi", "equity", "hourly", "daily", "score"];
+// Default grid (12 columns), mirroring Journalit's proportions:
+// full-width KPI row + big cumulative P&L chart, then two half-width widgets.
+const DEFAULT_TILES: GridItem[] = [
+  { i: "kpi", x: 0, y: 0, w: 12, h: 2 },
+  { i: "equity", x: 0, y: 2, w: 12, h: 4 },
+  { i: "score", x: 0, y: 6, w: 6, h: 6 },
+  { i: "symbols", x: 6, y: 6, w: 6, h: 6 },
+  { i: "hourly", x: 0, y: 12, w: 6, h: 6 },
+  { i: "daily", x: 6, y: 12, w: 6, h: 6 },
+];
 
-function defaultLayout(): { id: string; size: number }[] {
-  return DEFAULT_LAYOUT.map((id) => ({ id, size: WIDE_CARDS.includes(id) ? 4 : 2 }));
-}
+const NEW_W: Record<string, number> = { kpi: 12, equity: 12, score: 6, symbols: 6, hourly: 6, daily: 6 };
+const NEW_H: Record<string, number> = { kpi: 2, equity: 4, score: 6, symbols: 6, hourly: 6, daily: 6 };
+
+// Used when the container width is unknown (e.g. jsdom harness).
+const DESIGN_W = 1200;
 
 export class DashboardView extends ItemView {
   plugin: TradingJournalPlugin;
@@ -34,7 +60,11 @@ export class DashboardView extends ItemView {
   accountId: string | null = null;
   editMode = false;
   dragId: string | null = null;
-  dropTarget: { id: string; before: boolean } | null = null;
+  // Grid engine state (react-grid-layout style)
+  gridEl: HTMLElement | null = null;
+  placeholderEl: HTMLElement | null = null;
+  colW = 80;
+  cardEls = new Map<string, HTMLElement>();
   checked = new Set<string>();
   checking = false;
   checkboxEls = new Map<string, HTMLInputElement>();
@@ -115,23 +145,50 @@ export class DashboardView extends ItemView {
   }
 
   ensureLayout(): void {
-    if (this.plugin.settings.dashboardLayout.length === 0) {
-      this.plugin.settings.dashboardLayout = defaultLayout();
-    } else if (this.plugin.settings.dashboardLayout.some((i) => i.size === undefined)) {
-      this.plugin.settings.dashboardLayout = this.plugin.settings.dashboardLayout.map((i) => ({
-        id: i.id,
-        size: i.size ?? (i as any).wide ? 4 : 2,
-        rows: i.rows ?? 1,
+    const s = this.plugin.settings;
+    let layout = s.dashboardLayout as any[];
+    if (!layout || layout.length === 0) {
+      s.dashboardLayout = DEFAULT_TILES.map((t) => ({ ...t }));
+      return;
+    }
+    // Migration from the old flow format: {id, size, rows} -> {i, x, y, w, h}
+    const isOld = layout.some((it) => it.id !== undefined || it.size !== undefined);
+    if (isOld) {
+      const conv = layout.map((it) => ({
+        i: it.id,
+        w: gClamp((it.size ?? 2) * 3, 1, GRID_COLS), // 1->3, 2->6, 3->9, 4->12
+        h: it.rows === 2 ? 8 : it.id === "kpi" ? 2 : 4,
       }));
+      // First-fit pack (left-to-right, top-to-bottom) then compact.
+      const packed: GridItem[] = [];
+      for (const c of conv) {
+        let y = 0;
+        outer: for (;;) {
+          for (let x = 0; x + c.w <= GRID_COLS; x++) {
+            if (!packed.some((p) => collides({ ...c, x, y } as GridItem, p))) {
+              packed.push({ i: c.i, x, y, w: c.w, h: c.h });
+              break outer;
+            }
+          }
+          y++;
+        }
+      }
+      s.dashboardLayout = compactVertical(packed);
+      return;
     }
+    // New format: drop unknown widgets, clamp bounds, re-compact.
     const valid = new Set(Object.keys(CARD_TITLES));
-    const filtered = this.plugin.settings.dashboardLayout.filter((i) => valid.has(i.id));
-    if (filtered.length !== this.plugin.settings.dashboardLayout.length) {
-      this.plugin.settings.dashboardLayout = filtered;
+    const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
+    for (const it of filtered) {
+      it.w = gClamp(Math.round(it.w), 1, GRID_COLS);
+      it.h = gClamp(Math.round(it.h), 1, 8);
+      it.x = gClamp(Math.round(it.x || 0), 0, GRID_COLS - it.w);
+      it.y = Math.max(0, Math.round(it.y || 0));
     }
+    s.dashboardLayout = compactVertical(filtered);
   }
 
-  getLayout(): { id: string; size: number; rows?: number }[] {
+  getLayout(): GridItem[] {
     this.ensureLayout();
     return this.plugin.settings.dashboardLayout;
   }
@@ -141,83 +198,193 @@ export class DashboardView extends ItemView {
   }
 
   addWidget(id: string): void {
-    this.getLayout().push({ id, size: 2, rows: 1 });
+    this.plugin.settings.dashboardLayout = placeNew(this.getLayout(), id, NEW_W[id] ?? 6, NEW_H[id] ?? 6);
     this.saveLayout();
   }
 
   removeWidget(id: string): void {
-    const layout = this.getLayout();
-    const idx = layout.findIndex((i) => i.id === id);
-    if (idx >= 0) layout.splice(idx, 1);
+    this.plugin.settings.dashboardLayout = this.getLayout().filter((i) => i.i !== id);
     this.saveLayout();
   }
 
-  // Move a card one slot left/right in the flow order (the grid fills row-major).
-  moveItem(id: string, dir: -1 | 1): void {
-    const layout = this.getLayout();
-    const from = layout.findIndex((i) => i.id === id);
-    const to = from + dir;
-    if (from < 0 || to < 0 || to >= layout.length) return;
-    [layout[from], layout[to]] = [layout[to], layout[from]];
-    this.saveLayout();
+  // ---------------- Grid engine: pure layout helpers (lib/grid.ts) ----------------
+
+  private positionCard(card: HTMLElement, item: GridItem): void {
+    card.style.left = `${item.x * (this.colW + GAP)}px`;
+    card.style.top = `${item.y * (ROW_PX + GAP)}px`;
+    card.style.width = `${item.w * this.colW + (item.w - 1) * GAP}px`;
+    card.style.height = `${item.h * ROW_PX + (item.h - 1) * GAP}px`;
   }
 
-  // Resize a card horizontally (size = grid columns 1..4) or vertically (rows = 1..2).
-  resizeItem(id: string, axis: "w" | "h", delta: number): void {
-    const layout = this.getLayout();
-    const item = layout.find((i) => i.id === id);
-    if (!item) return;
-    if (axis === "w") {
-      item.size = clamp((item.size ?? 2) + delta, 1, 4);
-    } else {
-      item.rows = clamp((item.rows ?? 1) + delta, 1, 2);
+  private showPlaceholder(item: GridItem): void {
+    const p = this.placeholderEl;
+    if (!p) return;
+    p.style.display = "block";
+    p.style.left = `${item.x * (this.colW + GAP)}px`;
+    p.style.top = `${item.y * (ROW_PX + GAP)}px`;
+    p.style.width = `${item.w * this.colW + (item.w - 1) * GAP}px`;
+    p.style.height = `${item.h * ROW_PX + (item.h - 1) * GAP}px`;
+  }
+
+  private hidePlaceholder(): void {
+    if (this.placeholderEl) this.placeholderEl.style.display = "none";
+  }
+
+  private gridRectLeft(): number {
+    const r = this.gridEl?.getBoundingClientRect();
+    return r ? r.left : 0;
+  }
+
+  private gridRectTop(): number {
+    const r = this.gridEl?.getBoundingClientRect();
+    return r ? r.top : 0;
+  }
+
+  /** Apply a trial layout to the DOM without re-rendering card content. */
+  private applyTrialPositions(layout: GridItem[]): void {
+    const grid = this.gridEl;
+    if (!grid) return;
+    for (const it of layout) {
+      const card = this.findCardEl(grid, it.i);
+      if (card) this.positionCard(card, it);
     }
-    this.saveLayout();
+    grid.style.height = `${Math.max(1, gridRows(layout)) * ROW_PX + (Math.max(1, gridRows(layout)) - 1) * GAP}px`;
   }
 
-  applyMove(id: string, target: { id: string; before: boolean } | null): void {
-    if (!target || id === target.id) return;
-    const layout = this.getLayout();
-    const from = layout.findIndex((i) => i.id === id);
-    if (from < 0) return;
-    const item = layout.splice(from, 1)[0];
-    const to = layout.findIndex((i) => i.id === target.id);
-    if (to < 0) return;
-    layout.splice(target.before ? to : to + 1, 0, item);
-    this.saveLayout();
+  /** Drag preview: others shift live, dragged card fades out, placeholder shows. */
+  private applyDragTrial(nx: number, ny: number, item: GridItem): void {
+    const trial = gridMove(this.getLayout(), item.i, nx, ny);
+    const grid = this.gridEl;
+    if (!grid) return;
+    for (const it of trial) {
+      const card = this.findCardEl(grid, it.i);
+      if (!card) continue;
+      if (it.i === item.i) {
+        card.addClass("tj-moving");
+        this.showPlaceholder(it);
+      } else {
+        this.positionCard(card, it);
+      }
+    }
+    grid.style.height = `${Math.max(1, gridRows(trial)) * ROW_PX + (Math.max(1, gridRows(trial)) - 1) * GAP}px`;
   }
 
-  bindDrag(card: HTMLElement, id: string): void {
-    if (!this.editMode) {
-      card.removeAttribute("draggable");
+  // ---------------- Interactive drag (pointer based, iOS/Android widget style) ----------------
+
+  private _dragGhost: HTMLElement | null = null;
+
+  private bindCard(card: HTMLElement, item: GridItem): void {
+    if (!this.editMode || item.static) return;
+    card.addEventListener("pointerdown", (e) => {
+      if ((e.target as HTMLElement).closest("button")) return;
+      if (e.button !== 0) return;
+      this.startGridDrag(e, item);
+    });
+  }
+
+  private startGridDrag(e: PointerEvent, item: GridItem): void {
+    e.preventDefault();
+    if (this._dragGhost) this._dragGhost.remove();
+    this.dragId = item.i;
+    const card = this.findCardEl(this.gridEl as HTMLElement, item.i);
+    if (!card) {
+      this.dragId = null;
       return;
     }
-    card.setAttr("draggable", "true");
-    card.addEventListener("dragstart", (e) => {
-      this.dragId = id;
-      e.dataTransfer?.setData("text/plain", id);
-      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-      card.classList.add("tj-dragging");
-    });
-    card.addEventListener("dragover", (e) => {
-      if (!this.dragId || this.dragId === id) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-      const rect = card.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
-      card.classList.toggle("tj-drop-before", before);
-      card.classList.toggle("tj-drop-after", !before);
-      this.dropTarget = { id, before };
-    });
-    card.addEventListener("dragleave", () => card.classList.remove("tj-drop-before", "tj-drop-after"));
-    card.addEventListener("drop", (e) => {
-      e.preventDefault();
-      if (this.dragId) this.applyMove(this.dragId, this.dropTarget);
-    });
-    card.addEventListener("dragend", () => {
+
+    const ghost = card.cloneNode(true) as HTMLElement;
+    ghost.classList.add("tj-drag-ghost");
+    ghost.removeAttribute("draggable");
+    ghost.style.width = `${card.offsetWidth || item.w * this.colW}px`;
+    document.body.appendChild(ghost);
+    this._dragGhost = ghost;
+
+    const rect = card.getBoundingClientRect();
+    const offX = e.clientX - rect.left;
+    const offY = e.clientY - rect.top;
+    ghost.style.transform = `translate(${e.clientX - offX}px, ${e.clientY - offY}px)`;
+
+    let lastNx: number | null = null;
+    let lastNy: number | null = null;
+
+    const snapPos = (ev: PointerEvent) => {
+      const gx = ev.clientX - this.gridRectLeft();
+      const gy = ev.clientY - this.gridRectTop();
+      const nx = gClamp(Math.round(gx / (this.colW + GAP) - (item.w - 1) / 2), 0, GRID_COLS - item.w);
+      const ny = Math.max(0, Math.round(gy / (ROW_PX + GAP)));
+      return { nx, ny };
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      ghost.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px)`;
+      const { nx, ny } = snapPos(ev);
+      if (nx === lastNx && ny === lastNy) return;
+      lastNx = nx;
+      lastNy = ny;
+      this.applyDragTrial(nx, ny, item);
+    };
+
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      ghost.remove();
+      this._dragGhost = null;
       this.dragId = null;
-      this.dropTarget = null;
-      card.classList.remove("tj-dragging", "tj-drop-before", "tj-drop-after");
+      this.hidePlaceholder();
+      const layout = this.getLayout();
+      for (const it of layout) {
+        const el = this.findCardEl(this.gridEl as HTMLElement, it.i);
+        el?.removeClass("tj-moving");
+      }
+      const { nx, ny } = snapPos(ev);
+      this.plugin.settings.dashboardLayout = compactVertical(gridMove(layout, item.i, nx, ny));
+      this.saveLayout();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  private findCardEl(grid: HTMLElement, id: string): HTMLElement | null {
+    for (const el of Array.from(grid.querySelectorAll(".tj-gridcard"))) {
+      if (el.getAttribute("data-wid") === id) return el as HTMLElement;
+    }
+    return null;
+  }
+
+  // ---------------- Corner resize (edit mode) ----------------
+
+  private bindResize(card: HTMLElement, item: GridItem): void {
+    const handle = card.createDiv({ cls: "tj-resize-handle", attr: { title: "Drag to resize" } });
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const baseW = item.w;
+      const baseH = item.h;
+      let curW = baseW;
+      let curH = baseH;
+      const onMove = (ev: PointerEvent) => {
+        const dw = Math.round((ev.clientX - startX) / (this.colW + GAP));
+        const dh = Math.round((ev.clientY - startY) / (ROW_PX + GAP));
+        curW = gClamp(baseW + dw, 1, GRID_COLS - item.x);
+        curH = gClamp(baseH + dh, 2, 8);
+        const trial = gridResize(this.getLayout(), item.i, curW, curH);
+        this.applyTrialPositions(trial);
+        const me = this.findCardEl(this.gridEl as HTMLElement, item.i);
+        if (me) {
+          this.positionCard(me, trial.find((t) => t.i === item.i) ?? { ...item, w: curW, h: curH });
+        }
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        this.plugin.settings.dashboardLayout = compactVertical(gridResize(this.getLayout(), item.i, curW, curH));
+        this.saveLayout();
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
     });
   }
 
@@ -258,10 +425,10 @@ export class DashboardView extends ItemView {
     const layout = this.getLayout();
     const pallet = root.createDiv({ cls: "tj-pallet" });
     const titleRow = pallet.createDiv({ cls: "tj-pallet-header" });
-    titleRow.createEl("strong", { text: "Edit mode — tap a card to add it to your dashboard" });
-    titleRow.createEl("span", { text: "Use each card's buttons to resize (W/H) or move it (◀ ▶). Cards can also be dragged. Tap Done when finished.", cls: "tj-pallet-hint" });
+    titleRow.createEl("strong", { text: "Edit mode — drag cards to move them, use the corner handle to resize" });
+    titleRow.createEl("span", { text: "Cards shift out of the way as you drag — just like phone widgets. Tap Done when finished.", cls: "tj-pallet-hint" });
     const row = pallet.createDiv({ cls: "tj-pallet-row" });
-    const present = new Set(layout.map((i) => i.id));
+    const present = new Set(layout.map((i) => i.i));
     let added = 0;
     for (const id of Object.keys(CARD_TITLES)) {
       if (present.has(id)) continue;
@@ -274,27 +441,42 @@ export class DashboardView extends ItemView {
   }
 
   renderLayout(root: HTMLElement, trades: Trade[]): void {
-    const grid = root.createDiv({ cls: "tj-grid" });
-    const layout = this.getLayout();
+    const layout = compactVertical(this.getLayout());
+    const grid = root.createDiv({ cls: "tj-grid tj-grid-abs" });
+    grid.toggleClass("is-editing", this.editMode);
+    this.gridEl = grid;
+    this.cardEls.clear();
+    this.colW = Math.max(60, ((root.clientWidth || DESIGN_W) - 32 - GAP * (GRID_COLS - 1)) / GRID_COLS);
+
     if (layout.length === 0) {
       grid.createDiv({ cls: "tj-empty", text: "Dashboard is empty — press Edit to add cards." });
       return;
     }
+    const rows = Math.max(1, gridRows(layout));
+    grid.style.height = `${rows * ROW_PX + (rows - 1) * GAP}px`;
+
+    if (this.editMode) {
+      this.placeholderEl = grid.createDiv({ cls: "tj-grid-placeholder" });
+      this.placeholderEl.style.display = "none";
+    }
+
     for (const item of layout) {
-      const size = item.size ?? 2;
-      const rows = item.rows ?? 1;
-      const card = grid.createDiv({ cls: `tj-card tj-gridcard tj-g${size} tj-r${rows}`, attr: { "data-wid": item.id } });
-      this.bindDrag(card, item.id);
+      const card = grid.createDiv({ cls: "tj-card tj-gridcard", attr: { "data-wid": item.i } });
+      this.cardEls.set(item.i, card);
+      this.positionCard(card, item);
+      if (item.static) card.addClass("tj-static");
+      this.bindCard(card, item);
       const header = card.createDiv({ cls: "tj-card-header" });
-      header.createEl("h3", { text: CARD_TITLES[item.id] });
+      header.createEl("h3", { text: CARD_TITLES[item.i] });
       if (this.editMode) {
         const controls = header.createDiv({ cls: "tj-card-controls" });
         const b = controls.createEl("button", { text: "✕", cls: "tj-mini tj-del", attr: { type: "button", title: "Remove card" } });
-        b.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.id); });
+        b.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.i); });
+        this.bindResize(card, item);
       }
       const body = card.createDiv({ cls: "tj-gridcard-body" });
       try {
-        switch (item.id) {
+        switch (item.i) {
           case "kpi": this.renderKpiBody(body, trades); break;
           case "equity": {
             const total = trades.reduce((s, t) => s + t.pnl, 0);
@@ -313,9 +495,9 @@ export class DashboardView extends ItemView {
           case "daily": this.renderDailyBody(body, trades); break;
         }
       } catch (err) {
-        console.error("[trading-journal] card failed:", item.id, err);
+        console.error("[trading-journal] card failed:", item.i, err);
         body.empty();
-        body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.id]}" had a problem — tap Edit to remove it.` });
+        body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem — tap Edit to remove it.` });
       }
     }
   }

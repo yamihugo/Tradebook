@@ -4,6 +4,7 @@ import { PropAccount, AccountGroup, Trade, Payout } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile } from "./storage";
 import { SettingsTab } from "./settings";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./views/dashboard";
+import type { DashItem } from "./views/dashboard";
 import { CalendarView, CALENDAR_VIEW_TYPE } from "./views/calendar";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
 import { AddTradeView, ADD_TRADE_VIEW_TYPE } from "./views/addTradeView";
@@ -11,6 +12,7 @@ import { ImportView, IMPORT_VIEW_TYPE } from "./views/importView";
 import { TradeLogView, TRADE_LOG_VIEW_TYPE } from "./views/tradeLogView";
 import { AccountsListView, ACCOUNTS_LIST_VIEW_TYPE } from "./views/accountsListView";
 import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView";
+import { TradingJournalSidebarView, TRADING_JOURNAL_SIDEBAR_VIEW_TYPE } from "./views/sidebarView";
 import { AddTradesModal } from "./addTradeModal";
 import { openTradeModal } from "./views/tradeModal";
 
@@ -18,7 +20,7 @@ export interface TradingJournalSettings {
   tradesFolder: string;
   journalName: string;
   dashboardTitle: string;
-  dashboardLayout: { id: string; size: number; rows?: number }[];
+  dashboardLayout: DashItem[];
   accountRules: AccountRule[];
   timeZone: string;
   propAccounts: PropAccount[];
@@ -53,6 +55,7 @@ const ALL_VIEW_TYPES = [
   IMPORT_VIEW_TYPE,
   TRADE_LOG_VIEW_TYPE,
   TRADE_DETAIL_VIEW_TYPE,
+  TRADING_JOURNAL_SIDEBAR_VIEW_TYPE,
 ];
 
 export default class TradingJournalPlugin extends Plugin {
@@ -73,6 +76,7 @@ export default class TradingJournalPlugin extends Plugin {
     this.registerView(TRADE_LOG_VIEW_TYPE, (leaf) => new TradeLogView(leaf, this));
     this.registerView(ACCOUNTS_LIST_VIEW_TYPE, (leaf) => new AccountsListView(leaf, this));
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
+    this.registerView(TRADING_JOURNAL_SIDEBAR_VIEW_TYPE, (leaf) => new TradingJournalSidebarView(leaf, this));
 
     this.addRibbonIcon("grip", "Trading Journal — Home", () => {
       this.openDashboard();
@@ -119,7 +123,24 @@ export default class TradingJournalPlugin extends Plugin {
       callback: () => this.openAddPanel(),
     });
 
+    this.addCommand({
+      id: "open-sidebar-menu",
+      name: "Open Trading Journal Menu (left sidebar)",
+      callback: () => this.openSidebarView(),
+    });
+
     this.addSettingTab(new SettingsTab(this.app, this));
+    // Workspace APIs are optional — some mock/host environments may lack them.
+    if (typeof (this.app.workspace as any).onLayoutReady === "function") {
+      (this.app.workspace as any).onLayoutReady(async () => {
+        if (this.app.workspace.getLeavesOfType(TRADING_JOURNAL_SIDEBAR_VIEW_TYPE).length === 0) {
+          const leftLeaf = (this.app.workspace as any).getLeftLeaf?.(false);
+          if (leftLeaf) {
+            await leftLeaf.setViewState({ type: TRADING_JOURNAL_SIDEBAR_VIEW_TYPE, active: true });
+          }
+        }
+      });
+    }
   }
 
   onunload() {}
@@ -231,6 +252,21 @@ export default class TradingJournalPlugin extends Plugin {
     const trades = await this.loadTrades();
     const full = trades.find((t) => t.id === trade.id) ?? (trade as any);
     openTradeModal(this, full);
+  }
+
+  /** Opens/reveals the Trading Journal menu in Obsidian's LEFT sidebar.
+   *  It appears as a tab in the sidebar top bar (like Files/Search/Bookmarks),
+   *  so the user can switch between the file tree and our menu natively. */
+  async openSidebarView(): Promise<void> {
+    const existing = this.app.workspace.getLeavesOfType(TRADING_JOURNAL_SIDEBAR_VIEW_TYPE);
+    if (existing.length > 0) {
+      this.app.workspace.revealLeaf(existing[0]);
+      return;
+    }
+    const leftLeaf = (this.app.workspace as any).getLeftLeaf?.(false);
+    if (!leftLeaf) return;
+    await leftLeaf.setViewState({ type: TRADING_JOURNAL_SIDEBAR_VIEW_TYPE, active: true });
+    this.app.workspace.revealLeaf(leftLeaf);
   }
 
   async openTradeDetail(trade: { id: string }) {
