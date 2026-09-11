@@ -1,0 +1,8 @@
+node_modules/
+main.js
+
+# Local dev data (real trades — keep private)
+test-fixtures/
+
+*.log
+.DS_Store

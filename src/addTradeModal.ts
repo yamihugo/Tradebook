@@ -1,0 +1,45 @@
+import { Modal } from "obsidian";
+import type TradingJournalPlugin from "./main";
+import { AddTradePanel } from "./views/addTradePanel";
+
+/**
+ * Add Trade as a centered pop-up (like the eval-passed celebration).
+ * Opens over whatever you are doing — the panel mounts inside the modal,
+ * closes cleanly when a save finishes (or on ESC / click-outside).
+ */
+export class AddTradesModal extends Modal {
+  plugin: TradingJournalPlugin;
+  panel: AddTradePanel | null = null;
+
+  constructor(app: any, plugin: TradingJournalPlugin) {
+    super(app);
+    this.plugin = plugin;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("tj-addtrade-modal");
+    contentEl.empty();
+    try {
+      this.panel = new AddTradePanel(this.plugin, {
+        onSaveDone: () => {
+          this.close();
+        },
+      });
+      this.panel.mount(contentEl);
+    } catch (err) {
+      console.error("[trading-journal] AddTradesModal failed to render:", err);
+      const box = contentEl.createDiv({ cls: "tj-error" });
+      box.createEl("h3", { text: "Add Trade failed to render" });
+      box.createEl("p", { text: (err as Error).message || String(err) });
+      box.createEl("p", { text: "Copy this text to the developer so it can be fixed.", cls: "tj-error-detail" });
+    }
+  }
+
+  onClose(): void {
+    this.panel?.dispose();
+    this.panel = null;
+    this.contentEl.empty();
+    this.contentEl.removeClass("tj-addtrade-modal");
+  }
+}
