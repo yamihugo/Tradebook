@@ -2,7 +2,7 @@ import { ItemView } from "obsidian";
 import type TradingJournalPlugin from "../main";
 import { Trade } from "../types";
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
-import { attachTooltip, clamp, kpiCard, pathFromPoints, renderAppShell, renderAreaChart, svgLine } from "../ui";
+import { attachTooltip, clamp, kpiCard, openPluginSettings as openSettings, pathFromPoints, renderAppShell, renderAreaChart, svgLine } from "../ui";
 import { fmtMoney, isFiniteNumber, todayKey, toZoneDate } from "../tz";
 
 export const ACCOUNT_DASH_VIEW_TYPE = "trading-journal-account-dash-view";
@@ -105,26 +105,7 @@ export class AccountDashboardView extends ItemView {
 
   /** Open the plugin's own Settings tab (not the general Obsidian settings). */
   openPluginSettings(): void {
-    const app = this.app as any;
-    try {
-      if (typeof app.setting?.openTabById === "function") {
-        app.setting.openTabById(this.plugin.manifest.id);
-        return;
-      }
-    } catch (err) {
-      console.error("[trading-journal] openTabById failed:", err);
-    }
-    // Fallback: open Obsidian settings and switch to this plugin's tab.
-    try {
-      if (typeof app.setting?.open === "function") {
-        app.setting.open();
-        const tabs = app.setting?.settingTabs ?? [];
-        const tab = tabs.find((t: any) => t.id === this.plugin.manifest.id);
-        if (tab && typeof tab.display === "function") tab.display();
-      }
-    } catch (err) {
-      console.error("[trading-journal] settings open failed:", err);
-    }
+    openSettings(this.app, this.plugin, "accounts");
   }
 
   render(): void {

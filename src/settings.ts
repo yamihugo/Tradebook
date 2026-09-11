@@ -207,22 +207,6 @@ export class SettingsTab extends PluginSettingTab {
           this.display();
         });
       });
-
-    containerEl.createEl("h3", { text: "Layout" });
-    containerEl.createEl("p", {
-      text: "Open the dashboard and press 'Edit' to add, remove, resize or drag cards. The layout is saved automatically.",
-      cls: "setting-item-description",
-    });
-    new Setting(containerEl)
-      .setName("Reset dashboard layout")
-      .setDesc("Restores the default cards: Key Stats, Cumulative P&L, Performance Calendar, Score, Symbols, Hourly and Daily.")
-      .addButton((btn) =>
-        btn.setButtonText("Reset layout").onClick(async () => {
-          this.plugin.settings.dashboardLayout = [];
-          await this.plugin.saveSettings();
-          new Notice("Dashboard layout reset to the default.");
-        })
-      );
   }
 
   // ------------------------------------------------------------- Accounts

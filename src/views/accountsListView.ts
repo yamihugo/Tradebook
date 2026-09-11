@@ -2,7 +2,7 @@ import { ItemView } from "obsidian";
 import type TradingJournalPlugin from "../main";
 import { PropAccount, Trade } from "../types";
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
-import { clamp, kpiCard, renderAppShell } from "../ui";
+import { clamp, kpiCard, openPluginSettings as openSettings, renderAppShell } from "../ui";
 import { SCOPE_OPTIONS } from "../ui";
 import { fmtMoney, isFiniteNumber } from "../tz";
 
@@ -170,24 +170,6 @@ export class AccountsListView extends ItemView {
   }
 
   openPluginSettings(): void {
-    const app = this.app as any;
-    try {
-      if (typeof app.setting?.openTabById === "function") {
-        app.setting.openTabById(this.plugin.manifest.id);
-        return;
-      }
-    } catch (err) {
-      console.error("[trading-journal] openTabById failed:", err);
-    }
-    try {
-      if (typeof app.setting?.open === "function") {
-        app.setting.open();
-        const tabs = app.setting?.settingTabs ?? [];
-        const tab = tabs.find((t: any) => t.id === this.plugin.manifest.id);
-        if (tab && typeof tab.display === "function") tab.display();
-      }
-    } catch (err) {
-      console.error("[trading-journal] settings open failed:", err);
-    }
+    openSettings(this.app, this.plugin, "accounts");
   }
 }

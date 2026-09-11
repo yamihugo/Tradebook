@@ -169,3 +169,36 @@ export function renderAppShell(
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
 }
+
+/**
+ * Open this plugin's settings tab, optionally preselecting a sub-tab
+ * ("main" | "timezone" | "appearance" | "accounts"). Works across Obsidian
+ * versions: prefers app.setting.openTabById, falls back to app.setting.open.
+ */
+export function openPluginSettings(app: any, plugin: any, tabId?: string): void {
+  const setting = app?.setting;
+  const pluginId = plugin?.manifest?.id;
+  if (!setting || !pluginId) return;
+  try {
+    const pool: any[] = [
+      ...(Array.isArray(setting.settingTabs) ? setting.settingTabs : []),
+      ...(Array.isArray(setting.pluginTabs) ? setting.pluginTabs : []),
+    ];
+    const mine = pool.find((t) => t && t.id === pluginId);
+    if (mine && tabId) mine.active = tabId;
+    if (typeof setting.openTabById === "function") {
+      setting.openTabById(pluginId);
+      return;
+    }
+  } catch (err) {
+    console.error("[trading-journal] openTabById failed:", err);
+  }
+  try {
+    if (typeof setting.open === "function") setting.open();
+    const tabs = setting.settingTabs ?? [];
+    const tab = tabs.find((t: any) => t.id === pluginId);
+    if (tab && typeof tab.display === "function") tab.display();
+  } catch (err) {
+    console.error("[trading-journal] settings open failed:", err);
+  }
+}
