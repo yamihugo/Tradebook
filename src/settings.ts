@@ -1,20 +1,28 @@
 import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
-import type TradingJournalPlugin from "./main";
+import type TradebookPlugin from "./main";
 import { DEFAULT_ACCOUNT_RULES } from "./futures";
-import { PROP_FIRMS, effectiveSize, getFirm, getProgram, getSize, makeAccount } from "./props";
+import { PROP_FIRMS, effectiveSize, getFirm, getProgram, getSize, makeAccount, uniqueAccountName } from "./props";
 import { SCOPE_OPTIONS, kpiCard } from "./ui";
-import { TIMEZONE_OPTIONS } from "./tz";
+import { TIMEZONE_OPTIONS, detectSystemZone } from "./tz";
+import { attachTip } from "./lib/tip";
+import { THEMES } from "./themes";
+import { openAccountWizard } from "./views/accountWizard";
+import { openRenamePreview } from "./views/renamePreview";
+import { buildDiagnostics } from "./lib/diagnostics";
+import { openBackupSummary } from "./views/backupRestore";
+import { summariseBackup } from "./lib/backup";
+import { mountDateField } from "./lib/dates";
 
-type SettingsTabId = "main" | "timezone" | "accounts" | "appearance";
+type SettingsTabId = "root" | "journal" | "tradelog" | "appearance" | "timezone" | "accounts" | "advanced";
 
 export class SettingsTab extends PluginSettingTab {
-  plugin: TradingJournalPlugin;
+  plugin: TradebookPlugin;
   titleText: TextComponent | null = null;
-  active: SettingsTabId = "main";
+  active: SettingsTabId = "root";
   /** A single editor at a time (account id) — keeps the UI clean. */
   editingRulesFor: string | null = null;
 
-  constructor(app: App, plugin: TradingJournalPlugin) {
+  constructor(app: App, plugin: TradebookPlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
@@ -22,67 +30,107 @@ export class SettingsTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "Trading Journal — Settings" });
+    containerEl.addClass("tj-settings");
+    containerEl.createEl("h2", { text: "Tradebook" });
 
-    this.renderTabs(containerEl);
-
-    if (this.active === "main") this.renderMain(containerEl);
-    else if (this.active === "timezone") this.renderTimezone(containerEl);
-    else if (this.active === "appearance") this.renderAppearance(containerEl);
-    else this.renderAccounts(containerEl);
+    if (this.active === "root") this.renderRoot(containerEl);
+    else this.renderSection(containerEl);
   }
 
-  renderTabs(containerEl: HTMLElement): void {
-    const tabs = containerEl.createDiv({ cls: "tj-settings-tabs" });
-    const entries: { id: SettingsTabId; label: string }[] = [
-      { id: "main", label: "Main" },
-      { id: "timezone", label: "Time zone" },
-      { id: "appearance", label: "Appearance" },
-      { id: "accounts", label: "Accounts" },
-    ];
-    for (const e of entries) {
-      tabs
-        .createEl("button", { text: e.label, cls: "tj-settings-tab" + (this.active === e.id ? " active" : "") })
-        .addEventListener("click", () => {
-          this.active = e.id;
-          this.display();
+  private renderRoot(containerEl: HTMLElement): void {
+    // Super-basic, always visible
+    const basics = containerEl.createDiv({ cls: "tj-set-basics" });
+    new Setting(basics)
+      .setName("Currency")
+      .setDesc("Symbol shown next to monetary values.")
+      .addDropdown((dd) => {
+        for (const [v, t] of [["$", "USD ($)"], ["€", "EUR (€)"], ["£", "GBP (£)"], ["¥", "JPY (¥)"], ["R$", "BRL (R$)"]] as [string, string][]) {
+          dd.addOption(v, t);
+        }
+        dd.setValue(this.plugin.settings.currency || "$").onChange(async (v) => {
+          this.plugin.settings.currency = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
         });
-    }
-  }
-
-  // ---------------------------------------------------------------- Main
-  renderMain(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "Initial setup" });
-    containerEl.createEl("p", {
-      text: "Tell the journal who it belongs to — the dashboard is named automatically from that.",
-      cls: "setting-item-description",
-    });
-    new Setting(containerEl)
-      .setName("Journal name")
-      .setDesc("Your name or brand, e.g. 'You Go Trading', 'Crunchy'. Used to build the dashboard title.")
+      });
+    new Setting(basics)
+      .setName("Your name")
+      .setDesc("Used in the home greeting, e.g. 'Good morning, Alex'.")
       .addText((text) =>
         text
-          .setPlaceholder("e.g. You Go Trading")
+          .setPlaceholder("Your name")
           .setValue(this.plugin.settings.journalName)
           .onChange(async (v) => {
             this.plugin.settings.journalName = v.trim();
             await this.plugin.saveSettings();
-            this.titleText?.setPlaceholder(`${this.plugin.settings.journalName || "Your name"} Trading Dashboard`);
+            await this.plugin.reloadAllViews();
           })
       );
-    new Setting(containerEl)
-      .setName("Dashboard title")
-      .setDesc("Title shown at the top of the dashboard. Leave empty to use your journal name automatically.")
-      .addText((text) => {
-        this.titleText = text;
+    new Setting(basics)
+      .setName("Journal name")
+      .setDesc("Title shown at the top of the dashboard. Leave empty to use your name.")
+      .addText((text) =>
         text
-          .setPlaceholder(`${this.plugin.settings.journalName || "Your name"} Trading Dashboard`)
+          .setPlaceholder(`${this.plugin.settings.journalName || "Your"} Journal`)
           .setValue(this.plugin.settings.dashboardTitle)
           .onChange(async (v) => {
             this.plugin.settings.dashboardTitle = v.trim();
             await this.plugin.saveSettings();
-          });
+            await this.plugin.reloadAllViews();
+          })
+      );
+
+    // Sections (drill-down)
+    const sections: { id: SettingsTabId; title: string; desc: string }[] = [
+      { id: "journal", title: "Journal", desc: "Dashboard layout, behaviour, formatting and support." },
+      { id: "tradelog", title: "Trade Log", desc: "Default period, columns and layout." },
+      { id: "appearance", title: "Appearance", desc: "Themes, colours, animations and privacy." },
+      { id: "timezone", title: "Time zone", desc: "Market hours and how days are grouped." },
+      { id: "accounts", title: "Accounts", desc: "Prop accounts, rules, groups and mappings." },
+      { id: "advanced", title: "Advanced", desc: "Folder, maintenance, backup, import/export and reset." },
+    ];
+    for (const sec of sections) {
+      const row = containerEl.createDiv({ cls: "tj-set-row" });
+      const left = row.createDiv({ cls: "tj-set-row-left" });
+      left.createDiv({ cls: "tj-set-title", text: sec.title });
+      left.createDiv({ cls: "tj-set-desc", text: sec.desc });
+      row.createDiv({ cls: "tj-set-chev", text: "›" });
+      row.addEventListener("click", () => {
+        this.active = sec.id;
+        this.display();
       });
+    }
+  }
+
+  private renderSection(containerEl: HTMLElement): void {
+    const titles: Record<string, string> = {
+      journal: "Journal",
+      tradelog: "Trade Log",
+      appearance: "Appearance",
+      timezone: "Time zone",
+      accounts: "Accounts",
+      advanced: "Advanced",
+    };
+    const back = containerEl.createDiv({ cls: "tj-set-back", text: `‹ ${titles[this.active] ?? ""} `.trim() + " — Back" });
+    back.addEventListener("click", () => {
+      this.active = "root";
+      this.display();
+    });
+    containerEl.createEl("h3", { text: titles[this.active] ?? "" });
+    const content = containerEl.createDiv({ cls: "tj-set-section" });
+    if (this.active === "journal") this.renderJournal(content);
+    else if (this.active === "tradelog") this.renderTradeLogSettings(content);
+    else if (this.active === "appearance") this.renderAppearance(content);
+    else if (this.active === "timezone") this.renderTimezone(content);
+    else if (this.active === "advanced") this.renderAdvanced(content);
+    else this.renderAccounts(content);
+  }
+
+
+
+  // ---------------------------------------------------------------- Main
+  renderJournal(containerEl: HTMLElement): void {
+    containerEl.createEl("h3", { text: "Dashboard" });
     new Setting(containerEl)
       .setName("Dashboard content")
       .setDesc("Open the dashboard and press 'Edit' to add, remove, resize or drag cards around. Your layout is saved automatically.")
@@ -94,24 +142,9 @@ export class SettingsTab extends PluginSettingTab {
         })
       );
 
-    containerEl.createEl("h3", { text: "Storage" });
-    containerEl.createEl("p", {
-      text: "Where trade notes live in your vault. Changing this does not move existing notes.",
-      cls: "setting-item-description",
-    });
-    new Setting(containerEl)
-      .setName("Trades folder")
-      .setDesc("Folder (relative to vault) where trade notes are saved.")
-      .addText((text) =>
-        text.setValue(this.plugin.settings.tradesFolder).onChange(async (v) => {
-          this.plugin.settings.tradesFolder = v.trim();
-          await this.plugin.saveSettings();
-        })
-      );
-
     containerEl.createEl("h3", { text: "Support" });
     containerEl.createEl("p", {
-      text: "Trading Journal is an open-source project built around a real trading workflow. If it helps your trading, a coffee keeps the improvements coming.",
+      text: "Tradebook is an open-source project built around a real trading workflow. If it helps your trading, a coffee keeps the improvements coming.",
       cls: "tj-support-note",
     });
     new Setting(containerEl)
@@ -127,23 +160,126 @@ export class SettingsTab extends PluginSettingTab {
           }
         })
       );
+    containerEl.createEl("h3", { text: "Formatting" });
+    new Setting(containerEl)
+      .setName("Date format")
+      .setDesc("How every date is shown across the plugin. Pick the pattern you read fastest — the example updates with it.")
+      .addDropdown((dd) => {
+        dd.addOption("YYYY-MM-DD", "2026-09-13 — YYYY-MM-DD");
+        dd.addOption("DD/MM/YYYY", "13/09/2026 — DD/MM/YYYY (day first)");
+        dd.addOption("MM/DD/YYYY", "09/13/2026 — MM/DD/YYYY (month first)");
+        dd.addOption("D MMM YYYY", "13 Sep 2026 — D MMM YYYY");
+        dd.setValue(this.plugin.settings.dateFormat || "YYYY-MM-DD").onChange(async (v) => {
+          this.plugin.settings.dateFormat = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+    new Setting(containerEl)
+      .setName("24-hour time")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.use24HourTime === true).onChange(async (v) => {
+          this.plugin.settings.use24HourTime = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+    new Setting(containerEl)
+      .setName("Show seconds")
+      .setDesc("Seconds matter in trading — show them on entry/exit times.")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.showSeconds === true).onChange(async (v) => {
+          this.plugin.settings.showSeconds = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+
+    containerEl.createEl("h3", { text: "Behaviour" });
+    new Setting(containerEl)
+      .setName("Open Home on startup")
+      .setDesc("Automatically open the Home view when the plugin loads.")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.openHomeOnStartup === true).onChange(async (v) => {
+          this.plugin.settings.openHomeOnStartup = v;
+          await this.plugin.saveSettings();
+        });
+      });
+    new Setting(containerEl)
+      .setName("Open views in")
+      .setDesc("Whether sidebar items replace the current tab or open a new one.")
+      .addDropdown((dd) => {
+        dd.addOption("replace", "Same tab");
+        dd.addOption("new", "New tab");
+        dd.setValue(this.plugin.settings.tabBehavior || "replace").onChange(async (v) => {
+          this.plugin.settings.tabBehavior = v as "replace" | "new";
+          await this.plugin.saveSettings();
+        });
+      });
   }
 
+  // ------------------------------------------------------------- Trading
 
-  // ------------------------------------------------------------ Time zone
+  // --------------------------------------------------------------- Lists
+
+
+  // ----------------------------------------------------------- Trade Log
+  renderTradeLogSettings(containerEl: HTMLElement): void {
+    const s = this.plugin.settings;
+    containerEl.createEl("h3", { text: "Trade Log defaults" });
+    new Setting(containerEl)
+      .setName("Default period")
+      .addDropdown((dd) => {
+        const opts: [string, string][] = [
+          ["today", "Today"], ["yesterday", "Yesterday"], ["thisweek", "This Week"], ["1m", "This Month"],
+          ["thisquarter", "This Quarter"], ["thisyear", "This Year"], ["all", "All Time"],
+        ];
+        for (const [v, t] of opts) dd.addOption(v, t);
+        dd.setValue(s.tradeLogPeriod || "all").onChange(async (v) => {
+          s.tradeLogPeriod = v;
+          await this.plugin.saveSettings();
+        });
+      });
+    new Setting(containerEl)
+      .setName("Reset view")
+      .setDesc("Restore the Trade Log columns and layout to their defaults.")
+      .addButton((b) => {
+        b.setButtonText("Reset").onClick(async () => {
+          s.tradeLog = {};
+          s.tradeLogColOrder = undefined;
+          await this.plugin.saveSettings();
+          new Notice("Trade Log view reset.");
+          await this.plugin.reloadAllViews();
+        });
+      });
+  }
+
   renderTimezone(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "Market hours & time zone" });
+    containerEl.createEl("h3", { text: "Time zones" });
     containerEl.createEl("p", {
-      text: "Times in your trade notes are assumed to be in the time zone below. The dashboard then converts them to New York (Eastern) time for the market-hour analysis (US futures open 9:30 ET).",
+      text: "Tradebook keeps one clock: the journal zone below. Every trade is shown and stored in that wall-clock, so the times you read are the times you typed — whichever machine or country you open it from. New York (Eastern) is the default because futures trade on ET (9:30 open).",
       cls: "setting-item-description",
     });
     new Setting(containerEl)
-      .setName("Your time zone")
-      .setDesc("IANA zones handle Summer/Winter (DST) automatically — you do not need to change this when the clocks shift. Choose 'None' to keep recorded times untouched.")
+      .setName("Journal time zone")
+      .setDesc("The clock your journal runs on. IANA zones handle Summer/Winter (DST) automatically — you never change this when the clocks shift. Choose 'None' to keep recorded times exactly as written.")
       .addDropdown((dd) => {
         for (const opt of TIMEZONE_OPTIONS) dd.addOption(opt.zone, opt.label);
         dd.setValue(this.plugin.settings.timeZone).onChange(async (v) => {
           this.plugin.settings.timeZone = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+    const detected = detectSystemZone();
+    new Setting(containerEl)
+      .setName("Import time zone")
+      .setDesc(`The zone your broker writes its CSV in. Most exports carry no time zone, so Tradebook needs to know which clock they use and converts each trade into your journal zone. Default is this computer (${detected}). Tradovate and NinjaTrader usually export in US Central; several platforms export in UTC.`)
+      .addDropdown((dd) => {
+        dd.addOption("", `This computer (${detected})`);
+        for (const opt of TIMEZONE_OPTIONS) if (opt.zone) dd.addOption(opt.zone, opt.label);
+        dd.setValue(this.plugin.settings.importZone || "").onChange(async (v) => {
+          this.plugin.settings.importZone = v;
           await this.plugin.saveSettings();
         });
       });
@@ -151,6 +287,45 @@ export class SettingsTab extends PluginSettingTab {
 
   // --------------------------------------------------------- Appearance
   renderAppearance(containerEl: HTMLElement): void {
+    containerEl.createEl("h3", { text: "Themes" });
+    containerEl.createEl("p", {
+      text: "Complete, built-in themes — no extra plugins. The Default theme follows your Obsidian accent colour.",
+      cls: "setting-item-description",
+    });
+    const gallery = containerEl.createDiv({ cls: "tj-theme-gallery" });
+    for (const t of THEMES) {
+      const active = (this.plugin.settings.theme.preset || "default") === t.id;
+      const card = gallery.createDiv({ cls: "tj-theme-card" + (active ? " active" : "") });
+      const sw = card.createDiv({ cls: "tj-theme-swatch" });
+      sw.style.background =
+        t.pattern === "dots"
+          ? `radial-gradient(circle at 5px 5px, ${t.dotColor || "#889"} 1.6px, transparent 2.4px) 0 0/11px 11px, ${t.bg || t.surface || "var(--background-secondary)"}`
+          : t.pattern === "gradient"
+          ? `linear-gradient(160deg, ${t.bg}, ${t.bg2})`
+          : t.bg || t.surface || "var(--background-secondary)";
+      const dot = sw.createSpan({ cls: "tj-theme-dot" });
+      dot.style.background = t.accent || "var(--interactive-accent)";
+      card.createDiv({ cls: "tj-theme-name", text: t.name });
+      card.addEventListener("click", async () => {
+        this.plugin.settings.theme = {
+          preset: t.id,
+          background: t.pattern === "dots" ? "dots" : "default",
+          accent: t.accent,
+          dotColor: t.dotColor,
+          surface: t.surface,
+          bg: t.bg,
+          bg2: t.bg2,
+          border: t.border,
+          pattern: t.pattern,
+          font: t.font,
+          glow: t.glow,
+        };
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+        this.display();
+      });
+    }
+
     containerEl.createEl("h3", { text: "Theme & colors" });
     containerEl.createEl("p", {
       text: "Personalize how the journal looks. Everything is applied live — your Obsidian theme is untouched outside the journal views.",
@@ -175,6 +350,7 @@ export class SettingsTab extends PluginSettingTab {
       .setDesc("Buttons, charts, the drag placeholder, resize handles and highlights. Empty = Obsidian default.")
       .addColorPicker((cp) => {
         cp.setValue(this.plugin.settings.theme.accent || "#7C5CFF").onChange(async (v) => {
+          this.plugin.settings.theme.preset = "custom";
           this.plugin.settings.theme.accent = v;
           await this.plugin.saveSettings();
           await this.plugin.reloadAllViews();
@@ -194,6 +370,7 @@ export class SettingsTab extends PluginSettingTab {
       .setDesc("Color of the dots on the 'Dotted notebook' background. Empty = auto (matches your text color).")
       .addColorPicker((cp) => {
         cp.setValue(this.plugin.settings.theme.dotColor || "#9A9A9A").onChange(async (v) => {
+          this.plugin.settings.theme.preset = "custom";
           this.plugin.settings.theme.dotColor = v;
           await this.plugin.saveSettings();
           await this.plugin.reloadAllViews();
@@ -207,9 +384,237 @@ export class SettingsTab extends PluginSettingTab {
           this.display();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Animations")
+      .setDesc("Count-up/down on metric numbers and other UI motion. Turn off for zero animation.")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.animations !== false).onChange(async (v) => {
+          this.plugin.settings.animations = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+    new Setting(containerEl)
+      .setName("Dates on charts")
+      .setDesc("Show a subtle date axis under the P&L charts (cumulative, long, short).")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.chartDates !== false).onChange(async (v) => {
+          this.plugin.settings.chartDates = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
+    // NOTE: copy-trading is configured on the page it belongs to — Accounts →
+    // Manage → Copy groups. No toggles here that quietly change the numbers.
+    containerEl.createEl("h3", { text: "Privacy" });
+    new Setting(containerEl)
+      .setName("Privacy mode")
+      .setDesc("Blur monetary values (P&L, balances) — handy for screenshots and streams. Hover to reveal.")
+      .addToggle((tg) => {
+        tg.setValue(this.plugin.settings.privacyMode === true).onChange(async (v) => {
+          this.plugin.settings.privacyMode = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        });
+      });
   }
 
-  // ------------------------------------------------------------- Accounts
+  // ------------------------------------------------------------ Advanced
+  renderAdvanced(containerEl: HTMLElement): void {
+    // NOTE: the "maturity / phase" panel that lived here was parked (see lib/maturity.ts).
+    // We keep a single, context-adaptive Accounts layout instead of phase-specific ones.
+
+    containerEl.createEl("h3", { text: "Maintenance" });
+    new Setting(containerEl)
+      .setName("Fix file names")
+      .setDesc(
+        "Rename every trade note (and its prints) to the current scheme: date · symbol · direction · time. You see the full list first — nothing moves until you confirm."
+      )
+      .addButton((b) => {
+        b.setButtonText("Review…").onClick(async () => {
+          b.setDisabled(true);
+          b.setButtonText("Reading…");
+          try {
+            await openRenamePreview(this.plugin);
+          } catch (err) {
+            console.error("[tradebook] rename preview failed:", err);
+            new Notice("Could not read the trades folder — check the console.");
+          }
+          b.setButtonText("Review…");
+          b.setDisabled(false);
+        });
+      });
+    new Setting(containerEl)
+      .setName("Rebuild trade index")
+      .setDesc("Re-read every trade note (clears the in-memory cache).")
+      .addButton((b) =>
+        b.setButtonText("Rebuild").onClick(async () => {
+          this.plugin.clearTradeCache();
+          await this.plugin.reloadAllViews();
+          new Notice("Trade index rebuilt.");
+        })
+      );
+    containerEl.createEl("h3", { text: "Journal folder" });
+    containerEl.createEl("p", {
+      text: "Where trade notes live in your vault. Changing this does not move existing notes.",
+      cls: "setting-item-description",
+    });
+    new Setting(containerEl)
+      .setName("Trades folder")
+      .setDesc("Folder (relative to vault) where trade notes are saved.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.tradesFolder).onChange(async (v) => {
+          this.plugin.settings.tradesFolder = v.trim();
+          await this.plugin.saveSettings();
+        })
+      );
+
+    // Getting started: the same tour a brand-new journal opens on first load.
+    containerEl.createEl("h3", { text: "Getting started" });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "The first-run tour walks through the trades folder, your accounts and your first trade. Handy to see exactly what a new user sees.",
+    });
+    new Setting(containerEl)
+      .setName("Show the getting started tour")
+      .setDesc("Opens the tour now. If you closed it mid-way, it resumes where you stopped.")
+      .addButton((b) => b.setButtonText("Open tour").onClick(() => this.plugin.showGettingStarted()));
+    new Setting(containerEl)
+      .setName("Restart the tour from the beginning")
+      .setDesc("Forgets where you stopped, so the next open starts at the first step.")
+      .addButton((b) =>
+        b.setButtonText("Restart").onClick(async () => {
+          delete this.plugin.settings.onboardingStep;
+          await this.plugin.saveSettings();
+          new Notice("The tour will start from the beginning.");
+        })
+      );
+
+    // Diagnostics: what a bug report needs, without asking three times for it.
+    containerEl.createEl("h3", { text: "Diagnostics" });
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Versions, counts, the settings that shape the numbers, and the last error of this session. No note contents — copy it into a bug report, or attach the file.",
+    });
+    new Setting(containerEl)
+      .setName("Copy diagnostics")
+      .setDesc("Copies the snapshot to the clipboard.")
+      .addButton((b) =>
+        b.setButtonText("Copy").onClick(async () => {
+          try {
+            const text = await buildDiagnostics(this.plugin);
+            if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+            await navigator.clipboard.writeText(text);
+            new Notice("Diagnostics copied to the clipboard.");
+          } catch (err) {
+            console.error("[tradebook] diagnostics copy failed", err);
+            new Notice("Could not copy — use Save diagnostics to the vault instead.");
+          }
+        })
+      );
+    new Setting(containerEl)
+      .setName("Save diagnostics to the vault")
+      .setDesc("Writes a small .txt next to your backups, ready to attach to a report.")
+      .addButton((b) =>
+        b.setButtonText("Save").onClick(async () => {
+          try {
+            const res = await this.plugin.writeDiagnostics();
+            new Notice(`Diagnostics written: ${res.path}`);
+          } catch (err) {
+            console.error("[tradebook] diagnostics file failed", err);
+            new Notice("Could not write the file — check the console.");
+          }
+        })
+      );
+
+    // Backup: the whole journal in one file — settings, accounts and the trade
+    // notes. Case A of docs/BACKUP-AND-EXPORT.md.
+    containerEl.createEl("h3", { text: "Backup" });
+    containerEl.createEl("p", {
+      text: `One file with your settings, your accounts, your payouts and your trade notes, written to ${this.plugin.getBackupFolder()}. Prints are images in the vault — copy the vault folder as well to carry those.`,
+      cls: "setting-item-description",
+    });
+    new Setting(containerEl)
+      .setName("Export everything")
+      .setDesc("Writes a backup and tells you where it landed.")
+      .addButton((b) =>
+        b.setButtonText("Export").onClick(async () => {
+          b.setDisabled(true);
+          b.setButtonText("Writing…");
+          try {
+            const res = await this.plugin.exportEverything();
+            const kb = Math.max(1, Math.round(res.bytes / 1024));
+            new Notice(`Backup written: ${res.path} (${kb} KB · ${res.counts.trades} notes)`);
+          } catch (err) {
+            console.error("[tradebook] backup failed", err);
+            new Notice("Could not write the backup — check the console.");
+          }
+          b.setButtonText("Export");
+          b.setDisabled(false);
+        })
+      );
+    new Setting(containerEl)
+      .setName("Import a backup")
+      .setDesc("Shows what is inside the file before anything changes. Your current settings are snapshotted first.")
+      .addButton((b) =>
+        b.setButtonText("Choose file…").onClick(() => this.pickBackupFile())
+      );
+    new Setting(containerEl)
+      .setName("Reset all settings")
+      .setDesc("Restore every setting to its default. Your trades are NOT deleted.")
+      .addButton((b) =>
+        b.setButtonText("Reset").setWarning().onClick(async () => {
+          this.plugin.settings.dashboardLayout = [];
+          this.plugin.settings.tradeLog = {};
+          this.plugin.settings.tradeLogColOrder = undefined;
+          this.plugin.settings.privacyMode = false;
+          this.plugin.settings.openHomeOnStartup = false;
+          this.plugin.settings.tabBehavior = "replace";
+          this.plugin.settings.dateFormat = "YYYY-MM-DD";
+          this.plugin.settings.use24HourTime = false;
+          this.plugin.settings.showSeconds = false;
+          this.plugin.settings.defaultSymbol = "NQ";
+          this.plugin.settings.defaultQty = 1;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+          new Notice("Settings reset to defaults.");
+          this.display();
+        })
+      );
+  }
+
+  /**
+   * Read the file the user picked, say what is inside it, and only then offer to
+   * put it back. Everything the plugin owns travels in that one file.
+   */
+  private pickBackupFile(): void {
+    const input = document.body.createEl("input", { attr: { type: "file", accept: ".json,application/json" } });
+    input.style.display = "none";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      let summary;
+      try {
+        summary = summariseBackup(JSON.parse(await file.text()));
+      } catch (err) {
+        console.error("[tradebook] could not read the backup file", err);
+        new Notice("That file is not readable JSON.");
+        return;
+      }
+      if (!summary.ok) {
+        new Notice(summary.error ?? "That file is not a backup from this plugin.");
+        return;
+      }
+      openBackupSummary(this.plugin, summary, (message) => {
+        new Notice(message);
+        this.display();
+      });
+    });
+    input.click();
+  }
+
   renderAccounts(containerEl: HTMLElement): void {
     const details = containerEl.createEl("details", { cls: "tj-rule-group-details" });
     details.createEl("summary", { text: "Advanced — account type classification rules" });
@@ -240,6 +645,23 @@ export class SettingsTab extends PluginSettingTab {
       }
     })();
 
+    new Setting(containerEl)
+      .setName("Exclude demo accounts from portfolio totals")
+      .setDesc(
+        "Demo accounts stay visible on the Accounts page but are left out of the portfolio totals (capital, Net P&L, growth, withdrawals and trade counts)."
+      )
+      .addToggle((tg) =>
+        tg.setValue(this.plugin.settings.excludeDemosFromPortfolio !== false).onChange(async (v) => {
+          this.plugin.settings.excludeDemosFromPortfolio = v;
+          await this.plugin.saveSettings();
+          this.plugin.reloadAllViews();
+        })
+      );
+
+    // NOTE: the Accounts page view options (grouping, order, firm logo, which
+    // types show) now live in the page itself: Accounts → Manage. One place
+    // for them, so the two can never disagree.
+
     containerEl.createEl("h3", { text: "Account Configuration" });
     containerEl.createEl("p", {
       text: "Add each of your prop accounts (firm + program + size). Limits come from the firms' sites (Sep 2026) — if a firm changes its rules, tap 'Edit rules' on an account to override them. Each account gets its own dashboard automatically.",
@@ -251,14 +673,30 @@ export class SettingsTab extends PluginSettingTab {
   renderAccountConfig(containerEl: HTMLElement): void {
     const plugin = this.plugin;
 
-    // Add account form
+    // Guided wizard — the exact same component used by the Accounts tab + tour.
+    new Setting(containerEl)
+      .setName("Add account")
+      .setDesc("Guided setup with firm presets, the rules disclaimer and the copy-trading options.")
+      .addButton((b) =>
+        b.setButtonText("Open wizard").setCta().onClick(() => {
+          openAccountWizard(this.plugin, { onDone: () => this.display() });
+        })
+      );
+
+    // Quick add (power users)
     const form = containerEl.createEl("div", { cls: "tj-account-card tj-account-form" });
-    form.createEl("h4", { text: "Add account" });
+    form.createEl("h4", { text: "Quick add" });
     const firmSel = form.createEl("select", { cls: "dropdown" });
     for (const firm of PROP_FIRMS) firmSel.createEl("option", { value: firm.id, text: firm.name });
     const programSel = form.createEl("select", { cls: "dropdown" });
     const sizeSel = form.createEl("select", { cls: "dropdown" });
     const nameInput = form.createEl("input", { attr: { type: "text", placeholder: "Name (optional)" } });
+    let startedValue = new Date().toISOString().slice(0, 10);
+    mountDateField(form, {
+      value: startedValue,
+      format: this.plugin.settings.dateFormat,
+      onChange: (iso) => (startedValue = iso),
+    });
     const typeSel = form.createEl("select", { cls: "dropdown" });
     const TYPE_LABELS: [string, string][] = [
       ["eval", "Eval"],
@@ -289,10 +727,15 @@ export class SettingsTab extends PluginSettingTab {
       const program = getProgram(firm, programSel.value) ?? firm.programs[0];
       const size = parseInt(sizeSel.value, 10) || program.sizes[0].size;
       const accType = (typeSel.value as any) || "eval";
-      const acc = makeAccount(firm, program, size, nameInput.value, accType);
+      const taken = (plugin.settings.propAccounts || []).map((a) => a.name);
+      const safeName = nameInput.value.trim() ? uniqueAccountName(nameInput.value, taken) : "";
+      const acc = makeAccount(firm, program, size, safeName, accType);
+      acc.name = uniqueAccountName(acc.name, taken);
+      if (startedValue) acc.createdAt = startedValue;
       plugin.settings.propAccounts.push(acc);
       await plugin.saveSettings();
       nameInput.value = "";
+      startedValue = new Date().toISOString().slice(0, 10);
       this.display();
     });
 
@@ -324,11 +767,14 @@ export class SettingsTab extends PluginSettingTab {
         actions.createEl("button", { text: "Open dashboard ›", cls: "tj-btn tj-add-trade" }).addEventListener("click", () => {
           void plugin.openAccountDashboard(undefined, acc.id);
         });
-        actions.createEl("button", { text: "Edit rules", cls: "tj-btn tj-mini", attr: { title: "Override this account's firm rules (target, drawdown, DLL, consistency)" } }).addEventListener("click", () => {
+        const rulesBtn = actions.createEl("button", { text: "Edit rules", cls: "tj-btn tj-mini" });
+        attachTip(rulesBtn, { title: "Edit rules", sub: "Override this account's firm rules: target, drawdown, daily loss, consistency." });
+        rulesBtn.addEventListener("click", () => {
           this.editingRulesFor = this.editingRulesFor === acc.id ? null : acc.id;
           this.display();
         });
-        const typeEdit = actions.createEl("select", { cls: "dropdown", attr: { title: "Change account type…" } });
+        const typeEdit = actions.createEl("select", { cls: "dropdown", attr: { "aria-label": "Change account type" } });
+        attachTip(typeEdit, { title: "Account type", sub: "Which section of the Accounts page it lands in." });
         const TYPE_LABELS: [string, string][] = [
           ["eval", "Eval"],
           ["funded", "Funded"],
@@ -547,7 +993,8 @@ export class SettingsTab extends PluginSettingTab {
       nameBox.createDiv({ cls: "tj-map-acc", text: name });
       const chip = nameBox.createDiv({ cls: mapped ? `tj-acct-chip ${mapped.type}` : "tj-acct-chip unknown" });
       chip.textContent = mapped ? `Bound to ${mapped.name}` : `Rules say: ${this.plugin.resolveAccountType(name)}`;
-      const sel = row.createEl("select", { cls: "dropdown", attr: { title: "Bind this account…" } });
+      const sel = row.createEl("select", { cls: "dropdown", attr: { "aria-label": "Bind this account to a prop account" } });
+      attachTip(sel, { title: "Bind this account", sub: "Which prop account these broker trades belong to." });
       sel.createEl("option", { value: "", text: "Auto (by rules)" });
       for (const acc of this.plugin.settings.propAccounts) {
         const opt = sel.createEl("option", { value: acc.id, text: `${acc.name} · ${acc.type}` });

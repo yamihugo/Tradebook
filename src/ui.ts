@@ -1,18 +1,27 @@
 import { AccountType, Trade } from "./types";
 import { isFiniteNumber, toZoneDate } from "./tz";
+import { typeLabel } from "./lib/accountTypes";
 
 export interface FilterOption {
   id: string;
   label: string;
 }
 
-export const ACCOUNT_FILTERS: FilterOption[] = [
-  { id: "all", label: "All" },
-  { id: "demo", label: "Demo" },
-  { id: "eval", label: "Evals" },
-  { id: "funded", label: "Fundeds" },
-  { id: "live", label: "Live" },
-];
+/**
+ * Account-type filter chips. The labels come from Manage → Types, so renaming a
+ * type there renames it everywhere instead of leaving a stale "Evals" behind.
+ */
+export function accountFilters(): FilterOption[] {
+  return [
+    { id: "all", label: "All" },
+    { id: "demo", label: typeLabel("demo") },
+    { id: "eval", label: typeLabel("eval") },
+    { id: "funded", label: typeLabel("funded") },
+    { id: "live", label: typeLabel("live") },
+    { id: "personal", label: typeLabel("personal") },
+    { id: "unknown", label: typeLabel("unknown") },
+  ];
+}
 
 export const SCOPE_OPTIONS: FilterOption[] = [
   { id: "all", label: "All journal trades" },
@@ -159,12 +168,23 @@ export function renderAppShell(
   void active;
   root.empty();
   root.addClass("tj-app");
+  root.toggleClass("tj-privacy", plugin?.settings?.privacyMode === true);
   // Theme & appearance (settings): dotted notebook background + custom accent.
   const theme = plugin?.settings?.theme;
   if (theme) {
-    root.toggleClass("tj-theme-dots", theme.background === "dots");
+    const pattern = theme.pattern || (theme.background === "dots" ? "dots" : "none");
+    for (const p of ["none", "dots", "grid", "scanlines", "stars", "aurora", "gradient"]) {
+      root.toggleClass("tj-pat-" + p, pattern === p);
+    }
+    root.toggleClass("tj-font-mono", theme.font === "mono");
+    root.toggleClass("tj-font-serif", theme.font === "serif");
+    root.toggleClass("tj-glow", theme.glow === true);
     root.style.setProperty("--tj-accent", theme.accent || "");
     root.style.setProperty("--tj-dot", theme.dotColor || "");
+    root.style.setProperty("--tj-surface", theme.surface || "");
+    root.style.setProperty("--tj-bg", theme.bg || "");
+    root.style.setProperty("--tj-bg2", theme.bg2 || theme.bg || "");
+    root.style.setProperty("--tj-border", theme.border || "");
   }
   const main = root.createDiv({ cls: "tj-app-main" });
   return main;
@@ -191,7 +211,7 @@ export function openPluginSettings(app: any, plugin: any, tabId?: string): void 
       return;
     }
   } catch (err) {
-    console.error("[trading-journal] openTabById failed:", err);
+    console.error("[tradebook] openTabById failed:", err);
   }
   try {
     if (typeof setting.open === "function") setting.open();
@@ -199,6 +219,6 @@ export function openPluginSettings(app: any, plugin: any, tabId?: string): void 
     const tab = tabs.find((t: any) => t.id === pluginId);
     if (tab && typeof tab.display === "function") tab.display();
   } catch (err) {
-    console.error("[trading-journal] settings open failed:", err);
+    console.error("[tradebook] settings open failed:", err);
   }
 }

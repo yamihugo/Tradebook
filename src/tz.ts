@@ -70,6 +70,36 @@ export const TIMEZONE_OPTIONS: TimezoneOption[] = [
   { zone: "Pacific/Auckland", label: "Pacific/Auckland" },
 ];
 
+/** The browser/OS time zone as an IANA name. The honest default for a naive CSV:
+ *  a broker export made on this machine is usually written in this zone. */
+export function detectSystemZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** A short tag for a zone, for the little label next to a time input: ET, CT, PT. */
+export function zoneShortLabel(zone: string): string {
+  switch (zone) {
+    case "":
+      return "";
+    case "UTC":
+      return "UTC";
+    case "America/New_York":
+      return "ET";
+    case "America/Chicago":
+      return "CT";
+    case "America/Denver":
+      return "MT";
+    case "America/Los_Angeles":
+      return "PT";
+    default:
+      return (zone.split("/").pop() || zone).replace(/_/g, " ");
+  }
+}
+
 /** Offset in ms between the given IANA zone and UTC for a specific instant. */
 export function tzOffsetMs(date: Date, zone: string): number {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -97,8 +127,10 @@ export function tzOffsetMs(date: Date, zone: string): number {
 
 /** Interpret a local wall-clock (date + HH:MM) in `zone` and return the UTC instant. */
 export function localToUtc(dateStr: string, timeStr: string, zone: string): Date {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const [hh, mm] = timeStr.split(":").map(Number);
+  // Trades imported without a time (older notes have no entryTime) must not take
+  // the whole view down: an empty time simply means midnight.
+  const [y, m, d] = String(dateStr ?? "").split("-").map(Number);
+  const [hh, mm] = String(timeStr ?? "").split(":").map(Number);
   const utcGuess = Date.UTC(y || 0, (m || 1) - 1, d || 1, hh || 0, mm || 0);
   let result = utcGuess;
   for (let i = 0; i < 3; i++) {
@@ -108,8 +140,8 @@ export function localToUtc(dateStr: string, timeStr: string, zone: string): Date
 }
 
 /** Convert a UTC instant to wall-clock parts in `zone`. */
-export function toZone(date: Date, zone: string, targetZone = "America/New_York"): { date: string; time: string } {
-  const s = localToUtc(dateStrOf(date), timeStrOf(date), zone);
+export function toZone(instant: Date, _zone: string, targetZone = "America/New_York"): { date: string; time: string } {
+  // `instant` is already a UTC point — format it straight in the target zone.
   const fmt = new Intl.DateTimeFormat("en-US", {
     timeZone: targetZone,
     hour12: false,
@@ -120,12 +152,34 @@ export function toZone(date: Date, zone: string, targetZone = "America/New_York"
     minute: "2-digit",
   });
   const parts: Record<string, string> = {};
-  for (const p of fmt.formatToParts(s)) parts[p.type] = p.value;
+  for (const p of fmt.formatToParts(instant)) parts[p.type] = p.value;
   let hour = parseInt(parts.hour || "0", 10) % 24;
   if (hour === 24) hour = 0;
   return {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     time: `${String(hour).padStart(2, "0")}:${parts.minute}`,
+  };
+}
+
+/** Like `toZone`, but keeps the seconds — the CSV importer writes HH:MM:SS. */
+export function zoneWallParts(instant: Date, zone: string): { date: string; time: string } {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts: Record<string, string> = {};
+  for (const p of fmt.formatToParts(instant)) parts[p.type] = p.value;
+  let hour = parseInt(parts.hour || "0", 10) % 24;
+  if (hour === 24) hour = 0;
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${String(hour).padStart(2, "0")}:${parts.minute}:${parts.second}`,
   };
 }
 
@@ -162,16 +216,62 @@ export function isFiniteNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+let CURRENCY = "$";
+
+/** Set the currency symbol used by money formatting. */
+export function setCurrencySymbol(sym: string): void {
+  CURRENCY = sym || "$";
+}
+
 export function fmtMoney(n: number, decimals = 0): string {
   const abs = Math.abs(n).toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
-  return n >= 0 ? `+$${abs}` : `-$${abs}`;
+  return n >= 0 ? `+${CURRENCY}${abs}` : `-${CURRENCY}${abs}`;
+}
+
+/** Money with no leading sign — for amounts that are not gains or losses, like
+ *  an account size. `fmtMoney` always signs its output by design. */
+export function fmtMoneyAbs(n: number, decimals = 0): string {
+  return fmtMoney(Math.abs(n), decimals).replace(/^\+/, "");
 }
 
 export function fmtMoney2(n: number): string {
   return fmtMoney(n, 2);
+}
+
+/**
+ * Money as short as it can still be read: $950 · $1.5K · $25K · $1.2M.
+ *
+ * For badges and rows where the exact cents are noise — a payout badge that says
+ * "$1.000,00" is a receipt, not a label. The full number is always one hover away.
+ * No leading sign: an amount taken out is not a gain to celebrate.
+ */
+export function fmtMoneyCompact(n: number): string {
+  const sign = n < 0 ? "-" : "";
+  const v = Math.abs(n);
+  const short = (x: number) => (x >= 10 || Number.isInteger(x) ? String(Math.round(x)) : x.toFixed(1));
+  if (v < 1000) return `${sign}${CURRENCY}${Math.round(v).toLocaleString()}`;
+  if (v < 1_000_000) return `${sign}${CURRENCY}${short(v / 1000)}K`;
+  return `${sign}${CURRENCY}${short(v / 1_000_000)}M`;
+}
+
+/**
+ * A price, or an em dash when the note has none.
+ *
+ * Journaling by hand or by direct P&L leaves the price fields absent, and the
+ * parser turns an absent number into `NaN`. `NaN` printed on screen is a bug in
+ * any language: this renders it as "—" so the row reads as "not recorded"
+ * instead of broken. Zero counts as "not set" too — that is the convention the
+ * rest of the plugin uses for stop loss and imported fills.
+ */
+export function fmtPrice(v: number | undefined | null, decimals = 2): string {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n === 0) return "\u2014";
+  // Trim the padding: 20,950 reads better than 20,950.00 for a whole number.
+  const text = n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: decimals });
+  return n < 0 ? `-${text.replace("-", "")}` : text;
 }
 
 export function todayStr(d = new Date()): string {

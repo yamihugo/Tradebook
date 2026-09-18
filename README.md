@@ -1,8 +1,8 @@
-# Trading Journal
+# Tradebook
 
-A journalit-style trading journal for [Obsidian](https://obsidian.md), built for **Tradovate futures** (NQ, ES, MNQ, MES) with automatic demo / eval / funded / live account organization.
+A local trading journal for [Obsidian](https://obsidian.md), built for **futures traders** (NQ, ES, MNQ, MES) with automatic demo / eval / funded / live account organization.
 
-> **Status:** active development (`0.1.x`). See the `docs/` folder for the roadmap.
+> **Status:** active development (`0.5.x`). See the `docs/` folder for the roadmap.
 
 ## Features
 
@@ -18,9 +18,9 @@ A journalit-style trading journal for [Obsidian](https://obsidian.md), built for
 
 ## Usage
 
-1. Install the plugin (`id: trading-journal`).
+1. Install the plugin (`id: tradebook`).
 2. Open the **Import Tradovate CSV** (ribbon icon or command palette) and drop an export — or use **Add Trade** to paste CSV / enter a trade manually.
-3. Trades land as notes in your configured `trades` folder (`Trading Journal/trades` by default).
+3. Trades land as notes in your configured `trades` folder (`Tradebook/trades` by default).
 4. Open the **Trading Dashboard** to review. In *Needs Review*, tick the trades you finished, then hit *Mark reviewed* / *Mark print added*.
 
 ## Tick values
@@ -50,7 +50,7 @@ npx tsc --noEmit --skipLibCheck
 node esbuild.config.mjs production
 ```
 
-`main.js`, `manifest.json` and `styles.css` are emitted into the project root — copy them into `<vault>/.obsidian/plugins/trading-journal/`.
+`main.js`, `manifest.json` and `styles.css` are emitted into the project root — copy them into `<vault>/.obsidian/plugins/tradebook/`.
 
 ## Changelog
 
@@ -75,7 +75,7 @@ node esbuild.config.mjs production
 
 ## Support
 
-If Trading Journal helps your trading, consider supporting the project — [Buy me a coffee](https://www.buymeacoffee.com/yamihugo) ☕
+If Tradebook helps your trading, consider supporting the project — [Buy me a coffee](https://www.buymeacoffee.com/yamihugo) ☕
 
 ## License
 

@@ -1,8 +1,9 @@
 import { Notice, TFile } from "obsidian";
-import type TradingJournalPlugin from "../main";
+import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { updateTradeFields } from "../storage";
-import { fmtMoney2 } from "../tz";
+import { fmtMoney2, fmtPrice } from "../tz";
+import { attachTip } from "../lib/tip";
 
 /**
  * Big TradeZella-style pop-up for viewing + editing a single trade.
@@ -11,7 +12,7 @@ import { fmtMoney2 } from "../tz";
  * stacked vertically like a mini dashboard. Closing it drops you right back
  * where you were (calendar, trade log, dashboard, day log…).
  */
-export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void {
+export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
   const overlay = document.body.createDiv({ cls: "tj-modal-overlay" });
   const modal = overlay.createDiv({ cls: "tj-modal tj-trade-modal" });
 
@@ -20,7 +21,8 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
   head.createEl("h2", {
     text: `${trade.symbol} ${trade.direction === "long" ? "Long" : "Short"} · ${trade.date} · ${trade.account || ""}`.trim(),
   });
-  const closeBtn = head.createEl("button", { text: "✕", cls: "tj-btn tj-mini", attr: { title: "Close" } });
+  const closeBtn = head.createEl("button", { text: "✕", cls: "tj-btn tj-mini", attr: { "aria-label": "Close" } });
+attachTip(closeBtn, { title: "Close" });
   closeBtn.addEventListener("click", () => overlay.remove());
 
   const cols = modal.createDiv({ cls: "tj-trade-modal-cols" });
@@ -65,8 +67,8 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
   statKpi("Net P&L", fmtMoney2(trade.pnl), trade.pnl >= 0 ? "pos" : "neg");
   statKpi("Points", `${trade.pnlPoints ?? "—"} pts`, (trade.pnlPoints ?? 0) >= 0 ? "pos" : "neg");
   statKpi("Qty", String(trade.quantity ?? 1));
-  statKpi("Entry", `${trade.entryPrice ?? "—"} ${trade.entryTime || ""}`);
-  statKpi("Exit", `${trade.exitPrice ?? "—"} ${trade.exitTime || ""}`);
+  statKpi("Entry", `${fmtPrice(trade.entryPrice)} ${trade.entryTime || ""}`);
+  statKpi("Exit", `${fmtPrice(trade.exitPrice)} ${trade.exitTime || ""}`);
   const totalCosts = (trade.commission || 0) + (trade.fees || 0);
   statKpi("Costs", `$${totalCosts.toFixed(2)}`);
 
@@ -79,9 +81,10 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
     for (let s = 1; s <= 5; s++) {
       const star = starsWrap.createEl("button", {
         cls: "tj-td-star" + (current >= s ? " active" : ""),
-        attr: { type: "button", title: `${s} star${s > 1 ? "s" : ""}` },
+        attr: { type: "button", "aria-label": `Rate ${s} of 5` },
         text: current >= s ? "★" : "☆",
       });
+      attachTip(star, { title: `${s}/5`, sub: "Click the same star again to clear." });
       star.addEventListener("click", () => {
         const next = current === s ? 0 : s;
         trade.rating = next;
@@ -92,7 +95,7 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
   };
   renderStars(trade.rating ?? 0);
 
-  // Review fields (Setup / Review / Mistakes)
+  // Review fields (Strategy / Review / Mistakes)
   const field = (label: string, value: string, key: "setup" | "review" | "mistake") => {
     right.createEl("label", { text: label, cls: "tj-td-field-label" });
     const area = right.createEl("textarea", {
@@ -107,13 +110,14 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
       void saveTradeField(plugin, trade, key, val);
     });
   };
-  field("Setup", trade.setup, "setup");
+  field("Strategy", trade.setup, "setup");
   field("Review", trade.review, "review");
   field("Mistakes", trade.mistake, "mistake");
 
   // Open note link (raw markdown)
   const foot = modal.createDiv({ cls: "tj-trade-modal-foot" });
-  const noteBtn = foot.createEl("button", { text: "Open note", cls: "tj-btn tj-mini", attr: { title: "Open the raw markdown note in Obsidian" } });
+  const noteBtn = foot.createEl("button", { text: "Open note", cls: "tj-btn tj-mini" });
+attachTip(noteBtn, { title: "Open note", sub: "The raw markdown file, in Obsidian." });
   noteBtn.addEventListener("click", async () => {
     if (!trade.id) return;
     const file = plugin.app.vault.getAbstractFileByPath(trade.id);
@@ -130,30 +134,30 @@ export function openTradeModal(plugin: TradingJournalPlugin, trade: Trade): void
   });
 }
 
-function saveTradeField(plugin: TradingJournalPlugin, trade: Trade, key: string, value: string): Promise<void> {
+function saveTradeField(plugin: TradebookPlugin, trade: Trade, key: string, value: string): Promise<void> {
   if (!trade.id) return Promise.resolve();
   const file = plugin.app.vault.getAbstractFileByPath(trade.id);
   if (!(file instanceof TFile)) return Promise.resolve();
   return updateTradeFields(plugin.app, file, { [key]: value }).catch((err) => {
-    console.error("[trading-journal] failed to save trade field:", err);
+    console.error("[tradebook] failed to save trade field:", err);
     new Notice("Could not save — check the file still exists.");
   });
 }
 
-function resolveImage(plugin: TradingJournalPlugin, link: string): string | null {
+function resolveImage(plugin: TradebookPlugin, link: string): string | null {
   const raw = (link || "").trim();
   if (!raw) return null;
   const inner = raw.replace(/^\[\[/, "").replace(/\]\]$/, "");
   const target = inner.split("|")[0].split("#")[0].trim();
-  const tradesFolder = plugin?.getTradesFolder ? plugin.getTradesFolder() : "Trading Journal/trades";
+  const tradesFolder = plugin?.getTradesFolder ? plugin.getTradesFolder() : "Tradebook/trades";
   const candidates = [
     raw,
     target,
     tradesFolder + "/prints/" + target,
-    "Trading Journal/trades/prints/" + target,
-    "Trading Journal/" + target,
-    "Trading Journal/trades/" + target,
-    "Trading Journal/prints/" + target,
+    "Tradebook/trades/prints/" + target,
+    "Tradebook/" + target,
+    "Tradebook/trades/" + target,
+    "Tradebook/prints/" + target,
   ];
   for (const c of candidates) {
     try {

@@ -18,9 +18,38 @@ export interface GridItem {
   moved?: boolean;
 }
 
-export const GRID_COLS = 12;
-export const ROW_PX = 56;
-export const GAP = 14;
+/**
+ * Re-flow a layout into a smaller number of columns (responsive). Items keep
+ * their order (top-left to bottom-right) and wrap onto new rows instead of
+ * shrinking — the Journalit behaviour. Widths larger than `cols` are capped.
+ */
+export function reflow(layout: GridItem[], cols: number): GridItem[] {
+  const sorted = [...layout]
+    .sort((a, b) => a.y - b.y || a.x - b.x)
+    .map((it) => ({ ...it, w: Math.min(it.w, cols) }));
+  const placed: GridItem[] = [];
+  for (const it of sorted) {
+    let y = 0;
+    let done = false;
+    while (!done) {
+      for (let x = 0; x + it.w <= cols; x++) {
+        const trial: GridItem = { i: it.i, x, y, w: it.w, h: it.h };
+        if (!placed.some((p) => collides(trial, p))) {
+          if ((it as any).static) (trial as any).static = true;
+          placed.push(trial);
+          done = true;
+          break;
+        }
+      }
+      if (!done) y++;
+    }
+  }
+  return compactVertical(placed);
+}
+
+export const GRID_COLS = 24;
+export const ROW_PX = 38;
+export const GAP = 8;
 
 export const clamp = (v: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, v));

@@ -1,9 +1,9 @@
 {
-  "id": "trading-journal",
-  "name": "Trading Journal",
+  "id": "tradebook",
+  "name": "Tradebook",
   "version": "0.4.9",
   "minAppVersion": "1.4.0",
-  "description": "Trading journal for Tradovate futures (NQ/ES). Import Tradovate CSV, auto-split demo/evals/fundeds, and review on a journalit-style dashboard.",
+  "description": "A local trading journal for futures traders. Import broker CSV, track accounts and risk, and review every trade.",
   "author": "YamiHugo",
   "isDesktopOnly": false,
   "fundingUrl": "https://www.buymeacoffee.com/yamihugo"

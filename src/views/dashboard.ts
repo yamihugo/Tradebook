@@ -1,10 +1,11 @@
-import { ItemView, TFile } from "obsidian";
-import type TradingJournalPlugin from "../main";
+import { ItemView, setIcon, TFile } from "obsidian";
+import type TradebookPlugin from "../main";
 import { Trade } from "../types";
-import { ACCOUNT_FILTERS, attachTooltip, clamp, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
+import { accountFilters, attachTooltip, clamp, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
 import { effectiveSize, getFirm, getProgram, getSize } from "../props";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
+import { attachTip } from "../lib/tip";
 import {
   clamp as gClamp,
   collides,
@@ -16,46 +17,141 @@ import {
   gridRows,
   moveItem as gridMove,
   placeNew,
+  reflow,
   resizeItem as gridResize,
   ROW_PX,
 } from "../lib/grid";
 import { PerformanceCalendarWidget } from "../widgets/performanceCalendarWidget";
-import { openDayLogModal } from "./calendar";
+import { futuresSpec } from "../futures";
+import { METRIC_TITLES, metricById } from "../lib/metrics";
+import { analyticsTrades } from "../lib/scope";
+import { computeTrends, isBetter } from "../lib/trends";
+import { mountDateField } from "../lib/dates";
+import { reviewStatus, reviewSummary } from "../lib/review";
+import { openDayLogModal } from "./dayLogModal";
+import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
+import { renderLineChart } from "../lib/lineChart";
+import { formatDate } from "../lib/dates";
 
-export const DASHBOARD_VIEW_TYPE = "trading-journal-dashboard-view";
+export const DASHBOARD_VIEW_TYPE = "tradebook-dashboard-view";
+
+/** Shared day/month abbreviations for the heat-map. */
+const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export type DashItem = GridItem;
 
 export const CARD_TITLES: Record<string, string> = {
-  kpi: "Key Stats",
   equity: "Cumulative P&L",
+  longpnl: "Long P&L",
+  shortpnl: "Short P&L",
   calendar: "Performance Calendar",
+  heatmap: "Last 6 Months",
+  besthours: "Best Hours",
   symbols: "Symbol Breakdown",
-  score: "Zella Score & Performance Radar",
-  hourly: "Hourly Performance",
-  daily: "Day Performance",
+  score: "Trading Score & Radar",
+  review: "Needs Review",
+  trends: "Trends",
+  payouts: "Payouts",
+  // One widget per metric (the old combined "Key Stats" strip is gone).
+  ...METRIC_TITLES,
 };
 
-// Default grid (12 columns), mirroring Journalit's proportions:
-// full-width KPI row + big cumulative P&L chart + calendar, then half-width widgets.
+// Default grid (12 columns) — LITERAL copy of Journalit's dashboard layout (lg):
+// pnlChart(5x3), performanceCalendar(6x5), recentTrades(5x4),
+// shortPnLChart(6x8), longPnLChart(6x8); the KPI strip sits on top, full-width.
 const DEFAULT_TILES: GridItem[] = [
-  { i: "kpi", x: 0, y: 0, w: 12, h: 2 },
-  { i: "equity", x: 0, y: 2, w: 12, h: 4 },
-  { i: "calendar", x: 0, y: 6, w: 12, h: 6 },
-  { i: "score", x: 0, y: 12, w: 6, h: 6 },
-  { i: "symbols", x: 6, y: 12, w: 6, h: 6 },
-  { i: "hourly", x: 0, y: 18, w: 6, h: 6 },
-  { i: "daily", x: 6, y: 18, w: 6, h: 6 },
+  { i: "kpi", x: 0, y: 0, w: 12, h: 2, static: true },
+  { i: "equity", x: 0, y: 2, w: 5, h: 3 },
+  { i: "calendar", x: 0, y: 5, w: 6, h: 5 },
+  { i: "recent", x: 7, y: 2, w: 5, h: 4 },
+  { i: "shortpnl", x: 6, y: 6, w: 6, h: 8 },
+  { i: "longpnl", x: 0, y: 10, w: 6, h: 8 },
 ];
 
-const NEW_W: Record<string, number> = { kpi: 12, equity: 12, calendar: 12, score: 6, symbols: 6, hourly: 6, daily: 6 };
-const NEW_H: Record<string, number> = { kpi: 2, equity: 4, calendar: 6, score: 6, symbols: 6, hourly: 6, daily: 6 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, besthours: 10, review: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, besthours: 4, review: 4, heatmap: 5, trends: 4, payouts: 3 };
+
+/** Parse a displayed metric value to a number, or null if it is not numeric
+ *  (e.g. "9am", "3m", "—", "∞"). */
+function parseMetricNumber(s: string): number | null {
+  const t = s.trim();
+  if (!/^[+\-]?\$?[\d,]+(\.\d+)?%?$/.test(t)) return null;
+  const n = parseFloat(t.replace(/[$,%]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Build a formatter that mirrors the target string's style. */
+function metricFormatter(target: string): (v: number) => string {
+  if (target.includes("$")) {
+    return (v) =>
+      `${v >= 0 ? "+$" : "-$"}${Math.abs(v).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
+  }
+  if (target.includes("%")) return (v) => `${v.toFixed(1)}%`;
+  const dot = target.indexOf(".");
+  if (dot >= 0) {
+    const dec = Math.min(4, target.length - dot - 1);
+    return (v) => v.toFixed(dec);
+  }
+  return (v) => `${Math.round(v)}`;
+}
+
+/** "Nice" axis ticks within a range (1/2/5 * 10^n steps). */
+/** Smooth Catmull-Rom path through the points (a gentle wave, not sharp elbows). */
+/** Resample a previous series to a new length so two series can be morphed. */
+/**
+ * Colour is used only where it carries real meaning (a money outcome), as the
+ * accessibility guidance recommends. Everything else stays neutral and relies
+ * on the value itself (+/- signs, labels) rather than colour alone.
+ */
+const COLORED_METRICS = new Set(["m.netpnl", "m.maxdd"]);
+
+/**
+ * Per-trade statistics: a copied trade reached several accounts, but it is one
+ * trade — so these dedupe by copyBaseKey and never count (or average) it twice.
+ * Everything else (P&L, drawdown, best/worst day) is money and sums every leg.
+ */
+const PER_TRADE_METRICS = new Set([
+  "m.trades",
+  "m.winrate",
+  "m.wintrades",
+  "m.losstrades",
+  "m.winstreak",
+  "m.lossstreak",
+  "m.avgwin",
+  "m.avgloss",
+  "m.expectancy",
+  "m.avgrr",
+  "m.holdtime",
+  "m.winhold",
+  "m.losshold",
+  "m.sharpe",
+]);
+/** Metrics that show a "vs previous period" sub-stat. */
+const COMPARE_METRICS = new Set([
+  "m.netpnl", "m.expectancy", "m.maxdd", "m.bestday", "m.worstday",
+  "m.largestwin", "m.largestloss", "m.avgwin", "m.avgloss",
+]);
+
+/** Calm, human header lines. Rotated on a timer — never on a re-render/click. */
+const GREETING_LINES = [
+  "Let's take it one trade at a time.",
+  "No rush — the setup will come to you.",
+  "Keep the risk small and the plan simple.",
+  "Focus on the process; the results follow.",
+  "Protect the capital first.",
+  "A clean review is worth more than a green day.",
+  "Trade the plan, not the feeling.",
+  "Steady hands today.",
+];
 
 // Used when the container width is unknown (e.g. jsdom harness).
 const DESIGN_W = 1200;
 
 export class DashboardView extends ItemView {
-  plugin: TradingJournalPlugin;
+  plugin: TradebookPlugin;
   trades: Trade[] = [];
   filter = "all";
   dateRange = "all";
@@ -63,17 +159,56 @@ export class DashboardView extends ItemView {
   customTo = "";
   accountId: string | null = null;
   editMode = false;
+  filtersOpen = false;
+  widgetMenuOpen = false;
+  private headerTimer: number | null = null;
+  private msgEl: HTMLElement | null = null;
+  private msgStart = Date.now();
+  private msgBase = -1;
+  // Auto-adjust engine: re-render each widget body when its size changes so
+  // content always fits (no scrollbars, no clipped charts).
+  private bodyObserver: ResizeObserver | null = null;
+  private bodyRenderers = new Map<HTMLElement, () => void>();
+  private _resizeRaf = 0;
+  private _pendingResize = new Set<HTMLElement>();
+  // Re-render the whole grid when the pane/window width changes (keeps columns
+  // and card sizes in sync instead of drifting until you enter Edit).
+  private _resizeTimer = 0;
+  // Last displayed value per metric (updated during the count) + target value.
+  private metricDisplay = new Map<string, number>();
+  /** In-flight count-up animations, keyed by metric id (so a re-render cancels the old one). */
+  private _tweens = new Map<string, number>();
+  private metricTarget = new Map<string, number>();
+  // Previous cumulative series, so the chart can morph when data changes.
+  private _radarError = "";
+  /** True only for the first render — drives the intro animations. */
+  private _intro = true;
+  private mainEl: HTMLElement | null = null;
+  /** Suppresses observer redraws while the intro animations play. */
+  private _introUntil = 0;
+  private _radarAnimated = false;
+  private _reviewPct = -1;
+  private headerEl: HTMLElement | null = null;
+  private _onWinResize = () => {
+    if (this._resizeTimer) window.clearTimeout(this._resizeTimer);
+    this._resizeTimer = window.setTimeout(() => {
+      this._resizeTimer = 0;
+      this.render();
+    }, 160);
+  };
   dragId: string | null = null;
   // Grid engine state (react-grid-layout style)
   gridEl: HTMLElement | null = null;
   placeholderEl: HTMLElement | null = null;
   colW = 80;
+  /** Columns actually used for the current width (may be < GRID_COLS). */
+  private activeCols = GRID_COLS;
   cardEls = new Map<string, HTMLElement>();
   checked = new Set<string>();
   checking = false;
   checkboxEls = new Map<string, HTMLInputElement>();
 
-  constructor(leaf: any, plugin: TradingJournalPlugin) {
+  constructor(leaf: any, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -91,12 +226,21 @@ export class DashboardView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    window.addEventListener("resize", this._onWinResize);
     await this.refresh();
   }
 
   async refresh(): Promise<void> {
-    this.trades = await this.plugin.loadTrades();
+    // Expanded: copied trades are real money in every account they reached. The
+    // per-trade widgets dedupe them again (see PER_TRADE_METRICS) so a copy is
+    // never both counted twice and dropped.
+    this.trades = await this.plugin.loadTradesExpanded();
     this.render();
+  }
+
+  /** The list per-trade widgets use: one entry per logical trade. */
+  countsList(list: Trade[]): Trade[] {
+    return analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
   }
 
   accountMatches(t: Trade, acc: { id: string; name: string }): boolean {
@@ -105,14 +249,14 @@ export class DashboardView extends ItemView {
     return (t.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase();
   }
 
-  filteredTrades(): Trade[] {
+  /** Trades filtered by account / account-type (no date range). */
+  baseTrades(): Trade[] {
     let list = this.trades.filter((t) => isFiniteNumber(t.pnl) && t.date);
     if (this.accountId) {
       const acc = this.plugin.settings.propAccounts.find((a) => a.id === this.accountId);
       if (acc) list = list.filter((t) => this.accountMatches(t, acc));
     } else if (this.filter !== "all") {
       if (this.filter === "live") {
-        // Live = trades whose mapped account is marked live/personal, or a direct name match.
         const liveNames = new Set(this.plugin.settings.propAccounts.filter((a) => a.type === "live" || a.type === "personal").map((a) => a.name.trim().toLowerCase()));
         list = list.filter((t) => {
           const mapped = this.plugin.mappedAccount(t.account);
@@ -120,15 +264,32 @@ export class DashboardView extends ItemView {
           return liveNames.has((t.account || "").trim().toLowerCase());
         });
       } else {
-        list = list.filter((t) => t.accountType === this.filter);
+        const want = this.filter;
+        list = list.filter((t) => {
+          const mapped = this.plugin.mappedAccount(t.account);
+          const at = mapped ? mapped.type : t.accountType;
+          return at === want;
+        });
       }
     }
+    return list;
+  }
+
+  filteredTrades(): Trade[] {
+    let list = this.baseTrades();
     const now = new Date();
     if (this.dateRange !== "all") {
       let start: Date | null = null;
       let end: Date | null = null;
       const parseDay = (s: string): Date => new Date(s + "T00:00:00");
-      if (this.dateRange === "thisweek") {
+      if (this.dateRange === "today") {
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        end = start;
+      } else if (this.dateRange === "yesterday") {
+        const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        start = y;
+        end = y;
+      } else if (this.dateRange === "thisweek") {
         const day = now.getDay() || 7; // Mon=1..Sun=7
         start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1);
       } else if (this.dateRange === "lastweek") {
@@ -138,6 +299,10 @@ export class DashboardView extends ItemView {
         end = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 1);
       } else if (this.dateRange === "1m") {
         start = new Date(now.getFullYear(), now.getMonth(), 1);
+      } else if (this.dateRange === "thisquarter") {
+        start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      } else if (this.dateRange === "thisyear") {
+        start = new Date(now.getFullYear(), 0, 1);
       } else if (this.dateRange === "custom") {
         if (this.customFrom) start = parseDay(this.customFrom);
         if (this.customTo) end = parseDay(this.customTo);
@@ -148,19 +313,38 @@ export class DashboardView extends ItemView {
     return [...list].sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  /** Trades from the previous window of the same length (for "vs prev" deltas). */
+  previousPeriodTrades(): Trade[] {
+    if (this.dateRange === "all") return [];
+    const cur = this.filteredTrades();
+    if (!cur.length) return [];
+    const dates = cur.map((t) => t.date).sort();
+    const start = new Date(dates[0] + "T00:00:00");
+    const end = new Date(dates[dates.length - 1] + "T00:00:00");
+    const spanDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
+    const prevEnd = new Date(start.getTime() - 86400000);
+    const prevStart = new Date(prevEnd.getTime() - (spanDays - 1) * 86400000);
+    return this.baseTrades().filter((t) => {
+      const d = new Date(t.date + "T00:00:00");
+      return d >= prevStart && d <= prevEnd;
+    });
+  }
+
   ensureLayout(): void {
     const s = this.plugin.settings;
     let layout = s.dashboardLayout as any[];
     if (!layout || layout.length === 0) {
-      s.dashboardLayout = DEFAULT_TILES.map((t) => ({ ...t }));
+      // User's explicit choice: an empty dashboard stays empty (add via Edit).
+      s.dashboardLayout = [];
       return;
     }
+    // (Migration removed: user has full manual control over layout)
     // Migration from the old flow format: {id, size, rows} -> {i, x, y, w, h}
     const isOld = layout.some((it) => it.id !== undefined || it.size !== undefined);
     if (isOld) {
       const conv = layout.map((it) => ({
         i: it.id,
-        w: gClamp((it.size ?? 2) * 3, 1, GRID_COLS), // 1->3, 2->6, 3->9, 4->12
+        w: gClamp((it.size ?? 2) * 6, 1, GRID_COLS), // 1->6, 2->12, 3->18, 4->24
         h: it.rows === 2 ? 8 : it.id === "kpi" ? 2 : 4,
       }));
       // First-fit pack (left-to-right, top-to-bottom) then compact.
@@ -181,11 +365,24 @@ export class DashboardView extends ItemView {
       return;
     }
     // New format: drop unknown widgets, clamp bounds, re-compact.
+    // First migrate coordinates if the saved layout used an older grid width
+    // (e.g. 12 columns) so nothing shrinks or overlaps on upgrade.
+    const savedCols = s.gridCols || 12;
+    if (savedCols !== GRID_COLS) {
+      const factor = GRID_COLS / savedCols;
+      (layout as any[]).forEach((it) => {
+        if (!it) return;
+        if (typeof it.x === "number") it.x = Math.round(it.x * factor);
+        if (typeof it.w === "number") it.w = Math.max(1, Math.round(it.w * factor));
+      });
+      s.gridCols = GRID_COLS;
+      void this.plugin.saveSettings();
+    }
     const valid = new Set(Object.keys(CARD_TITLES));
     const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
       it.w = gClamp(Math.round(it.w), 1, GRID_COLS);
-      it.h = gClamp(Math.round(it.h), 1, 8);
+      it.h = gClamp(Math.round(it.h), 1, 60);
       it.x = gClamp(Math.round(it.x || 0), 0, GRID_COLS - it.w);
       it.y = Math.max(0, Math.round(it.y || 0));
     }
@@ -202,7 +399,10 @@ export class DashboardView extends ItemView {
   }
 
   addWidget(id: string): void {
-    this.plugin.settings.dashboardLayout = placeNew(this.getLayout(), id, NEW_W[id] ?? 6, NEW_H[id] ?? 6);
+    const isMetric = id.startsWith("m.");
+    const w = NEW_W[id] ?? (isMetric ? 3 : 12);
+    const h = NEW_H[id] ?? (isMetric ? 2 : 6);
+    this.plugin.settings.dashboardLayout = placeNew(this.getLayout(), id, w, h);
     this.saveLayout();
   }
 
@@ -212,6 +412,15 @@ export class DashboardView extends ItemView {
   }
 
   // ---------------- Grid engine: pure layout helpers (lib/grid.ts) ----------------
+
+  /** Scroll the dashboard when a drag/resize pointer nears the top/bottom edge. */
+  private edgeAutoScroll(clientY: number): void {
+    const main = this.mainEl;
+    if (!main) return;
+    const r = main.getBoundingClientRect();
+    if (clientY > r.bottom - 70) main.scrollTop += 16;
+    else if (clientY < r.top + 70) main.scrollTop -= 16;
+  }
 
   private positionCard(card: HTMLElement, item: GridItem): void {
     card.style.left = `${item.x * (this.colW + GAP)}px`;
@@ -299,7 +508,15 @@ export class DashboardView extends ItemView {
     const ghost = card.cloneNode(true) as HTMLElement;
     ghost.classList.add("tj-drag-ghost");
     ghost.removeAttribute("draggable");
+    // The clone keeps the card's inline left/top (its absolute grid position).
+    // Those inline styles beat the .tj-drag-ghost CSS, so the ghost stacked two
+    // offsets and flew off. Reset them and position purely via transform.
+    ghost.style.position = "fixed";
+    ghost.style.left = "0";
+    ghost.style.top = "0";
+    ghost.style.margin = "0";
     ghost.style.width = `${card.offsetWidth || item.w * this.colW}px`;
+    ghost.style.height = `${card.offsetHeight || item.h * ROW_PX}px`;
     document.body.appendChild(ghost);
     this._dragGhost = ghost;
 
@@ -314,12 +531,13 @@ export class DashboardView extends ItemView {
     const snapPos = (ev: PointerEvent) => {
       const gx = ev.clientX - this.gridRectLeft();
       const gy = ev.clientY - this.gridRectTop();
-      const nx = gClamp(Math.round(gx / (this.colW + GAP) - (item.w - 1) / 2), 0, GRID_COLS - item.w);
+      const nx = gClamp(Math.round(gx / (this.colW + GAP) - (item.w - 1) / 2), 0, this.activeCols - item.w);
       const ny = Math.max(0, Math.round(gy / (ROW_PX + GAP)));
       return { nx, ny };
     };
 
     const onMove = (ev: PointerEvent) => {
+      this.edgeAutoScroll(ev.clientY);
       ghost.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px)`;
       const { nx, ny } = snapPos(ev);
       if (nx === lastNx && ny === lastNy) return;
@@ -359,7 +577,8 @@ export class DashboardView extends ItemView {
   // ---------------- Corner resize (edit mode) ----------------
 
   private bindResize(card: HTMLElement, item: GridItem): void {
-    const handle = card.createDiv({ cls: "tj-resize-handle", attr: { title: "Drag to resize" } });
+    const handle = card.createDiv({ cls: "tj-resize-handle", attr: { "aria-label": "Drag to resize" } });
+    attachTip(handle, { title: "Drag to resize", sub: "Corner only — the cards pack themselves." });
     handle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -370,10 +589,11 @@ export class DashboardView extends ItemView {
       let curW = baseW;
       let curH = baseH;
       const onMove = (ev: PointerEvent) => {
+        this.edgeAutoScroll(ev.clientY);
         const dw = Math.round((ev.clientX - startX) / (this.colW + GAP));
         const dh = Math.round((ev.clientY - startY) / (ROW_PX + GAP));
-        curW = gClamp(baseW + dw, 1, GRID_COLS - item.x);
-        curH = gClamp(baseH + dh, 2, 8);
+        curW = gClamp(baseW + dw, 1, this.activeCols - item.x);
+        curH = gClamp(baseH + dh, 2, 30);
         const trial = gridResize(this.getLayout(), item.i, curW, curH);
         this.applyTrialPositions(trial);
         const me = this.findCardEl(this.gridEl as HTMLElement, item.i);
@@ -396,64 +616,291 @@ export class DashboardView extends ItemView {
     const root = this.contentEl;
     root.empty();
     const main = renderAppShell(root, this.plugin, "dashboard");
+    this.mainEl = main;
+    if (this._intro) root.addClass("tj-intro-root");
     root.addClass("tj-dashboard");
     root.toggleClass("tj-editing", this.editMode);
     main.addClass("tj-dash-main");
 
-    const title = main.createDiv({ cls: "tj-dash-title" });
-    title.createDiv().createEl("h1", { text: this.plugin.getDashboardTitle() });
-    const titleSub = title.createDiv({ cls: "tj-dash-sub" });
-    titleSub.createSpan({ cls: "tj-version-badge", text: `v${this.plugin.manifest.version}` });
-    const actions = title.createDiv({ cls: "tj-dash-actions" });
-    actions.createEl("button", { text: this.editMode ? "Done" : "Edit", cls: this.editMode ? "mod-cta" : "tj-btn" }).addEventListener("click", () => {
-      this.editMode = !this.editMode;
-      this.render();
-    });
-    this.renderFilters(main);
+    const headerEl = this.renderHeader(main);
+    this.headerEl = headerEl;
+    // Smooth, decisive collapse: past a small scroll the header becomes a slim
+    // bar (greeting hidden). Hysteresis prevents flicker/oscillation.
+    let collapsed = false;
+    let scrollRaf = 0;
+    const applyScroll = () => {
+      if (!this.headerEl) return;
+      const top = main.scrollTop || 0;
+      const next = collapsed ? top > 10 : top > 48;
+      if (next !== collapsed) {
+        collapsed = next;
+        this.headerEl.toggleClass("tj-collapsed", collapsed);
+      }
+    };
+    main.addEventListener(
+      "scroll",
+      () => {
+        if (scrollRaf) return;
+        scrollRaf = requestAnimationFrame(() => {
+          scrollRaf = 0;
+          applyScroll();
+        });
+      },
+      { passive: true }
+    );
+    applyScroll();
 
     const trades = this.filteredTrades();
-    if (this.editMode) this.renderPalette(main);
     if (trades.length === 0) {
-      const acc = this.accountId ? this.plugin.settings.propAccounts.find((a) => a.id === this.accountId) : undefined;
-      main.createDiv({
-        cls: "tj-empty",
-        text: acc
-          ? `No trades for "${acc.name}" in this period. Import a Tradeovate CSV or add a trade to get started.`
-          : `No trades${this.filter !== "all" ? " for this account type" : ""} in this period. Import a Tradeovate CSV or add a trade to get started.`,
-      });
+      // Friendly empty state instead of a grid of zeros/dashes.
+      this.renderEmptyState(main);
+      if (this.editMode) this.renderLayout(main, trades);
+      return;
     }
     this.renderLayout(main, trades);
   }
 
-  renderPalette(root: HTMLElement): void {
-    const layout = this.getLayout();
-    const pallet = root.createDiv({ cls: "tj-pallet" });
-    const titleRow = pallet.createDiv({ cls: "tj-pallet-header" });
-    titleRow.createEl("strong", { text: "Edit mode — drag cards to move them, use the corner handle to resize" });
-    titleRow.createEl("span", { text: "Cards shift out of the way as you drag — just like phone widgets. Tap Done when finished.", cls: "tj-pallet-hint" });
-    const row = pallet.createDiv({ cls: "tj-pallet-row" });
-    const present = new Set(layout.map((i) => i.i));
-    let added = 0;
-    for (const id of Object.keys(CARD_TITLES)) {
-      if (present.has(id)) continue;
-      added++;
-      row.createEl("button", { cls: "tj-pallet-chip", text: `+ ${CARD_TITLES[id]}` }).addEventListener("click", () => this.addWidget(id));
+  /** Centered, friendly empty state with the two main calls to action. */
+  renderEmptyState(main: HTMLElement): void {
+    const acc = this.accountId ? this.plugin.settings.propAccounts.find((a) => a.id === this.accountId) : undefined;
+    const hasAny = this.trades.length > 0;
+    const box = main.createDiv({ cls: "tj-emptystate" });
+    const icon = box.createDiv({ cls: "tj-emptystate-icon" });
+    setIcon(icon, "ghost");
+    box.createDiv({
+      cls: "tj-emptystate-title",
+      text: hasAny ? "No trades in this period" : "No trading data available",
+    });
+    box.createDiv({
+      cls: "tj-emptystate-sub",
+      text: hasAny
+        ? "Nothing matches the selected period or filters. Try a wider range, or add/import trades."
+        : "Import your previous trades to explore your performance now, or record a new trade manually.",
+    });
+    if (acc) box.createDiv({ cls: "tj-emptystate-note", text: `Filtered to “${acc.name}”.` });
+
+    const actions = box.createDiv({ cls: "tj-emptystate-actions" });
+    const importBtn = actions.createEl("button", { cls: "mod-cta tj-empty-primary", text: "Import existing trades" });
+    setIcon(importBtn.createSpan({ cls: "tj-btn-icon" }), "download");
+    importBtn.addEventListener("click", () => this.plugin.openImport());
+    const addBtn = actions.createEl("button", { cls: "tj-empty-secondary" });
+    setIcon(addBtn.createSpan({ cls: "tj-btn-icon" }), "plus");
+    addBtn.createSpan({ text: "Add a trade manually" });
+    addBtn.addEventListener("click", () => this.plugin.openAddPanel());
+  }
+
+  async onClose(): Promise<void> {
+    window.removeEventListener("resize", this._onWinResize);
+    if (this._resizeTimer) {
+      window.clearTimeout(this._resizeTimer);
+      this._resizeTimer = 0;
     }
-    if (added === 0) {
-      row.createSpan({ cls: "tj-pallet-hint", text: "All cards are on the dashboard already." });
+    if (this.headerTimer !== null) {
+      window.clearInterval(this.headerTimer);
+      this.headerTimer = null;
+    }
+    if (this.bodyObserver) {
+      this.bodyObserver.disconnect();
+      this.bodyObserver = null;
+    }
+  }
+
+  /** Time-of-day greeting, using the name from settings (journalName). */
+  private greetingText(): string {
+    const h = new Date().getHours();
+    const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    const name = (this.plugin.settings.journalName || "").trim();
+    return name ? `${part}, ${name}` : part;
+  }
+
+  /** Dashboard header: rotating greeting on the left, actions on the right. */
+  renderHeader(main: HTMLElement): HTMLElement {
+    const header = main.createDiv({ cls: "tj-header" + (this._intro ? " tj-intro" : "") });
+
+    const left = header.createDiv({ cls: "tj-header-greeting" });
+    left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
+    const sub = left.createDiv({ cls: "tj-header-sub" });
+    this.msgEl = sub;
+
+    // The line is derived from the clock, so re-renders (clicks on Edit/Filters)
+    // always show the SAME line. It only advances on its own 20s timer.
+    if (this.msgBase < 0) {
+      const now = new Date();
+      const day = Math.floor(now.getTime() / 86400000);
+      this.msgBase = (day * 7 + now.getHours()) % GREETING_LINES.length;
+    }
+    const currentLine = () =>
+      GREETING_LINES[(this.msgBase + Math.floor((Date.now() - this.msgStart) / 20000)) % GREETING_LINES.length];
+    sub.setText(currentLine());
+    if (this.headerTimer !== null) {
+      window.clearInterval(this.headerTimer);
+      this.headerTimer = null;
+    }
+    this.headerTimer = window.setInterval(() => {
+      const el = this.msgEl;
+      if (!el) return;
+      el.addClass("tj-fade");
+      window.setTimeout(() => {
+        el.setText(currentLine());
+        el.removeClass("tj-fade");
+      }, 220);
+    }, 20000);
+
+    const actions = header.createDiv({ cls: "tj-header-actions" });
+
+    // Time ranges — inline in the header, to the left of Filters, seamless.
+    this.renderPeriodBar(actions);
+
+    // Filters — plain icon, blends in with the rest of the UI.
+    const fbtn = actions.createEl("button", {
+      cls: "tj-filterbtn" + (this.filtersOpen ? " is-active" : ""),
+      attr: { type: "button", "aria-label": "Filters" },
+    });
+    attachTip(fbtn, { title: "Filters", sub: "Accounts, direction, strategies and more." });
+    setIcon(fbtn, "sliders-horizontal");
+    fbtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.filtersOpen = !this.filtersOpen;
+      this.widgetMenuOpen = false;
+      this.render();
+    });
+
+    // In edit mode, a labelled "Add widget" opens a dropdown that stays open,
+    // so several widgets can be added in one go.
+    if (this.editMode) {
+      const abtn = actions.createEl("button", {
+        cls: "tj-addwidget" + (this.widgetMenuOpen ? " is-active" : ""),
+        attr: { type: "button", "aria-label": "Add widget" },
+      });
+      const aic = abtn.createSpan({ cls: "tj-btn-icon" });
+      setIcon(aic, "plus");
+      abtn.createSpan({ text: "Add widget" });
+      abtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.widgetMenuOpen = !this.widgetMenuOpen;
+        this.filtersOpen = false;
+        this.render();
+      });
+      attachTip(abtn, { title: "Add widget", sub: "Stays open — add as many as you like." });
+    }
+
+    // Edit layout toggle
+    const ebtn = actions.createEl("button", {
+      cls: "tj-iconbtn" + (this.editMode ? " is-active" : ""),
+      attr: { type: "button", "aria-label": this.editMode ? "Done" : "Edit layout" },
+    });
+    setIcon(ebtn, this.editMode ? "check" : "pencil");
+    attachTip(ebtn, {
+      title: this.editMode ? "Done" : "Edit layout",
+      sub: this.editMode ? "Leave edit mode." : "Move, resize and remove cards.",
+    });
+    ebtn.addEventListener("click", () => {
+      this.editMode = !this.editMode;
+      this.render();
+    });
+
+    if (this.filtersOpen) this.renderFilterPopover(header);
+    if (this.widgetMenuOpen) this.renderWidgetMenu(header);
+    return header;
+  }
+
+  /** Dropdown list of addable widgets — stays open for multiple adds. */
+  renderWidgetMenu(header: HTMLElement): void {
+    const backdrop = header.createDiv({ cls: "tj-pop-backdrop" });
+    backdrop.addEventListener("click", () => {
+      this.widgetMenuOpen = false;
+      this.render();
+    });
+    const pop = header.createDiv({ cls: "tj-popover tj-widgetmenu" });
+    pop.addEventListener("click", (e) => e.stopPropagation());
+    pop.createDiv({ cls: "tj-pop-section", text: "Add widget" });
+    const list = pop.createDiv({ cls: "tj-widgetmenu-list" });
+    const present = new Set(this.getLayout().map((i) => i.i));
+    for (const id of Object.keys(CARD_TITLES)) {
+      const added = present.has(id);
+      const item = list.createDiv({ cls: "tj-widgetmenu-item" + (added ? " is-added" : "") });
+      item.createSpan({ cls: "tj-widgetmenu-name", text: CARD_TITLES[id] });
+      if (added) item.createSpan({ cls: "tj-widgetmenu-check", text: "✓" });
+      else item.addEventListener("click", () => this.addWidget(id));
+    }
+  }
+
+  /** Seamless period bar, embedded under the header (Journalit style). */
+  renderPeriodBar(main: HTMLElement): void {
+    const bar = main.createDiv({ cls: "tj-periodbar" + (this._intro ? " tj-intro" : "") });
+    const ranges: [string, string][] = [
+      ["today", "Today"],
+      ["yesterday", "Yesterday"],
+      ["thisweek", "This Week"],
+      ["1m", "This Month"],
+      ["thisquarter", "This Quarter"],
+      ["thisyear", "This Year"],
+      ["all", "All Time"],
+      ["custom", "Custom"],
+    ];
+    for (const [id, label] of ranges) {
+      const b = bar.createEl("button", {
+        cls: "tj-pbtn" + (this.dateRange === id ? " active" : ""),
+        text: label,
+        attr: { type: "button" },
+      });
+      b.addEventListener("click", () => {
+        this.dateRange = id;
+        if (id !== "custom") {
+          this.customFrom = "";
+          this.customTo = "";
+        }
+        this.render();
+      });
+    }
+    if (this.dateRange === "custom") {
+      const box = bar.createDiv({ cls: "tj-period-custom" });
+      // The plugin's own date field, so the custom range follows the Date format
+      // from Settings like every other date on screen.
+      mountDateField(box, {
+        value: this.customFrom,
+        format: this.plugin.settings.dateFormat,
+        className: "tj-period-date",
+        onChange: (iso) => {
+          this.customFrom = iso;
+          this.render();
+        },
+      });
+      box.createSpan({ cls: "tj-pop-label", text: "→" });
+      mountDateField(box, {
+        value: this.customTo,
+        format: this.plugin.settings.dateFormat,
+        className: "tj-period-date",
+        onChange: (iso) => {
+          this.customTo = iso;
+          this.render();
+        },
+      });
     }
   }
 
   renderLayout(root: HTMLElement, trades: Trade[]): void {
-    const layout = compactVertical(this.getLayout());
+    // Money (every leg) drives the P&L; the counted list drives win rates and
+    // trade counts — so a copied trade never tips a widget twice.
+    const counted = this.countsList(trades);
     const grid = root.createDiv({ cls: "tj-grid tj-grid-abs" });
     grid.toggleClass("is-editing", this.editMode);
     this.gridEl = grid;
     this.cardEls.clear();
-    this.colW = Math.max(60, ((root.clientWidth || DESIGN_W) - 32 - GAP * (GRID_COLS - 1)) / GRID_COLS);
+
+    // Responsive: keep cards at a readable minimum width by re-flowing into
+    // fewer columns (grows downward) instead of shrinking everything.
+    const gridW = grid.clientWidth || Math.max(240, (root.clientWidth || DESIGN_W) - 40);
+    const MIN_COL = 42;
+    const cols = Math.max(6, Math.min(GRID_COLS, Math.floor((gridW + GAP) / (MIN_COL + GAP))));
+    this.activeCols = cols;
+    this.colW = Math.max(24, (gridW - GAP * (cols - 1)) / cols);
+    let layout = compactVertical(this.getLayout());
+    if (cols < GRID_COLS) layout = reflow(layout, cols);
+    const prevTrades = this.previousPeriodTrades();
 
     if (layout.length === 0) {
-      grid.createDiv({ cls: "tj-empty", text: "Dashboard is empty — press Edit to add cards." });
+      grid.createDiv({ cls: "tj-empty", text: "Dashboard is empty — press the pencil, then “Add widget”." });
       return;
     }
     const rows = Math.max(1, gridRows(layout));
@@ -464,116 +911,280 @@ export class DashboardView extends ItemView {
       this.placeholderEl.style.display = "none";
     }
 
+    // Reset the auto-adjust engine for this render.
+    if (this.bodyObserver) this.bodyObserver.disconnect();
+    this.bodyRenderers.clear();
+    this._pendingResize.clear();
+    if (typeof ResizeObserver !== "undefined") {
+      this.bodyObserver = new ResizeObserver((entries) => {
+        // Ignore the first layout pass — it would cancel the intro animations.
+        if (Date.now() < this._introUntil) return;
+        for (const e of entries) this._pendingResize.add(e.target as HTMLElement);
+        if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
+        this._resizeRaf = requestAnimationFrame(() => {
+          this._resizeRaf = 0;
+          const targets = [...this._pendingResize];
+          this._pendingResize.clear();
+          for (const el of targets) {
+            const fn = this.bodyRenderers.get(el);
+            if (fn) fn();
+          }
+        });
+      });
+    }
+
+    let introIdx = 0;
     for (const item of layout) {
       const card = grid.createDiv({ cls: "tj-card tj-gridcard", attr: { "data-wid": item.i } });
+      // Charts blend into the dashboard background (no card box / border).
+      if (
+        item.i === "equity" ||
+        item.i === "longpnl" ||
+        item.i === "shortpnl" ||
+        item.i === "besthours" ||
+        item.i === "calendar"
+      ) {
+        card.addClass("tj-blend");
+      }
+      if (this._intro) {
+        card.addClass("tj-intro");
+        card.style.animationDelay = `${introIdx * 30}ms`;
+      }
+      introIdx++;
       this.cardEls.set(item.i, card);
       this.positionCard(card, item);
       if (item.static) card.addClass("tj-static");
       this.bindCard(card, item);
+      // Headerless widgets (the chart + individual metrics): content fills the card.
+      const headerless =
+        item.i === "equity" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar" || item.i.startsWith("m.");
+      if (headerless) {
+        const body = card.createDiv({
+          cls: "tj-gridcard-body" + (item.i.startsWith("m.") ? " tj-metric-body" : ""),
+        });
+        const drawHeadless = () => {
+          body.empty();
+          try {
+            if (item.i === "equity") this.renderEquityBody(body, trades);
+            else if (item.i === "longpnl") this.renderEquityBody(body, trades, "long");
+            else if (item.i === "shortpnl") this.renderEquityBody(body, trades, "short");
+            else if (item.i === "calendar")
+              new PerformanceCalendarWidget(body, trades, {
+                timeZone: this.plugin.settings.timeZone,
+                onDayClick: (dateKey) => void this.openDayInTradeLog(dateKey),
+                animate: this._intro && this.plugin.settings.animations !== false,
+                dateFormat: this.plugin.settings.dateFormat,
+              });
+            else this.renderMetricBody(body, trades, item.i, prevTrades);
+          } catch (err) {
+            console.error("[tradebook] card failed:", item.i, err);
+            body.empty();
+            body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem.` });
+          }
+        };
+        this.bodyRenderers.set(body, drawHeadless);
+        drawHeadless();
+        this.bodyObserver?.observe(body);
+        if (this.editMode) {
+          const del = card.createEl("button", { cls: "tj-card-del", text: "✕", attr: { type: "button", "aria-label": "Remove card" } });
+          attachTip(del, { title: "Remove card" });
+          del.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.i); });
+          // Metrics are fixed-size (drag to move only); chart + calendar are resizable.
+          if (item.i === "equity" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar")
+            this.bindResize(card, item);
+        }
+        continue;
+      }
       const header = card.createDiv({ cls: "tj-card-header" });
       header.createEl("h3", { text: CARD_TITLES[item.i] });
       if (this.editMode) {
         const controls = header.createDiv({ cls: "tj-card-controls" });
-        const b = controls.createEl("button", { text: "✕", cls: "tj-mini tj-del", attr: { type: "button", title: "Remove card" } });
+        const b = controls.createEl("button", { text: "✕", cls: "tj-mini tj-del", attr: { type: "button", "aria-label": "Remove card" } });
+        attachTip(b, { title: "Remove card" });
         b.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.i); });
         this.bindResize(card, item);
       }
       const body = card.createDiv({ cls: "tj-gridcard-body" });
-      try {
-        switch (item.i) {
-          case "kpi": this.renderKpiBody(body, trades); break;
-          case "equity": {
-            const total = trades.reduce((s, t) => s + t.pnl, 0);
-            const label = body.createDiv({ cls: "tj-equity-label", text: "Total P&L" });
-            label.title = "Net P&L for the selected period & account filter";
-            const value = body.createDiv({ cls: "tj-equity-total" });
-            value.addClass(total >= 0 ? "tj-pos" : "tj-neg");
-            value.textContent = fmtMoney2(total);
-            if (trades.length) this.renderLineChart(body, trades);
-            else body.createDiv({ cls: "tj-chart-empty", text: "No data" });
-            break;
-          }
-          case "symbols": this.renderSymbolTable(body, trades); break;
-          case "score": this.renderScoreRadar(body, trades); break;
-          case "calendar":
-            new PerformanceCalendarWidget(body, trades, {
-              timeZone: this.plugin.settings.timeZone,
-              onDayClick: (dateKey) => openDayLogModal(this.plugin, this.trades, dateKey, this.plugin.settings.timeZone),
-            });
-            break;
-          case "hourly": this.renderHourlyBody(body, trades); break;
-          case "daily": this.renderDailyBody(body, trades); break;
-        }
-      } catch (err) {
-        console.error("[trading-journal] card failed:", item.i, err);
+      const drawBody = () => {
         body.empty();
-        body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem — tap Edit to remove it.` });
-      }
+        try {
+          switch (item.i) {
+            case "equity": this.renderEquityBody(body, trades); break;
+            case "symbols": this.renderSymbolTable(body, trades, counted); break;
+            case "score": this.renderScoreRadar(body, counted); break;
+            case "besthours": this.renderBestHours(body, trades, counted); break;
+            case "heatmap": this.renderHeatmap(body, trades, counted); break;
+            case "review": this.renderReviewWidget(body, counted); break;
+            case "trends": this.renderTrendsWidget(body, counted); break;
+            case "payouts": this.renderPayoutsWidget(body); break;
+            case "calendar":
+              new PerformanceCalendarWidget(body, trades, {
+                timeZone: this.plugin.settings.timeZone,
+                onDayClick: (dateKey) => void this.openDayInTradeLog(dateKey),
+                animate: this._intro && this.plugin.settings.animations !== false,
+                dateFormat: this.plugin.settings.dateFormat,
+              });
+              break;
+          }
+        } catch (err) {
+          console.error("[tradebook] card failed:", item.i, err);
+          body.empty();
+          body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem — tap Edit to remove it.` });
+        }
+      };
+      this.bodyRenderers.set(body, drawBody);
+      drawBody();
+      this.bodyObserver?.observe(body);
+    }
+    if (this._intro) {
+      this._intro = false;
+      this._introUntil = Date.now() + 1000;
+      // After the intro, re-draw once so any widget that was measured before
+      // the layout settled gets the correct size (animations won't replay).
+      window.setTimeout(() => {
+        for (const fn of this.bodyRenderers.values()) fn();
+      }, 1100);
     }
   }
 
-  renderKpiBody(body: HTMLElement, trades: Trade[]): void {
-    const kpis = body.createDiv({ cls: "tj-kpis" });
-    const net = trades.reduce((s, t) => s + t.pnl, 0);
-    let sub = "";
-    if (trades.length) {
-      const lastDate = trades[trades.length - 1].date;
-      const lastDay = trades.filter((t) => t.date === lastDate).reduce((s, t) => s + t.pnl, 0);
-      if (lastDay !== net) sub = `— ${lastDay >= 0 ? "+" : ""}$${lastDay.toFixed(2)}`;
-    }
-    const wins = trades.filter((t) => t.pnl > 0);
-    const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
-    const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
-    const grossLoss = Math.abs(trades.filter((t) => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
-    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
-    const avg = trades.length ? net / trades.length : 0;
-
-    // Max drawdown (peak-to-trough) over the time-ordered equity curve
-    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
-    let cum = 0, peak = 0, maxDd = 0;
-    for (const t of sorted) {
-      cum += t.pnl;
-      peak = Math.max(peak, cum);
-      maxDd = Math.max(maxDd, peak - cum);
-    }
-
-    // Daily Sharpe ratio (annualized, sqrt(252) daily sessions)
-    const byDay = new Map<string, number>();
-    for (const t of sorted) byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
-    const dailyReturns = [...byDay.values()];
-    const dMean = dailyReturns.length ? dailyReturns.reduce((s, v) => s + v, 0) / dailyReturns.length : 0;
-    const dVar = dailyReturns.length ? dailyReturns.reduce((s, v) => s + (v - dMean) ** 2, 0) / dailyReturns.length : 0;
-    const dSd = Math.sqrt(dVar);
-    const sharpe = dSd > 0 ? (dMean / dSd) * Math.sqrt(252) : 0;
-
-    let bestDay = 0;
-    for (const v of dailyReturns) bestDay = Math.max(bestDay, v);
-
-    kpiCard(kpis, "Net P&L", fmtMoney2(net), net >= 0 ? "pos" : "neg", sub);
-    kpiCard(kpis, "Win Rate", `${winRate.toFixed(1)}%`, "neutral");
-    kpiCard(kpis, "Trades", `${trades.length}`, "neutral");
-    kpiCard(kpis, "Max Drawdown", `-$${maxDd.toFixed(2)}`, maxDd > 0 ? "neg" : "neutral");
-    kpiCard(kpis, "Profit Factor", `${profitFactor === Infinity ? "∞" : profitFactor.toFixed(2)}`, profitFactor >= 1 ? "pos" : "neg");
-    kpiCard(kpis, "Sharpe", sharpe === 0 ? "0.00" : sharpe > 0 ? sharpe.toFixed(2) : `-${Math.abs(sharpe).toFixed(2)}`, sharpe >= 0 ? "pos" : "neg");
-    kpiCard(kpis, "Expectancy", fmtMoney2(avg), avg >= 0 ? "pos" : "neg");
-    kpiCard(kpis, "Best Day", bestDay >= 0 ? `$${bestDay.toFixed(2)}` : "—", bestDay >= 0 ? "pos" : "neg");
+  /** Cumulative P&L — chart only. Hover shows the running total. */
+  renderEquityBody(body: HTMLElement, trades: Trade[], dir?: "long" | "short"): void {
+    const list = dir ? trades.filter((t) => (t.direction || "").toLowerCase() === dir) : trades;
+    const wrap = body.createDiv({ cls: "tj-eq" });
+    const chart = wrap.createDiv({ cls: "tj-eq-chart" });
+    if (list.length) this.drawEquityChart(chart, list, dir ?? "equity");
+    else chart.createDiv({ cls: "tj-chart-empty", text: "No data" });
+    // Tiny, unobtrusive title (Journalit style) — added after drawing so the
+    // chart's container.empty() does not wipe it.
+    const title = dir === "long" ? "Long P&L" : dir === "short" ? "Short P&L" : "Cumulative P&L";
+    wrap.createDiv({ cls: "tj-eq-title", text: title });
   }
 
-  renderNeedsReviewBody(body: HTMLElement, trades: Trade[]): void {
-    const missing = trades.filter((t) => !(t.review && t.review.trim()) || !(t.screenshot && t.screenshot.trim()));
-    if (missing.length === 0) {
-      body.createDiv({ cls: "tj-empty", text: "All reviewed — nice work!" });
+  /** Lightweight count up/down when a metric value changes. */
+  private animateNumber(el: HTMLElement, id: string, from: number, to: number, target: string): void {
+    const reduced =
+      this.plugin.settings.animations === false ||
+      (typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const fmt = metricFormatter(target);
+    if (reduced || Math.abs(to - from) < 1e-9) {
+      el.textContent = target;
+      this.metricDisplay.set(id, to);
       return;
     }
-    this.renderMissingTable(body, missing);
+    const prevRaf = this._tweens.get(id);
+    if (prevRaf) cancelAnimationFrame(prevRaf);
+    const dur = 850;
+    const steps = 22;
+    const start = performance.now();
+    let last = -1;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur);
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; // easeInOutCubic
+      const value = from + (to - from) * e;
+      const step = Math.floor(e * steps);
+      if (step !== last || t >= 1) {
+        last = step;
+        el.textContent = fmt(value);
+        this.metricDisplay.set(id, value);
+      }
+      if (t < 1) this._tweens.set(id, requestAnimationFrame(tick));
+      else {
+        el.textContent = target;
+        this.metricDisplay.set(id, to);
+        this._tweens.delete(id);
+      }
+    };
+    this._tweens.set(id, requestAnimationFrame(tick));
   }
 
-  renderFilters(root: HTMLElement): void {
-    const bar = root.createDiv({ cls: "tj-filterbar tj-filterbar-compact" });
+  /** One metric per widget. */
+  renderMetricBody(body: HTMLElement, trades: Trade[], id: string, prevTrades: Trade[] = []): void {
+    const def = metricById(id);
+    const wrap = body.createDiv({ cls: "tj-metric" });
+    const labelText = def?.label ?? CARD_TITLES[id] ?? id;
+    const labelEl = wrap.createDiv({ cls: "tj-metric-label", text: labelText });
+    const val = wrap.createDiv({ cls: "tj-metric-value" });
+    const res = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(trades) : trades) : { value: "—", tone: "neutral" as const };
+    // Restrained colour: only metrics where colour carries real meaning.
+    const tone = COLORED_METRICS.has(id) ? res.tone : "neutral";
+    if (tone === "pos") val.addClass("tj-pos");
+    else if (tone === "neg") val.addClass("tj-neg");
 
-    // Account dropdown — grouped by prop firm + program + size
-    bar.createSpan({ text: "Account", cls: "tj-filter-label" });
-    const accSel = bar.createEl("select", { cls: "dropdown tj-filt-account" });
+    // Count up/down when the number changes (e.g. switching timeframe).
+    const parsed = parseMetricNumber(res.value);
+    const prev = this.metricDisplay.get(id);
+    const animationsOn = this.plugin.settings.animations !== false;
+    if (parsed !== null && (prev === undefined || Math.abs(prev - parsed) > 1e-9) && animationsOn) {
+      const from = prev === undefined ? 0 : prev;
+      val.textContent = metricFormatter(res.value)(from);
+      this.metricTarget.set(id, parsed);
+      this.animateNumber(val, id, from, parsed, res.value);
+    } else {
+      val.textContent = res.value;
+      if (parsed !== null) this.metricDisplay.set(id, parsed);
+    }
+
+    // Sub-stat: delta vs the previous period (neutral — direction via arrow).
+    if (COMPARE_METRICS.has(id) && prevTrades.length && parsed !== null) {
+      const prevRes = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(prevTrades) : prevTrades) : null;
+      const prevNum = prevRes ? parseMetricNumber(prevRes.value) : null;
+      if (prevNum !== null) {
+        const d = parsed - prevNum;
+        const sub = wrap.createDiv({ cls: "tj-metric-sub" });
+        sub.setText(`${d >= 0 ? "\u2191" : "\u2193"} ${fmtMoney2(d)} vs prev`);
+      }
+    }
+
+    // Scale the value with the widget, but keep it modest (dashboard, not a TV).
+    const w = Math.max(110, body.clientWidth || 200);
+    const hh = Math.max(48, body.clientHeight || 70);
+    val.style.fontSize = `${Math.max(14, Math.min(w * 0.1, hh * 0.4, 22)).toFixed(0)}px`;
+  }
+
+  /**
+   * Minimal cumulative P&L curve that fills its container exactly.
+   * Smooth (Catmull-Rom) line, accent stroke, green/red area split at zero.
+   * Morphs smoothly when data changes and hides axis labels when too small.
+   */
+  private drawEquityChart(container: HTMLElement, trades: Trade[], key = "equity"): void {
+    const sorted = [...trades].sort(
+      (a, b) => a.date.localeCompare(b.date) || (a.entryTime || "").localeCompare(b.entryTime || "")
+    );
+    let cum = 0;
+    const values: number[] = [0];
+    const dates: string[] = [sorted[0]?.date ?? ""];
+    for (const t of sorted) {
+      cum += t.pnl;
+      values.push(cum);
+      dates.push(t.date);
+    }
+    renderLineChart(container, {
+      values,
+      dates,
+      key,
+      format: this.plugin.settings.dateFormat,
+      showDates: this.plugin.settings.chartDates !== false,
+      animations: this.plugin.settings.animations !== false,
+    });
+  }
+
+
+
+  renderFilterPopover(header: HTMLElement): void {
+    const backdrop = header.createDiv({ cls: "tj-pop-backdrop" });
+    backdrop.addEventListener("click", () => {
+      this.filtersOpen = false;
+      this.render();
+    });
+    const pop = header.createDiv({ cls: "tj-popover" });
+    pop.addEventListener("click", (e) => e.stopPropagation());
+
+    // ---- Trading data ----
+    pop.createDiv({ cls: "tj-pop-section", text: "Trading data" });
+    pop.createDiv({ cls: "tj-pop-label", text: "Account" });
+    const accSel = pop.createEl("select", { cls: "dropdown tj-filt-account" });
     const allOpt = accSel.createEl("option", { value: "", text: "All accounts" });
     if (!this.accountId) allOpt.setAttr("selected", "selected");
 
@@ -603,9 +1214,10 @@ export class DashboardView extends ItemView {
       this.render();
     });
 
-    // Type chips (All / Demo / Evals / Fundeds / Other) — only when no account chosen
-    const types = bar.createDiv({ cls: "tj-chipgroup tj-chips-inline" });
-    for (const f of ACCOUNT_FILTERS) {
+    // ---- Classification ----
+    pop.createDiv({ cls: "tj-pop-section", text: "Classification" });
+    const types = pop.createDiv({ cls: "tj-chipgroup tj-chips-inline" });
+    for (const f of accountFilters()) {
       const chip = types.createEl("button", { text: f.label, cls: "tj-chip" });
       if (!this.accountId && this.filter === f.id) chip.addClass("active");
       chip.addEventListener("click", () => {
@@ -614,182 +1226,623 @@ export class DashboardView extends ItemView {
         this.render();
       });
     }
-
-    // Period dropdown (compact) — week-based ranges + custom date pickers
-    bar.createSpan({ text: "Period", cls: "tj-filter-label" });
-    const periodSel = bar.createEl("select", { cls: "dropdown tj-filt-period" });
-    const ranges: [string, string][] = [
-      ["thisweek", "This week"],
-      ["lastweek", "Last week"],
-      ["1m", "This month"],
-      ["all", "All time"],
-      ["custom", "Custom…"],
-    ];
-    for (const [id, label] of ranges) {
-      const opt = periodSel.createEl("option", { value: id, text: label });
-      if (this.dateRange === id) opt.setAttr("selected", "selected");
-    }
-    periodSel.addEventListener("change", () => {
-      this.dateRange = periodSel.value;
-      if (this.dateRange !== "custom") {
-        this.customFrom = "";
-        this.customTo = "";
-      }
-      this.render();
-    });
-
-    // Custom date range inputs (From / To), shown only when custom selected
-    if (this.dateRange === "custom") {
-      const customBox = bar.createDiv({ cls: "tj-filter-custom" });
-      customBox.createSpan({ text: "From", cls: "tj-filter-label" });
-      const fromInput = customBox.createEl("input", { type: "date", cls: "tj-input tj-date-input" });
-      fromInput.value = this.customFrom;
-      fromInput.addEventListener("change", () => {
-        this.customFrom = fromInput.value;
-        this.render();
-      });
-      customBox.createSpan({ text: "To", cls: "tj-filter-label" });
-      const toInput = customBox.createEl("input", { type: "date", cls: "tj-input tj-date-input" });
-      toInput.value = this.customTo;
-      toInput.addEventListener("change", () => {
-        this.customTo = toInput.value;
-        this.render();
-      });
-    }
   }
 
-  renderLineChart(body: HTMLElement, trades: Trade[]): void {
-    const box = body.createDiv({ cls: "tj-chart-box" });
-    const svg = box.createSvg("svg", { cls: "tj-chart" });
-    svg.setAttribute("viewBox", "0 0 600 200");
-    svg.setAttribute("preserveAspectRatio", "none");
-    const w = 600, h = 200, pad = 24;
-    if (trades.length === 0) {
-      box.createDiv({ text: "No data", cls: "tj-chart-empty" });
+
+
+  /** "Needs Review" — single gauge: count inside, label below, % shown by the arc. */
+  /**
+   * The latest stretch of trades against the one before it. A direction, not a
+   * verdict: one window, four columns and an arrow per row, so you can see the
+   * last stretch went better than the one before it without the app telling you
+   * what to feel about it. Counted trades only — a copy is one decision.
+   */
+  /**
+   * Payouts: what has actually left the accounts. Cash out, not performance — a
+   * payout moves the balance and the distance to the limit, never the P&L.
+   */
+  renderPayoutsWidget(body: HTMLElement): void {
+    const excludeDemos = this.plugin.settings.excludeDemosFromPortfolio !== false;
+    const accounts = this.plugin.settings.propAccounts ?? [];
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const rows = (this.plugin.settings.payouts ?? [])
+      .filter((p) => !(excludeDemos && byId.get(p.accountId)?.type === "demo"))
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (!rows.length) {
+      body.createDiv({
+        cls: "tj-empty",
+        text: "No payouts yet. Log one on the account page on the day the money reaches you — the account value and its distance to the limit follow from it.",
+      });
       return;
     }
-    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
-    const values: number[] = [];
-    let cum = 0;
-    for (const t of sorted) {
-      cum += t.pnl;
-      values.push(cum);
-    }
-    const min = Math.min(0, ...values);
-    const max = Math.max(0, ...values);
-    const range = max - min || 1;
-    const x = (i: number) => pad + (i / Math.max(1, values.length - 1)) * (w - pad * 2);
-    const y = (v: number) => h - pad - ((v - min) / range) * (h - pad * 2);
 
-    // zero line
-    const zy = y(0);
-    svgLine(svg, pad, zy, w - pad, zy, "tj-chart-grid");
+    const total = rows.reduce((s, p) => s + p.amount, 0);
+    const year = String(new Date().getFullYear());
+    const yearTotal = rows.filter((p) => p.date.startsWith(year)).reduce((s, p) => s + p.amount, 0);
+    const touched = new Set(rows.map((p) => p.accountId));
+    const last = rows[rows.length - 1];
 
-    let d = "";
-    values.forEach((v, i) => {
-      d += (i === 0 ? "M" : "L") + x(i).toFixed(1) + "," + y(v).toFixed(1) + " ";
+    const wrap = body.createDiv({ cls: "tj-pay" });
+    const top = wrap.createDiv({ cls: "tj-pay-top" });
+    const totalBox = top.createDiv({ cls: "tj-pay-total" });
+    totalBox.createSpan({ cls: "tj-pay-k", text: "Total withdrawn" });
+    const totalVal = totalBox.createEl("b", { cls: "tj-pay-v", text: fmtMoney2(total) });
+    attachTip(totalVal, {
+      title: "Money that left your accounts",
+      sub: "Money that left your accounts.",
     });
-    // Gradient area: split above/below zero with soft translucent fills
-    const id = "tjgrad" + Math.random().toString(36).slice(2, 7);
-    let defs = svg.querySelector("defs");
-    if (!defs) {
-      defs = svg.createSvg("defs", {});
-      svg.prepend(defs);
+
+    const facts = top.createDiv({ cls: "tj-pay-facts" });
+    const fact = (label: string, value: string) => {
+      const box = facts.createDiv({ cls: "tj-pay-fact" });
+      box.createSpan({ cls: "tj-pay-k", text: label });
+      box.createSpan({ cls: "tj-pay-f", text: value });
+    };
+    fact("Payouts", String(rows.length));
+    fact("Accounts", String(touched.size));
+    fact(`In ${year}`, fmtMoney2(yearTotal));
+
+    // Six months of cash out, so the shape of "when did I take money" is visible.
+    const now = new Date();
+    const months: Array<{ key: string; amount: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, amount: 0 });
     }
-    const gradUp = defs.createSvg("linearGradient", { attr: { id: id + "up", x1: "0", y1: "0", x2: "0", y2: "1" } });
-    gradUp.createSvg("stop", { attr: { offset: "0%", "stop-color": "#10b981", "stop-opacity": "0.35" } });
-    gradUp.createSvg("stop", { attr: { offset: "100%", "stop-color": "#10b981", "stop-opacity": "0.02" } });
-    const gradDn = defs.createSvg("linearGradient", { attr: { id: id + "dn", x1: "0", y1: "0", x2: "0", y2: "1" } });
-    gradDn.createSvg("stop", { attr: { offset: "0%", "stop-color": "#ef4444", "stop-opacity": "0.02" } });
-    gradDn.createSvg("stop", { attr: { offset: "100%", "stop-color": "#ef4444", "stop-opacity": "0.35" } });
-    const clipUp = defs.createSvg("clipPath", { attr: { id: id + "clip" } }).createSvg("rect", { attr: { x: "0", y: "0", width: String(w), height: String(zy) } });
-    void clipUp;
+    for (const p of rows) {
+      const bucket = months.find((m) => m.key === p.date.slice(0, 7));
+      if (bucket) bucket.amount += p.amount;
+    }
+    const maxMonth = Math.max(...months.map((m) => m.amount), 1);
+    const bars = wrap.createDiv({ cls: "tj-pay-bars" });
+    const labels = wrap.createDiv({ cls: "tj-pay-blabels" });
+    for (const m of months) {
+      const col = bars.createDiv({ cls: "tj-pay-bar" });
+      const bar = col.createEl("i");
+      bar.style.height = `${m.amount > 0 ? Math.max(3, (m.amount / maxMonth) * 100) : 0}%`;
+      bar.toggleClass("is-empty", m.amount <= 0);
+      if (m.amount > 0) bar.setAttr("title", `${fmtMoney2(m.amount)} in ${m.key}`);
+      labels.createSpan({ cls: "tj-pay-blbl", text: MON_ABBR[Number(m.key.slice(5, 7)) - 1] });
+    }
 
-    const areaD = `${d} L${x(values.length - 1).toFixed(1)},${zy.toFixed(1)} L${x(0).toFixed(1)},${zy.toFixed(1)} Z`;
-    const areaTop = svgPath(svg, areaD, "tj-chart-area-grad");
-    areaTop.setAttribute("fill", `url(#${id}up)`);
-    areaTop.setAttribute("clip-path", `url(#${id}clip)`);
-    const areaBottom = svgPath(svg, areaD, "tj-chart-area-grad");
-    areaBottom.setAttribute("fill", `url(#${id}dn)`);
-    const clipDn = defs.createSvg("clipPath", { attr: { id: id + "clipdn" } }).createSvg("rect", { attr: { x: "0", y: String(zy), width: String(w), height: String(h - zy) } });
-    void clipDn;
-    areaBottom.setAttribute("clip-path", `url(#${id}clipdn)`);
-
-    // line
-    svgPath(svg, d, "tj-chart-line");
-
-    // Hover tooltip: P&L acumulado na posição do rato
-    const { show, hide } = attachTooltip(box);
-    const guide = svg.createSvg("line", { cls: "tj-chart-guide" });
-    guide.setAttribute("y1", String(pad));
-    guide.setAttribute("y2", String(h - pad));
-    guide.style.display = "none";
-    svg.addEventListener("mousemove", (ev) => {
-      const rect = svg.getBoundingClientRect();
-      const xView = ((ev.clientX - rect.left) / rect.width) * w;
-      const idx = clamp(Math.round(((xView - pad) / (w - pad * 2)) * (values.length - 1)), 0, values.length - 1);
-      const v = values[idx];
-      guide.setAttribute("x1", String(x(idx)));
-      guide.setAttribute("x2", String(x(idx)));
-      guide.style.display = "block";
-      show(ev.clientX, ev.clientY, `${sorted[idx].date}  •  ${v >= 0 ? "+" : ""}$${v.toFixed(2)}`);
-    });
-    svg.addEventListener("mouseleave", () => {
-      guide.style.display = "none";
-      hide();
+    const lastAcc = byId.get(last.accountId);
+    wrap.createDiv({
+      cls: "tj-pay-last",
+      text: `Last · ${formatDate(last.date)} · ${lastAcc?.name ?? "unknown account"} · ${fmtMoney2(last.amount)}`,
     });
   }
 
+  renderTrendsWidget(body: HTMLElement, trades: Trade[]): void {
+    if (!trades.length) {
+      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+      return;
+    }
+    const trends = computeTrends(trades);
+    const minutes = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)}m`);
+    const write = (v: number | null, unit: string): string => {
+      if (v === null || !Number.isFinite(v)) return unit === "factor" ? "\u221e" : "\u2014";
+      switch (unit) {
+        case "money":
+          return fmtMoney2(v);
+        case "r":
+          return `${v >= 0 ? "+" : ""}${v.toFixed(2)}R`;
+        case "percent":
+          return `${v.toFixed(1)}%`;
+        case "factor":
+          return v.toFixed(2);
+        default:
+          return minutes(v);
+      }
+    };
+    const writeDelta = (v: number | null, unit: string): string => {
+      if (v === null || !Number.isFinite(v)) return "\u2014";
+      // A tie is a tie: an increase of nothing is not an improvement.
+      const flat = Math.abs(v) < 1e-9;
+      const arrow = flat ? "=" : v > 0 ? "\u2191" : "\u2193";
+      const sign = flat ? "" : v > 0 ? "+" : "-";
+      const mag = Math.abs(v);
+      switch (unit) {
+        case "money":
+          return `${arrow} ${sign}${fmtMoney2(mag).replace(/^\+/, "")}`;
+        case "r":
+          return `${arrow} ${sign}${mag.toFixed(2)}R`;
+        case "percent":
+          return `${arrow} ${sign}${mag.toFixed(1)} pt`;
+        case "factor":
+          return `${arrow} ${sign}${mag.toFixed(2)}`;
+        default:
+          return `${arrow} ${sign}${minutes(mag)}`;
+      }
+    };
 
+    const head = body.createDiv({ cls: "tj-trendrow is-head" });
+    head.createDiv({ cls: "tj-trendname", text: "Metric" });
+    head.createDiv({ cls: "tj-trendval", text: `Previous ${trends.nBefore}` });
+    head.createDiv({ cls: "tj-trendval", text: `Latest ${trends.nAfter}` });
+    head.createDiv({ cls: "tj-trendval", text: "Change" });
+
+    for (const row of trends.rows) {
+      const line = body.createDiv({ cls: "tj-trendrow" });
+      line.createDiv({ cls: "tj-trendname", text: row.label });
+      line.createDiv({ cls: "tj-trendval", text: write(row.before, row.unit) });
+      line.createDiv({ cls: "tj-trendval", text: write(row.after, row.unit) });
+      const cell = line.createDiv({ cls: "tj-trenddelta" });
+      if (!trends.enough || row.delta === null) {
+        cell.setText("\u2014");
+        attachTip(cell, { title: "Not enough history", sub: `Needs ${trends.minSample} trades on each side before a direction means anything.` });
+        continue;
+      }
+      const text = writeDelta(row.delta, row.unit);
+      cell.createSpan({ cls: "tj-trendarrow", text: text.split(" ")[0] });
+      cell.createSpan({ text: text.split(" ").slice(1).join(" ") });
+      const better = isBetter(row);
+      const verdict = better === true ? "Better" : better === false ? "Worse" : "Unchanged";
+      if (better === true) cell.addClass("is-better");
+      else if (better === false) cell.addClass("is-worse");
+      cell.setAttr("aria-label", verdict);
+      attachTip(cell, { title: verdict, sub: text });
+    }
+
+    body.createDiv({
+      cls: "tj-trendnote",
+      text: trends.enough
+        ? `Latest ${trends.nAfter} trades against the ${trends.nBefore} before them \u2014 a direction, not a prediction.`
+        : `Not enough history for a trend yet \u2014 ${trades.length} trades here, and a direction needs ${trends.minSample} on each side of the split.`,
+    });
+    // A row that can never fill is a dead end unless we say what is missing.
+    for (const c of trends.coverage) {
+      const row = trends.rows.find((r) => r.id === c.metric);
+      if (!row || !c.total) continue;
+      if (row.before !== null || row.after !== null) continue;
+      const text =
+        c.have > 0
+          ? `${row.label} is empty in this window \u2014 only ${c.have} of the ${c.total} trades here record ${c.needs}.`
+          : `${row.label} needs ${c.needs} \u2014 none of the ${c.total} trades here have it yet.`;
+      body.createDiv({ cls: "tj-trendnote", text });
+    }
+  }
+
+  renderReviewWidget(body: HTMLElement, trades: Trade[]): void {
+    if (!trades.length) {
+      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+      return;
+    }
+    const rev = reviewSummary(trades);
+    const need = rev.total - rev.complete;
+
+    const wrap = body.createDiv({ cls: "tj-revieww" });
+
+    const gaugewrap = wrap.createDiv({ cls: "tj-revieww-gaugewrap" });
+    const gauge = gaugewrap.createDiv({ cls: "tj-revieww-gauge" });
+    gauge.style.setProperty("--tj-gauge-color", need === 0 ? "var(--color-green-bright)" : "#d97706");
+    const gaugeNum = gauge.createDiv({ cls: "tj-revieww-gauge-num" });
+    gaugewrap.createDiv({
+      cls: "tj-revieww-gauge-cap" + (need === 0 ? " is-complete" : ""),
+      text: need === 0 ? "complete" : "trades need review",
+    });
+
+    const foot = wrap.createDiv({ cls: "tj-revieww-foot" });
+    foot.createDiv({ cls: "tj-revieww-sub", text: `${rev.complete} of ${rev.total} complete` });
+    const pills = foot.createDiv({ cls: "tj-revieww-pills" });
+    const pill = (label: string, count: number) => {
+      if (count <= 0) return;
+      const p = pills.createSpan({ cls: "tj-revieww-pill" });
+      p.createSpan({ cls: "tj-revieww-pill-n", text: String(count) });
+      p.createSpan({ text: label });
+    };
+    pill("no print", rev.missingPrint);
+    pill("no strategy", rev.noSetup);
+    pill("no review", rev.noReview);
+    pill("no rating", rev.noRating);
+    if (!pills.childElementCount) pills.createSpan({ cls: "tj-revieww-done", text: "All caught up 🎉" });
+
+    // Animate the count and the gauge arc on change (e.g. after reviewing).
+    const animationsOn = this.plugin.settings.animations !== false;
+    const prevNeed = this.metricDisplay.get("review.need");
+    this.metricDisplay.set("review.need", need);
+    if (animationsOn && prevNeed !== undefined && prevNeed !== need) {
+      this.animateNumber(gaugeNum as HTMLElement, "review.need", prevNeed, need, String(need));
+    } else {
+      gaugeNum.textContent = String(need);
+    }
+
+    const prevPct = this._reviewPct;
+    this._reviewPct = rev.pct;
+    if (animationsOn && prevPct < 0) {
+      const dur = 800;
+      const t0 = performance.now();
+      const tick0 = (now: number) => {
+        const t = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - t, 3);
+        gauge.style.setProperty("--pct", String(rev.pct * e));
+        if (t < 1) requestAnimationFrame(tick0);
+        else gauge.style.setProperty("--pct", String(rev.pct));
+      };
+      requestAnimationFrame(tick0);
+    } else if (animationsOn && prevPct >= 0 && prevPct !== rev.pct) {
+      const dur = 900;
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - t, 3);
+        gauge.style.setProperty("--pct", String(prevPct + (rev.pct - prevPct) * e));
+        if (t < 1) requestAnimationFrame(tick);
+        else gauge.style.setProperty("--pct", String(rev.pct));
+      };
+      requestAnimationFrame(tick);
+    } else {
+      gauge.style.setProperty("--pct", String(rev.pct));
+    }
+
+    // Explicit action instead of a hoverable, fully-clickable card.
+    const actions = foot.createDiv({ cls: "tj-revieww-actions" });
+    const openBtn = actions.createEl("button", {
+      cls: "tj-revieww-open",
+      text: "Open review queue →",
+      attr: { type: "button" },
+    });
+    openBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.openReviewQueue();
+    });
+    for (const p of Array.from(pills.children)) {
+      (p as HTMLElement).addClass("is-clickable");
+      p.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.openReviewQueue();
+      });
+    }
+  }
+
+  /** Opens the Trade Log filtered to a single day (calendar day click). */
+  private async openDayInTradeLog(dateKey: string): Promise<void> {
+    await this.plugin.openTradeLog();
+    const leaves = this.plugin.app.workspace.getLeavesOfType("tradebook-trade-log-view");
+    const view: any = leaves.length ? leaves[0].view : null;
+    if (view && typeof view.filterByDay === "function") view.filterByDay(dateKey);
+  }
+
+  /** Opens the Trade Log filtered to the trades that still need review. */
+  private async openReviewQueue(): Promise<void> {
+    await this.plugin.openTradeLog();
+    const leaves = this.plugin.app.workspace.getLeavesOfType("tradebook-trade-log-view");
+    const view: any = leaves.length ? leaves[0].view : null;
+    if (view && typeof view.filterByReview === "function") view.filterByReview("pending");
+  }
+
+  /** GitHub-style P&L heat-map of the last ~6 months. */
+  renderHeatmap(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    killTip();
+    guardTips();
+    document.querySelectorAll(".tj-tip").forEach((n) => n.remove());
+
+    const byDay = new Map<string, { pnl: number; count: number; wins: number }>();
+    for (const t of trades) {
+      if (!t.date) continue;
+      const b = byDay.get(t.date) ?? { pnl: 0, count: 0, wins: 0 };
+      b.pnl += Number.isFinite(t.pnl) ? t.pnl : 0;
+      byDay.set(t.date, b);
+    }
+    for (const t of counted) {
+      if (!t.date) continue;
+      const b = byDay.get(t.date) ?? { pnl: 0, count: 0, wins: 0 };
+      b.count++;
+      if (t.pnl > 0) b.wins++;
+      byDay.set(t.date, b);
+    }
+    if (!byDay.size) {
+      body.createDiv({ cls: "tj-empty", text: "No trades yet." });
+      return;
+    }
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const first = new Date(end.getFullYear(), end.getMonth() - 5, 1);
+    const startMon = new Date(first);
+    startMon.setDate(startMon.getDate() - ((startMon.getDay() + 6) % 7));
+    const weeks: Date[] = [];
+    for (const d = new Date(startMon); d <= end; d.setDate(d.getDate() + 7)) weeks.push(new Date(d));
+
+    const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    const maxAbs = Math.max(...[...byDay.values()].map((b) => Math.abs(b.pnl)), 1);
+    const cell = Math.max(8, Math.min(15, Math.floor(((body.clientHeight || 160) - 46) / 7)));
+
+    const wrap = body.createDiv({ cls: "tj-heat" });
+    const monthsRow = wrap.createDiv({ cls: "tj-heat-months" });
+    const main = wrap.createDiv({ cls: "tj-heat-main" });
+    const days = main.createDiv({ cls: "tj-heat-days" });
+    const wcol = main.createDiv({ cls: "tj-heat-weeks" });
+
+    for (let i = 0; i < 7; i++) {
+      const s = days.createDiv({ cls: "tj-heat-day" });
+      s.style.height = `${cell}px`;
+      if (i % 2 === 0) s.setText(DAYS[i]);
+    }
+
+    let lastMonth = -1;
+    let lastLabelAt = -99;
+    weeks.forEach((w, wi) => {
+      const col = wcol.createDiv({ cls: "tj-heat-col" });
+      const slot = monthsRow.createDiv({ cls: "tj-heat-mslot" });
+      slot.style.width = `${cell}px`;
+      if (w.getMonth() !== lastMonth) {
+        lastMonth = w.getMonth();
+        // Skip a label if it would collide with the previous one (like GitHub).
+        if (wi - lastLabelAt >= 3) {
+          lastLabelAt = wi;
+          slot.setText(MON_ABBR[lastMonth]);
+        }
+      }
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(w);
+        d.setDate(d.getDate() + i);
+        const c = col.createDiv({ cls: "tj-heat-cell tj-tip-anchor" });
+        c.style.width = `${cell}px`;
+        c.style.height = `${cell}px`;
+        if (d < first || d > end) {
+          c.addClass("is-empty");
+          continue;
+        }
+        const key = iso(d);
+        const b = byDay.get(key);
+        if (!b) continue;
+        const a = 0.22 + Math.min(1, Math.abs(b.pnl) / maxAbs) * 0.55;
+        c.style.background =
+          b.pnl > 0 ? `rgba(34,122,74,${a.toFixed(2)})` : b.pnl < 0 ? `rgba(143,43,30,${a.toFixed(2)})` : "rgba(255,255,255,.10)";
+        this.bindHeatTip(c, key, b);
+      }
+    });
+
+    const legend = wrap.createDiv({ cls: "tj-heat-legend" });
+    legend.createSpan({ text: "Less" });
+    for (const a of [0.18, 0.36, 0.62, 0.9]) {
+      const sq = legend.createEl("i");
+      sq.style.background = `rgba(34,122,74,${a})`;
+    }
+    legend.createSpan({ text: "More" });
+  }
+
+  private bindHeatTip(cell: HTMLElement, key: string, b: { pnl: number; count: number; wins: number }): void {
+    cell.addEventListener("mouseenter", () => {
+      const [y, m, d] = key.split("-");
+      showTip(
+        {
+          title: formatDate(key, this.plugin.settings.dateFormat) || `${parseInt(d, 10)} ${MON_ABBR[parseInt(m, 10) - 1]} ${y}`,
+          value: fmtMoney2(b.pnl),
+          tone: b.pnl >= 0 ? "pos" : "neg",
+          sub: `${b.count} trade${b.count === 1 ? "" : "s"} · ${Math.round((b.wins / b.count) * 100)}% win`,
+        },
+        "tj-heat-tip"
+      );
+    });
+    cell.addEventListener("mousemove", (e) => moveTip(e));
+    cell.addEventListener("mouseleave", () => killTip());
+  }
+
+  /** Best Hours — segmented 30-min bar across the trading session. */
+  renderBestHours(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const parseMin = (tt: string): number | null => {
+      const m = /^(\d{1,2}):(\d{2})/.exec(tt || "");
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
+    };
+    const rows = trades.filter((t) => parseMin(t.entryTime) !== null);
+    const crows = counted.filter((t) => parseMin(t.entryTime) !== null);
+    if (!rows.length || !crows.length) {
+      body.createDiv({ cls: "tj-empty", text: "No time data yet." });
+      return;
+    }
+    const B = 30;
+    interface Bucket { net: number; count: number; wins: number; days: Set<string>; }
+    const buckets = new Map<number, Bucket>();
+    const bucketOf = (k: number): Bucket => {
+      const b = buckets.get(k) ?? { net: 0, count: 0, wins: 0, days: new Set<string>() };
+      buckets.set(k, b);
+      return b;
+    };
+    for (const t of rows) bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B).net += t.pnl;
+    for (const t of crows) {
+      const b = bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B);
+      b.count += 1;
+      if (t.pnl > 0) b.wins += 1;
+      b.days.add(t.date);
+    }
+    const keys = [...buckets.keys()].sort((a, b) => a - b);
+    const slots: number[] = [];
+    for (let k = keys[0]; k <= keys[keys.length - 1]; k += B) slots.push(k);
+    const avg = (b: Bucket) => (b.count ? b.net / b.count : 0);
+    let best: { k: number; b: Bucket } | null = null;
+    for (const k of slots) {
+      const b = buckets.get(k);
+      if (!b || !(b.count >= 5 && b.days.size >= 3)) continue;
+      if (!best || avg(b) > avg(best.b)) best = { k, b };
+    }
+    if (!best) {
+      for (const k of slots) {
+        const b = buckets.get(k);
+        if (b && (!best || b.net > best.b.net)) best = { k, b };
+      }
+    }
+    const fmtT = (mins: number) => {
+      const h24 = Math.floor(mins / 60) % 24, mm = mins % 60;
+      const ampm = h24 < 12 ? "am" : "pm";
+      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+      return mm === 0 ? `${h12}${ampm}` : `${h12}:${String(mm).padStart(2, "0")}${ampm}`;
+    };
+    const maxAbs = Math.max(...slots.map((k) => Math.abs(buckets.get(k)?.net ?? 0)), 1);
+
+    const wrap = body.createDiv({ cls: "tj-bh" });
+    const hero = wrap.createDiv({ cls: "tj-bh-hero" });
+    if (best) {
+      hero.createDiv({ cls: "tj-bh-range", text: `${fmtT(best.k)}-${fmtT(best.k + B)}` });
+      hero.createDiv({
+        cls: "tj-bh-value " + (avg(best.b) >= 0 ? "tj-pos" : "tj-neg"),
+        text: fmtMoney2(avg(best.b)),
+      });
+    }
+    const bar = wrap.createDiv({ cls: "tj-bh-bar" });
+    for (const k of slots) {
+      const b = buckets.get(k);
+      const seg = bar.createDiv({ cls: "tj-bh-seg tj-tip-anchor" });
+      if (b) {
+        const intensity = 22 + Math.round((Math.abs(b.net) / maxAbs) * 58);
+        const pos = b.net >= 0;
+        seg.style.background =
+          b.net === 0
+            ? "color-mix(in srgb, var(--text-faint) 22%, transparent)"
+            : `rgba(${pos ? "34,122,74" : "143,43,30"},${(intensity / 100).toFixed(2)})`;
+        const winPct = Math.round((b.wins / b.count) * 100);
+        seg.addEventListener("mouseenter", () =>
+          showTip(
+            {
+              title: `${fmtT(k)}–${fmtT(k + B)}`,
+              value: fmtMoney2(b.net),
+              tone: b.net >= 0 ? "pos" : "neg",
+              sub: `${b.count} trades · ${winPct}% win`,
+            },
+            "tj-bh-tip"
+          )
+        );
+        seg.addEventListener("mousemove", (e) => moveTip(e));
+        seg.addEventListener("mouseleave", () => killTip());
+      } else {
+        seg.addClass("is-empty");
+      }
+    }
+    const axis = wrap.createDiv({ cls: "tj-bh-axis" });
+    const labelEvery = Math.max(1, Math.ceil(slots.length / 5));
+    slots.forEach((k, i) => {
+      const t = axis.createDiv({ cls: "tj-bh-tick", text: i % labelEvery === 0 || i === slots.length - 1 ? fmtT(k) : "" });
+      if (i === 0) t.style.textAlign = "left";
+      else if (i === slots.length - 1) t.style.textAlign = "right";
+    });
+  }
+
+  /**
+   * Trading Score — Journalit-style weighted radar.
+   * 6 axes: risk 25 · profitability 20 · execution 15 · consistency 15 ·
+   * experience 15 · return-consistency 10. Unlocks after 4 weeks + 5 trades.
+   */
   renderScoreRadar(body: HTMLElement, trades: Trade[]): void {
     if (trades.length === 0) {
       body.createDiv({ cls: "tj-empty", text: "No trades to compute score." });
       return;
     }
-    const wins = trades.filter((t) => t.pnl > 0);
-    const losses = trades.filter((t) => t.pnl < 0);
-    const winRate = trades.length ? (wins.length / trades.length) * 100 : 0;
+    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
+    const wins = sorted.filter((t) => t.pnl > 0);
+    const losses = sorted.filter((t) => t.pnl < 0);
     const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 100 : 0;
-    const avgWin = wins.length ? grossWin / wins.length : 0;
-    const avgLoss = losses.length ? grossLoss / losses.length : 1;
-    const avgWLRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
-    let cum = 0, peak = 0, maxDd = 0;
-    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
-    for (const t of sorted) {
-      cum += t.pnl;
-      peak = Math.max(peak, cum);
-      maxDd = Math.max(maxDd, peak - cum);
+    const pf = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 5 : 0;
+
+    const weekKey = (iso: string) => {
+      const [y, m, d] = (iso || "").split("-").map(Number);
+      const date = new Date(Date.UTC(y || 2020, (m || 1) - 1, d || 1));
+      const day = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - day);
+      const ys = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const wn = Math.ceil(((date.getTime() - ys.getTime()) / 86400000 + 1) / 7);
+      return `${date.getUTCFullYear()}-W${wn}`;
+    };
+    const weeksActive = new Set(sorted.map((t) => weekKey(t.date))).size;
+    const count = sorted.length;
+
+    const dayMap = new Map<string, number>();
+    for (const t of sorted) dayMap.set(t.date, (dayMap.get(t.date) ?? 0) + t.pnl);
+    const dayValues = [...dayMap.values()];
+
+    const stopDefined = sorted.filter((t) => (t.stopLoss ?? 0) > 0).length / count;
+    let lossR = 0;
+    let lossRn = 0;
+    for (const t of losses) {
+      if ((t.stopLoss ?? 0) > 0 && t.entryPrice) {
+        const spec = futuresSpec(t.symbol || "NQ");
+        const riskMoney = Math.abs(t.entryPrice - (t.stopLoss as number)) * spec.pointValue * (t.quantity || 1);
+        if (riskMoney > 0) {
+          lossR += Math.abs(t.pnl) / riskMoney;
+          lossRn++;
+        }
+      }
     }
-    const totalNet = cum;
-    const recoveryFactor = maxDd > 0 ? totalNet / maxDd : totalNet > 0 ? 100 : 0;
-    const byDay = new Map<string, number>();
-    for (const t of sorted) byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
-    const posDays = [...byDay.values()].filter((v) => v > 0).length;
-    const consistency = byDay.size > 0 ? (posDays / byDay.size) * 100 : 0;
+    const avgLossR = lossRn ? lossR / lossRn : 0;
+    const mistakeRate = sorted.filter((t) => (t.mistake || "").trim()).length / count;
+    const reviewedRate = sorted.filter((t) => reviewStatus(t).complete).length / count;
+    const posDays = dayValues.filter((v) => v > 0).length;
+    const mean = dayValues.reduce((s, v) => s + v, 0) / (dayValues.length || 1);
+    const sd = Math.sqrt(dayValues.reduce((s, v) => s + (v - mean) ** 2, 0) / (dayValues.length || 1));
+    const cv = Math.abs(mean) > 1e-9 ? sd / Math.abs(mean) : 2;
 
     const axes = [
-      { label: "Win %", value: clamp(winRate, 0, 100) },
-      { label: "Profit Factor", value: clamp((profitFactor / 3) * 100, 0, 100) },
-      { label: "Avg W/L", value: clamp((avgWLRatio / 3) * 100, 0, 100) },
-      { label: "Recovery", value: clamp((recoveryFactor / 5) * 100, 0, 100) },
-      { label: "Max Drawdown", value: clamp(100 - (maxDd / (totalNet || 1)) * 100, 0, 100) },
-      { label: "Consistency", value: clamp(consistency, 0, 100) },
+      {
+        label: "Risk Management",
+        weight: 0.25,
+        value: clamp(100 * (0.5 * stopDefined + 0.5 * (1 - Math.min(1, avgLossR / 2.5))), 0, 100),
+      },
+      { label: "Profitability", weight: 0.2, value: clamp(((pf - 1) / 2) * 100, 0, 100) },
+      {
+        label: "Execution",
+        weight: 0.15,
+        value: clamp(100 * (0.6 * (1 - mistakeRate) + 0.4 * reviewedRate), 0, 100),
+      },
+      { label: "Return Consistency", weight: 0.1, value: clamp(100 - cv * 100, 0, 100) },
+      { label: "Consistency", weight: 0.15, value: clamp((posDays / (dayMap.size || 1)) * 100, 0, 100) },
+      { label: "Experience", weight: 0.15, value: clamp(weeksActive * 8 + count * 0.4, 0, 100) },
     ];
+    const score = axes.reduce((s, a) => s + a.value * a.weight, 0);
+    const band =
+      score < 30 ? "#ef4444" : score < 50 ? "#f97316" : score < 70 ? "#eab308" : score < 90 ? "#22c55e" : "#06b6d4";
+    const phase = weeksActive < 8 ? "Developing" : "Established";
 
+    const NS = "http://www.w3.org/2000/svg";
+    const el = (tag: string, attrs: Record<string, string>): SVGElement => {
+      const node = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+      return node;
+    };
+    const box = body.createDiv({ cls: "tj-chart-box tj-radar-box tj-score2" });
+    box.style.setProperty("--tj-score-color", band);
+
+    // ------------------ locked: progress ring ------------------
+    if (weeksActive < 4 || count < 5) {
+      const done = Math.min(4, weeksActive);
+      const pct = (done / 4) * 100;
+      const msg =
+        weeksActive < 4
+          ? done === 0
+            ? "Start trading to unlock your score"
+            : done === 1
+              ? "1 week down, keep going!"
+              : `${4 - done} weeks to unlock`
+          : `${Math.max(0, 5 - count)} trades to unlock`;
+      const wrap = box.createDiv({ cls: "tj-score-lock" });
+      const svg = el("svg", { viewBox: "0 0 130 130", class: "tj-score-ring" });
+      svg.appendChild(el("circle", { cx: "65", cy: "65", r: "52", fill: "none", stroke: "rgba(255,255,255,.08)", "stroke-width": "9" }));
+      svg.appendChild(
+        el("circle", {
+          cx: "65", cy: "65", r: "52", fill: "none", stroke: band, "stroke-width": "9",
+          "stroke-linecap": "round", pathLength: "100",
+          "stroke-dasharray": `${pct} 100`, transform: "rotate(-90 65 65)",
+        })
+      );
+      wrap.appendChild(svg as unknown as Node);
+      const num = wrap.createDiv({ cls: "tj-score-ring-num" });
+      num.createSpan({ cls: "tj-score-ring-big", text: String(done) });
+      num.createSpan({ cls: "tj-score-ring-small", text: "of 4" });
+      box.createDiv({ cls: "tj-score-msg", text: msg });
+      box.createDiv({ cls: "tj-score-trades", text: `${count} trades logged` });
+      return;
+    }
+
+    // ------------------ unlocked: weighted radar ------------------
     const n = axes.length;
-    const cx = 300, cy = 200, r = 140;
-    const box = body.createDiv({ cls: "tj-chart-box" });
-    const svg = box.createSvg("svg", { cls: "tj-chart tj-radar" });
-    svg.setAttribute("viewBox", "0 0 600 400");
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-
+    const cx = 200, cy = 165, r = 118;
     const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
-    const pt = (i: number, dist: number) => ({
-      x: cx + Math.cos(angle(i)) * dist,
-      y: cy + Math.sin(angle(i)) * dist,
-    });
+    const pt = (i: number, dist: number) => ({ x: cx + Math.cos(angle(i)) * dist, y: cy + Math.sin(angle(i)) * dist });
+    const svg = el("svg", { viewBox: "0 0 400 320", preserveAspectRatio: "xMidYMid meet", class: "tj-chart tj-radar", width: "100%", height: "100%" });
+    box.appendChild(svg as unknown as Node);
+    const small = (box.clientWidth > 0 && box.clientWidth < 190) || (box.clientHeight > 0 && box.clientHeight < 150);
 
     for (const pct of [0.25, 0.5, 0.75, 1]) {
       let d = "";
@@ -797,322 +1850,166 @@ export class DashboardView extends ItemView {
         const p = pt(i, r * pct);
         d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
       }
-      svgPath(svg, d + "Z", "tj-radar-ring");
+      svg.appendChild(el("path", { d: d + "Z", class: "tj-radar-ring" }));
     }
-
     for (let i = 0; i < n; i++) {
       const p = pt(i, r);
-      svgLine(svg, cx, cy, p.x, p.y, "tj-radar-axis");
+      svg.appendChild(el("line", { x1: String(cx), y1: String(cy), x2: String(p.x), y2: String(p.y), class: "tj-radar-axis" }));
+    }
+    if (!small) {
+      for (let i = 0; i < n; i++) {
+        const p = pt(i, r + 24);
+        const lbl = el("text", {
+          x: String(p.x), y: String(p.y), "text-anchor": "middle", "dominant-baseline": "central", class: "tj-radar-label",
+        });
+        lbl.textContent = axes[i].label;
+        svg.appendChild(lbl);
+      }
+    }
+    const fill = el("path", { class: "tj-radar-fill" });
+    fill.setAttribute("stroke-dasharray", "4 3");
+    svg.appendChild(fill);
+    const shapeAt = (scale: number) => {
+      let d = "";
+      for (let i = 0; i < n; i++) {
+        const p = pt(i, (axes[i].value / 100) * r * scale);
+        d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
+      }
+      return d + "Z";
+    };
+    const animationsOn = this.plugin.settings.animations !== false && !this._radarAnimated;
+    this._radarAnimated = true;
+    fill.setAttribute("d", shapeAt(animationsOn ? 0 : 1));
+    if (animationsOn) {
+      const dur = 700;
+      const t0 = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - t0) / dur);
+        const e = 1 - Math.pow(1 - t, 3);
+        fill.setAttribute("d", shapeAt(e));
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
     }
 
+    // hover targets: axis score + weight
     for (let i = 0; i < n; i++) {
-      const p = pt(i, r + 22);
-      const lbl = svg.createSvg("text", { cls: "tj-radar-label" });
-      lbl.setAttribute("x", String(p.x));
-      lbl.setAttribute("y", String(p.y));
-      lbl.setAttribute("text-anchor", "middle");
-      lbl.setAttribute("dominant-baseline", "central");
-      lbl.textContent = axes[i].label;
+      const p = pt(i, r);
+      const hit = el("circle", { cx: String(p.x), cy: String(p.y), r: "22", fill: "transparent", class: "tj-tip-anchor" });
+      hit.addEventListener("mouseenter", () =>
+        showTip(
+          {
+            title: axes[i].label,
+            value: String(Math.round(axes[i].value)),
+            sub: `Weight: ${Math.round(axes[i].weight * 100)}%`,
+          },
+          "tj-score-tip"
+        )
+      );
+      hit.addEventListener("mousemove", (e) => moveTip(e));
+      hit.addEventListener("mouseleave", () => killTip());
+      svg.appendChild(hit);
     }
 
-    let d = "";
-    for (let i = 0; i < n; i++) {
-      const p = pt(i, (axes[i].value / 100) * r);
-      d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
-    }
-    svgPath(svg, d + "Z", "tj-radar-fill");
-
-    const { show, hide } = attachTooltip(box);
-    for (let i = 0; i < n; i++) {
-      const p = pt(i, (axes[i].value / 100) * r);
-      const c = svg.createSvg("circle", { cls: "tj-radar-dot" });
-      c.setAttribute("cx", String(p.x));
-      c.setAttribute("cy", String(p.y));
-      c.setAttribute("r", "4");
-      c.addEventListener("mouseenter", (ev) => {
-        c.setAttribute("r", "6");
-        show(ev.clientX, ev.clientY, `${axes[i].label}: ${axes[i].value.toFixed(0)}%`);
-      });
-      c.addEventListener("mouseleave", () => { c.setAttribute("r", "4"); hide(); });
-    }
-
-    const zellaScore = axes.reduce((s, a) => s + a.value, 0) / n;
-    const scoreEl = body.createDiv({ cls: "tj-score-value" });
-    scoreEl.createSpan({ cls: "tj-score-num", text: zellaScore.toFixed(1) });
-    scoreEl.createSpan({ cls: "tj-score-suffix", text: "/100" });
+    // footer: composite score · phase · weeks
+    const foot = box.createDiv({ cls: "tj-score-foot" });
+    foot.createDiv({ cls: "tj-score-big", text: String(Math.round(score)) });
+    const meta = foot.createDiv({ cls: "tj-score-meta" });
+    meta.createSpan({ cls: "tj-score-phase", text: phase });
+    meta.createSpan({ cls: "tj-score-weeks", text: `· ${weeksActive}w` });
   }
 
-  renderSymbolTable(body: HTMLElement, trades: Trade[]): void {
+  /** Body-level hover card (never clipped by the widget). */
+  private showRowTip(x: number, y: number, text: string): void {
+    let tip = document.querySelector(".tj-hover-tip") as HTMLElement | null;
+    if (!tip) {
+      tip = document.body.createDiv({ cls: "tj-eq-card tj-hover-tip" });
+    }
+    tip.setText(text);
+    tip.style.left = `${Math.round(x + 14)}px`;
+    tip.style.top = `${Math.round(y + 14)}px`;
+  }
 
-    const groups = new Map<string, Trade[]>();
+  private hideRowTip(): void {
+    document.querySelector(".tj-hover-tip")?.remove();
+  }
+
+  /** Symbol Breakdown — dot (win-rate tier) + P&L bar + "win% · trades". */
+  renderSymbolTable(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const groups = new Map<string, { count: number; wins: number; net: number }>();
+    const groupOf = (key: string) => {
+      const g = groups.get(key) ?? { count: 0, wins: 0, net: 0 };
+      groups.set(key, g);
+      return g;
+    };
     for (const t of trades) {
-      if (!groups.has(t.symbol)) groups.set(t.symbol, []);
-      groups.get(t.symbol)!.push(t);
+      if (!isFiniteNumber(t.pnl)) continue;
+      groupOf(t.symbol || "—").net += t.pnl;
     }
-    const table = body.createEl("table", { cls: "tj-table" });
-    const thead = table.createEl("thead").createEl("tr");
-    ["Symbol", "Trades", "Net P&L", "Win Rate"].forEach((h) => thead.createEl("th", { text: h }));
-    const tbody = table.createEl("tbody");
-    const entries = [...groups.entries()].sort((a, b) => {
-      const pa = a[1].reduce((s, t) => s + t.pnl, 0);
-      const pb = b[1].reduce((s, t) => s + t.pnl, 0);
-      return pb - pa;
-    });
-    for (const [sym, list] of entries) {
-      const pnl = list.reduce((s, t) => s + t.pnl, 0);
-      const wins = list.filter((t) => t.pnl > 0).length;
-      const tr = tbody.createEl("tr");
-      tr.createEl("td", { text: sym });
-      tr.createEl("td", { text: String(list.length) });
-      const pnlTd = tr.createEl("td");
-      pnlTd.addClass(pnl >= 0 ? "tj-pos" : "tj-neg");
-      pnlTd.textContent = fmtMoney2(pnl);
-      tr.createEl("td", { text: `${((wins / list.length) * 100).toFixed(0)}%` });
+    for (const t of counted) {
+      if (!isFiniteNumber(t.pnl)) continue;
+      const g = groupOf(t.symbol || "—");
+      g.count++;
+      if (t.pnl > 0) g.wins++;
     }
-  }
-
-  renderTradesTable(body: HTMLElement, trades: Trade[]): void {
-    if (trades.length === 0) {
-      body.createDiv({ cls: "tj-empty", text: "No trades for this period." });
+    const rows = [...groups.entries()].sort((a, b) => b[1].net - a[1].net);
+    if (!rows.length) {
+      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
     }
-    const limit = this.plugin.settings.recentLimit;
-    const rows = [...trades].sort((a, b) => b.date.localeCompare(a.date) || b.entryTime.localeCompare(a.entryTime)).slice(0, limit > 0 ? limit : undefined);
-    const bar = body.createDiv({ cls: "tj-recent-bar" });
-    bar.createSpan({ text: "Show", cls: "tj-filter-label" });
-    const sel = bar.createEl("select", { cls: "dropdown", attr: { title: "How many recent trades to list" } });
-    const options: [number, string][] = [[5, "Last 5"], [10, "Last 10"], [20, "Last 20"], [50, "Last 50"], [0, "All"]];
-    for (const [val, label] of options) {
-      const opt = sel.createEl("option", { value: String(val), text: label });
-      if (limit === val) opt.setAttr("selected", "selected");
-    }
-    if (!options.some(([val]) => val === limit)) sel.value = "0";
-    sel.addEventListener("change", async () => {
-      this.plugin.settings.recentLimit = parseInt(sel.value, 10) || 20;
-      await this.plugin.saveSettings();
-      this.render();
-    });
-    const table = body.createDiv({ cls: "tj-tablewrap" }).createEl("table", { cls: "tj-table tj-trades-table" });
-    const thead = table.createEl("thead").createEl("tr");
-    ["Date", "Symbol", "Dir", "Acct Type", "Qty", "Entry", "Exit", "P&L"].forEach((h) => thead.createEl("th", { text: h }));
-    const tbody = table.createEl("tbody");
-    for (const t of rows) {
-      const tr = tbody.createEl("tr");
-      tr.addClass("tj-clickable");
-      tr.addEventListener("click", () => this.openTrade(t));
-      tr.createEl("td", { text: t.date });
-      tr.createEl("td", { text: t.symbol });
-      tr.createEl("td", { text: t.direction === "long" ? "L" : "S" });
-      tr.createEl("td", { text: t.accountType });
-      tr.createEl("td", { text: String(t.quantity) });
-      tr.createEl("td", { text: String(t.entryPrice) });
-      tr.createEl("td", { text: String(t.exitPrice) });
-      const pnlTd = tr.createEl("td");
-      pnlTd.addClass(t.pnl >= 0 ? "tj-pos" : "tj-neg");
-      pnlTd.textContent = fmtMoney2(t.pnl);
-    }
-  }
 
-  renderMissingTable(body: HTMLElement, trades: Trade[]): void {
-    const rows = [...trades].sort((a, b) => b.date.localeCompare(a.date) || b.entryTime.localeCompare(a.entryTime)).slice(0, 30);
-    const bar = body.createDiv({ cls: "tj-miss-bar" });
-    const selectAll = bar.createDiv({ cls: "tj-selectall" });
-    const allBox = selectAll.createEl("input", { type: "checkbox", attr: { id: "tj-select-all" } });
-    selectAll.createEl("label", { text: "Select all", attr: { for: "tj-select-all" } });
-    allBox.addEventListener("change", () => {
-      this.checking = true;
-      if (allBox.checked) for (const t of rows) this.checked.add(t.id);
-      else for (const t of rows) this.checked.delete(t.id);
-      this.checking = false;
-      for (const [id, box] of this.checkboxEls.entries()) {
-        if (rows.some((t) => t.id === id)) box.checked = this.checked.has(id);
-      }
-      this.updateMissButtons(bar);
-    });
-    const markBtn = bar.createEl("button", { text: "Mark reviewed", cls: "mod-cta" });
-    const printBtn = bar.createEl("button", { text: "📷 Mark print added", cls: "mod-cta" });
-    const openBtn = bar.createEl("button", { text: "Open note", cls: "tj-btn" });
-    this.updateMissButtons(bar);
-    markBtn.addEventListener("click", () => this.bulkMark("review", "reviewed"));
-    printBtn.addEventListener("click", () => this.bulkMark("screenshot", "added"));
-    openBtn.addEventListener("click", () => this.bulkOpen());
-    const table = body.createDiv({ cls: "tj-tablewrap" }).createEl("table", { cls: "tj-table tj-trades-table" });
-    const thead = table.createEl("thead").createEl("tr");
-    const cbTh = thead.createEl("th", { text: "" });
-    cbTh.style.width = "26px";
-    ["Date", "Symbol", "P&L", "Missing"].forEach((h) => thead.createEl("th", { text: h }));
-    const tbody = table.createEl("tbody");
-    this.checkboxEls = new Map();
-    for (const t of rows) {
-      const tr = tbody.createEl("tr");
-      tr.addClass("tj-clickable");
-      tr.addEventListener("click", () => this.openTrade(t));
-      const box = tr.createEl("td").createEl("input", { type: "checkbox" });
-      box.checked = this.checked.has(t.id);
-      this.checkboxEls.set(t.id, box);
-      box.addEventListener("click", (e) => e.stopPropagation());
-      box.addEventListener("change", () => {
-        if (this.checking) return;
-        if (box.checked) this.checked.add(t.id);
-        else this.checked.delete(t.id);
-        this.updateMissButtons(bar);
-        const all = rows.every((r) => this.checked.has(r.id));
-        allBox.checked = all;
-        allBox.indeterminate = this.checked.size > 0 && !all;
+    // Compact modes so everything fits without scrollbars.
+    const w = body.clientWidth || 0;
+    const h = body.clientHeight || 0;
+    const compact = w > 0 && w < 360;
+    const tiny = (h > 0 && h < 130) || (w > 0 && w < 280);
+    const wrap = body.createDiv({ cls: "tj-symw" + (compact ? " is-compact" : "") + (tiny ? " is-tiny" : "") });
+    const maxAbs = Math.max(...rows.map(([, g]) => Math.abs(g.net)), 1);
+    let idx = 0;
+    for (const [sym, g] of rows) {
+      idx++;
+      const winRate = g.count ? (g.wins / g.count) * 100 : 0;
+      const row = wrap.createDiv({ cls: "tj-symw-row" });
+      row.createSpan({ cls: "tj-symw-sym", text: sym });
+
+      const dot = row.createSpan({
+        cls: "tj-symw-dot " + (winRate >= 65 ? "is-good" : winRate >= 45 ? "is-mid" : "is-bad"),
       });
-      tr.createEl("td", { text: t.date });
-      tr.createEl("td", { text: t.symbol });
-      const pnlTd = tr.createEl("td");
-      pnlTd.addClass(t.pnl >= 0 ? "tj-pos" : "tj-neg");
-      pnlTd.textContent = fmtMoney2(t.pnl);
-      const missTd = tr.createEl("td");
-      if (!(t.review && t.review.trim())) missTd.createEl("span", { text: "review", cls: "tj-badge miss" });
-      if (!(t.screenshot && t.screenshot.trim())) missTd.createEl("span", { text: "print", cls: "tj-badge miss" });
+      dot.title = `${winRate.toFixed(0)}% win rate`;
+
+      const track = row.createDiv({ cls: "tj-symw-track" });
+      const bar = track.createDiv({ cls: "tj-symw-bar " + (g.net >= 0 ? "pos" : "neg") });
+      const target = `${Math.max(3, (Math.abs(g.net) / maxAbs) * 100)}%`;
+      if (this._intro && this.plugin.settings.animations !== false) {
+        bar.style.width = "0%";
+        const delay = 120 + idx * 70;
+        window.setTimeout(() => {
+          bar.style.width = target;
+        }, delay);
+      } else {
+        bar.style.width = target;
+      }
+
+      row.createSpan({ cls: "tj-symw-val " + (g.net >= 0 ? "tj-pos" : "tj-neg"), text: fmtMoney2(g.net) });
+      // Hover card shows only win% + trades (the symbol & P&L are already visible).
+      const label = `${winRate.toFixed(0)}% win · ${g.count} trades`;
+      row.addEventListener("mouseenter", (ev) => this.showRowTip(ev.clientX, ev.clientY, label));
+      row.addEventListener("mousemove", (ev) => this.showRowTip(ev.clientX, ev.clientY, label));
+      row.addEventListener("mouseleave", () => this.hideRowTip());
     }
   }
 
-  updateMissButtons(bar: HTMLElement): void {
-    const count = this.checked.size;
-    for (const btn of Array.from(bar.querySelectorAll("button"))) btn.disabled = count === 0;
-  }
 
-  async bulkMark(field: string, value: string): Promise<void> {
-    const ids = [...this.checked];
-    if (ids.length === 0) return;
-    const files = ids.map((id) => this.app.vault.getAbstractFileByPath(id)).filter((f): f is TFile => f instanceof TFile);
-    for (const file of files) await updateTradeFields(this.app, file, { [field]: value });
-    this.checked.clear();
-    await this.refresh();
-  }
+  /** Journalit-style "Long P&L" / "Short P&L" widgets: daily P&L bar chart for one direction. */
 
-  async bulkOpen(): Promise<void> {
-    const id = [...this.checked][0];
-    const trade = id ? this.trades.find((t) => t.id === id) : undefined;
-    if (trade) await this.openTrade(trade);
-  }
+
+
+
 
   async openTrade(t: Trade): Promise<void> {
     if (!t.id) return;
     await this.plugin.openTradeModal(t);
   }
 
-  renderHourlyBody(body: HTMLElement, trades: Trade[]): void {
-    if (trades.length === 0) {
-      body.createDiv({ cls: "tj-empty", text: "No trades for this period." });
-      return;
-    }
-    const zone = this.plugin.settings.timeZone;
-    const byHour = new Map<number, { pnl: number; points: number; count: number; wins: number }>();
-    for (const t of trades) {
-      const nyTime = toZoneTime(t.date, t.entryTime, zone);
-      const hour = parseInt((nyTime || "00:00").split(":")[0] || "0", 10);
-      let bucket = byHour.get(hour);
-      if (!bucket) {
-        bucket = { pnl: 0, points: 0, count: 0, wins: 0 };
-        byHour.set(hour, bucket);
-      }
-      bucket.pnl += t.pnl;
-      bucket.points += t.pnlPoints || 0;
-      bucket.count += 1;
-      if (t.pnl > 0) bucket.wins += 1;
-    }
-    const hours = [...byHour.keys()].sort((a, b) => a - b);
-    let best = -1;
-    let worst = -1;
-    let bestPnl = -Infinity;
-    let worstPnl = Infinity;
-    for (const h of hours) {
-      const pnl = byHour.get(h)!.pnl;
-      if (pnl > bestPnl) { bestPnl = pnl; best = h; }
-      if (pnl < worstPnl) { worstPnl = pnl; worst = h; }
-    }
-    const kpis = body.createDiv({ cls: "tj-kpis" });
-    kpiCard(kpis, "Best Hour", best >= 0 ? `${String(best).padStart(2, "0")}:00` : "—", "pos");
-    kpiCard(kpis, "Worst Hour", worst >= 0 ? `${String(worst).padStart(2, "0")}:00` : "—", "neg");
-    kpiCard(kpis, "Hours", `${hours.length}`, "neutral");
-    const table = body.createEl("table", { cls: "tj-table tj-trades-table" });
-    const thead = table.createEl("thead").createEl("tr");
-    ["Hour", "Trades", "Wins", "Losses", "Points", "Net P&L", "Win Rate"].forEach((h) => thead.createEl("th", { text: h }));
-    const tbody = table.createEl("tbody");
-    for (const h of hours) {
-      const b = byHour.get(h)!;
-      const tr = tbody.createEl("tr");
-      tr.createEl("td", { text: `${String(h).padStart(2, "0")}:00 – ${String(h).padStart(2, "0")}:59` });
-      tr.createEl("td", { text: String(b.count) });
-      tr.createEl("td", { text: String(b.wins) });
-      tr.createEl("td", { text: String(b.count - b.wins) });
-      const ptsTd = tr.createEl("td");
-      ptsTd.addClass(b.points >= 0 ? "tj-pos" : "tj-neg");
-      ptsTd.textContent = `${b.points >= 0 ? "+" : ""}${b.points.toFixed(1)}`;
-      const pnlTd = tr.createEl("td");
-      pnlTd.addClass(b.pnl >= 0 ? "tj-pos" : "tj-neg");
-      pnlTd.textContent = fmtMoney2(b.pnl);
-      tr.createEl("td", { text: `${((b.wins / b.count) * 100).toFixed(0)}%` });
-    }
-  }
 
-  renderDailyBody(body: HTMLElement, trades: Trade[]): void {
-    if (trades.length === 0) {
-      body.createDiv({ cls: "tj-empty", text: "No trades for this period." });
-      return;
-    }
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const zone = this.plugin.settings.timeZone;
-    const weekday = (dateStr: string) => new Date(dateStr + "T00:00:00").getDay();
-    const byDay = new Map<number, { pnl: number; points: number; count: number; wins: number }>();
-    const days = new Set<string>();
-    for (const t of trades) {
-      const nyDate = toZoneDate(t.date, t.entryTime, zone);
-      days.add(nyDate);
-      const wd = weekday(nyDate);
-      let bucket = byDay.get(wd);
-      if (!bucket) {
-        bucket = { pnl: 0, points: 0, count: 0, wins: 0 };
-        byDay.set(wd, bucket);
-      }
-      bucket.pnl += t.pnl;
-      bucket.points += t.pnlPoints || 0;
-      bucket.count += 1;
-      if (t.pnl > 0) bucket.wins += 1;
-    }
-    const order = [...byDay.keys()].sort((a, b) => (a + 6) % 7 - (b + 6) % 7);
-    const net = trades.reduce((s, t) => s + t.pnl, 0);
-    let best = -1;
-    let worst = -1;
-    let bestPnl = -Infinity;
-    let worstPnl = Infinity;
-    let winDays = 0;
-    for (const d of order) {
-      const pnl = byDay.get(d)!.pnl;
-      if (pnl > bestPnl) { bestPnl = pnl; best = d; }
-      if (pnl < worstPnl) { worstPnl = pnl; worst = d; }
-      if (pnl > 0) winDays += 1;
-    }
-    const kpis = body.createDiv({ cls: "tj-kpis" });
-    kpiCard(kpis, "Days", `${days.size}`, "neutral");
-    kpiCard(kpis, "Net P&L", fmtMoney2(net), net >= 0 ? "pos" : "neg");
-    kpiCard(kpis, "Avg / Day", fmtMoney2(net / Math.max(1, days.size)), net >= 0 ? "pos" : "neg");
-    kpiCard(kpis, "Win Days", `${((winDays / Math.max(1, days.size)) * 100).toFixed(0)}%`, "neutral");
-    kpiCard(kpis, "Best Day", best >= 0 ? dayNames[best] : "—", "pos");
-    kpiCard(kpis, "Worst Day", worst >= 0 ? dayNames[worst] : "—", worst >= 0 && byDay.get(worst)!.pnl < 0 ? "neg" : "pos");
-    const table = body.createEl("table", { cls: "tj-table tj-trades-table" });
-    const thead = table.createEl("thead").createEl("tr");
-    ["Weekday", "Trades", "Wins", "Losses", "Points", "Net P&L", "Win Rate"].forEach((h) => thead.createEl("th", { text: h }));
-    const tbody = table.createEl("tbody");
-    for (const d of order) {
-      const b = byDay.get(d)!;
-      const tr = tbody.createEl("tr");
-      tr.createEl("td", { text: dayNames[d] });
-      tr.createEl("td", { text: String(b.count) });
-      tr.createEl("td", { text: String(b.wins) });
-      tr.createEl("td", { text: String(b.count - b.wins) });
-      const ptsTd = tr.createEl("td");
-      ptsTd.addClass(b.points >= 0 ? "tj-pos" : "tj-neg");
-      ptsTd.textContent = `${b.points >= 0 ? "+" : ""}${b.points.toFixed(1)}`;
-      const pnlTd = tr.createEl("td");
-      pnlTd.addClass(b.pnl >= 0 ? "tj-pos" : "tj-neg");
-      pnlTd.textContent = fmtMoney2(b.pnl);
-      tr.createEl("td", { text: `${((b.wins / b.count) * 100).toFixed(0)}%` });
-    }
-  }
 }
