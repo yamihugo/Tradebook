@@ -3,7 +3,7 @@
   "name": "Tradebook",
   "version": "0.4.9",
   "minAppVersion": "1.4.0",
-  "description": "A local trading journal for futures traders. Import broker CSV, track accounts and risk, and review every trade.",
+  "description": "Journal your futures trades locally. Import broker CSV, track accounts and risk.",
   "author": "YamiHugo",
   "isDesktopOnly": false,
   "fundingUrl": "https://www.buymeacoffee.com/yamihugo"

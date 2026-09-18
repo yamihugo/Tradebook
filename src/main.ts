@@ -507,44 +507,44 @@ export default class TradebookPlugin extends Plugin {
   async activateView(viewType: string) {
     const leaf = this.getJournalLeaf();
     await leaf.setViewState({ type: viewType, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
   }
 
   async openDashboard(leaf?: any) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   async openHome(leaf?: any) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: HOME_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   async openSetups(leaf?: any) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: SETUPS_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   async openAccounts(leaf?: any) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNTS_LIST_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   async openTradeLog(leaf?: any) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: TRADE_LOG_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   /** Opens the unified Add Trade page (Manual or Import tab). */
   async openAddTrade(tab: "manual" | "import" = "manual") {
     const target = this.getJournalLeaf();
     await target.setViewState({ type: ADD_TRADE_VIEW_TYPE, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
     const leaves = this.app.workspace.getLeavesOfType(ADD_TRADE_VIEW_TYPE);
     const view: any = leaves.length ? leaves[0].view : null;
     if (view && typeof view.setTab === "function") view.setTab(tab);
@@ -567,7 +567,7 @@ export default class TradebookPlugin extends Plugin {
   async openAccountDashboard(leaf: any, accountId: string) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNT_DASH_VIEW_TYPE, state: { accountId }, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
   }
 
   async openTradeModal(trade: { id: string }) {
@@ -590,13 +590,13 @@ export default class TradebookPlugin extends Plugin {
     const tryOnce = async (): Promise<boolean> => {
       const existing = this.app.workspace.getLeavesOfType(TRADEBOOK_SIDEBAR_VIEW_TYPE);
       if (existing.length > 0) {
-        this.app.workspace.revealLeaf(existing[0]);
+        await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
       const leftLeaf = (this.app.workspace as any).getLeftLeaf?.(false) ?? (this.app.workspace as any).getLeftLeaf?.(true);
       if (!leftLeaf) return false;
       await leftLeaf.setViewState({ type: TRADEBOOK_SIDEBAR_VIEW_TYPE, active: true });
-      this.app.workspace.revealLeaf(leftLeaf);
+      await this.app.workspace.revealLeaf(leftLeaf);
       return true;
     };
     if (await tryOnce()) return true;
@@ -609,13 +609,13 @@ export default class TradebookPlugin extends Plugin {
     const tryOnce = async (): Promise<boolean> => {
       const existing = this.app.workspace.getLeavesOfType(PRINT_QUEUE_VIEW_TYPE);
       if (existing.length > 0) {
-        this.app.workspace.revealLeaf(existing[0]);
+        await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
       const rightLeaf = (this.app.workspace as any).getRightLeaf?.(false) ?? (this.app.workspace as any).getRightLeaf?.(true);
       if (!rightLeaf) return false;
       await rightLeaf.setViewState({ type: PRINT_QUEUE_VIEW_TYPE, active: true });
-      this.app.workspace.revealLeaf(rightLeaf);
+      await this.app.workspace.revealLeaf(rightLeaf);
       return true;
     };
     if (await tryOnce()) return true;
@@ -638,7 +638,7 @@ export default class TradebookPlugin extends Plugin {
     const resolved = full ?? (trade as any);
     const target = this.getJournalLeaf();
     await target.setViewState({ type: TRADE_DETAIL_VIEW_TYPE, state: { tradeId: resolved.id }, active: true });
-    this.app.workspace.revealLeaf(target);
+    await this.app.workspace.revealLeaf(target);
     const leaves = this.app.workspace.getLeavesOfType(TRADE_DETAIL_VIEW_TYPE);
     const view = leaves.length ? leaves[0].view : null;
     if (view && typeof (view as any).setTrade === "function") {
@@ -1288,10 +1288,9 @@ export default class TradebookPlugin extends Plugin {
 
     // One-time: rewrite notes that still carry a broker/old account name.
     if (!this.settings.accountNamesNormalized) {
-      const changed = await this.normalizeAccountNames();
+      await this.normalizeAccountNames();
       this.settings.accountNamesNormalized = true;
       settingsDirty = true;
-      if (changed) console.info(`[tradebook] normalised ${changed} note(s) to friendly account names`);
     }
 
     // Every load: mark real copier notes as legs (role-driven, idempotent).

@@ -56,6 +56,22 @@ const isProp = (t: AccountType) => t === "eval" || t === "funded" || t === "live
 /** The most accounts one batch can create — past this it is a spreadsheet job. */
 const MAX_BULK = 30;
 
+/**
+ * A single document-level click closes any open wizard dropdown. Installed
+ * once for the whole plugin session — the wizard can open many times, so a
+ * listener added per open would leak.
+ */
+let ddCloseInstalled = false;
+function ensureDropdownCloseListener(): void {
+  if (ddCloseInstalled) return;
+  ddCloseInstalled = true;
+  document.addEventListener(
+    "click",
+    () => document.querySelectorAll(".tj-dd.open").forEach((n) => n.classList.remove("open")),
+    true
+  );
+}
+
 export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOptions = {}): { close: () => void } {
   const preset = opts.preset ?? {};
   const values: Values = {
@@ -164,11 +180,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     return out;
   };
 
-  document.addEventListener(
-    "click",
-    () => document.querySelectorAll(".tj-dd.open").forEach((n) => n.classList.remove("open")),
-    true
-  );
+  ensureDropdownCloseListener();
 
   const dropdown = (
     host: HTMLElement,
