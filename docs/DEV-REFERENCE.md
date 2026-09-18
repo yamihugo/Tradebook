@@ -37,6 +37,32 @@
 - **No deploy nunca copiar `data.json`** (ver `AGENTS.md`).
 - Preferir as APIs oficiais do Obsidian a reinventar (`Modal`, `ItemView`,
   `PluginSettingTab`, `setIcon`).
+- **Sem `innerHTML`/`outerHTML`/`insertAdjacentHTML`** (a regra vai além de dados do
+  utilizador): usar `createEl`/`createDiv`/`createSpan`, `setIcon` ou `el.empty()`.
+- **Deferred views (Obsidian ≥1.7.2):** `leaf.view` pode ser uma `DeferredView` até estar
+  visível. Fazer `await workspace.revealLeaf(leaf)` e depois `leaf.view instanceof View`
+  antes de usar; nunca guardar referências a views — usar `getLeavesOfType`.
+- **Pop-outs:** cada janela tem o seu `Document`/`Window`. Preferir `activeWindow`/
+  `activeDocument` ou `element.win`/`element.doc`; usar `element.instanceOf(HTMLElement)`
+  e `event.instanceOf(MouseEvent)` em vez de `instanceof`. *(dívida a corrigir)*
+- **Lifecycle:** `registerEvent` / `registerInterval` / `registerDomEvent`; qualquer
+  listener global (`document`/`window`) tem de ser removido em `onClose`/`onunload`.
+  Não fazer `detachLeavesOfType` no `onunload`.
+- **Comandos:** id sem o id do plugin (o Obsidian prefixa-o); sem hotkeys por omissão.
+- **Copy de UI em Sentence case.** Headings de settings só com ≥2 secções, nunca a palavra
+  "Settings"; usar `setHeading()`. Guardar ao alterar (não num botão *submit*).
+- **Sem estilos hardcoded em JS**: classes CSS + variáveis do Obsidian, nunca literais.
+- **Ícones:** só lucide até **v0.446.0**; `setIcon(el, "name")`.
+- **Caminhos:** `normalizePath()` para input do utilizador; `Vault.process` (atómico) e
+  `FileManager.processFrontMatter`; `cachedRead` para mostrar, `read` para read-modify-write.
+- **Vault API > Adapter API**: `getFileByPath`/`getFolderByPath`/`getAbstractFileByPath`
+  em vez de iterar `getFiles()`. Confirmar `instanceof TFile`/`TFolder`.
+- **`const`/`let`** (nunca `var`); preferir `async/await`.
+- **Mobile:** detetar com `Platform.isIosApp`/`isAndroidApp`; regex **lookbehind** só em
+  iOS ≥16.4 (precisa de fallback). `isDesktopOnly:true` só se usar Node/Electron.
+
+Ferramenta de verificação local: **<https://github.com/obsidianmd/eslint-plugin>** (ver
+`RELEASE-AND-DISTRIBUTION.md` §9).
 
 ---
 

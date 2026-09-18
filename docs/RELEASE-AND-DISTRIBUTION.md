@@ -132,3 +132,50 @@ The tester must be able to go from zero to journaling without us touching their 
   `id` `tradebook` are settled. If we ever rename, the migration is: rename the folder →
   change `id` → copy `data.json` in → keep the old folder one release as fallback →
   note it in the changelog.)
+
+## 8. Community directory submission
+
+The submission flow changed: it is **no longer a pull request** to `obsidian-releases`.
+It now runs through **<https://community.obsidian.md>** — sign in with an Obsidian account,
+connect GitHub (read-only), then add the plugin with its repo URL.
+
+What the directory reads and requires:
+
+- It reads **`manifest.json` at HEAD of the repo's default branch** — that file must be
+  accurate and committed (this is why `main` stays on the last **stable** manifest).
+- Obsidian downloads `main.js`, `manifest.json`, `styles.css` from the GitHub **release
+  whose tag matches the `version` in the manifest**. Only `x.y.z` versions; `main.js` and
+  `manifest.json` are required, `styles.css` is optional.
+- **Repo root must contain** `README.md`, a recognized **`LICENSE`**, and `manifest.json`.
+  (Tradebook ships MIT + a README — kept current.)
+- The automated review covers Manifest, Releases, Source code and Build verification and
+  rates each **Error / Warning / Recommendation / Pass**. Warnings do not block a listing.
+- The scanner runs the first of `build`, `build:plugin`, `compile` it finds — our
+  `npm run build` matches. It ignores these paths by name: `node_modules`, `dist`,
+  `build`, `pkg`, `test-vault`, `.pnpm-store`, `.obsidian`, `esbuild.config.mjs`,
+  `version-bump.mjs`, `automation`, `*.test.*`, `test`/`tests`/`__tests__`, `mocks`,
+  `*.cjs`, `*.mjs`, `scripts`, `docs`, `i18n`/`locales` — so our `tools/ux-audit.mjs`
+  (`.mjs`) and `docs/` are not scanned.
+- **Developer policies** (must hold to stay listed): no obfuscated code, no dynamic ads,
+  no client-side telemetry, no self-install/self-update. Things that need a clear README
+  disclosure: payment, accounts, network use, files outside the vault, server-side
+  telemetry (with a privacy-policy link). A LICENSE is mandatory; the Obsidian name and
+  trademark are respected.
+
+Checklist specifics that we already meet: `fundingUrl` only for real donations, a
+sensible `minAppVersion`, a short action-first `description` (≤250 chars, ends with a
+period, no emoji), `isDesktopOnly:false` (no Node/Electron), and command ids **without**
+the plugin id (Obsidian auto-prefixes it).
+
+## 9. Local compliance check — the official ESLint plugin
+
+Obsidian publishes an ESLint plugin that runs the same checks the review uses:
+**<https://github.com/obsidianmd/eslint-plugin>**. Running it locally lets us catch
+Manifest/Source-code issues before a submission. Recommended (not yet wired):
+
+```bash
+npm i -D eslint @typescript-eslint/parser eslint-plugin-obsidianmd
+```
+
+and a `lint` script, e.g. `eslint src`. This is optional tooling — it does not change the
+shipped plugin.
