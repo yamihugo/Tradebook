@@ -16,10 +16,21 @@ A local trading journal for [Obsidian](https://obsidian.md), built for **futures
 - **Add Trade modal** — manually enter a trade, or paste a Tradovate CSV and attach setup / print / review *before* saving.
 - **Mobile-ready** — `isDesktopOnly: false`, with layouts and tables that scroll gracefully on phones.
 
+## Install (beta via BRAT)
+
+Tradebook is in beta. Install it with **[BRAT](https://tfthacker.com/BRAT)** (Beta Reviewers Auto-update Tool):
+
+1. Install **[Obsidian](https://obsidian.md)** and open your vault.
+2. Install **BRAT** from *Settings → Community plugins → Browse* (search for "BRAT"), then enable it.
+3. Open BRAT's settings → **Add beta plugin**, paste this repository's URL
+   (`https://github.com/<owner>/Tradebook`) and confirm.
+4. Enable **Tradebook** in *Settings → Community plugins*, then open the journal from the ribbon (grip icon) or the command palette.
+
+BRAT tracks new beta releases for you — run its **Update** action after a release is published.
+
 ## Usage
 
-1. Install the plugin (`id: tradebook`).
-2. Open the **Import Tradovate CSV** (ribbon icon or command palette) and drop an export — or use **Add Trade** to paste CSV / enter a trade manually.
+1. Open the **Import Tradovate CSV** (ribbon icon or command palette) and drop an export — or use **Add Trade** to paste CSV / enter a trade manually.
 3. Trades land as notes in your configured `trades` folder (`Tradebook/trades` by default).
 4. Open the **Trading Dashboard** to review. In *Needs Review*, tick the trades you finished, then hit *Mark reviewed* / *Mark print added*.
 
@@ -72,6 +83,13 @@ node esbuild.config.mjs production
 
 - Everything is local. No data ever leaves your vault — the plugin makes no network requests.
 - Your trades, accounts, and settings live only in your Obsidian vault.
+
+### Data safety
+
+- Updating the plugin **never touches your settings or trades** — `data.json` is preserved across updates.
+- **Disabling** the plugin keeps `data.json`; re-enabling restores everything.
+- **Uninstalling** deletes the plugin folder, including `data.json`. Use the plugin's **Export** to back it up first.
+- Your trades are plain Markdown notes in your vault — a plugin update never puts them at risk.
 
 ## Support
 

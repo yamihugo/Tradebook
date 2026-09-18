@@ -34,9 +34,10 @@ it and the normative docs every chat. They are mandatory, not suggestions.
 - **Build:** `npm run build` (tsc -noEmit + esbuild production). Must exit 0.
 - **Smoke:** `cd ~/trading-journal-smoke && cp <src>/main.js . && cp <src>/styles.css . && node smoke.js /home/hugo/trading-journal-smoke` → 142 PASS / 0 FAIL.
 - **Audit:** `node tools/ux-audit.mjs` → must report no normative violations.
-- **Deploy:** copy `main.js`, `styles.css`, `manifest.json`, `assets/firm-logos/*.png` to
+- **Deploy:** copy `main.js`, `styles.css`, `manifest.json` to
   `<vault>/.obsidian/plugins/tradebook/`. **Never** copy `data.json`. Verify md5 both
   sides. Ask the user for Ctrl+R (Obsidian does not reload plugin code by itself).
+  (Firm logos are embedded in `main.js` as data URIs — no `assets/` folder to copy.)
 - `styles.css` lives at the repo root and is prettier-formatted (multi-line rules);
   edit `oldString`s must match it exactly.
 - Respond in **PT-PT**; the UI text is in **English**.

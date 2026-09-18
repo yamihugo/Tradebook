@@ -41,7 +41,8 @@ stable manifest, so the default-branch rule is satisfied.
 ## 3. Repo layout
 
 `tradebook/` root: `manifest.json` (id permanent; version = last **stable**),
-`versions.json`, `README.md`, `LICENSE`, `assets/firm-logos/*.png`, `docs/`,
+`versions.json`, `README.md`, `LICENSE`, `assets/firm-logos/*.png` (source images;
+embedded into `main.js` at build time so BRAT/store installs get them), `docs/`,
 `tools/ux-audit.mjs`, `src/`, `esbuild.config.mjs`, `package.json`, `tsconfig.json`.
 
 **`main.js` is not committed** (it is in `.gitignore`). It is built by CI on every tag and

@@ -104,8 +104,8 @@ Correr a checklist abaixo em cada um destes cenários:
 - [x] Botões do modal no estilo calmo do wizard (transparentes, borda, muted)
 
 ### 2.9 Firm logos
-- [x] Infra: `assets/firm-logos/<firmId>.png` bundled no plugin
-- [x] `plugin.firmLogoUrl()` via `vault.adapter.getResourcePath()`
+- [x] Infra: `assets/firm-logos/<firmId>.png` **embedded as data URIs in `main.js`** (esbuild `dataurl`) — ships with BRAT/store installs
+- [x] `plugin.firmLogoUrl()` devolve o data URI do bundle (sem ficheiros em runtime)
 - [x] Usado no avatar do modal de settings + chips do wizard
 - [x] Fallback automático para iniciais (TF/TS) se o logo não existir
 - [ ] **Substituir placeholders pelos logos oficiais** (já lá estão alguns)
@@ -352,11 +352,10 @@ cd ~/trading-journal-smoke && cp "<source>/main.js" ./main.js && \
   node smoke.js /home/hugo/trading-journal-smoke
 # → esperado: 126/126 PASS
 
-# Deploy (main.js + styles.css + manifest.json + assets/ NUNCA data.json)
+# Deploy (main.js + styles.css + manifest.json — NUNCA data.json)
+# Firm logos estão embutidos em main.js; não há pasta assets/ para copiar.
 PLUGIN="<vault>/.obsidian/plugins/tradebook"
-cp main.js styles.css "$PLUGIN/"
-mkdir -p "$PLUGIN/assets/firm-logos"
-cp assets/firm-logos/*.png "$PLUGIN/assets/firm-logos/"
+cp main.js styles.css manifest.json "$PLUGIN/"
 ```
 
 ---
