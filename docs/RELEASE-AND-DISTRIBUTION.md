@@ -50,13 +50,23 @@ impossible. `styles.css` **is** committed: it is hand-written source, not a buil
 
 ### 3.1 Automated release (the normal path)
 
-`.github/workflows/release.yml` runs on any tag push:
+`.github/workflows/release.yml` runs on any tag push (follows Obsidian's official
+"Release your plugin with GitHub Actions" recipe):
 
 1. `npm ci` → `npm run build`;
 2. fails if the tag does not match `manifest.json`'s version;
-3. creates the GitHub release and attaches `main.js`, `styles.css`, `manifest.json`.
+3. generates a **build provenance attestation** over `main.js`, `manifest.json` and
+   `styles.css` (`actions/attest@v4`) — recommended when submitting to the community
+   directory;
+4. creates the GitHub release **as a draft** and attaches `main.js`, `styles.css`,
+   `manifest.json`.
 
-So the manual asset upload in §4 is only a fallback if CI is unavailable.
+The draft is deliberate: review it, tick **pre-release** for test/beta, write the
+changelog, then **Publish release** — BRAT and the store only ever see published
+releases, never a draft. The workflow needs the `contents: write`, `id-token: write`
+and `attestations: write` permissions (already set), and Node `20.x` (the official
+recipe still says `18.x`; 18 is end-of-life, so we track 20). So the manual asset
+upload in §4 is only a fallback if CI is unavailable.
 
 ---
 
@@ -69,9 +79,9 @@ So the manual asset upload in §4 is only a fallback if CI is unavailable.
    suffixes for test/beta: `0.5.0-test.1`, `0.5.0-beta.1`.
 4. Merge `dev` → `main` (or cherry-pick the release commit), commit, then **tag exactly
    that version and push the tag** (`git tag 0.5.0 && git push origin 0.5.0`).
-5. CI builds and creates the release with the three assets. For test/beta, edit the
-   release and tick **pre-release**; write two lines of changelog (what changed, what to
-   look at).
+5. CI builds and creates the release **as a draft** with the three assets. Review it,
+   tick **pre-release** for test/beta, write two lines of changelog (what changed, what
+   to look at), then **Publish release**.
 6. Leave the **default-branch manifest at the last stable version** once the beta is out
    — Obsidian offers the default-branch manifest to store users.
 7. Note: Obsidian will not auto-upgrade `1.0.1-preview.1` → `1.0.1`; the next release

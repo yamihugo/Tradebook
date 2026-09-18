@@ -1,17 +1,22 @@
-name: Release
+name: Release Obsidian plugin
 
 # Publishes a BRAT-installable release.
 # Trigger: pushing a version tag, e.g. `git tag 0.4.10 && git push origin 0.4.10`
 # The tag MUST match the version in manifest.json.
 # BRAT reads only these release assets: manifest.json, main.js, styles.css.
+# The release is created as a DRAFT: review it, add notes, then Publish release.
 
 on:
   push:
     tags:
       - "*"
 
+# contents: create/upload the release · id-token + attestations: build provenance
+# attestation (recommended for submission to the Obsidian community directory).
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -41,6 +46,14 @@ jobs:
             exit 1
           fi
 
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -48,4 +61,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            --draft \
             main.js styles.css manifest.json
