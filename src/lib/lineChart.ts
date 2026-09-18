@@ -276,7 +276,10 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
       // Hover tooltip on the label
       t.addEventListener("mouseenter", (e: MouseEvent) => {
         const ddDiff = values[li] - ddVal;
-        chartTip.innerHTML = `<div style="font-size:10px;color:var(--text-faint)">Drawdown level</div><div style="font-size:13px;font-weight:600;color:var(--color-red-bright,#ff5d48)">${fmtMoney2(ddVal)}</div><div style="font-size:10px;color:var(--text-faint)">Gap: ${fmtMoney2(ddDiff)}</div>`;
+        chartTip.empty();
+        chartTip.createDiv({ cls: "tj-eq-tip-label", text: "Drawdown level" });
+        chartTip.createDiv({ cls: "tj-eq-tip-value tj-eq-tip-dd", text: fmtMoney2(ddVal) });
+        chartTip.createDiv({ cls: "tj-eq-tip-label", text: `Gap: ${fmtMoney2(ddDiff)}` });
         chartTip.style.display = "block";
         positionTip(e);
       });

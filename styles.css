@@ -6609,6 +6609,9 @@
 .tj-eq-reflabel { font-size: var(--tj-fs-label); letter-spacing: .08em; text-transform: uppercase; opacity: .95; paint-order: stroke; stroke: var(--background-primary); stroke-width: 3px; stroke-linejoin: round; }
 .tj-eq-ddlabel { cursor: pointer; }
 .tj-eq-chart-tip { position: fixed; z-index: 1000; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 12px rgba(0,0,0,.35); pointer-events: none; }
+.tj-eq-tip-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
+.tj-eq-tip-value { font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); font-variant-numeric: tabular-nums; }
+.tj-eq-tip-dd { color: var(--color-red-bright, #ff5d48); }
 .tj-eq-daydot { opacity: .9; }
 /* A day the account paid out: gold, because the money left — it was not lost. */
 .tj-eq-daydot.is-cash { fill: #e8c547; opacity: 1; }

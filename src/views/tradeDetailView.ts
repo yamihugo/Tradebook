@@ -142,7 +142,7 @@ export class TradeDetailView extends ItemView {
       cls: "tj-seg-btn",
       attr: { "aria-label": backToAccount ? "Back to account" : "Back to trade log" },
     });
-    backBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
+    setIcon(backBtn, "chevron-left");
     backBtn.addEventListener("click", () => {
       if (backToAccount) void this.plugin.openAccountDashboard(undefined, origin.accountId as string);
       else void this.plugin.openTradeLog();
@@ -153,14 +153,14 @@ export class TradeDetailView extends ItemView {
     }
 
     const prevBtn = navBtns.createEl("button", { cls: "tj-seg-btn", attr: { "aria-label": "Previous trade" } });
-    prevBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>`;
+    setIcon(prevBtn, "chevron-left");
     prevBtn.disabled = this.index <= 0;
     prevBtn.addEventListener("click", () => void this.prev());
 
     navBtns.createEl("span", { cls: "tj-td-counter", text: `${this.index + 1} / ${this.allTrades.length}` });
 
     const nextBtn = navBtns.createEl("button", { cls: "tj-seg-btn", attr: { "aria-label": "Next trade" } });
-    nextBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>`;
+    setIcon(nextBtn, "chevron-right");
     nextBtn.disabled = this.index < 0 || this.index >= this.allTrades.length - 1;
     nextBtn.addEventListener("click", () => void this.next());
 
@@ -758,7 +758,7 @@ export class TradeDetailView extends ItemView {
           cls: "tj-td-shot-remove",
           attr: { type: "button", "aria-label": "Remove screenshot" },
         });
-        removeBtn.innerHTML = `<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+        setIcon(removeBtn, "x");
         removeBtn.addEventListener("click", async () => {
           if (!window.confirm(`Remove screenshot ${p.file}?`)) return;
           await this.removeScreenshot(i);
@@ -770,7 +770,7 @@ export class TradeDetailView extends ItemView {
     const addDropzone = shotCard.createDiv({ cls: "tj-td-dropzone" + (prints.length > 0 ? " compact" : "") });
     if (prints.length === 0) {
       const iconDiv = addDropzone.createDiv({ cls: "tj-td-dropzone-icon" });
-      iconDiv.innerHTML = `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`;
+      setIcon(iconDiv, "image");
       const textDiv = addDropzone.createDiv({ cls: "tj-td-dropzone-text" });
       textDiv.createEl("strong", { text: "Drop screenshot here" });
       textDiv.createEl("span", { text: "PNG, JPG, or WebP" });
@@ -1192,7 +1192,7 @@ export class TradeDetailView extends ItemView {
         const row = secEl.createDiv({ cls: "tj-export-option" + (opts[item.key] ? " on" : "") });
         optionEls.push(row);
         const cb = row.createDiv({ cls: "tj-export-checkbox" });
-        cb.innerHTML = `<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>`;
+        setIcon(cb, "check");
         const txt = row.createDiv({ cls: "tj-export-option-text" });
         txt.createEl("div", { cls: "tj-export-option-label", text: item.label });
         txt.createEl("div", { cls: "tj-export-option-desc", text: item.desc });
