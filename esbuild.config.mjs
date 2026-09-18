@@ -34,6 +34,9 @@ const context = await esbuild.context({
   ],
   format: "cjs",
   target: "es2018",
+  // Embed firm logos as data URIs so they ship inside main.js (BRAT and the
+  // community store only download main.js, manifest.json and styles.css).
+  loader: { ".png": "dataurl" },
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,

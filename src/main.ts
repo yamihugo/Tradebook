@@ -48,6 +48,10 @@ import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE, QueuedPrint } from "./views/prin
 import { openTradeModal } from "./views/tradeModal";
 import { openGettingStarted } from "./views/gettingStarted";
 import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
+import ownFirmLogo from "../assets/firm-logos/own.png";
+import topstepFirmLogo from "../assets/firm-logos/topstep.png";
+import tradeifyFirmLogo from "../assets/firm-logos/tradeify.png";
+import tradovateFirmLogo from "../assets/firm-logos/tradovate.png";
 
 export interface ThemeSettings {
   /** Chosen preset id (see themes.ts). */
@@ -309,6 +313,16 @@ export interface RenamePlan {
   items: RenamePlanItem[];
   skipped: number;
 }
+
+/** Firm logos, embedded at build time as data URIs (source: `assets/firm-logos/<id>.png`).
+ *  Embedding keeps them working for BRAT and community-store installs, which only
+ *  download `main.js`, `manifest.json` and `styles.css` from the release. */
+const FIRM_LOGOS: Record<string, string> = {
+  own: ownFirmLogo,
+  topstep: topstepFirmLogo,
+  tradeify: tradeifyFirmLogo,
+  tradovate: tradovateFirmLogo,
+};
 
 export default class TradebookPlugin extends Plugin {
   settings: TradebookSettings;
@@ -816,18 +830,10 @@ export default class TradebookPlugin extends Plugin {
     return accounts.length > 0 ? accounts[0] : undefined;
   }
 
-  /** Resource URL for a firm logo bundled in the plugin (assets/firm-logos/<id>.png).
-   *  Returns null when the file/folder isn't available (caller falls back to initials). */
+  /** Data-URI for a firm logo embedded in the plugin at build time (assets/firm-logos/<id>.png).
+   *  Returns null for firms without a logo (caller falls back to initials). */
   firmLogoUrl(firmId: string): string | null {
-    if (!firmId) return null;
-    try {
-      const dir = (this.manifest as any)?.dir;
-      const adapter: any = (this.app as any)?.vault?.adapter;
-      if (!dir || !adapter?.getResourcePath) return null;
-      return adapter.getResourcePath(`${dir}/assets/firm-logos/${firmId}.png`);
-    } catch {
-      return null;
-    }
+    return firmId && FIRM_LOGOS[firmId] ? FIRM_LOGOS[firmId] : null;
   }
 
   /** Load all trade notes from the configured folder into Trade objects. */
