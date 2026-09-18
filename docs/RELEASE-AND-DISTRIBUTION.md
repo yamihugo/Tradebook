@@ -17,7 +17,9 @@ verified against the developer guides (links at the bottom).
 
 One repository, one code line, channels separated by **release tags**. Branch-per-channel
 was rejected: Obsidian reads the **default branch** `manifest.json`, so a beta manifest
-merged into it would be offered to stable users.
+merged into it would be offered to stable users. We use two branches instead — `dev`
+(daily work) and `main` (stable, merged to only when a release is cut); both hold the same
+stable manifest, so the default-branch rule is satisfied.
 
 ---
 
@@ -39,9 +41,22 @@ merged into it would be offered to stable users.
 ## 3. Repo layout
 
 `tradebook/` root: `manifest.json` (id permanent; version = last **stable**),
-`versions.json`, built `main.js`/`styles.css` (attached to every release), `README.md`,
-`LICENSE`, `assets/firm-logos/*.png`, `docs/`, `tools/ux-audit.mjs`, `src/`,
-`esbuild.config.mjs`, `package.json`, `tsconfig.json`.
+`versions.json`, `README.md`, `LICENSE`, `assets/firm-logos/*.png`, `docs/`,
+`tools/ux-audit.mjs`, `src/`, `esbuild.config.mjs`, `package.json`, `tsconfig.json`.
+
+**`main.js` is not committed** (it is in `.gitignore`). It is built by CI on every tag and
+attached to the release — this keeps the repo clean and makes shipping a stale build
+impossible. `styles.css` **is** committed: it is hand-written source, not a build product.
+
+### 3.1 Automated release (the normal path)
+
+`.github/workflows/release.yml` runs on any tag push:
+
+1. `npm ci` → `npm run build`;
+2. fails if the tag does not match `manifest.json`'s version;
+3. creates the GitHub release and attaches `main.js`, `styles.css`, `manifest.json`.
+
+So the manual asset upload in §4 is only a fallback if CI is unavailable.
 
 ---
 
@@ -49,15 +64,26 @@ merged into it would be offered to stable users.
 
 1. `npm run build` → exit 0.
 2. Smoke: 142 PASS / 0 FAIL. Audit: `node tools/ux-audit.mjs` → no violations.
-3. Bump the version in `manifest.json` (and `package.json`) to the tag you are about to
-   create. Pre-release suffixes for test/beta: `0.5.0-test.1`, `0.5.0-beta.1`.
-4. Commit, then tag exactly that version and push the tag.
-5. Create the GitHub release from the tag, attach the three assets, mark **pre-release**
-   for test/beta, and write two lines of changelog (what changed, what to look at).
+3. Bump the version on **both** branches: `npm version <x.y.z> --no-git-tag-version`
+   (it updates `manifest.json`, `package.json` and `versions.json` together). Pre-release
+   suffixes for test/beta: `0.5.0-test.1`, `0.5.0-beta.1`.
+4. Merge `dev` → `main` (or cherry-pick the release commit), commit, then **tag exactly
+   that version and push the tag** (`git tag 0.5.0 && git push origin 0.5.0`).
+5. CI builds and creates the release with the three assets. For test/beta, edit the
+   release and tick **pre-release**; write two lines of changelog (what changed, what to
+   look at).
 6. Leave the **default-branch manifest at the last stable version** once the beta is out
    — Obsidian offers the default-branch manifest to store users.
 7. Note: Obsidian will not auto-upgrade `1.0.1-preview.1` → `1.0.1`; the next release
    needs a higher number (e.g. `1.0.2`).
+
+### Branches
+
+- **`dev`** — daily work; never released, never tagged.
+- **`main`** — stable only; receives merges from `dev` when a release is cut.
+
+Testers only ever see **tags/releases**, never branch pushes. A week of fixes on `dev`
+stays invisible until one tag publishes them all at once.
 
 ## 5. Data safety for testers (put this in the tutorial)
 
