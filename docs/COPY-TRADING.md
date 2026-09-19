@@ -13,12 +13,16 @@
 | `copyMultiplier?: number` | ratio applied to the base P&L/qty |
 | `copyBaseId?: string` | (copier) the account it follows |
 | `copyPeriods?: {start?, end?}[]` | when it was copying (history stays correct) |
-| `copyConfigHistory?: {from, ratio, crossOrder, sizing, fixedQty, round, minQty}[]` | **time-stamped copy config** — a ratio/scale change only applies **from its date**, never retroactively |
-| `copyCrossOrder?: boolean` | map E-mini ↔ Micro (NQ→MNQ, ES→MES, YM→MYM) |
+| `copyConfigHistory?: {from, ratio, crossOrder, crossMode, sizing, fixedQty, round, minQty}[]` | **time-stamped copy config** — a ratio/scale change only applies **from its date**, never retroactively |
 | `copySizing?: "ratio" \| "fixed" \| "mirror"` | how size is derived |
 | `copyFixedQty?: number` | for `fixed` sizing |
 | `copyRound?: "down" \| "nearest" \| "up"` | contract rounding |
 | `copyMinQty?: number` | floor (e.g. never below 1) |
+
+> **The symbol is not a user setting.** There is no `copyCrossOrder` on the account and no
+> mini/micro picker in the UI. Every link writes `crossOrder: true` with
+> `crossMode: "exposure"`, and the **engine** decides per trade whether to mirror in micros
+> (§5b). The trader sets the *ratio*; the contract is arithmetic.
 
 ### Copy group (`settings.copyGroups[]`)
 ```
@@ -50,7 +54,7 @@ Add Trade / Import (BASE account)
         ▼
   Copy engine ── config = member config effective ON THE TRADE DATE
         │        leg qty = round(baseQty × ratio) | fixed
-        │        leg symbol = crossOrder ? micro : base symbol
+        │        leg symbol = base symbol, or its micro when baseQty × ratio < 1
         │        leg pnl   = points × pointValue(symbol) × qty
         ▼
    saveTrade(leg notes, copyOrigin:"generated", copyBaseKey=…)
@@ -107,10 +111,19 @@ Add Trade / Import (BASE account)
 2. **Config is time-stamped** — `copyConfigHistory` (first entry = "from the beginning"). Effective config for a date = last entry with `from <= date`.
 3. **Regeneration uses the historical config** — re-generating a trade re-applies the ratio of *that* date.
 4. **Scaling an account** = append a new config entry (`from: today`) + optionally update `size`. Past trades keep their values.
-5. **Micro/mini toggle** is part of the same history (so turning cross-order on later doesn't rewrite old legs).
+5. **The contract is arithmetic, not a toggle.** Every link records `crossOrder: true` +
+   `crossMode: "exposure"`; the **engine** decodes the symbol per trade — it mirrors in
+   micros only when `baseQty × ratio < 1` and the symbol has a micro. There is no
+   user-facing mini/micro setting (it never worked and is gone). A later ratio change
+   appends a new config entry and never rewrites old legs.
 
 ## 6. Edge cases
-- **Fractional contracts** (`1 mini × 0.5`): `round:"down"` → 0 = skip; with `crossOrder` → 5 MNQ.
+- **Fractional contracts** (`1 mini × 0.5`): the leg would round to 0 and vanish, so the
+  engine mirrors it as **5 MNQ** (`1 × 10 × 0.5`). Same exposure: $20/pt × 1 = $2/pt × 10.
+  A symbol with no micro (`M2K` has no mini here) still rounds down — the ratio itself,
+  not the crossing, is what keeps a leg alive.
+- **Crossing never invents size**: the micro rule fires only when the ratio is under one
+  mini; `toolbar 1 NQ × 1` stays `1 NQ`, `2 NQ × 0.5` stays `1 NQ`.
 - **Micro/mini mix**: leg stores its own `symbol` + `quantity`; P&L uses the right point value.
 - **No chains**: a copier cannot be the base of another group.
 - **Same-day duplicates** (two members, same symbol/time): filename `#2`/`_2`, account in frontmatter.

@@ -130,8 +130,10 @@ export function localToUtc(dateStr: string, timeStr: string, zone: string): Date
   // Trades imported without a time (older notes have no entryTime) must not take
   // the whole view down: an empty time simply means midnight.
   const [y, m, d] = String(dateStr ?? "").split("-").map(Number);
-  const [hh, mm] = String(timeStr ?? "").split(":").map(Number);
-  const utcGuess = Date.UTC(y || 0, (m || 1) - 1, d || 1, hh || 0, mm || 0);
+  // Seconds matter: a CSV fill time is HH:MM:SS and dropping them made every
+  // imported trade land on :00 (they are what tells two fills apart).
+  const [hh, mm, ss] = String(timeStr ?? "").split(":").map(Number);
+  const utcGuess = Date.UTC(y || 0, (m || 1) - 1, d || 1, hh || 0, mm || 0, ss || 0);
   let result = utcGuess;
   for (let i = 0; i < 3; i++) {
     result = utcGuess - tzOffsetMs(new Date(result), zone);
@@ -223,7 +225,11 @@ export function setCurrencySymbol(sym: string): void {
   CURRENCY = sym || "$";
 }
 
-export function fmtMoney(n: number, decimals = 0): string {
+/** Money, signed, always to the cent. The journal is a record: a P&L that reads
+ *  "+$708" when the account holds 708.66 is a number nobody can reconcile
+ *  against their commissions. Round only where it is clearly a label
+ *  (`fmtMoneyCompact`) or an unsigned size (`fmtMoneyAbs`). */
+export function fmtMoney(n: number, decimals = 2): string {
   const abs = Math.abs(n).toLocaleString(undefined, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,

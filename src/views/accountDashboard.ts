@@ -2,7 +2,11 @@ import { ItemView, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { CopyConfigEntry, CopyPeriod, PropAccount, Trade } from "../types";
 import { openPayoutsModal } from "./payoutModal";
-import { effectiveSize, getFirm, getProgram, getSize, uniqueAccountName } from "../props";
+import { openFeeAdjustModal } from "./feeAdjustModal";
+import { uniqueAccountName } from "../props";
+import { resolveAccountView } from "../lib/accountRules";
+import { freeNumeric } from "../lib/numeric";
+import { firmLabel } from "../lib/firmLogos";
 import { attachTooltip, kpiCard, openPluginSettings as openSettings, renderAppShell } from "../ui";
 import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey, toZoneDate } from "../tz";
 import { closeCopyPeriods, openCopyPeriod, todayIso } from "../lib/copy";
@@ -186,10 +190,11 @@ export class AccountDashboardView extends ItemView {
   }
 
   openEditAccountModal(acc: any, size: any, net: number): void {
-    const firm = getFirm(acc.firmId);
-    const program = getProgram(firm, acc.programId);
+    const view = resolveAccountView(acc);
+    const firmName = firmLabel(acc.firmId) ?? "";
+    const programLabel = view.program?.label ?? "";
     const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-    const autoName = (sz: number) => `${firm?.name ?? ""} · ${program?.label ?? ""} · $${(sz / 1000).toFixed(0)}K`;
+    const autoName = (sz: number) => `${firmName} · ${programLabel} · $${(sz / 1000).toFixed(0)}K`;
     const initials = (n: string) =>
       (n || "?")
         .replace(/[^a-zA-Z0-9 ]/g, " ")
@@ -207,7 +212,7 @@ export class AccountDashboardView extends ItemView {
     const avatar = head.createDiv({ cls: "tj-as-avatar" });
     const logoUrl = this.plugin.firmLogoUrl(acc.firmId);
     if (logoUrl) {
-      const img = avatar.createEl("img", { cls: "tj-as-avatar-img", attr: { alt: firm?.name ?? "" } });
+      const img = avatar.createEl("img", { cls: "tj-as-avatar-img", attr: { alt: firmName } });
       img.src = logoUrl;
       img.addEventListener("error", () => { img.remove(); avatar.setText(initials(acc.name)); });
     } else {
@@ -215,7 +220,7 @@ export class AccountDashboardView extends ItemView {
     }
     const headText = head.createDiv({ cls: "tj-as-headtext" });
     const headTitle = headText.createEl("h3", { text: acc.name });
-    headText.createDiv({ cls: "tj-as-meta", text: [firm?.name, program?.label, typeLabel(acc.type)].filter(Boolean).join(" · ") });
+    headText.createDiv({ cls: "tj-as-meta", text: [firmName, programLabel, typeLabel(acc.type)].filter(Boolean).join(" · ") });
     const closeAs = head.createEl("button", { cls: "tj-as-close", text: "\u2715", attr: { type: "button", "aria-label": "Close" } });
     attachTip(closeAs, { title: "Close" });
     closeAs.addEventListener("click", () => overlay.remove());
@@ -351,14 +356,14 @@ export class AccountDashboardView extends ItemView {
     });
 
     let selectedSize = acc.size;
-    const offered = (program?.sizes ?? []).map((s: any) => s.size);
+    const offered = (view.program?.sizes ?? []).map((s: any) => s.size);
     const allSizes = Array.from(new Set([...offered, acc.size])).sort((a, b) => a - b);
     makeDrawer(
       gen,
       "Account size",
       allSizes.map((sz) => ({
         text: `$${(sz / 1000).toFixed(0)}K`,
-        title: (program?.sizes ?? []).find((s: any) => s.size === sz)?.price ?? "",
+        title: (view.program?.sizes ?? []).find((s: any) => s.size === sz)?.price ?? "",
         selected: sz === acc.size,
       })),
       (i) => {
@@ -398,7 +403,7 @@ export class AccountDashboardView extends ItemView {
     rulesPane.createDiv({ cls: "tj-as-section", text: "Rule overrides" });
     rulesPane.createDiv({ cls: "tj-as-hint", text: "Leave off to use the firm's defaults. Turn on to override a specific account." });
     // Firm defaults (without this account's overrides) for the Rules tab.
-    const firmDefault = program ? getSize(program, acc.size) : null;
+    const firmDefault = view.firmDefault ?? null;
     const ruleDefs: Array<{ key: string; label: string; hint: string; def: any; type: string }> = [
       { key: "target", label: "Profit target ($)", hint: "Firm default", def: firmDefault?.target, type: "number" },
       { key: "maxLoss", label: "Max loss ($)", hint: "Firm default", def: firmDefault?.maxLoss, type: "number" },
@@ -421,6 +426,7 @@ export class AccountDashboardView extends ItemView {
       inp.className = "tj-as-ovinput";
       inp.value = String(acc.rules?.[r.key] ?? r.def ?? "");
       inp.disabled = !isOn;
+      if (r.type === "number") freeNumeric(inp);
       ruleInputs[r.key] = inp;
       const showDefault = () => {
         sub.setText(inp.disabled ? `Using firm default: ${r.def ?? "—"}` : "Overriding the firm default");
@@ -551,7 +557,7 @@ export class AccountDashboardView extends ItemView {
         }
 
         const mulVal = mkRow(detailHost, "Multiplier");
-        const mulInp = mulVal.createEl("input", { type: "number", cls: "tj-as-nameinput", attr: { step: "0.1", min: "0.1" } });
+        const mulInp = freeNumeric(mulVal.createEl("input", { type: "number", cls: "tj-as-nameinput" }));
         mulInp.value = String(selectedMultiplier);
         mulInp.addEventListener("input", () => { selectedMultiplier = Math.max(0.1, parseFloat(mulInp.value) || 1); });
 
@@ -645,10 +651,10 @@ export class AccountDashboardView extends ItemView {
     const delRow = delCard.createDiv({ cls: "tj-as-dngrow" });
     const delInfo = delRow.createDiv();
     delInfo.createDiv({ cls: "tj-as-dngt", text: "Delete account" });
-    delInfo.createDiv({ cls: "tj-as-dngd", text: "Permanent \u2014 removes the account, payouts and deposits. Trade files stay in your vault." });
+    delInfo.createDiv({ cls: "tj-as-dngd", text: "Permanent \u2014 the account, its records and its trade notes leave the vault." });
     delRow.createEl("button", { text: "\uD83D\uDDD1\uFE0F Delete", cls: "tj-as-btn tj-as-btn-del", attr: { type: "button" } }).addEventListener("click", () => {
       const confOverlay = document.body.createDiv({ cls: "tj-modal-overlay" });
-      this.showDeleteConfirm(confOverlay, acc, 1, async () => {
+      void this.showDeleteConfirm(confOverlay, acc, 1, async () => {
         confOverlay.remove();
         await this.plugin.removeAccount(acc.id);
         overlay.remove();
@@ -674,8 +680,8 @@ export class AccountDashboardView extends ItemView {
       // A funded account must not keep the evaluation's rules: when the type
       // changes, snap the program to one of the right phase (Select eval →
       // Select Funded, Growth → Growth Funded, and so on).
-      const firmObj = getFirm(acc.firmId);
-      const currentProgram = getProgram(firmObj, acc.programId);
+      const firmObj = view.firm;
+      const currentProgram = view.program;
       if (firmObj && currentProgram && selectedType !== "unknown" && currentProgram.phase && currentProgram.phase !== selectedType) {
         const match = firmObj.programs.find((pr) => pr.phase === selectedType);
         if (match) acc.programId = match.id;
@@ -758,13 +764,8 @@ export class AccountDashboardView extends ItemView {
       });
       return;
     }
-    const firm = getFirm(acc.firmId);
-    const program = getProgram(firm, acc.programId);
-    const size = effectiveSize(getSize(program, acc.size), acc.rules);
-    if (!firm || !program || !size) {
-      main.createDiv({ cls: "tj-empty", text: "Unknown firm/program — please re-create this account in the Accounts tab." });
-      return;
-    }
+    const view = resolveAccountView(acc);
+    const size = view.rules;
     const header = main.createDiv({ cls: "tj-acc-header" });
     const titleWrap = header.createDiv({ cls: "tj-acc-titlewrap" });
     const backBtn = titleWrap.createEl("button", {
@@ -783,19 +784,36 @@ export class AccountDashboardView extends ItemView {
     this.renderPayoutLine(headerActions, acc);
 
     // Two squares, side by side: payouts, then settings. Both use the same
-    // icon-button recipe so they line up as a pair instead of drifting.
+    // icon-button recipe so they line up as a pair instead of drifting. The
+    // payouts square is the tinted one: it is the door money walks out of.
     if (acc.type === "funded" || acc.type === "live" || acc.type === "personal") {
       const payBtn = headerActions.createEl("button", {
-        cls: "tj-iconbtn",
+        cls: "tj-iconbtn tj-iconbtn-payout",
         attr: { type: "button", "aria-label": "Payouts" },
       });
-      setIcon(payBtn, "banknote");
+      setIcon(payBtn, "wallet");
       attachTip(payBtn, {
         title: "Payouts",
         sub: "Log what you took out — the account value and its distance to the limit follow.",
       });
       payBtn.addEventListener("click", () => openPayoutsModal(this.plugin, acc.id, () => this.render()));
     }
+
+    // The correction square comes before the settings one: it fixes a number
+    // and belongs with the account's own doors; settings is the way in, so it
+    // sits last. The balance is computed further down, so the button reads it
+    // when it is pressed, not when the header is drawn.
+    let balanceNow = 0;
+    const feesBtn = headerActions.createEl("button", {
+      cls: "tj-iconbtn",
+      attr: { type: "button", "aria-label": "Correct fees" },
+    });
+    setIcon(feesBtn, "receipt");
+    attachTip(feesBtn, {
+      title: "Correct fees",
+      sub: "Log the gap between this balance and the one the account really holds, as a dated adjustment.",
+    });
+    feesBtn.addEventListener("click", () => openFeeAdjustModal(this.plugin, acc.id, balanceNow, () => this.render()));
 
     const gearBtn = headerActions.createEl("button", {
       cls: "tj-iconbtn",
@@ -828,6 +846,13 @@ export class AccountDashboardView extends ItemView {
     const flowByDay = new Map<string, number>();
     for (const p of this.plugin.payoutsFor(acc.id)) flowByDay.set(p.date, (flowByDay.get(p.date) ?? 0) - Math.abs(p.amount));
     for (const d of this.plugin.depositsFor(acc.id)) flowByDay.set(d.date, (flowByDay.get(d.date) ?? 0) + Math.abs(d.amount));
+    // Balance corrections move the account the same way, but they are not
+    // payouts — they are kept apart so the tooltip can call them what they are.
+    const adjustByDay = new Map<string, number>();
+    for (const a of this.plugin.feeAdjustmentsFor(acc.id)) {
+      adjustByDay.set(a.date, (adjustByDay.get(a.date) ?? 0) + a.amount);
+      flowByDay.set(a.date, (flowByDay.get(a.date) ?? 0) + a.amount);
+    }
     const days = [...new Set([...byDay.keys(), ...flowByDay.keys()])].sort();
     const series: { date: string; net: number; cum: number }[] = [];
     let runningTrades = 0;
@@ -843,6 +868,8 @@ export class AccountDashboardView extends ItemView {
     // the balance does not.
     const net = runningTrades;
     const balance = acc.size + runningBalance;
+    // The header's correction square reads this when it is pressed.
+    balanceNow = balance;
     const peak = Math.max(0, ...series.map((s) => s.cum)) || 0;
     const floor = Math.min(peak - size.maxLoss, 0);
     const buffer = runningBalance - floor;
@@ -890,7 +917,7 @@ export class AccountDashboardView extends ItemView {
       const goDelete = btns.createEl("button", { text: "Upgrade & delete", cls: "tj-btn tj-del", attr: { type: "button" } });
       attachTip(goDelete, { title: "Upgrade & delete", sub: "Creates the funded account and removes this eval for good. Asks twice." });
       goDelete.addEventListener("click", async () => {
-        this.showDeleteConfirm(banner, acc, 1, async () => { await doUpgrade("delete"); });
+        void this.showDeleteConfirm(banner, acc, 1, async () => { await doUpgrade("delete"); });
       });
       const goKeep = btns.createEl("button", { text: "Keep for now", cls: "tj-btn", attr: { type: "button" } });
       attachTip(goKeep, { title: "Keep for now", sub: "Creates the funded account and leaves this eval here until you archive it." });
@@ -962,9 +989,9 @@ export class AccountDashboardView extends ItemView {
         void this.plugin.openAccounts();
       });
       const bandDelete = bandBtns.createEl("button", { text: "Delete", cls: "tj-btn tj-del", attr: { type: "button" } });
-      attachTip(bandDelete, { title: "Delete", sub: "Removes the account, its payouts and deposits. Trade files stay in the vault." });
+      attachTip(bandDelete, { title: "Delete", sub: "Removes the account, its records and its trade notes for good." });
       bandDelete.addEventListener("click", () => {
-        this.showDeleteConfirm(band, acc, 1, async () => {
+        void this.showDeleteConfirm(band, acc, 1, async () => {
           await this.plugin.removeAccount(acc.id);
           void this.plugin.openAccounts();
         });
@@ -991,6 +1018,7 @@ export class AccountDashboardView extends ItemView {
       cashflows: [
         ...this.plugin.payoutsFor(acc.id).map((p) => ({ date: p.date, amount: -Math.abs(p.amount) })),
         ...this.plugin.depositsFor(acc.id).map((d) => ({ date: d.date, amount: Math.abs(d.amount) })),
+        ...this.plugin.feeAdjustmentsFor(acc.id).map((a) => ({ date: a.date, amount: a.amount })),
       ],
     });
 
@@ -1051,7 +1079,8 @@ export class AccountDashboardView extends ItemView {
         const row = col.createDiv({ cls: "tj-acc-mrow" });
         const k = row.createDiv({ cls: "tj-acc-mlabel" });
         k.createSpan({ text: label });
-        const dot = k.createSpan({ cls: "tj-info-dot tj-tip-anchor", text: "i" });
+        const dot = k.createSpan({ cls: "tj-info-dot tj-tip-anchor" });
+        setIcon(dot, "info");
         row.createEl("b", { cls: `tj-acc-mvalue ${tone}`.trim(), text: value });
         dot.addEventListener("mouseenter", () => showTip({ title: label, sub: info }, "tj-acc-facttip"));
         dot.addEventListener("mousemove", (e) => moveTip(e));
@@ -1110,7 +1139,7 @@ export class AccountDashboardView extends ItemView {
     const eqCard = heroLeft.createDiv({ cls: "tj-acc-eqcard" });
     const eqHead = eqCard.createDiv({ cls: "tj-acc-eqhead" });
     const eqTitleRow = eqHead.createDiv({ cls: "tj-acc-eqtitlerow" });
-    eqTitleRow.createDiv({ cls: "tj-acc-k", text: `Equity — ${firm.name} ${program.label} $${(acc.size / 1000).toFixed(0)}K ${acc.type.charAt(0).toUpperCase() + acc.type.slice(1)}` });
+    eqTitleRow.createDiv({ cls: "tj-acc-k", text: `Equity — ${firmLabel(acc.firmId) ?? ""} ${view.program?.label ?? ""} $${(acc.size / 1000).toFixed(0)}K ${acc.type.charAt(0).toUpperCase() + acc.type.slice(1)}` });
     // Streak dots (last 20 trading days) — top right, same line as title
     if (days.length > 0) {
       const eqRight = eqTitleRow.createDiv({ cls: "tj-acc-eqright" });
@@ -1126,7 +1155,12 @@ export class AccountDashboardView extends ItemView {
       }
     }
     const eqVal = eqHead.createDiv({ cls: "tj-acc-eqval" });
-    eqVal.createSpan({ cls: "tj-acc-big", text: `$${balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}` });
+    // To the cent, always: this is the number every other one has to reconcile
+    // against, and a rounded balance cannot be checked against the platform.
+    eqVal.createSpan({
+      cls: "tj-acc-big",
+      text: `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    });
     eqVal.createSpan({
       cls: "tj-acc-growth " + (net >= 0 ? "tj-pos" : "tj-neg"),
       text: `${fmtMoney(net)} (${acc.size ? ((net / acc.size) * 100).toFixed(1) : "0"}%)`,
@@ -1164,9 +1198,11 @@ export class AccountDashboardView extends ItemView {
             ["Trades", s2 ? String(byDay.get(s2.date)?.count ?? 0) : "0", ""],
             ["Day P&L", s2 ? fmtMoney(s2.net) : "—", s2 && s2.net < 0 ? "tj-neg" : s2 && s2.net > 0 ? "tj-pos" : ""],
           ];
-          const flow = s2 ? flowByDay.get(s2.date) ?? 0 : 0;
+          const flow = (s2 ? flowByDay.get(s2.date) ?? 0 : 0) - (s2 ? adjustByDay.get(s2.date) ?? 0 : 0);
           if (flow < 0) rows2.push(["Payout", fmtMoney(Math.abs(flow)), "tj-cash"]);
           if (flow > 0) rows2.push(["Deposit", fmtMoney(flow), "tj-pos"]);
+          const adj = s2 ? adjustByDay.get(s2.date) ?? 0 : 0;
+          if (adj !== 0) rows2.push(["Fees corrected", fmtMoney(adj), "tj-cash"]);
           if (ddLevels.length) rows2.push(["Drawdown level", fmtMoney(ddLevels[i] ?? 0), ""]);
           if (size.target) rows2.push(["Target", fmtMoney(acc.size + size.target), "tj-pos"]);
           return rows2;
@@ -1277,7 +1313,8 @@ export class AccountDashboardView extends ItemView {
       const row = col.createDiv({ cls: "tj-acc-mrow" });
       const k = row.createDiv({ cls: "tj-acc-mlabel" });
       k.createSpan({ text: label });
-      const dot = k.createSpan({ cls: "tj-info-dot tj-tip-anchor", text: "i" });
+      const dot = k.createSpan({ cls: "tj-info-dot tj-tip-anchor" });
+      setIcon(dot, "info");
       row.createEl("b", { cls: `tj-acc-mvalue ${tone}`.trim(), text: value });
       dot.addEventListener("mouseenter", () => showTip({ title: label, sub: info }, "tj-acc-facttip"));
       dot.addEventListener("mousemove", (e) => moveTip(e));
@@ -1668,7 +1705,7 @@ export class AccountDashboardView extends ItemView {
     });
   }
 
-  private showDeleteConfirm(host: HTMLElement, acc: any, step: number, onConfirm?: () => void): void {
+  private async showDeleteConfirm(host: HTMLElement, acc: any, step: number, onConfirm?: () => void): Promise<void> {
     host.querySelectorAll(".tj-delete-confirm").forEach((el) => el.remove());
     const card = host.createDiv({ cls: "tj-delete-confirm" });
     const close = () => {
@@ -1679,14 +1716,35 @@ export class AccountDashboardView extends ItemView {
     if (step === 1) {
       card.createDiv({ cls: "tj-delete-icon", text: "\u26A0\uFE0F" });
       card.createEl("h3", { text: "Delete this account?" });
-      card.createEl("p", { cls: "tj-delete-desc", text: `This will permanently remove "${acc.name}" from all views, metrics, and dashboards.` });
-      card.createEl("p", { cls: "tj-delete-desc", text: "Payout records and deposit history will be lost." });
-      card.createEl("p", { cls: "tj-delete-desc", text: "Trade files in your vault will NOT be deleted." });
+      card.createEl("p", { cls: "tj-delete-desc", text: `Everything attached to "${acc.name}" goes with it:` });
+
+      const summary = await this.plugin.accountDeletionSummary(acc.id);
+      const list = card.createDiv({ cls: "tj-delete-list" });
+      const fact = (n: number, one: string, many: string) => {
+        if (!n) return;
+        list.createDiv({
+          cls: "tj-delete-fact",
+          text: `${n} ${n === 1 ? one : many}`,
+        });
+      };
+      fact(summary.trades, "trade note — moved to Obsidian's trash", "trade notes — moved to Obsidian's trash");
+      fact(summary.payouts, "payout record", "payout records");
+      fact(summary.deposits, "deposit record", "deposit records");
+      fact(summary.corrections, "balance correction or logged cost", "balance corrections and logged costs");
+      fact(summary.copyLinks, "copy-trading link", "copy-trading links");
+      if (!summary.trades && !summary.payouts && !summary.deposits && !summary.corrections && !summary.copyLinks) {
+        list.createDiv({ cls: "tj-delete-fact", text: "No records — the account is already empty." });
+      }
+
+      card.createEl("p", {
+        cls: "tj-delete-desc tj-del",
+        text: "The trade notes leave your vault. This cannot be undone from here — recover them from Obsidian's trash before it is emptied.",
+      });
       card.createEl("p", { cls: "tj-delete-hint", text: "If you want to keep the data but hide it, use Archive instead." });
       const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
       btns.createEl("button", { text: "Cancel", cls: "tj-btn" }).addEventListener("click", close);
       btns.createEl("button", { text: "Yes, delete", cls: "tj-btn tj-del" }).addEventListener("click", () => {
-        this.showDeleteConfirm(host, acc, 2, onConfirm);
+        void this.showDeleteConfirm(host, acc, 2, onConfirm);
       });
     } else {
       card.createDiv({ cls: "tj-delete-icon", text: "\uD83D\uDEA8" });
@@ -1723,7 +1781,7 @@ export class AccountDashboardView extends ItemView {
     const badge = line.createSpan({
       cls: "tj-acc-cashbadge" + (this.plugin.settings.animations === false ? " is-still" : ""),
     });
-    setIcon(badge.createSpan({ cls: "tj-acc-cashbadge-ico" }), "banknote");
+    setIcon(badge.createSpan({ cls: "tj-acc-cashbadge-ico" }), "wallet");
     badge.createSpan({ cls: "tj-acc-cashbadge-k", text: "Paid out" });
     badge.createSpan({ cls: "tj-acc-cashbadge-v", text: fmtMoneyCompact(total) });
     attachTip(badge, {
@@ -1778,7 +1836,7 @@ export class AccountDashboardView extends ItemView {
       onChange: (iso) => (depositDate = iso),
     });
     row.createEl("label", { text: "Amount ($)" });
-    const amountInput = row.createEl("input", { type: "number", cls: "tj-input", attr: { min: "1", step: "1", placeholder: "5000" } });
+    const amountInput = freeNumeric(row.createEl("input", { type: "number", cls: "tj-input", attr: { placeholder: "5000" } }));
     row.createEl("label", { text: "Note (optional)" });
     const noteInput = row.createEl("input", { type: "text", cls: "tj-input", attr: { placeholder: "e.g. Initial deposit" } });
     const save = row.createEl("button", { text: "Save deposit", cls: "mod-cta tj-btn" });

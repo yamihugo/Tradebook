@@ -107,3 +107,6 @@ If Tradebook helps your trading, consider supporting the project — [Buy me a c
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Prop-firm and broker names and logos belong to their owners and are shown only to identify
+the firm an account trades with.

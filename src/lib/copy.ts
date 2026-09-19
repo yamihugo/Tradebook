@@ -71,7 +71,10 @@ export function effectiveCopyConfig(account: PropAccount | undefined, date: stri
     return {
       from,
       ratio: account.copyMultiplier ?? 1,
-      crossOrder: account.copyCrossOrder ?? false,
+      // Cross-order is a decision of the engine, not of the trader: mirror the
+      // exposure in micros only when the ratio leaves less than one mini.
+      crossOrder: true,
+      crossMode: "exposure",
       sizing: account.copySizing ?? "ratio",
       fixedQty: account.copyFixedQty,
       round: account.copyRound ?? "down",
@@ -140,6 +143,55 @@ export function closeCopyPeriods(account: PropAccount): void {
   const periods = account.copyPeriods ?? [];
   if (!periods.length) return;
   account.copyPeriods = periods.map((p) => (p.end ? p : { ...p, end: dayBefore(today) }));
+}
+
+/**
+ * Cut an account's copy link and touch no note.
+ *
+ * The stretch it copied closes the day before today, so the record of when it
+ * followed stays in the periods. The live settings are reset so the next link
+ * starts clean instead of inheriting the last group's ratio or symbol rule —
+ * an account that left a 0.5x micro group must not seed its next one with 0.5.
+ * Legs already generated are written and stay.
+ */
+export function unlinkCopier(account: PropAccount): void {
+  closeCopyPeriods(account);
+  account.copyRole = undefined;
+  account.copyBaseId = undefined;
+  account.copyMultiplier = undefined;
+  account.copySizing = undefined;
+  account.copyFixedQty = undefined;
+  account.copyRound = undefined;
+  account.copyMinQty = undefined;
+}
+
+/**
+ * Begin copying a leader from a chosen date — the "Copy from" choice in the
+ * group manager (today / the account's own start / a date you pick / the
+ * leader's whole history).
+ *
+ * Both the period and the configuration open on that same date. Writing only
+ * the period is not enough: an account created on 6 September would still be
+ * refused for a trade on 1 September, because the legacy configuration window
+ * opens on the day the account was created.
+ */
+export function startCopying(account: PropAccount, baseId: string, multiplier: number, from: string): void {
+  openCopyPeriod(account, baseId, multiplier, from);
+  const entry: CopyConfigEntry = {
+    from,
+    ratio: multiplier,
+    // Automatic cross-order: recorded on the link so re-generating a trade of
+    // this stretch uses the same rule. The engine applies it per trade — micros
+    // only when the ratio would leave less than one mini.
+    crossOrder: true,
+    crossMode: "exposure",
+    sizing: account.copySizing ?? "ratio",
+    fixedQty: account.copyFixedQty,
+    round: account.copyRound ?? "down",
+    minQty: account.copyMinQty ?? 0,
+  };
+  const history = (account.copyConfigHistory ?? []).filter((h) => h.from !== from);
+  account.copyConfigHistory = [...history, entry].sort((a, b) => a.from.localeCompare(b.from));
 }
 
 /** Accounts that should receive a copy of this base trade. */
@@ -267,16 +319,27 @@ function legFills(base: Trade, legSymbol: string, legQty: number, legCost: numbe
 }
 
 /** Build the leg (a full Trade) for one account from a base trade. */
-export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry): Trade {  const cross = !!cfg.crossOrder;
+export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry): Trade {
+  // The engine picks the contract, never the trader. A ratio that leaves less
+  // than one mini (0.5× of 1 NQ) would round to zero and the leg would simply
+  // vanish; when that happens and the symbol has a micro, the same exposure is
+  // mirrored in micros (1 mini = 10 micros). Anything else keeps the leader's
+  // own symbol. Legs already written are frozen — only new ones are built here.
+  const ratio = cfg.ratio || 1;
+  const baseQty = base.quantity || 0;
+  const isRatioSizing = !cfg.sizing || cfg.sizing === "ratio";
+  const contractMode = cfg.crossMode === "contract";
+  const micro = MICRO_OF[(base.symbol || "").trim().toUpperCase()];
+  const fractional = isRatioSizing && baseQty > 0 && baseQty * ratio < 1;
+  const cross = cfg.crossOrder === true && !!micro && (contractMode || fractional);
   const symbol = cross ? crossSymbol(base.symbol, true) : base.symbol;
   const spec = futuresSpec(symbol);
-  const ratio = cfg.ratio || 1;
 
   let rawQty: number;
   if (cfg.sizing === "fixed") rawQty = cfg.fixedQty ?? 0;
-  else if (cfg.sizing === "mirror") rawQty = base.quantity || 0;
-  else if (cross) rawQty = (base.quantity || 0) * (cfg.crossMode === "contract" ? 1 : MINI_TO_MICRO) * ratio;
-  else rawQty = (base.quantity || 0) * ratio;
+  else if (cfg.sizing === "mirror") rawQty = baseQty;
+  else if (cross) rawQty = baseQty * (contractMode ? 1 : MINI_TO_MICRO) * ratio;
+  else rawQty = baseQty * ratio;
 
   const mode = cfg.round ?? "down";
   let qty = mode === "nearest" ? Math.round(rawQty) : mode === "up" ? Math.ceil(rawQty) : Math.floor(rawQty);
@@ -289,8 +352,10 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
   let pnl: number;
   if (hasPoints) {
     grossPnl = round2((base.pnlPoints as number) * spec.pointValue * qty);
-    commission = qty ? round2(spec.defaultCommission * qty) : 0;
-    fees = qty ? round2(spec.defaultFees * qty) : 0;
+    // A leg never invents a cost: only the platform that charged it can say
+    // what it was, and a copy is a different account's trade.
+    commission = 0;
+    fees = 0;
     pnl = round2(grossPnl - commission - fees);
   } else {
     // No point data (e.g. imported fills): scale the base NET P&L and skip
@@ -306,6 +371,9 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     date: base.date,
     entryTime: base.entryTime,
     exitTime: base.exitTime,
+    // The leg happened at the same wall-clock instant as its leader, so it
+    // carries the same zone — otherwise a copy would read in the wrong clock.
+    timezone: base.timezone,
     symbol,
     account: account.name,
     accountType: account.type,

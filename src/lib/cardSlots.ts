@@ -1,18 +1,17 @@
 import { AccountType } from "../types";
 
 /**
- * What a card can show, and what it shows by default.
+ * What a card shows, per account type.
  *
- * This file is the single source of truth for both ends: `accountsListView`
- * renders from these ids, and Manage → Cards offers exactly the same list. A
- * slot that is not here cannot be picked, and a slot picked here always has a
- * builder to draw it — the two can never drift apart.
+ * This file is the single source of truth: `accountsListView` renders the two
+ * bars and four numbers listed here, and nothing else picks or mixes slots. A
+ * slot that is not in the catalog cannot be drawn, so the two can never drift.
  */
 
 export interface SlotDef {
   id: string;
   label: string;
-  /** One line for the Manage tab: what the number actually means. */
+  /** One line: what the number actually means. */
   hint: string;
 }
 
@@ -29,6 +28,7 @@ export const BAR_CATALOG: SlotDef[] = [
 export const MINI_CATALOG: SlotDef[] = [
   { id: "trades", label: "Trades", hint: "How many trades the account holds" },
   { id: "win", label: "Win rate", hint: "Winning trades out of decided trades — break-even excluded" },
+  { id: "dayWin", label: "Day win", hint: "Share of trading days that closed positive" },
   { id: "withdrawn", label: "Paid out", hint: "Money taken out of the account, in payouts" },
   { id: "avgR", label: "Avg R", hint: "Average result per trade in multiples of the risk taken" },
   { id: "profitFactor", label: "Profit factor", hint: "Money won for every unit lost" },
@@ -44,9 +44,13 @@ export const BAR_SLOTS = 2;
 export const MINI_SLOTS = 4;
 
 /**
- * Defaults per account type. These are the signed-off defaults: an eval is
- * about passing, a funded account about getting paid, a personal account about
- * whether the process itself is holding up.
+ * The signed-off layout per account type — one layout, not a choice.
+ *
+ * An eval is about passing, a funded account about getting paid and staying
+ * inside the two limits that end it, a personal account about whether the
+ * process itself is holding up. These follow what the firms' own dashboards and
+ * the established journals put in front of a trader; they change here, in one
+ * place, when the review says so.
  */
 export const DEFAULT_BARS: Record<AccountType, string[]> = {
   eval: ["target", "drawdown"],
@@ -58,9 +62,9 @@ export const DEFAULT_BARS: Record<AccountType, string[]> = {
 };
 
 export const DEFAULT_MINI: Record<AccountType, string[]> = {
-  eval: ["trades", "win", "toTarget", "last"],
+  eval: ["toTarget", "win", "profitFactor", "last"],
   funded: ["trades", "win", "withdrawn", "last"],
-  live: ["trades", "win", "withdrawn", "avgR"],
+  live: ["trades", "win", "dayWin", "avgR"],
   personal: ["trades", "win", "profitFactor", "avgR"],
   demo: ["trades", "win", "symbols", "last"],
   unknown: ["trades", "win", "profitFactor", "avgR"],
@@ -82,14 +86,16 @@ const known = (ids: string[] | undefined, fallback: string[], size: number): str
   return out;
 };
 
-export function barsFor(type: AccountType, saved?: Record<string, string[]>): string[] {
-  const fallback = DEFAULT_BARS[type] ?? DEFAULT_BARS.unknown;
-  return known(saved?.[type], fallback, BAR_SLOTS);
+export interface CardLayout {
+  bars: string[];
+  mini: string[];
 }
 
-export function miniFor(type: AccountType, saved?: Record<string, string[]>): string[] {
-  const fallback = DEFAULT_MINI[type] ?? DEFAULT_MINI.unknown;
-  return known(saved?.[type], fallback, MINI_SLOTS);
+/** The two bars and four numbers a card of this type draws. */
+export function layoutFor(type: AccountType): CardLayout {
+  const bars = DEFAULT_BARS[type] ?? DEFAULT_BARS.unknown;
+  const mini = DEFAULT_MINI[type] ?? DEFAULT_MINI.unknown;
+  return { bars: known(bars, bars, BAR_SLOTS), mini: known(mini, mini, MINI_SLOTS) };
 }
 
 export const barLabel = (id: string): string => BAR_CATALOG.find((s) => s.id === id)?.label ?? id;

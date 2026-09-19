@@ -4,8 +4,6 @@ export interface FuturesSpec {
   pointValue: number; // dollar value of 1.0 point movement
   tickSize: number;
   tickValue: number;
-  defaultCommission: number;
-  defaultFees: number;
   /** What the contract is called — for the picker and for tooltips. */
   name?: string;
   exchange?: string;
@@ -15,10 +13,6 @@ export interface FuturesSpec {
   kind?: "mini" | "micro" | "other";
   micro?: string;
   mini?: string;
-  /** Exchange fee per ROUND TURN (USD). Set by the exchange, so it is the same
-   *  at every broker; the commission and the NFA fee come from the cost
-   *  profile. Source: TopstepX commissions & fees. */
-  rtExchange?: number;
 }
 
 export interface Execution {
@@ -34,6 +28,12 @@ export interface Execution {
   orderId: string;
   /** Order type: Limit, Market, Stop, StopLimit, etc. */
   orderType?: string;
+  /**
+   * Identity of this fill in the platform's own reports: its timestamp and the
+   * contract exactly as written. The cash history uses the same pair, which is
+   * how a fill finds its real exchange, clearing, NFA and commission lines.
+   */
+  costKey?: string;
 }
 
 /**
@@ -142,16 +142,82 @@ export interface Trade {
 export interface ParsedResult {
   trades: Trade[];
   warnings: string[];
+  /** Rows that could not be read as an execution at all. */
   skipped: number;
+  /** Order rows that carried no fill (working, cancelled, rejected tickets). */
+  unfilled: number;
+  /** Fills recorded but never closed — an open or partial position. */
+  unpaired: number;
   accountsSeen: { name: string; type: AccountType }[];
+  /** Present when the platform's cash history came with the file. */
+  costs?: ImportCosts;
 }
 
-export interface PropAccountRuleOverrides {
+/**
+ * What the platform charged, next to what this import recorded. The journal
+ * never simulates a fee: either the cash history says what was charged, or the
+ * costs are zero and the review says so.
+ */
+export interface ImportCosts {
+  /** Total cost lines in the cash history (exchange + clearing + NFA + commission). */
+  charged: number;
+  /** What the trades in this file picked up from it. */
+  recorded: number;
+  /** The account balance the platform itself reports (its last running Amount). */
+  finalBalance?: number;
+  /** Cost lines that would not glue to any trade — logged as an account cost. */
+  orphans: OrphanCost[];
+}
+
+/**
+ * A cost the platform charged that could not be tied to a single trade: the
+ * Orders export aggregates several executions into one row, so a few cost lines
+ * carry a stamp no trade holds. The money is real, so it is logged against the
+ * account on its own day instead of being dropped.
+ */
+export interface OrphanCost {
+  /** YYYY-MM-DD, in the journal's zone. */
+  date: string;
+  /** Positive amount, the way every other cost is kept. */
+  amount: number;
+  /** The contract the platform stamped on the line, for the note. */
+  contract: string;
+}
+
+/** The rules an account answers to. Everything is optional: the account is the
+ *  source of truth, and a missing field simply means the account has no such
+ *  rule (or, for accounts created before this model, that we fall back to the
+ *  firm's published seed — see `lib/accountRules.ts`). */
+export interface AccountRules {
   target?: number;
   maxLoss?: number;
   dailyLoss?: number;
   consistency?: number;
+  consistencyBasis?: "profit" | "target";
   posSize?: string;
+  /** Drawdown behaviour — drives the floor calculation. */
+  maxLossType?: "eod-trailing" | "intraday-trailing" | "eod-trailing-open" | "static";
+  /** Where a trailing drawdown stops trailing, in dollars above the starting balance. */
+  ddLockOffset?: number;
+  /** Minimum trading days before a pass / payout (informational). */
+  minDays?: number;
+  /** Anything the daily loss limit needs the number to say. */
+  dailyLossNote?: string;
+  /** Target / max loss entered as a percentage of the size — resolved to dollars on the way out. */
+  targetPct?: number;
+  maxLossPct?: number;
+}
+
+/** Kept as an alias so older imports keep working. */
+export type PropAccountRuleOverrides = AccountRules;
+
+/** How the account's avatar is drawn. No URLs, no paths outside the vault. */
+export interface AccountBranding {
+  kind: "packaged" | "initials";
+  /** Id in the packaged logo catalog, e.g. "topstep". */
+  id?: string;
+  /** The two letters drawn when `kind` is "initials". */
+  initials?: string;
 }
 
 export interface CopyConfigEntry {
@@ -202,9 +268,12 @@ export interface PropAccount {
    *  "PROP-1234"). The system resolves them for imports, but NEVER shows them
    *  in the UI and never writes them to trade notes — your friendly name wins. */
   aliases?: string[];
-  /** Optional rule overrides — when a prop firm changes its rules you can
-   *  edit them in Settings instead of waiting for a plugin update. */
-  rules?: PropAccountRuleOverrides;
+  /** The rules this account answers to — entered by the trader, not read from a
+   *  hardcoded preset. Accounts created before this model keep only their
+   *  overrides here and fall back to the firm seed on read. */
+  rules?: AccountRules;
+  /** How the account's logo/initials are drawn. */
+  branding?: AccountBranding;
   /** Which payout route this funded account is working towards, when the firm
    *  offers more than one (TopStep XFA: "standard" | "consistency"). The system
    *  has to know which rulebook applies before it can say what is still missing.
@@ -241,7 +310,6 @@ export interface PropAccount {
   /** For a copier: periods during which it was copying (so history stays right). */
   copyPeriods?: CopyPeriod[];
   /** Legacy single-value copy settings (before copyConfigHistory existed). */
-  copyCrossOrder?: boolean;
   copySizing?: "ratio" | "fixed" | "mirror";
   copyFixedQty?: number;
   copyRound?: "down" | "nearest" | "up";
@@ -274,4 +342,36 @@ export interface Deposit {
   date: string; // YYYY-MM-DD
   amount: number; // dollars deposited (positive)
   note?: string;
+}
+
+/**
+ * A balance correction, logged when the platform's own figure and the journal's
+ * disagree — most often fees the journal never saw.
+ *
+ * It is deliberately not called a fee: the journal knows the *difference*
+ * between two numbers, not which line the broker wrote. It carries that
+ * difference as a dated cash-flow, so the balance matches the platform without
+ * rewriting a single trade. `amount` is signed: negative when the account holds
+ * less than the journal says (fees were charged), positive when it holds more.
+ */
+export interface FeeAdjustment {
+  id: string;
+  accountId: string;
+  date: string; // YYYY-MM-DD
+  amount: number; // signed difference: what the account really holds, minus the journal
+  note?: string;
+  /**
+   * "cost" marks a cost the platform charged that no trade could claim (an
+   * Orders export aggregated the executions). It flows through the balance like
+   * any other dated cash-flow, but it is not a hand-written correction.
+   */
+  kind?: "cost";
+  /** The window this correction was spread over, when it carries a split. */
+  period?: { from: string; to: string };
+  /** How many trades took a slice of it. */
+  trades?: number;
+  /** The slice each trade carries, a cent at a time. Empty until it is spread. */
+  allocations?: { key: string; date: string; amount: number }[];
+  /** The cents that could not be divided evenly, kept so the audit closes. */
+  remainderCents?: number;
 }

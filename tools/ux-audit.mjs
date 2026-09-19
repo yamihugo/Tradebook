@@ -68,6 +68,13 @@ const DECORATIVE = [
   ".tj-acc-dot",
   ".tj-acc-bdot",
   ".tj-acc-streakdot",
+  // Import review + Add manual trade: the dot states whether an account (or a
+  // file name) is in. The control is the whole `label.tj-import-acc` /
+  // `label.tj-add-acc` row or the mapping row it sits in, all full-width rows
+  // around 30px tall.
+  ".tj-import-accdot",
+  ".tj-import-mapdot",
+  ".tj-add-accdot",
 ];
 
 /** Real targets that satisfy the SC 2.5.8 *spacing* exception: a 24px circle

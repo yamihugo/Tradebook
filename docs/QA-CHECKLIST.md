@@ -3,7 +3,7 @@ title: QA Checklist & Fix Log
 project: Tradebook
 type: qa
 status: living
-updated: 2026-09-15
+updated: 2026-09-19
 tags:
   - tradebook
   - qa
@@ -886,6 +886,99 @@ O maintainer decidiu que, para o modelo dele, **nome = estratégia** (tem só du
 
 ---
 
+## 2.49 Custos que sobrevivem, órfãos que se colam, delete duro, arquivo fora (18 Set)
+
+Batch A–F aprovado pelo maintainer, todo num só build/deploy.
+
+- **A — Fees $0,00 provado.** `storage.ts` nunca escrevia `commission`/`fees` ao nível da trade (só em cada perna de fill), por isso os custos da Cash History viviam só em memória e desapareciam no primeiro reload. Passam a ser escritos no frontmatter (só quando finitos) e lidos no parser (`parseFloat(...) || 0`). Sem migração: re-importar.
+- **B — $6,65 de custo órfão.** A Cash History cobra por execução, o Orders agrega numa ordem; três lados MESU6 ficavam sem fill. Regra nova: a linha de custo **cola-se** ao trade quando é óbvio (mesmo contrato e stamp dentro de entry→exit ±2 min, um único candidato); o que sobra vira **custo datado da conta** (`FeeAdjustment.kind:"cost"`), oculto do modal *Correct fees* mas no saldo. O review de import mostra *platform · glued · in account* e compara o saldo do journal com o `Amount` final da própria Cash History (✓ dentro de $0,01, ⚠ fora). Recomendação do ficheiro mantém-se Orders.
+- **C — Delete duro.** `purgeAccountData` remove registos (payouts, depósitos, correções/custos), mapeamentos, laços de copy (grupos liderados, seguidores, `copyBaseId` alheio) **e envia as notas de trade para o lixo do Obsidian** (`vault.trash`). A 1.ª confirmação lista exactamente o que morre (N notas, payouts, depósitos, correções, laços) com aviso vermelho de que as notas saem da vault; a 2.ª é final. O upgrade eval→funded usa o mesmo purge quando se apaga o eval.
+- **D — Arquivadas fora de tudo.** `activeAccounts()` (só `propAccounts`) e `isArchivedTrade()` centralizam a regra; Home e carteira excluem arquivadas das métricas, do saldo e dos totais. Os trades mantêm-se listados e acessíveis no Trade Log e Strategies; desarquivar restaura.
+- **E — Ordem do header da conta.** payout (carteira) → Correct fees (recibo) → Account settings (roda), o gear no canto direito.
+- **Limpeza morta.** `ImportCosts` perdeu `matched`/`unmatched`/`paired`/`deposits` (nenhum era lido); `CashCosts` perdeu `paired`/`deposits`; removida a regra CSS `.tj-import-costs-warn`. Novas: `.tj-import-balance`(+`.is-ok`/`.is-warn`) e `.tj-delete-list`/`.tj-delete-fact`.
+
+**Prova (ficheiros reais `/home/hugo/Downloads/Orders.csv` + `Cash History.csv`, Europe/Lisbon→America/New_York):** 22 trades · charged 270,34 · recorded 270,34 · orphans 0 · finalBalance 49263,66 · commission 112,92 + fees 157,42 · net −736,34 = 50000 − 736,34 → saldo bate com a plataforma ao cêntimo (a colagem recuperou os $6,65).
+
+**Verificação**: build 0 · smoke **142 PASS / 0 FAIL** · audit **0** violações novas (dívida conhecida: 3 px off-scale + 5 small targets). Deploy `main.js 7c88df6806db210bd4a2040bd673e910` · `styles.css e0acea85740ee848fffa693b85bc25fd` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
+## 2.50 Guard de conta no import, import honesto, foco e fees proporcionais (18 Set)
+
+Pedido do maintainer, aprovado; todo num só build/deploy.
+
+- **Guard de conta no import.** `activeTargets()` = nomes da CSV mapeados para conta **ou** contas marcadas em *also record these trades in*. O CTA `Import N trades` fica `disabled` (opacidade 0.45, `cursor:not-allowed`) enquanto não houver alvo, com a linha `.tj-import-helper` "Select at least one target account to proceed."; `commit()` tem a guarda dura e recusa com `Notice` se não houver alvo. Trades sem conta **não são escritos**; o review diz "N trades left out — no account selected". Ticks e mapeamento reavaliam o botão sem repaint.
+- **Import honesto (falso-sucesso intermitente).** O recibo usava `trades.length` (pedido), não o gravado. Agora `storeTrades` corre, o importador **relê a vault** (`loadTradesExpanded`) e confirma cada nota esperada (chave por `fillId` ou `account|date|symbol|direction|entryTime`); se 0 notas ou alguma não confirmada → `Notice` "Nothing was written … could not be confirmed on disk" + botão `Retry`, nunca "Done". O recibo passa a usar a contagem confirmada.
+- **Foco do saldo no Correct fees.** O campo "What I have" foca ao abrir (uma vez) e a qualquer clique na linha `.tj-mg-rowval`; `:focus` muda a hairline para `--interactive-accent` e o hover mantém `--text-muted`. O erro de validação volta a focar depois do `render()`.
+- **Janela automática.** `from` = dia a seguir ao `period.to` da última correção (ou `createdAt`/primeiro trade); `to` = último dia com trade da conta (editável). `windowTrades()` casa por **id** (`mappedAccount`), não por nome, e exclui o que já leva fatia via `allocatedKeysFor`.
+- **Motor proporcional.** `allocateEqually` → `allocateProportional` (peso = `quantity`, cêntimos inteiros, maior-resto com desempate pelo índice, soma exata em totais negativos incluídos). O Post-Trade Review mostra "Fees corrected" com etiqueta de **model** ao lado das Fees reais (`feeForTrade`/`allocatedKeysFor`); **nenhuma nota é reescrita** — real e alocado nunca se somam às escondidas. `allocateEqually` foi removido (sem código morto).
+- **CSS.** Nova `.tj-import-helper`; `:disabled` dos `tj-actionbtn` passa a `cursor:not-allowed`.
+
+**Prova do motor (`node`):** 5,95 sobre 30:1 → **5,76 + 0,19** (bate com o valor real reportado pelo maintainer); totais negativos e frações somam ao cêntimo (595/595, −1337/−1337, 10001/10001, −3/−3, 1234/1234).
+
+**Verificação**: build 0 · smoke **142 PASS / 0 FAIL** · audit **0** violações novas (dívida conhecida: 3 px off-scale + 5 small targets). Deploy `main.js 6720806e5e70dc21c13cb057e670d78e` · `styles.css 174a181dfa3b400c6bd56e41370694a4` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
+## 2.51 Follow-up do Correct fees: foco fiável, helper, chave única e fees por trade (18 Set)
+
+Segunda passagem sobre o Correct fees, aprovada pelo maintainer (decisões: fees por trade mostradas como real+alocado com split, sem reescrever notas; janela+fatias automáticas com saldo manual; chave endurecida com aviso de órfãs).
+
+- **Foco fiável do saldo.** O handler passa a estar no `.tj-mg-row` inteiro (label + valor) em `mousedown` com `preventDefault` (exceto no próprio input, para o caret ir onde foi apontado). O `render()` lê `activeElement` antes de `empty()` e volta a focar o input se ele tinha o cursor — sobrevive ao 2.º render assíncrono (`loadTradesExpanded`). A flag `focused` foi removida. `:focus` ganha fundo `color-mix(--interactive-accent 8%)` além da hairline accent.
+- **Helper do "Spread over".** Tooltip no label + linha `.tj-fees-windowhint` sob o par de datas: "The difference is split across the trades in this window, in proportion to size — ten contracts take ten times one. Trades already corrected are skipped."
+- **Chave das fatias endurecida.** `tradeFeeKeys(t)` devolve todas as chaves do trade — `id:<fillId>` (plataforma), `k:<caminho da nota>` (único para trades manuais) e a chave composta antiga como *fallback*. `tradeFeeKey` = a primeira. `feeForTrade` e o `pending` do modal casam por **qualquer** variante, por isso fatias gravadas antes desta mudança continuam a encontrar o seu trade (sem dupla contagem nem migração).
+- **Aviso de fatias órfãs.** Se uma chave guardada não corresponde a nenhum trade da conta (ex.: notas re-importadas com novos ids), o modal mostra `.tj-fees-orphan` — "N saved slice(s) no longer match a trade … They still count towards the balance; remove the correction to clear them." — em vez de esconder o desvio.
+- **Fees por trade no Post-Trade Review.** A linha "Fees" (`tradeDetailView.ts`) passa a mostrar `$total · $X corrected` quando o trade leva fatia, com tooltip que separa o número da plataforma do *model*; a edição continua a mexer só nas fees reais. A antiga linha separada "Fees corrected" foi fundida (sem duplicação de linhas).
+
+**Prova do motor (`node`):** `tradeFeeKeys` de dois trades com a mesma data/símbolo/direção/hora dá chaves primárias **distintas** (caminho da nota); alocação 3:1 de 5,95 → **4,46 + 1,49** (595¢ exatos); uma fatia com a chave composta antiga continua a casar com os dois trades (compatibilidade).
+
+**Verificação**: build 0 · smoke **142 PASS / 0 FAIL** · audit **0** violações novas (dívida: 3 px off-scale + 5 small targets). Deploy `main.js 485b22940fd15f31fee31017140f286e` · `styles.css 2c020c99540d3f50f1530cb1dff94d68` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
+## 2.52 Contas dirigidas pelo utilizador: wizard, resolvedor e Management (18 Set)
+
+Refactor aprovado pelo maintainer: o wizard deixa de ser guiado por presets de firm e passa a ser escrito pelo trader (modelo Journalit-style); o preset é só um atalho opcional.
+
+- **Wizard em 4 passos.** Type · Identity · Rules · Review. Personal/demo saltam Rules (`.tj-wz-step.off`). As regras são target/max loss (**$ ou %** via `.tj-wz-amount`/`.tj-wz-unit`), daily loss, tipo de drawdown (EOD/intraday/never-locks/static), posição e dias mínimos. Passo 2 tem um só campo de saldo inicial (= `size`, sem o bug "$50K mostra $100K") e a grelha de logos.
+- **Grelha de logos.** `FIRM_CATALOG` (prop firms: Topstep, Tradeify, Apex, Take Profit Trader, MyFundedFutures, Alpha Capital Group, Lucid Trading; brokers: Tradovate, NinjaTrader, Interactive Brokers, AMP Futures) + `Own` em símbolo CSS + tile "Custom" com iniciais. PNGs embutidos como data URIs (`lib/firmLogos.ts`); id sem ficheiro mostra iniciais — nenhum ecrã rebenta. Faltam por colar 8 PNGs em `assets/firm-logos/`.
+- **Resolvedor único.** `lib/accountRules.ts` (`resolveAccountView`/`mergeRules`): overrides do utilizador por cima do preset opcional; `target/maxLoss/dailyLoss/consistency` leem 0 quando não há regra. Home, lista de contas, dashboard da conta e Settings deixam de importar presets diretamente — e o antigo hard-fail "Unknown firm/program — please re-create this account" desapareceu.
+- **"Quick add" removido** das Settings; o botão "Open wizard" é a única porta de criação.
+- **Management.** Banners de topo → tooltip `(i)` (`.tj-manage-secthead`/`-infoico`); empty state de Copy groups com diagrama de nós `.tj-mg-nodes` (`aria-hidden`); badges `LEADER`/`COPIER` (o 👑 emoji saiu); filas de Types em pill (`.tj-mg-typerow`); "+ Create Copy Group" no empty state. A nota de contrato "Linking never rewrites trades already recorded." ficou.
+- **CSS.** Novas classes só com tokens `--tj-*`; removidas `.tj-wz-firmlogo` e `.tj-mg-crown` (mortas); `.tj-as-avatar-img` normalizado para `object-fit: contain`. `tools/ux-audit.mjs` ganhou `.tj-mg-node-dot` na lista de indicadores (com razão escrita) — é decoração dentro de `aria-hidden`, não um alvo.
+- **Compatibilidade com o harness.** `plugin.propFirms` e `plugin.buildAccount(firm, program, size)` continuam a existir; `PROP_FIRMS` mantém-se como biblioteca-semente para contas antigas e fixtures.
+
+**Verificação**: build 0 · smoke **142 PASS / 0 FAIL** · audit **0** violações novas (dívida conhecida: 3 px off-scale + 5 small targets). Deploy `main.js 79d5e4c732c98c377812442e3911fe42` · `styles.css 7b9841391de3bdf9a5216e656bfb4240` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
+## 2.53 Polimento do wizard de conta (18 Set)
+
+Segunda passagem de UI/UX sobre o wizard, pedida pelo maintainer (ícones, nome ligado, afixos, grelha de marcas, tabela de review).
+
+- **Passo 1 — Type.** Emojis substituídos por ícones Lucide via `setIcon` (eval `target`, funded `dollar-sign`, live `shield-check`, personal `wallet`, demo `flask-conical`). O cartão ativo fica com `border-color: var(--interactive-accent)` + `box-shadow` de glow discreto; hover suave com transição; ícone do cartão ativo em accent.
+- **Passo 2 — Identity.** O **nome fica ligado** ao saldo inicial + marca enquanto o utilizador não escrever nele (`nameTouched`); escrever liberta-o, apagar volta a ligar; "Create & add another" repõe `nameTouched = false`. A grelha de marcas passa a 3 secções — **Prop firms · Brokers · Practice** (id `own` mantém-se; `FirmLogoEntry.group` ganhou `practice`) — com pills de **altura fixa 40px**, `box-sizing: border-box` e rótulo com ellipsis (nada parte a fila). O tile "Custom" com iniciais continua.
+- **Passo 3 — Rules.** Grelha estrita de **2 colunas** (`.tj-wz-rulegrid`, campos `.tj-wz-wide` ocupam a linha toda). `$`/`%`/`days` passam a **afixos estáticos** dentro do campo (`.tj-wz-affix-pre`/`-affix-suf`); o `<select>` antigo (`.tj-wz-amount`/`.tj-wz-unit`) foi removido e substituído por um toggle inline `$ | %` (`.tj-wz-unbtn`, 24×24, estados `aria-pressed`, fundo `color-mix` em accent no ativo). `numberField` foi apagado (ficou sem uso).
+- **Passo 4 — Review.** Linhas como **tabela chave-valor**: `.tj-wz-sumrow` com padding e hairline inferior (última sem), rótulo muted, valor à direita a **700** tabular-nums. O stepper de lote mantém-se proeminente. O aviso de rodapé ganhou ícone Lucide `alert-triangle` (`.tj-wz-disclaimer-ico`).
+
+**Verificação**: `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `node tools/ux-audit.mjs` **0** violações novas (dívida conhecida: 3 px off-scale + 5 small targets — os novos `.tj-wz-unbtn` são 24×24 e passam). Deploy `main.js 9259c1f7bad2e60358247f589d7a9a84` · `styles.css 9d3b4c55bd89d8033a46df70386b8fd1` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
+## 2.54 Wizard, passo 2/3 — layout e presets genéricos (18 Set)
+
+Terceira passagem, pedida pelo maintainer: juntar nome e saldo numa linha, endurecer o dropdown e simplificar os presets.
+
+- **Passo 2 — linha de 2 colunas.** Nome + saldo passam a viver em `.tj-wz-row-2` (`grid-template-columns: 1fr 1fr`, gap 16), com `@media (max-width: 560px)` a empilhar. O campo do nome deixou de ser `.tj-wz-wide`; o modal deixa de crescer à medida que a grelha de marcas cresce.
+- **Passo 3 — dropdown de drawdown.** O componente já era o `.tj-dd` da casa (nunca um `<select>`), mas dentro do modal o Obsidian pintava os seus próprios botões por cima de uma classe solta e parecia nativo. Foi endurecido com um bloco `.tj-account-wizard .tj-dd-btn` / `-chev` / `-list` / `-item` / `-item.on` / `-check` a `!important` (fundo `--background-secondary`, radius, sombra, ativo em accent 12%). Comentário no CSS a explicar o porquê.
+- **Passo 3 — contraste do toggle.** `.tj-wz-untoggle` ganhou track (padding, radius 8, hairline, `rgba(255,255,255,.04)`); a cor inativa do `.tj-wz-unbtn` subiu `--tj-fg-3` → `--tj-fg-2` e o ativo ficou accent 20% + inset ring; alvos continuam ≥24×24.
+- **Passo 3 — presets genéricos.** `presetFor`/`applyPreset` (que puxavam tiers de firm com `getFirm/getProgram/getSize`) foram substituídos por `STANDARD_PRESETS` — cinco tamanhos de mercado: **Standard · $25K / $50K / $100K / $150K / $300K** — cada um preenchendo **target/max loss/daily loss** a 6%/4%/2% (1500/1000/500 · 3000/2000/1000 · 6000/4000/2000 · 9000/6000/3000 · 18000/12000/6000) e limpando `targetPct`/`maxLossPct`. O preset **não toca no saldo** — só nas regras. O import de `../props` ficou reduzido a `uniqueAccountName`. O disclaimer de que as regras das firms mudam continua sempre visível.
+- **CSS morto removido** (0 referências em `src/`): família `.tj-wz-chip*`/`.tj-wz-chips`, `.tj-wz-cols`/`.tj-wz-col`(+ `@media 620px`), `.tj-wz-dd-slot`, `.tj-wz-static` (scoped + bare), `.tj-wz-rules`/`.tj-wz-rule*`/`.tj-wz-editrules`, `.tj-wz-chip-wide`. Mantidos `.tj-wz-rulegrid`, `.tj-wz-preset`, `.tj-wz-disclaimer`.
+
+**Verificação**: `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `node tools/ux-audit.mjs` **0** violações novas (dívida conhecida: 3 px off-scale + 5 small targets). Deploy `main.js a55538c8f3da650985708823cba1561a` · `styles.css 785fdb485e96c794bfee115dfc630218` · `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec` (md5 iguais nos dois lados; `data.json` intacto).
+
+---
+
 ## Annex — UX debt ledger (all items **paid**)
 
 Historical record, moved here from `UX-GUIDELINES.md` §9. Kept because the numbers
@@ -900,3 +993,528 @@ are the proof the rules were applied.
 | D5 | Reorder in Manage → Types was drag-only | UX §5 (SC 2.5.7) | **paid** — ↑/↓ steps on every row, 24×24 |
 | D6 | 16 controls painted under 24px | UX §5 (SC 2.5.8) | **paid** — see UX §5.1 |
 | D7 | Wrapping text below its line-height floor | UX §1.4 | **paid** — 4 fixed |
+
+## 2.55 Import CSV: conta de destino, tick como base e tipo lido pelo header (18 Set)
+
+**Sintoma.** Depois de apagar todas as contas e criar uma de raiz, um Orders/Cash History
+importava "0 trades" — o botão `Import N trades` acendia mas nada aterrava na conta nova.
+
+**Causa.** `guessMapping()` só mapeava um nome da CSV quando `mappedAccount(name)` já
+devolvia conta; com uma conta nova (nome escolhido pelo trader ≠ id do broker) o mapping
+ficava `""`. O guard (`activeTargets()`) contava mapeamentos **e** ticks, mas o `commit()`
+construía `assigned` **só** do mapping — UI dizia pronto, o commit recusava em silêncio.
+
+**Correção.**
+- Cadeia de fallback por nome: conta que responde → **a única conta do journal** →
+  `lastImportAccountId` → `lastCreatedAccountId` → "Leave unassigned". O wizard grava
+  `lastCreatedAccountId`; o dropdown do importador grava `lastImportAccountId`.
+- **Opção (a):** um único tick em *Also record these trades in* é a conta-base quando não
+  há mapping (`tickBaseId()`), importado directamente e retirado do broadcast de pernas
+  (não escreve a mesma trade duas vezes). Dois ticks continuam guard.
+- `csvKind()` lê o tipo pelo header (`cash`/`orders`/`fills`/`unknown`); um ficheiro que
+  não é Orders/Fills mostra mensagem explícita em vez de silêncio.
+
+**Prova (ficheiros reais, `~/Downloads/Orders.csv` + `Cash History.csv`, Europe/Lisbon→America/New_York).**
+`csvKind` → `orders`/`cash`/`unknown`; 22 trades; `accountsSeen` = `TDFYG50738567169`;
+com uma só conta `Topstep · $50K` o mapping atribui os 22 trades a essa conta; caminho
+tick-only atribui 22; broadcast exclui a conta-base. Custos: recorded = charged = 270,34,
+orphans 0, finalBalance 49263,66.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas
+(dívida conhecida: 3 px + 5 alvos). Deploy: `main.js 683d967413b41e0f0f741cafac2eadf1`,
+`styles.css 785fdb485e96c794bfee115dfc630218`, `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`;
+`data.json` intacto.
+
+## 2.56 Wizard, passos 2/3 — marca separada da conta e preset reativo (18 Set)
+
+**Mudança.** O passo 2 (agora **Brand**) fica só com a grelha de marcas; nome e saldo descem
+para o passo 3 (agora **Account**), que abre com o preset `Standard · $50K` no topo, seguido
+do par Nome + Saldo inicial em 2 colunas e das regras. `STEPS = ["Type","Brand","Account","Review"]`
+e `flow()` = `[0,1,2,3]` para todos — personal/demo param depois da identidade (sem preset,
+sem regras). `renderIdentity`/`renderRules` deram lugar a `renderBrand`/`renderAccount`.
+
+**Reativo.** `applyStandardPreset(id)` passa a gravar `values.size` e `values.startingBalance`,
+carimba `rules.target/maxLoss/dailyLoss` (limpa os `*Pct`) e — enquanto `nameTouched` for falso
+— o nome segue `baseName()` (`Tradeify · $50K`). Inverte a decisão anterior "o preset nunca toca
+no saldo".
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas
+(dívida conhecida: 3 px + 5 alvos). Deploy: `main.js 5dc12ce8f0dc112f6d201b4094517f65`,
+`styles.css 785fdb485e96c794bfee115dfc630218`, `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`;
+`data.json` intacto.
+
+## 2.57 Wizard, passo 3: tamanho por dropdown, Custom e Started on obrigatório (19 Set)
+
+**Contexto.** Depois de recriar a conta, as 22 notas importadas não apareciam: estavam no vault,
+mas o filtro `t.date < acc.createdAt` (`accountDashboard.ts:100`, `accountsListView.ts:141`,
+`main.ts:1862`) descartava-as porque a conta nasceu com `createdAt` de hoje e as trades são de
+19-08 a 14-09. A solução acordada é a data de início ser **dita pelo trader** no wizard.
+
+**Mudanças.**
+- Sai o campo manual *Initial balance*; o tamanho escolhe-se só pelo dropdown
+  (`$25K · $50K · $100K · $150K · $300K · Custom…`), sem a palavra "Standard".
+- **Custom…** revela um campo `$`; escrever actualiza `values.size`, as regras (6%/4%/2%) e o
+  nome da conta (`Tradeify · $37K`) enquanto `!nameTouched`. O botão do dropdown passa a ler
+  `Custom · $37K`.
+- **Started on** (`mountDateField`, `data-tour="wizard-started"`) é obrigatório: `updateNext()`
+  desactiva o `Next` enquanto `values.size <= 0` ou `values.createdAt` vazio, com o helper
+  "Choose a size and a start date to continue.". Novo CSS
+  `.tj-account-wizard .tj-wz-foot .tj-btn:disabled { opacity:.45; cursor:not-allowed; }`.
+- `STANDARD_PRESETS`/`applyStandardPreset` removidos (e `.tj-wz-preset` do CSS, morto);
+  `Values.startingBalance` removido — `build()` grava `size: values.size`.
+- `dropdown()` ganhou um `placeholder?`; o passo 3 usa "Choose a size".
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas (dívida
+conhecida: 3 px + 5 alvos). Deploy: `main.js 20a2ffa6c3958d7e337e9d517526d96e`,
+`styles.css 861d0bb4e63d42123f1d97d32c878cd9`, `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`;
+`data.json` intacto.
+
+**Nota para o utilizador.** Para a conta já criada, pôr **Account settings → Started on =
+2026-08-19** faz as 22 notas aparecerem sem re-importar (ou apagar e recriar com essa data).
+
+---
+
+## 2.58 Wizard, passo 3: tamanho e data vazios e obrigatórios (19 Set)
+
+**Pedido.** O `Account size` também deve nascer **vazio** e ser obrigatório (como a data), para
+que o trader declare sempre os dois — e o nome deve mostrar só a marca enquanto não há tamanho.
+
+**Mudanças.**
+- `Values.size` default = `0` e `Values.createdAt` default = `""` (antes 50000 e hoje). O passo 3
+  abre sem selecção: dropdown com "Choose a size" e date field vazio.
+- `sizeDropdownValue()` devolve `""` quando `size <= 0`. As regras só se enchem (6%/4%/2%) quando
+  o tamanho é escolhido (`applySize`/`applySizeRules`), inclusive ao trocar de tipo já com tamanho.
+- `baseName()` mostra só a marca sem tamanho (`Tradeify`) e `Tradeify · $50K` depois.
+- `updateNext()` exige **`size > 0` E `createdAt`**; o helper `.tj-wz-secthint` diz só o que falta:
+  "Choose a size and a start date to continue." · "Choose a size to continue." · "Choose a start
+  date to continue.".
+- "Create & add another" volta a limpar tamanho, data, regras e `customSize`.
+- Sem CSS novo.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas (dívida
+conhecida: 3 px + 5 alvos). Deploy: `main.js 79c3ea7a71aa667909844b2c083fcfc7`,
+`styles.css 861d0bb4e63d42123f1d97d32c878cd9` (inalterado), `manifest.json
+4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` intacto.
+
+---
+
+## 2.59 Nome com tipo de conta + calendário próprio (19 Set)
+
+**Pedido.** O nome deve incluir o tipo (`Tradeify Eval $50K`, sem ponto médio, com cifrão;
+marca + tipo + tamanho também em Personal/Demo). O calendário nativo do sistema "está muito
+feio" — passa a ser o da casa.
+
+**Mudanças.**
+- `accountWizard.ts`: `baseName()` = `${firmLabel(logoId)} ${typeLabel(type)} $<K>K` (usa as
+  labels configuráveis); sem tamanho mostra `Tradeify Eval`; continua ligado ao tamanho/marca até
+  o trader escrever (`nameTouched`). Import de `typeLabel` de `lib/accountTypes`.
+- Novo `src/lib/calendar.ts`: `openCalendar(anchor, {value, onPick})` / `closeCalendar()`.
+  Cabeçalho com ‹ › e "Today", grelha do mês à segunda (42 células), estados `is-out`/`is-today`/
+  `is-sel`, popup `fixed` `z-index:1100` preso por `getBoundingClientRect`, fecha com clique fora
+  / Escape / scroll, teclado setas ±1/±7, PageUp/PageDown, Enter; `stopPropagation` no Escape
+  para não fechar o modal por baixo.
+- `lib/dates.ts`: `mountDateField` deixa de usar `input[type=date]`/`showPicker` e abre o
+  calendário; a API mantém-se (23 sítios inalterados). Escrever à mão continua; Enter confirma,
+  ArrowDown abre.
+- `styles.css`: novas `.tj-cal*` (só tokens `--tj-*`; dias 30px, nav 28px, Today 26px — todos
+  ≥24). Removida a regra morta `.tj-datefield-native`.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas (dívida
+conhecida: 3 px + 5 alvos). Deploy: `main.js fd6e714681b9fc22df34f6616ed8cf2b`,
+`styles.css e48052790f67ea28703ff17a20a6eabe`, `manifest.json
+4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` intacto.
+
+---
+
+## 2.60 Management: presets de cartão, cor de grupo e tipos (19 Set)
+
+**Pedido.** Auditoria UX/UI ao modal Management (4 separadores) e overhaul: Cards mais simples,
+cor do grupo com consequência, tipos no sítio certo, contraste do bloco corrigido.
+
+**Mudanças.**
+- `lib/cardSlots.ts`: `barsFor`/`miniFor` saem; entram `CARD_PRESETS` (`firm`/`results`/`consistency`),
+  `CardLayout` e `presetFor(type, savedId)` — `firm` = `DEFAULT_BARS`/`DEFAULT_MINI` do tipo;
+  `results` = barras `greenDays`/`ddFromPeak` + mini `trades`/`win`/`profitFactor`/`avgR`;
+  `consistency` = barras `dailyRoom`/`drawdown` + mini `trades`/`win`/`expectancy`/`hold`.
+- `main.ts` + settings: `accountCardBars`/`accountCardMini` → **`accountCardPreset: Record<tipo,id>`**
+  (sem migração; o default é `firm`).
+- `accountsManage.ts`: `renderCards` passa a **3 pills** (`.tj-mg-preset`, `.on` + `aria-pressed`,
+  `attachTip` com o hint) + hint activo (`.tj-mg-cardpick-hint`) e Reset "to the firm layout";
+  o antigo `group()` de 9 dropdowns e `.tj-mg-cardline` desaparecem. `renderTypes` ganha a pill
+  de visibilidade (`.tj-mg-vis`, `eye`/`eye-off`) e o **Display** perde a secção "Account types
+  shown". `renderMember` deixa o `title` nativo e passa a `attachTip`; os copiers ficam numa
+  `.tj-mg-tree` com conectores.
+- `accountsListView.ts`: tiles e preview lêem `presetFor(...)`; a secção de copy e as tags
+  Leader/Copier usam `copyGroupColor` (`groupTint()`) — a cor do grupo deixa de ser um dado morto;
+  a tag Leader perde o emoji.
+- `styles.css`: `--text-muted` → `--tj-fg-2`/`--tj-fg-3` no bloco Management; novos `.tj-mg-tree`,
+  `.tj-mg-presets`/`-preset`(+`.on`), `-cardpick-hint`, `-vis`; removidas `.tj-mg-cardline*` e
+  `.tj-mg-mrow{margin-left:2px}`.
+- Harness: `manage-check.js` (Cards → 3 `.tj-mg-preset`, preview muda, `accountCardPreset` gravado)
+  e `payouts-check.js` (data-safety passa a comparar `accountCardPreset`).
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações
+(3 px fora de escala + 5 alvos pequenos — dívida conhecida); `.tj-mg-vis` (28px) e `.tj-mg-preset`
+passam os 24×24. Deploy: `main.js f752287254c5e33fe17264fe92f4b93f`,
+`styles.css 8041f0c14a1b134e278536791087bce9`, `manifest.json
+4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` intacto (`de86d7e748a4086a1c4ca6b32c0baedd`).
+
+---
+
+## 2.61 Cards só por preset + empty state dos copy groups (19 Set)
+
+**Pedido.** (1) O empty state dos copy groups estava feio e fora de sítio — as bolas (`×1`/`×0.5`)
+não se entendiam; o botão devia vir com a mensagem. (2) Os presets do separador Cards repetiam-se
+(a *Firm layout* e a *Results* ficavam iguais na personal). Decisão do Hugo: **apagar o separador
+Cards** e deixar um layout fixo por tipo, escolhido a partir do que as plataformas de prop e os
+journals realmente mostram; sem edição por utilizador (os valores afinam-se depois pelo review).
+
+**Mudanças.**
+- `lib/cardSlots.ts`: `CardPresetDef`/`CARD_PRESETS`/`PRESET_BARS`/`PRESET_MINI`/`presetFor` saem;
+  entra **`layoutFor(type): CardLayout`** (`{bars, mini}`) com os defaults assinados — eval
+  `target·drawdown`/`toTarget·win·profitFactor·last`; funded `dailyRoom·drawdown`/`trades·win·paid
+  out·last`; live `dailyRoom·drawdown`/`trades·win·**day win**·avg R`; personal/demo/unknown
+  `greenDays·ddFromPeak`. Novo slot **`dayWin`** no `MINI_CATALOG` (`m.dayWinRate`).
+- `main.ts`: `accountCardPreset` sai da interface de settings e dos `DEFAULT_SETTINGS`.
+- `accountsManage.ts`: 3 separadores (Copy groups · Display · Types); `renderCards` apagado;
+  `CardPreviewSource`/`openAccountsManage(view)` e o `cardType` caem. Empty state dos grupos =
+  título "No trading groups yet" + "Pick the account other accounts will copy, then who joins it."
+  + o botão "+ Create Copy Group"; a nota `ⓘ` só aparece com grupos.
+- `accountsListView.ts`: `CardSlotOverride`/`previewFor` removidos; `slotsFor`/`miniFor` leem
+  `layoutFor(acc.type)`; `dayWin` acrescentado ao catálogo de minis.
+- `styles.css`: blocos mortos do diagrama de nós e do separador Cards removidos; `.tj-manage-empty`
+  passa a coluna com `.tj-manage-emptytitle`.
+- `tools/ux-audit.mjs`: `.tj-mg-node-dot` sai da lista de isenções (já não existe).
+- Harness: `manage-check.js` deixa de exigir o separador Cards e passa a verificar 3 separadores +
+  uma pill de visibilidade por tipo; `payouts-check.js` deixa de comparar `accountCardPreset`.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações
+(3 px fora de escala + 5 alvos pequenos — dívida conhecida). Deploy: `main.js
+d9846c4499d551b86b51ede635d483ba`, `styles.css 8c7703201f1761237a7f3f1906859fcd`, `manifest.json
+4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` não foi tocado.
+
+---
+
+## 2.62 Management: compositor guiado e Types dentro do Display (19 Set)
+
+**Pedido.** Ao criar o primeiro grupo, o Hugo clicou nos copiers a pensar que estava a escolher
+o líder. O compositor passa a guiar a ordem, e o separador Types é absorvido pelo Display.
+
+**Mudanças.**
+- `accountsManage.ts`: o `renderNewGroup` passa a ser um compositor em **três passos numerados**
+  (`stepHead`): **1 Leader** com cartões clicáveis (`.tj-mg-leadcard`, o escolhido com borda
+  `--interactive-accent` + glow; `newLeaderId` nasce **vazio**, sem pré-selecção nem dropdown);
+  **2 Copiers** bloqueado (`.tj-mg-stepblock.is-locked`, "Pick the leader first.") até haver
+  líder, depois mostra o chip `.tj-mg-lockedlead` e uma linha `.tj-mg-copier` por conta (caixa
+  `.tj-mg-pick` à esquerda, sub "copies <líder>"); **3 Copy from** igualmente bloqueado até haver
+  líder, com a nota (`copyStartNote`) sempre visível. O botão **Create group** só liga com líder.
+- `COPY_START_ITEMS` reescrito em linguagem de trader (espelha desde o início da conta / data à
+  escolha / todo o histórico do líder).
+- Separador **Types** absorvido pelo **Display** (`renderTypeRows`, chamado sob
+  `sectionInfo(body, "Types", …)`); `tabDefs` passa a 2 (Copy groups · Display) e o `tab` union
+  perde `"types"`.
+- `styles.css`: novas `.tj-mg-step*`, `-stepblock(.is-locked)`, `-leadgrid`/`-leadcard`(+`.on`),
+  `-lockedlead`, `-copier`(+`.on`)/`-pick`/`-copier-*`; nada do motor de copy nem `.tj-wz-leader*`
+  (ainda usado pelo `accountDashboard.ts`) foi tocado.
+- Harness `manage-check.js`: espera 2 separadores, o compositor com os passos Leader/Copiers/Copy
+  from, a grelha de cartões e o passo bloqueado; a checagem de `.tj-mg-typerow` passa a correr
+  dentro do Display.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações
+(3 px fora de escala + 5 alvos pequenos — dívida conhecida). Deploy: `main.js
+f09c4bb214bced7b19cb2738d671c06e`, `styles.css c63cf9540524137ed9949b09f2f45c2b`, `manifest.json
+4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` intacto (`97f8941703c2c9553a52103e5ec54f26`).
+
+## 2.63 Management: portal do dropdown, estado do copy e disband (19 Set)
+
+**Pedido.** O compositor do "New trading group" estava a ser cortado pelo painel (o menu "Copy from"
+nascia dentro do scroller e ficava escondido), o `+ New trading group` não respondia quando todas as
+contas estavam em grupos, o "Remove" de um copiador deixava estado órfão (config antiga a semear o
+link seguinte, pick morto no "Add to group"), faltava um disband e não havia confirmação nenhuma do
+que foi gravado.
+
+- `lib/dropdown.ts`: a lista passa a **portal** — sai para `<body>` presa ao botão com `position:
+  fixed`, `z-index: 1100`, flip para cima quando não há espaço abaixo, reposiciona em `scroll`/
+  `resize`, fecha em clique-fora/Escape e (via `MutationObserver` no `<body>`) quando o anfitrião sai
+  do DOM. A API pública não mudou, por isso os **19** `mountDropdown` passam a beneficiar.
+- `lib/copy.ts`: novo **`unlinkCopier(account)`** — fecha o período e limpa `copyRole`, `copyBaseId`,
+  `copyMultiplier`, `copySizing`, `copyFixedQty`, `copyRound`, `copyMinQty`;
+  **guarda** `copyPeriods` e `copyConfigHistory` (é o registo do que correu; as pernas já geradas
+  ficam). Usado pelo Remove, pelo Move group e pelo novo "Take out".
+  *(O `copyCrossOrder` saiu daqui na §2.64, quando o campo desapareceu.)*
+- `views/accountsManage.ts`: `linkedAccounts()` e `detachAccount()`; `detachAccount` larga primeiro
+  os seguidores (senão o grupo sobrevivia a um líder que já não lidera); o rácio passa a escrever por
+  `startCopying` (a config datada é o que o motor lê; as pernas antigas guardam o rácio delas); o pick
+  morto do "Add to group" passou a `Notice("Pick an account first.")`; o reset inválido
+  `addCopyFrom = "today"` voltou a `"start"`; o `+ New trading group` fica **sempre vivo** e, sem
+  contas livres, o passo 1 lista as ocupadas com "Take out" de um clique; **disband** por um quadrado
+  de lixo no `.tj-mg-head` com confirmação em dois toques inline; `Notice` ao criar, ligar, desligar e
+  rebentar.
+- `styles.css`: `.tj-mg-dd-list.is-portal`; compactação do compositor (`.tj-manage-body` 70vh,
+  `.tj-manage-sub` 10px, `.tj-mg-lrow`/`-mrow`/`-add`/`-swap`/`-hint`/`-newtitle`/`-row2`/
+  `-stepblock`/`-step`/`-leadcard`/`-copier`/`-lockedlead` mais apertados,
+  `.tj-mg-stepblock .tj-wz-leader-list { max-height: 120px }`); `.tj-mg-del` (24×24), `.tj-mg-confirm*`
+  e `.tj-mg-act.is-danger`.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações
+(3 px fora de escala + 5 alvos pequenos — dívida conhecida; o `.tj-mg-del` 24×24 passa). Deploy:
+`main.js ade955375fcf2ec6851abb3d71585912`, `styles.css ea80c0872f03d64ccc67fee20b6cd780`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` intacto
+(`ae7c3d9ce878399a92f9dea83e5eb37c`).
+
+## 2.64 O símbolo é do motor, não do trader — cross automático (19 Set)
+
+**Pedido.** Depois de criar o grupo, o copiador ainda mostrava o dropdown manual
+**"Same symbol / Mini ↔ micro"**; tinha de sair e ficar só a lógica automática.
+
+**Causa (o no-op provado).** O `startCopying` grava sempre uma entrada em `copyConfigHistory`, e o
+`buildLeg` lê a config datada — o campo `PropAccount.copyCrossOrder` só era lido na ramificação
+legacy (`effectiveCopyConfig` sem histórico), por isso mudar o toggle **nunca** tinha efeito depois
+de a ligação existir; e o handler nem sequer voltava a desenhar o modal.
+
+- `lib/copy.ts`: `buildLeg` decide o contrato por trade. `micro = MICRO_OF[símbolo]`;
+  `fractional = sizing ratio && baseQty > 0 && baseQty × ratio < 1`;
+  `cross = cfg.crossOrder === true && !!micro && (contractMode || fractional)`. Quando cruza,
+  `symbol = micro` e `rawQty = baseQty × MINI_TO_MICRO × ratio` (exposição preservada: 1 NQ $20/pt =
+  10 MNQ $2/pt); fora disso fica o símbolo do líder e `rawQty = baseQty × ratio`. `crossMode:
+  "contract"` (legacy) continua a cruzar 1:1 com arredondamento.
+- `lib/copy.ts`: `startCopying` e a ramificação legacy de `effectiveCopyConfig` passam a gravar
+  `crossOrder: true` + `crossMode: "exposure"` (a regra fica **datada** no link: regenerar um trade
+  daquele troço usa a mesma regra). `unlinkCopier` deixou de limpar `copyCrossOrder` (o campo
+  desapareceu).
+- `types.ts`: `PropAccount.copyCrossOrder` **removido**. `CopyConfigEntry.crossOrder`/`crossMode`
+  ficam (é onde a regra vive agora).
+- `views/accountsManage.ts`: o `mountDropdown` "Same symbol / Mini ↔ micro" **sai** do copiador; a
+  tooltip do rácio passa a explicar a travessia automática ("Under one mini — 0.5× of 1 NQ — the copy
+  is mirrored in micros instead, so the leg is never lost."). Sem CSS novo.
+
+**Prova do motor** (`npx esbuild src/lib/copy.ts --bundle --format=cjs --alias:obsidian=<stub>`, script
+em `/tmp/opencode/test-copy.js`): `1 NQ × 0.5 → MNQ ×5` (pnl 100 = metade dos 200 do líder),
+`1 NQ × 1 → NQ ×1`, `1 NQ × 0.9 → MNQ ×9`, `1 NQ × 0.25 → MNQ ×2`, `2 NQ × 0.5 → NQ ×1`,
+`3 NQ × 0.5 → NQ ×1`, `1 ES × 0.5 → MES ×5`, `1 CL × 0.4 → MCL ×4`, `3 MNQ × 0.5 → MNQ ×1` (sem
+mapeamento, não cruza), `2 NQ × 1.5 → NQ ×3`, `1 NQ × 2 → NQ ×2`; `copySymbolMap` = `NQ → MNQ` só
+quando cruza; perna gerada com `commission 0`/`fees 0`; `startCopying` grava
+`crossOrder=true/crossMode=exposure`; após `unlinkCopier` o histórico e os períodos ficam. **ALL PASS.**
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações.
+Deploy: `main.js 4a212260a2ee2704e8ee0413029dde84`, `styles.css ea80c0872f03d64ccc67fee20b6cd780`
+(sem alterações), `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` não foi copiado.
+
+## 2.65 Sem bolha nativa, ritmo uniforme (19 Set)
+
+**Pedido.** (1) escrever decimais num campo numérico do Management (o rácio) disparava a tooltip
+nativa do browser *"Please enter a valid value…"* — fora do tema escuro; (2) no Display, o título
+`TYPES` e a sua lista estavam colados à secção `WHAT APPEARS`. Decisão do Hugo: aplicar a correção a
+**todos** os numéricos do plugin, não só ao rácio.
+
+**Causa.** Constraint validation do Chromium: qualquer `input[type=number]` cujo valor quebra o seu
+próprio `step` é "inválido" — o rácio tinha `step="0.5"` (logo `0.3` falha) e os campos do wizard não
+tinham `step`, e o default é `1` (logo `6.5` falha). A bolha é desenhada pelo browser e não aceita
+estilo. No CSS, `.tj-manage-secthead` não tinha `margin-bottom` e `.tj-manage-secthead
+.tj-manage-sectitle` forçava `margin-bottom: 0`, deixando **zero** intervalo entre o título e a
+primeira linha.
+
+- `lib/numeric.ts` **novo**: `freeNumeric(input)` aplica `step="any"`, remove `min`/`max` do markup,
+  cancela `invalid` (`e.preventDefault()`) e põe `novalidate` no `<form>` mais próximo (se existir).
+  Os limites continuam a ser impostos nos handlers que lêem o valor — o `min`/`max` nunca bloqueou
+  uma tecla, só alimentava a bolha e o spinner.
+- 18 sítios passam pelo helper: Manage rácio · wizard `affixField`/`amountField`/Custom size ·
+  editor de regras e multiplier/amount da conta · payouts · Correct fees (`haveInput`) · os 6 do Add
+  Trade · a factory `editableRow` do Trade Detail (cobre pnl, qty, preços, fees) · o editor de regras
+  das Settings. Os `attr: { min, step }` saíram do markup.
+- `tradeDetailView.ts`: os campos mortos das opts de `editableRow` (`suffix`/`min`/`max`/`step`)
+  saíram (só `numeric` e `tip`); o call site da Quantity passou a `{ numeric: true }`.
+- CSS: `.tj-manage-sect` `22px` → `var(--tj-sp-5)` (24); `.tj-manage-secthead` ganha
+  `margin-bottom: var(--tj-sp-2)` (8) — o intervalo título→conteúdo passa a ser sempre o mesmo;
+  base `.tj-manage-sectitle` perde o `margin-bottom: 6px` e o tracking desce `.13em` → `.12em`
+  (banda 0.06–0.12em do UX-GUIDELINES §1.5); `.tj-manage-note, .tj-manage-empty` e `.tj-mg-card`
+  fecham com `var(--tj-sp-4)` (16).
+- Código morto: `private section()` em `accountsManage.ts` removido (0 usos; só `sectionInfo` é usado).
+
+**Nota honesta.** `step="any"` esconde as setinhas do spinner nos `input[type=number]` do Chromium;
+fora isso nada muda (os limites já eram impostos nos handlers).
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações
+(dívida de base inalterada: 3 px fora de escala + 5 alvos pequenos).
+Deploy: `main.js b3f76e352ce891f87b4c05c0488a3596`, `styles.css e69133568c3ddb5640cb45636895f322`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` não foi copiado.
+
+## 2.66 Tooltips: uma só, e a certa (19 Set)
+
+**Pedido (Hugo):** "os tooltips dizem todos a mesma coisa, que dizem todos more information. O
+tooltip é para explicar, em poucas palavras, mas de uma maneira que faça sentido, o que é que cada
+coisa faz, dependendo de onde está o tooltip".
+
+**Causa — duas falhas somadas.**
+1. `attachTip` **não** punha a classe `tj-tip-anchor` no elemento, e `guardTips()` (mousemove em
+   fase de captura em `lib/tip.ts`) faz `if (!el.closest(".tj-tip-anchor")) killTip();` — a nossa
+   tooltip era morta no mousemove seguinte, em **113** sítios (`grep -c "attachTip("`).
+2. O `aria-label: "More information"` do `(i)` fazia o **Obsidian** desenhar a tooltip dele
+   (única origem dessa string em `src/`: `accountsManage.ts:161`). Como a nossa morria, sobrava a
+   do Obsidian — igual em todas as secções.
+
+**Correcção.**
+- `lib/tip.ts`: `attachTip` começa por `el.classList.add("tj-tip-anchor")`. Corrige os 113 sítios
+  de uma vez. Única regra visual que usa a classe: `.tj-heat-cell.tj-tip-anchor:hover` (L5540) —
+  sem efeitos colaterais.
+- `views/accountsManage.ts` (`sectionInfo`): fora o `aria-label`; o glifo `ⓘ` fica `aria-hidden` e
+  o nome acessível passa a ser um `span.tj-sr-only` com `About <título>`; mantém-se `tabindex="0"`.
+- Textos curtos e distintos: Layout → "How the page groups accounts and orders the cards.";
+  What appears → "Which badges the cards draw. None of them changes a number."; Types → "Rename,
+  recolour and reorder the account types — and hide the ones you do not use."
+- `styles.css`: nova `.tj-sr-only` (clip), depois de `.tj-manage-infoico:focus-visible`.
+- Regra permanente registada no UI-CATALOG §8.1: **nunca `aria-label` num âncora de `attachTip`**.
+
+**Verificação.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` 0 novas violações.
+Deploy: `main.js 8164274fb23dc8c1a601d8effff99e00`, `styles.css 433d65cafeda75d47b1adb4fe57f28ed`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` não foi copiado.
+
+---
+
+## 2.67 Duas superfícies, um só glifo e a faixa honesta (19 Set)
+
+**Pedido.** (1) A tooltip do gráfico da página de Contas estava errada e longa; (2) os `(i)`
+com a letra dentro de um aro nosso não liam como "informação"; (3) fechar o resto que ainda
+não tinha sido aplicado: tirar os separadores do Management (Copy groups ganha superfície
+própria), e rever as regras da faixa — **os payouts passam a seguir a janela do gráfico**.
+
+**Mudanças.**
+- `views/accountsManage.ts`: o campo `tab` dá lugar a `mode`; o construtor passa a
+  `constructor(plugin, mode: "groups" | "display")`; o título, o ícone e o sub mudam com o
+  modo; **o bloco de separadores desapareceu**. Dois entry points limpos: `openCopyGroups`
+  e `openAccountsDisplay` (o antigo `openAccountsManage` saiu).
+- `views/accountsListView.ts` (header): três quadrados — `users` Copy groups ·
+  `sliders-horizontal` Display · `plus` Add account (`.is-primary`, último). O das copy
+  groups fica `disabled` com tip quando há menos de duas contas.
+- `styles.css`: mortas `.tj-manage-tabs` e `.tj-manage .tj-wz-seg-opt` (e o comentário que as
+  acompanhava).
+- **Faixa**: `withdrawn` passa a somar `plugin.payoutsFor(a.id)` filtrando `p.date >= w.from`
+  (all-time é a janela que começa no princípio); o sub dos Payouts passa a mostrar a janela.
+  *In accounts* mantém-se all-time e di-lo. Textos das cinco células encurtados; a tooltip
+  dos Trades passa a "Every decision counts once, however many accounts copied it. Real
+  accounts only."
+- **Glifo**: `setIcon(el, "info")` (pictograma do Obsidian) em 6 sítios — o helper `cell()`
+  da faixa, o `(i)` do gráfico, os dois `dRow`/`mRow` do dashboard da conta, o
+  `sectionInfo` do Management e o `.tj-manage-note-ico`. `.tj-info-dot` perde
+  `border`/`border-radius`/`font-size` e ganha `svg { width/height: 14px }`; `.tj-manage-infoico`
+  ganha o mesmo. `ux-audit` sem alterações (`.tj-info-dot` já estava na lista SPACED).
+- **Tooltip do gráfico**: sai o `title` nativo (~250 caracteres, proibido pela UX-GUIDELINES §5)
+  e entra `attachTip(i, { title: "Net P&L across accounts", sub: "Real money only — payouts
+  leave the account, deposits arrive. Dashed grey: the same window just before this one." })`.
+- **Logos**: os 14 PNGs de `assets/firm-logos/` reduzidos a 128×128 com ImageMagick
+  (752 KB → 132 KB) e renomeados para o id do catálogo; `lib/firmLogos.ts` passa a ter 14 marcas
+  (prop: Topstep · Tradeify · Apex Trader Funding · Take Profit Trader · MyFundedFutures ·
+  Lucid Trading · **Alpha Futures** · **FTMO Futures** · **FundedNext** · **TopOne Futures**;
+  brokers: Tradovate · NinjaTrader · Interactive Brokers · AMP Futures; `own` em símbolo CSS).
+  **`alphacapital` saiu** — o PNG que existia é a Alpha Futures ("A" triangular branco sobre
+  verde com teia), não a Alpha Capital Group; contas antigas com esse id caem nas iniciais
+  (`firmLabel()` devolve `null` e o consumidor já trata).
+- **Harness**: `manage-check.js` reescrito — abre cada superfície pelo quadrado do header,
+  confirma que o antigo `.tj-manage-tabs` não existe, valida o compositor guiado e as
+  type rows + pills dentro do Display; aceita o quadrado das copy groups desactivado quando
+  a vault tem menos de 2 contas (é o estado honesto). Corre: **MANAGE OK**.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, weights 0, tight line-heights 0, small targets 5
+(dívida de base), faint 0 → **0 violações novas**. `main.js` ~654 KB (as 14 logos embutidas).
+
+**Deploy.** `main.js 4cce6d61097983758850c22f6b0d949d`,
+`styles.css 22ae7796f38e2598057285267895e16b`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**.
+
+---
+
+## §2.68 Import CSV — a conta primeiro, e nunca adivinhada (19 Set)
+
+**Pedido.** "No import, a parte de selecionar a conta tem de ser muito mais chamativa — às vezes
+confunde. O *This Trading Group* deve ficar escondido até meter a conta leader. Ao abrir não deve
+pré-selecionar nenhuma conta (hoje assume uma sozinho e aparece logo o trading group). No select
+deve haver uma divisão clara entre **leader**, **copier** e **standalone**, com a leader mais fácil
+de notar, e só depois de selecionar é que aparece o *This Trading Group*. E uma opção de dar tick a
+mais alguma conta extra para aquele import em específico." Decisões: **zero pré-seleção**; grupo e
+ticks só depois da conta; secções no dropdown; bloco de escolha **acima** do fuso/Cash History;
+FTMO invertido para branco.
+
+**Mudanças.**
+- **Zero pré-seleção** — saem `guessMapping()` e `resolveFallback()`; `parseTrades()` limpa o mapa e
+  a semente do grupo a cada ficheiro novo. Um nome da CSV que coincide com uma conta é coincidência
+  de texto, não uma instrução: adivinhar era como os trades caíam na conta errada com o ecrã a dizer
+  que correu bem. Desaparecem também os settings mortos `lastImportAccountId`/`lastCreatedAccountId`
+  (interface em `main.ts`, escrita no dropdown do importador e no `create()` do wizard).
+- **A conta primeiro** — `render()` cria `pickEl` entre o ficheiro e o `setupEl` (fuso + custos). O
+  bloco `.tj-import-pick` ("Where these trades go") nasce com borda/fundo de acento enquanto não há
+  resposta e acalma com `.is-set` quando já há; estado `N of M chosen` / "Nothing chosen yet"; cada
+  linha mostra o nome da CSV e `N trade(s) · 19 Aug → 14 Sep 2026` (novo `spanLabel()` sobre
+  `formatDate`); hint honesta ("N trade(s) waiting for an account…" / ".is-warn" quando só parte
+  ficou sem conta).
+- **Grupo e ticks só depois da conta** — `renderPick()` faz `return` antes de `renderExtraTargets()`
+  enquanto `baseIds()` estiver vazio; com nada escolhido o `includeIds` é limpo (um tick é do
+  escolhido, não um resto do passado) e o `.tj-import-group` / `.tj-import-accs` **não existem** no
+  DOM. `tickBaseId()` foi **removido** e a regra passou a ser uma só: a conta do dropdown é onde os
+  trades são escritos (`baseIds()`); `commit()` deixou de ter `|| tickBase`.
+- **Dropdown com secções e chips** — `lib/dropdown.ts` ganhou `heading`, `tag`, `tagTone`; o item
+  passou a flex com `.tj-mg-dd-txt` (label + note) e o chip à direita. `accountItems()` ordena
+  **Leaders** (chip âmbar, nota *Leads N accounts*) · **Copiers** (chip acento `Copier ×N`, nota
+  *Copies \<líder\>*) · **Standalone** (sem chip, "On its own"), com *Leave unassigned* no fim; o
+  chip viaja no botão depois de escolhido. CSS novo `.tj-mg-dd-head`/`.tj-mg-dd-tag`(+`.is-leader`
+  âmbar/`.is-copier` acento); a antiga `.tj-import-map` foi removida.
+
+**Prova (`tj-out/importpick-check.js`, 31 asserções → IMPORT PICK OK).** Nada pré-selecionado · botão
+adormecido · `.tj-import-pick` desenhado com estado vazio · a linha conta `3 trades` e cobre
+`19 Aug → 14 Sep` · a hint existe · **a escolha vem antes do fuso/custos no DOM** · a antiga caixa
+plana não existe · sem grupo nem ticks antes de escolher · secções `Leaders / Copiers / Standalone` ·
+chip âmbar no líder e `Copier ×0.5` + "Copies Tradeify…" no copiador · standalone sem chip ·
+*Leave unassigned* em último · depois de escolher o líder: `.is-set`, botão acordado, grupo visível,
+copiador oferecido **tickado uma vez**, o untick sobrevive ao repaint · ao limpar a conta os ticks
+caem e o botão volta a dormir.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, tight line-heights 0 (0 abaixo do próprio chão),
+small targets 5 (dívida de base), faint 0, pesos 700 +1 (o novo `.tj-import-picktitle`) →
+**0 violações novas**. `fills-check.js` continua com 1 FAIL **pré-existente** (reproduzido com o
+`main.js` do deploy anterior, `4cce6d61…`, resultado idêntico) e não faz parte do gate.
+
+**Deploy.** `main.js db0808063310114bf6592b0a8030cff1`,
+`styles.css 677b038b4416f34c5f24771c069fcf64`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`ceb1a893ffe6bca661a78d367847c755`, 5072 B, inalterado antes e depois).
+
+---
+
+## §2.69 Import — o id nunca ao ecrã, e a escolha sobrevive (19 Set)
+
+**Pedido.** "No *Where these trades go* aparece o ID da conta que vem no Orders CSV. Nós tínhamos
+dito que nunca era para usar este ID nenhuma vez, portanto tem que ficar escondido. […] no *Time
+files are in*, se eu trocar, ele tira uma conta que eu selecionei."
+
+**Mudanças.**
+- **O id do broker sai do ecrã** (`renderPick`): a linha mostrava `seen.name` (ex. `LFE0509`). Com
+  **um só** nome no ficheiro — o caso normal — a linha fica só com o ponto, `3 trades · 19 Aug →
+  14 Sep 2026` e o dropdown, sem rótulo (`.tj-import-mapname.is-plain`, a contagem sobe a
+  `--tj-fg-2` por ser a única palavra da linha); com **vários** nomes passa a `Account 1` /
+  `Account 2`, na ordem do ficheiro. O id continua a ser a **chave interna** do `mapping`, nunca
+  texto. Verificado que era o único sítio do importador que o escrevia (a tabela de review mostra
+  Date/Symbol/Side/Qty/Entry→Exit/P&L; o chip mostra o nome do ficheiro).
+- **Trocar o timezone deixava de manter a escolha** — era bug, e havia mais casos. Causa: o
+  `parseTrades()` limpava sempre `this.mapping` e `this.groupSeeded` no fim. Como a conta se escolhe
+  **antes** do fuso e dos custos, largar o Cash History apagava a escolha a seguir de a fazer; e ao
+  ficar sem `baseIds` o `renderReview()` também limpava o `includeIds` (daí "tira uma conta que eu
+  selecionei"). Correcção: a limpeza passou para o `handleFiles()`, imediatamente antes de
+  `this.tradesText = exec.text` — só um **ficheiro de trades novo** é que é uma decisão nova. As
+  re-leituras do mesmo ficheiro (fuso, toggle dos custos, *Choose another*, `readCash`) mantêm a
+  conta **e** os ticks. Depois de cada parse caem só as chaves do `mapping` cujo nome já não consta
+  de `accountsSeen`.
+
+**Prova (`tj-out/importpick-check.js`, 36 asserções → IMPORT PICK OK).** Às 31 anteriores juntaram-se:
+o número do broker **não está no texto do modal**; depois de voltar a tickar o copiador, **mudar o
+timezone** (o mesmo caminho que o dropdown faz — `importZone` + `parseTrades()`) **mantém a conta
+escolhida** e **mantém o tick extra**, e o número continua ausente do ecrã.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js b097a67017c60d558169bf69e1e1d15f`,
+`styles.css f3ac28f41b8a58a4774804a043471224`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`ceb1a893ffe6bca661a78d367847c755`, 5072 B, inalterado antes e depois).

@@ -83,6 +83,10 @@ export function moveTip(e: MouseEvent): void {
  * the contract.
  */
 export function attachTip(el: Element, parts: TipParts, extraCls = ""): void {
+  // The guard (`guardTips`) drops any tip whose pointer is not over a
+  // `tj-tip-anchor`, so the anchor must carry the class itself — otherwise the
+  // card is killed on the next mousemove and never gets to be read.
+  el.classList.add("tj-tip-anchor");
   const show = (e?: MouseEvent) => {
     showTip(parts, extraCls);
     if (e) {

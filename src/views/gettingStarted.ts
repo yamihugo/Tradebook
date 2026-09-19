@@ -186,7 +186,7 @@ class GettingStartedModal extends Modal {
       const manual = row.createEl("button", { cls: "tj-actionbtn is-primary", text: "Add a trade", attr: { type: "button" } });
       manual.addEventListener("click", () => {
         this.finish(false);
-        void this.plugin.openAddTrade("manual");
+        void this.plugin.openAddPanel();
       });
       const csv = row.createEl("button", { cls: "tj-actionbtn", text: "Import a CSV", attr: { type: "button" } });
       csv.addEventListener("click", () => {
@@ -204,7 +204,7 @@ class GettingStartedModal extends Modal {
       "Home — the read on your trading: P&L, streaks, best hours and what needs reviewing.",
       "Trade Log — the ledger, with filters, bulk edits and the review state of every trade.",
       "Accounts — a card per account, the rules, and Manage for copy groups and page settings.",
-      "Add Trade — manual entry or broker import.",
+      "Manual trade — record a trade by hand, or import a CSV from your broker.",
     ]) {
       list.createEl("li", { text: line });
     }

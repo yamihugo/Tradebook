@@ -29,3 +29,9 @@ mistaken for a missing feature.
 - Everything stays local in your vault. The plugin makes no network requests and sends no
   telemetry.
 - Tested on desktop and mobile (`isDesktopOnly: false`).
+
+## Brand logos
+
+- Prop-firm and broker names and logos belong to their owners. They are embedded here only
+  to identify the firm an account trades with — no affiliation or endorsement is implied.
+  If a logo is yours and you would rather it not appear, open an issue and it is removed.

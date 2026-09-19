@@ -1,7 +1,9 @@
 import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type TradebookPlugin from "./main";
 import { DEFAULT_ACCOUNT_RULES } from "./futures";
-import { PROP_FIRMS, effectiveSize, getFirm, getProgram, getSize, makeAccount, uniqueAccountName } from "./props";
+import { resolveAccountView } from "./lib/accountRules";
+import { freeNumeric } from "./lib/numeric";
+import { firmLabel } from "./lib/firmLogos";
 import { SCOPE_OPTIONS, kpiCard } from "./ui";
 import { TIMEZONE_OPTIONS, detectSystemZone } from "./tz";
 import { attachTip } from "./lib/tip";
@@ -11,7 +13,6 @@ import { openRenamePreview } from "./views/renamePreview";
 import { buildDiagnostics } from "./lib/diagnostics";
 import { openBackupSummary } from "./views/backupRestore";
 import { summariseBackup } from "./lib/backup";
-import { mountDateField } from "./lib/dates";
 
 type SettingsTabId = "root" | "journal" | "tradelog" | "appearance" | "timezone" | "accounts" | "advanced";
 
@@ -68,10 +69,10 @@ export class SettingsTab extends PluginSettingTab {
       );
     new Setting(basics)
       .setName("Journal name")
-      .setDesc("Title shown at the top of the dashboard. Leave empty to use your name.")
+      .setDesc("The name of your journal. Defaults to Tradebook.")
       .addText((text) =>
         text
-          .setPlaceholder(`${this.plugin.settings.journalName || "Your"} Journal`)
+          .setPlaceholder("Tradebook")
           .setValue(this.plugin.settings.dashboardTitle)
           .onChange(async (v) => {
             this.plugin.settings.dashboardTitle = v.trim();
@@ -664,7 +665,7 @@ export class SettingsTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: "Account Configuration" });
     containerEl.createEl("p", {
-      text: "Add each of your prop accounts (firm + program + size). Limits come from the firms' sites (Sep 2026) — if a firm changes its rules, tap 'Edit rules' on an account to override them. Each account gets its own dashboard automatically.",
+      text: "Add each account with the rules your firm publishes — target, drawdown, daily loss, consistency. The journal only reports on them; it never blocks a trade. Each account gets its own dashboard automatically.",
       cls: "setting-item-description",
     });
     this.renderAccountConfig(containerEl);
@@ -673,71 +674,15 @@ export class SettingsTab extends PluginSettingTab {
   renderAccountConfig(containerEl: HTMLElement): void {
     const plugin = this.plugin;
 
-    // Guided wizard — the exact same component used by the Accounts tab + tour.
+    // The wizard is the only way in: one flow, one place for the rules.
     new Setting(containerEl)
       .setName("Add account")
-      .setDesc("Guided setup with firm presets, the rules disclaimer and the copy-trading options.")
+      .setDesc("Guided setup: type, name and balance, the rules your firm publishes, then review.")
       .addButton((b) =>
         b.setButtonText("Open wizard").setCta().onClick(() => {
           openAccountWizard(this.plugin, { onDone: () => this.display() });
         })
       );
-
-    // Quick add (power users)
-    const form = containerEl.createEl("div", { cls: "tj-account-card tj-account-form" });
-    form.createEl("h4", { text: "Quick add" });
-    const firmSel = form.createEl("select", { cls: "dropdown" });
-    for (const firm of PROP_FIRMS) firmSel.createEl("option", { value: firm.id, text: firm.name });
-    const programSel = form.createEl("select", { cls: "dropdown" });
-    const sizeSel = form.createEl("select", { cls: "dropdown" });
-    const nameInput = form.createEl("input", { attr: { type: "text", placeholder: "Name (optional)" } });
-    let startedValue = new Date().toISOString().slice(0, 10);
-    mountDateField(form, {
-      value: startedValue,
-      format: this.plugin.settings.dateFormat,
-      onChange: (iso) => (startedValue = iso),
-    });
-    const typeSel = form.createEl("select", { cls: "dropdown" });
-    const TYPE_LABELS: [string, string][] = [
-      ["eval", "Eval"],
-      ["funded", "Funded"],
-      ["live", "Live (prop firm)"],
-      ["personal", "Personal (own money)"],
-      ["demo", "Demo"],
-    ];
-    for (const [id, label] of TYPE_LABELS) typeSel.createEl("option", { value: id, text: label });
-
-    const fillPrograms = () => {
-      const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
-      programSel.empty();
-      for (const p of firm.programs) programSel.createEl("option", { value: p.id, text: p.label });
-      fillSizes();
-    };
-    const fillSizes = () => {
-      const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
-      const program = getProgram(firm, programSel.value) ?? firm.programs[0];
-      sizeSel.empty();
-      for (const s of program.sizes) sizeSel.createEl("option", { value: String(s.size), text: `$${(s.size / 1000).toFixed(0)}K` });
-    };
-    fillPrograms();
-    firmSel.addEventListener("change", fillPrograms);
-    programSel.addEventListener("change", fillSizes);
-    form.createEl("button", { text: "+ Add account", cls: "mod-cta" }).addEventListener("click", async () => {
-      const firm = getFirm(firmSel.value) ?? PROP_FIRMS[0];
-      const program = getProgram(firm, programSel.value) ?? firm.programs[0];
-      const size = parseInt(sizeSel.value, 10) || program.sizes[0].size;
-      const accType = (typeSel.value as any) || "eval";
-      const taken = (plugin.settings.propAccounts || []).map((a) => a.name);
-      const safeName = nameInput.value.trim() ? uniqueAccountName(nameInput.value, taken) : "";
-      const acc = makeAccount(firm, program, size, safeName, accType);
-      acc.name = uniqueAccountName(acc.name, taken);
-      if (startedValue) acc.createdAt = startedValue;
-      plugin.settings.propAccounts.push(acc);
-      await plugin.saveSettings();
-      nameInput.value = "";
-      startedValue = new Date().toISOString().slice(0, 10);
-      this.display();
-    });
 
     // Account list (edit scope / rules / remove)
     const list = containerEl.createEl("div", { cls: "tj-account-list" });
@@ -746,16 +691,13 @@ export class SettingsTab extends PluginSettingTab {
       list.createDiv({ cls: "tj-empty", text: "No accounts yet — add one above and it gets its own dashboard." });
     } else {
       for (const acc of accounts) {
-        const firm = getFirm(acc.firmId);
-        const program = getProgram(firm, acc.programId);
-        const baseSize = getSize(program, acc.size);
-        const size = effectiveSize(baseSize, acc.rules);
-        if (!firm || !program || !size) continue;
+        const view = resolveAccountView(acc);
+        const size = view.rules;
         const card = list.createEl("div", { cls: "tj-account-card" });
         const head = card.createEl("div", { cls: "tj-account-head" });
         head.createEl("div", { cls: "tj-account-name", text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
         const meta = head.createEl("div", { cls: "tj-account-meta" });
-        meta.createEl("span", { text: `${firm.name} — ${program.label} — ${size.posSize}` });
+        meta.createEl("span", { text: [firmLabel(acc.firmId), size.posSize].filter(Boolean).join(" — ") });
         const typeChip = meta.createEl("span", { cls: `tj-acct-chip ${acc.type}` });
         typeChip.textContent = acc.type;
         const kpis = card.createEl("div", { cls: "tj-kpis" });
@@ -806,7 +748,7 @@ export class SettingsTab extends PluginSettingTab {
         });
 
         if (this.editingRulesFor === acc.id) {
-          this.renderRuleEditor(card, acc, baseSize, size);
+          this.renderRuleEditor(card, acc, view.firmDefault, size);
         }
       }
     }
@@ -927,6 +869,7 @@ export class SettingsTab extends PluginSettingTab {
         .addText((text) => {
           const current = acc.rules?.[f.key];
           text.inputEl.type = "number";
+          freeNumeric(text.inputEl);
           text.inputEl.placeholder = f.base ? String(f.base) : "0";
           if (current !== undefined) text.setValue(String(current));
           text.onChange(async (v) => {

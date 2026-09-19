@@ -5,6 +5,7 @@ import { fmtMoney2, fmtPrice, isFiniteNumber } from "../tz";
 import { dateSearchTokens, formatDate } from "../lib/dates";
 import { tradeKey } from "../storage";
 import { attachTip } from "../lib/tip";
+import { BRAND_ICON_ID } from "../lib/brand";
 import { legBaseKey } from "../lib/copy";
 
 export const TRADEBOOK_SIDEBAR_VIEW_TYPE = "tradebook-sidebar-view";
@@ -93,8 +94,6 @@ export class TradebookSidebarView extends ItemView {
       case "tradebook-accounts-list-view":
       case "tradebook-account-dash-view":
         return "accounts";
-      case "tradebook-add-trade":
-        return "addtrade";
       default:
         return null;
     }
@@ -128,7 +127,8 @@ export class TradebookSidebarView extends ItemView {
       { id: "tradelog", label: "Trade Log", icon: "folder-tree", fn: () => this.plugin.openTradeLog(), category: "OVERVIEW" },
       { id: "setups", label: "Strategies", icon: "target", fn: () => this.plugin.openSetups(), category: "OVERVIEW" },
       { id: "accounts", label: "Accounts", icon: "users", fn: () => this.plugin.openAccounts(), category: "OVERVIEW" },
-      { id: "addtrade", label: "Add Trade", icon: "plus-circle", fn: () => this.plugin.openAddPanel(), category: "TOOLS" },
+      { id: "addtrade", label: "Manual Trade", icon: "plus-circle", fn: () => this.plugin.openAddPanel(), category: "TOOLS" },
+      { id: "import", label: "Import CSV", icon: "upload", fn: () => this.plugin.openImport(), category: "TOOLS" },
     ];
   }
 
@@ -141,9 +141,8 @@ export class TradebookSidebarView extends ItemView {
     const header = root.createDiv({ cls: "tj-nav-header" });
     const brand = header.createDiv({ cls: "tj-nav-brand" });
     const brandIcon = brand.createDiv({ cls: "tj-nav-brand-icon" });
-    setIcon(brandIcon, "candlestick-chart");
-    const brandLabel = this.plugin.settings?.journalName || "Tradebook";
-    brand.createEl("h3", { text: brandLabel });
+    setIcon(brandIcon, BRAND_ICON_ID);
+    brand.createEl("h3", { text: "Tradebook" });
 
     // Settings shortcut (top-right), like Journalit.
     const gear = header.createEl("button", {
@@ -349,7 +348,7 @@ export class TradebookSidebarView extends ItemView {
 
     // 5) Actions
     const actionRows: SearchRow[] = [
-      { icon: "plus-circle", label: "Add Trade", sub: "Action", action: () => this.plugin.openAddPanel() },
+      { icon: "plus-circle", label: "Manual Trade", sub: "Action", action: () => this.plugin.openAddPanel() },
       { icon: "upload", label: "Import CSV", sub: "Action", action: () => this.plugin.openImport() },
     ].filter((r) => hit(r.label));
     if (actionRows.length) groups.push({ title: "Actions", rows: actionRows });

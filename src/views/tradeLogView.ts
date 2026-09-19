@@ -7,6 +7,7 @@ import { fmtMoney } from "../tz";
 import { reviewStatus, reviewSummary } from "../lib/review";
 import { parseTradeFromMarkdown, setTradeAccount, updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
+import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import { analyticsTrades } from "../lib/scope";
 import { sessionOf } from "../lib/sessions";
 import { mountDropdown } from "../lib/dropdown";
@@ -563,6 +564,21 @@ export class TradeLogView extends ItemView {
 
     // The ledger: rail + days + aligned columns. Same recipe as an account's table,
     // so the two can never drift (src/lib/tradeTable).
+    // Nothing in the journal at all — say it the same way Home does.
+    if (this.trades.length === 0) {
+      renderEmptyBox(main, {
+        title: "No trading data available",
+        sub: "Import your previous trades to explore your performance now, or record a new trade manually.",
+        primaryText: "Import existing trades",
+        primaryIcon: "download",
+        onPrimary: () => this.plugin.openImport(),
+        secondaryText: "Add a trade manually",
+        secondaryIcon: "plus",
+        onSecondary: () => this.plugin.openAddPanel(),
+      });
+      return;
+    }
+
     const table = main.createDiv({ cls: "tj-tl-ledger" });
     renderTradeTable(table, {
       plugin: this.plugin,

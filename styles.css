@@ -385,25 +385,6 @@
   max-width: 760px;
   margin-bottom: 18px;
 }
-.tj-import-zone {
-  display: flex;
-  align-items: center;
-  gap: var(--tj-sp-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--tj-sp-4);
-  max-width: 760px;
-}
-.tj-import-zone-label {
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-2);
-}
-.tj-import-zone-arrow {
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3);
-}
-.tj-import-zone .dropdown {
-  font-size: var(--tj-fs-small);
-}
 .tj-dropzone {
   border: 2px dashed var(--interactive-accent);
   border-radius: 12px;
@@ -427,9 +408,12 @@
 .tj-drop-sub {
   font-size: var(--tj-fs-strong);
 }
-.tj-import-status,
-.tj-preview-summary {
-  margin-bottom: 14px;
+/* Which export to bring: the one that carries the most information. */
+.tj-drop-hint {
+  margin-top: 10px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
 }
 .tj-import-progress {
   color: var(--text-muted);
@@ -447,25 +431,6 @@
   color: var(--text-muted);
   margin-top: 8px;
 }
-.tj-preview {
-  background: var(--background-secondary-alt);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 16px;
-  max-width: 900px;
-}
-.tj-preview-headline {
-  font-size: var(--tj-fs-head);
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.tj-preview-accounts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-bottom: 12px;
-}
 .tj-acct-chip {
   display: inline-block;
   padding: 2px 8px;
@@ -479,11 +444,6 @@
 .tj-acct-chip.funded { background: rgba(16, 185, 129, 0.15); color: var(--color-green-bright, #34d17a); }
 .tj-acct-chip.unknown { background: var(--background-modifier-border); color: var(--text-muted); }
 .tj-account-meta .tj-acct-chip { margin-left: 8px; }
-.tj-preview-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 14px;
-}
 .tj-success {
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid var(--color-green-bright, #34d17a);
@@ -827,12 +787,6 @@
   border-color: var(--interactive-accent);
   background: var(--background-modifier-hover);
 }
-.tj-import-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
 .tj-hidden-input {
   display: none;
 }
@@ -845,47 +799,9 @@
   width: 130px;
   resize: vertical;
 }
-.tj-form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-}
-.tj-form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.tj-form-wide {
-  grid-column: 1 / -1;
-}
 .tj-form-label {
   font-size: var(--tj-fs-small);
   color: var(--text-muted);
-  font-weight: 600;
-}
-.tj-tabbar {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 14px;
-}
-.tj-tab {
-  background: transparent;
-  border: 1px solid transparent;
-  border-bottom: none;
-  color: var(--text-muted);
-  border-radius: 6px 6px 0 0;
-  padding: 6px 14px;
-  font-size: var(--tj-fs-strong);
-  cursor: pointer;
-}
-.tj-tab:hover {
-  color: var(--text-normal);
-}
-.tj-tab.active {
-  background: var(--background-secondary-alt);
-  border-color: var(--background-modifier-border);
-  color: var(--text-normal);
   font-weight: 600;
 }
 .tj-tabpane {
@@ -1200,49 +1116,17 @@
 }
 .tj-account-dash .tj-chart-box { margin-top: 6px; }
 
-/* ---- Add Trade panel (sidebar) + account broadcast picker ---- */
-.tj-addpanel-view {
-  padding: 0 14px 24px;
-}
-.tj-addpanel-view .tj-view-h1 {
-  margin: 10px 0 4px;
-}
-.tj-addpanel > .tj-modal-inner > .tj-tabpane {
-  padding-bottom: 12px;
-}
+/* ---- Add Manual Trade panel ---- */
 
-/* Add Trade as a centered pop-up modal */
+/* Add manual trade as a centered pop-up modal */
 .tj-addtrade-modal.modal {
-  width: min(820px, 90vw);
+  width: min(560px, 92vw);
   max-height: 85vh;
 }
 .tj-addtrade-modal .modal-content {
   max-height: 80vh;
   overflow-y: auto;
   padding: 8px 4px;
-}
-.tj-addtrade-modal .modal-content .tj-wizard-steps {
-  position: sticky;
-  top: -8px;
-  z-index: 5;
-  background: var(--background-primary);
-  padding: 8px 8px 6px;
-}
-.tj-acct-pick {
-  margin: 2px 0 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-}
-.tj-acct-pick .tj-hint {
-  margin-top: 2px;
-}
-.tj-acct-pick-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 6px;
 }
 .tj-acct-pick-chip {
   border: 1px solid var(--background-modifier-border);
@@ -1260,173 +1144,6 @@
   background: var(--interactive-accent);
   color: var(--text-on-accent);
   border-color: transparent;
-}
-.tj-print-tools {
-  display: flex;
-  gap: 6px;
-  margin-top: 6px;
-}
-
-/* ---- Add Trade wizard (3 steps: source -> review -> save) ---- */
-.tj-wizard-steps {
-  display: flex;
-  gap: 6px;
-  margin: 4px 0 14px;
-}
-.tj-wizard-step {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 6px 4px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  opacity: 0.6;
-}
-.tj-wizard-step.done { opacity: 1; }
-.tj-wizard-step.active {
-  border-color: var(--interactive-accent);
-  color: var(--interactive-accent);
-  opacity: 1;
-}
-.tj-wizard-stepnum {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--background-modifier-border);
-  color: var(--text-normal);
-  font-size: var(--tj-fs-body);
-  font-weight: 700;
-}
-.tj-wizard-step.active .tj-wizard-stepnum {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-.tj-wizard-steplabel { font-size: var(--tj-fs-small); }
-
-.tj-src-title { font-weight: 700; font-size: var(--tj-fs-strong); }
-.tj-src-sub { font-size: var(--tj-fs-body); color: var(--text-muted); }
-
-.tj-import-top-row {
-  margin-bottom: 12px;
-}
-
-.tj-review-acc-picker {
-  margin-bottom: 14px;
-}
-
-.tj-review-cards {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.tj-review-card {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: var(--background-secondary);
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.tj-review-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--background-modifier-border);
-  padding-bottom: 6px;
-}
-
-.tj-review-card-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tj-review-card-symbol {
-  font-weight: 700;
-  font-size: var(--tj-fs-head);
-  color: var(--text-normal);
-}
-
-.tj-review-card-direction {
-  font-size: var(--tj-fs-body);
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.tj-review-card-direction.tj-pos {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--color-green-bright, #34d17a);
-}
-
-.tj-review-card-direction.tj-neg {
-  background: rgba(173, 53, 39, 0.15);
-  color: var(--text-error, #ad3527);
-}
-
-.tj-review-card-qty {
-  font-size: var(--tj-fs-body);
-  color: var(--text-muted);
-}
-
-.tj-review-card-pnl {
-  font-weight: 700;
-  font-size: var(--tj-fs-head);
-}
-
-.tj-review-card-pnl.tj-pos {
-  color: var(--color-green-bright, #34d17a);
-}
-
-.tj-review-card-pnl.tj-neg {
-  color: var(--text-error, #ad3527);
-}
-
-.tj-review-card-meta {
-  font-size: var(--tj-fs-body);
-  color: var(--text-muted);
-}
-
-.tj-review-card-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.tj-review-card-field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.tj-review-card-field input,
-.tj-review-card-field textarea {
-  width: 100%;
-  border-radius: 6px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  padding: 6px 8px;
-  font-size: var(--tj-fs-strong);
-}
-
-.tj-review-card-print-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .tj-tabnav {
@@ -1674,7 +1391,7 @@
 .tj-acc-settings { max-width: 560px; width: 92%; padding: 0; overflow: hidden; }
 .tj-as-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--background-modifier-border); }
 .tj-as-avatar { width: 42px; height: 42px; border-radius: 11px; background: color-mix(in srgb, var(--color-green-bright, #34d17a) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-green-bright, #34d17a) 25%, transparent); display: flex; align-items: center; justify-content: center; font-size: var(--tj-fs-big); font-weight: 700; color: var(--color-green-bright, #34d17a); flex-shrink: 0; overflow: hidden; }
-.tj-as-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.tj-as-avatar-img { width: 100%; height: 100%; object-fit: contain; }
 .tj-as-headtext { min-width: 0; }
 .tj-as-headtext h3 { margin: 0; font-size: var(--tj-fs-big); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-as-meta { font-size: var(--tj-fs-small); color: var(--text-muted); margin-top: 2px; }
@@ -1801,6 +1518,8 @@
 .tj-delete-confirm h3 { margin: 0 0 10px; }
 .tj-delete-desc { font-size: var(--tj-fs-body); color: var(--text-muted); margin: 4px 0; line-height: 1.5; }
 .tj-delete-hint { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 10px; font-style: italic; }
+.tj-delete-list { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; text-align: left; }
+.tj-delete-fact { font-size: var(--tj-fs-small); color: var(--tj-fg-2); line-height: 1.5; }
 .tj-delete-confirm .tj-acc-passed-btns { justify-content: center; margin-top: 16px; }
 
 /* ---------------- Trade modal (big edit pop-up) ---------------- */
@@ -1906,22 +1625,6 @@
 .tj-group-name { font-weight: 700; }
 .tj-group-count { font-size: var(--tj-fs-body); color: var(--text-muted); }
 .tj-group-accounts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-
-/* Account group pickers in Add Trade */
-.tj-acct-pick-groups {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.tj-acct-pick-group {
-  border-color: var(--interactive-accent) !important;
-  opacity: 0.9;
-}
-.tj-acct-pick-group.active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
 
 /* App shell — fixed height, no outer page scrollbars. Views handle their own content fitting. */
 .tj-app {
@@ -2087,7 +1790,6 @@
 
 /* Fase 7: Trade Log view */
 .tj-tradelog .tj-filterbar-compact { padding-top: 4px; }
-.tj-tradelog .tj-preview-summary { margin: 4px 0 12px 0; }
 .tj-tradelog .tj-input { min-width: 150px; }
 .tj-date-input { min-width: 140px !important; }
 .tj-filt-symbol { min-width: 110px; }
@@ -3016,33 +2718,6 @@
   color: var(--text-on-accent);
 }
 
-/* Add Trade Source split side-by-side */
-.tj-src-split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.tj-src-col {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 16px;
-  background: var(--background-secondary);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  text-align: left;
-  cursor: default;
-}
-.tj-src-manual-col {
-  cursor: pointer;
-  justify-content: center;
-  align-items: flex-start;
-  transition: border-color 0.15s ease;
-}
-.tj-src-manual-col:hover { border-color: var(--interactive-accent); }
-.tj-src-hint { font-size: var(--tj-fs-body); color: var(--interactive-accent); margin-top: 4px; }
-
 /* Trade detail soft tones */
 .tj-td-stat.pos { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); }
 .tj-td-stat.neg { background: rgba(173, 53, 39, 0.08); border-color: rgba(173, 53, 39, 0.25); }
@@ -3070,8 +2745,6 @@
 .tj-btn {
   border-radius: 8px;
 }
-
-
 
 /* ---------------- Journalit-style Sidebar ---------------- */
 /* Extraído do Journalit instalado (Trading 1) — valores exatos:
@@ -3340,9 +3013,6 @@
   font-size: var(--tj-fs-strong);
   color: var(--text-muted);
 }
-
-
-
 
 /* ==========================================================================
    Dashboard header — greeting + icon actions
@@ -3615,7 +3285,6 @@
   color: var(--interactive-accent);
   background: rgba(255, 255, 255, 0.06);
 }
-
 
 /* ---- Edit toolbar (replaces the old palette bar) ---- */
 .tj-editbar {
@@ -4025,10 +3694,10 @@
 }
 .tj-emptystate-icon {
   color: var(--tj-fg-3);
-  opacity: 0.7;
+  opacity: 1;
   margin-bottom: 8px;
 }
-.tj-emptystate-icon svg { width: 46px; height: 46px; }
+.tj-emptystate-icon svg { width: 50px; height: 50px; }
 .tj-emptystate-title { font-size: var(--tj-fs-head); font-weight: 600; color: var(--text-normal); }
 .tj-emptystate-sub { font-size: var(--tj-fs-strong); color: var(--text-muted); max-width: 430px; line-height: 1.5; }
 .tj-emptystate-note { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
@@ -4048,43 +3717,6 @@
   font-weight: 600; cursor: pointer;
 }
 .tj-empty-secondary:hover { background: var(--background-modifier-hover); }
-
-/* Add Trade page — Manual | Import tabs */
-.tj-tabs {
-  display: flex;
-  gap: 2px;
-  margin: 6px 0 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.tj-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px 9px;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--text-muted);
-  font-size: var(--tj-fs-strong);
-  font-weight: 600;
-  cursor: pointer;
-  border-radius: 6px 6px 0 0;
-}
-.tj-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
-.tj-tab.active {
-  color: var(--text-normal);
-  font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--interactive-accent) !important;
-}
-.tj-tab-icon { display: inline-flex; line-height: 0; }
-.tj-tab-icon svg { width: 15px; height: 15px; }
-.tj-tabpanel { padding-top: 2px; }
-
-/* Rating stars (Add Trade manual form) */
-.tj-stars { display: flex; gap: 2px; font-size: var(--tj-fs-head); line-height: 1.1; }
-.tj-star { color: var(--tj-fg-3); cursor: pointer; transition: color 120ms ease; }
-.tj-star:hover { color: var(--interactive-accent); }
-.tj-star.on { color: var(--interactive-accent); }
 
 /* Sidebar search results (grouped, uniform with the menu) */
 .tj-nav-results {
@@ -4128,35 +3760,7 @@
 .tj-nav-result-value.tj-neg { color: var(--color-red, #ad3527); }
 .tj-nav-results-empty { padding: 16px; text-align: center; color: var(--tj-fg-3); font-size: var(--tj-fs-strong); }
 
-/* ==========================================================================
-   Add Trade — manual form, layout A (Execution | Review)
-   ========================================================================== */
-.tj-trade-form {
-  display: grid;
-  grid-template-columns: 1.3fr 1fr;
-  gap: 18px;
-  align-items: start;
-}
-@media (max-width: 820px) {
-  .tj-trade-form { grid-template-columns: 1fr; }
-}
-.tj-form-col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.tj-form-col-title {
-  font-size: var(--tj-fs-small);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
 .tj-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.tj-seg {
-  display: inline-flex;
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 2px;
-  gap: 2px;
-}
 .tj-seg-btn {
   border: none !important;
   background: transparent !important;
@@ -4183,99 +3787,16 @@
 .tj-risk-hint b { color: var(--text-normal); }
 
 /* ==========================================================================
-   Add Trade — polished look (matches the chosen mockup)
+   Add Manual Trade — polished look (matches the chosen mockup)
    ========================================================================== */
-.tj-addpanel .tj-modal-inner { max-width: 1120px; margin: 0 auto; }
-.tj-addpanel .tj-wizard-body { display: flex; flex-direction: column; gap: 16px; }
-.tj-addpanel .tj-manual-card {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 18px;
-}
-.tj-addpanel .tj-manual-card-top { margin-bottom: 14px; }
-.tj-addpanel .tj-manual-card-top h4 {
-  margin: 0;
-  font-size: var(--tj-fs-strong);
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.tj-addpanel .tj-form-field { display: flex; flex-direction: column; min-width: 0; }
+.tj-addpanel .tj-modal-inner { max-width: 560px; margin: 0 auto; }
 .tj-addpanel .tj-form-label {
   font-size: var(--tj-fs-small);
   color: var(--text-muted);
   margin-bottom: 4px;
   display: block;
 }
-.tj-addpanel .tj-trade-form input,
-.tj-addpanel .tj-trade-form select {
-  width: 100%;
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
-  padding: 7px 9px;
-  font-size: var(--tj-fs-body);
-  color: var(--text-normal);
-}
-.tj-addpanel .tj-trade-form input:focus,
-.tj-addpanel .tj-trade-form select:focus {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent);
-  outline: none;
-}
-.tj-addpanel .tj-review-acc-picker {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 14px;
-}
 .tj-addpanel .tj-import-actions { display: flex; justify-content: flex-end; gap: 8px; }
-
-/* Import tab — same language as the manual form */
-.tj-import-ui .tj-import-info {
-  color: var(--text-muted);
-  font-size: var(--tj-fs-strong);
-  max-width: 720px;
-  line-height: 1.5;
-}
-.tj-import-ui .tj-dropzone {
-  border: 1.5px dashed var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 46px 24px;
-  text-align: center;
-  background: var(--background-secondary);
-  transition: border-color 140ms ease, background 140ms ease;
-}
-.tj-import-ui .tj-dropzone.over {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
-}
-.tj-import-ui .tj-drop-text { font-size: var(--tj-fs-big); font-weight: 600; color: var(--text-normal); }
-.tj-import-ui .tj-drop-sub { font-size: var(--tj-fs-body); color: var(--text-muted); margin-top: 4px; }
-
-/* Add Trade — centered segmented tabs */
-.tj-tabs-wrap { display: flex; justify-content: center; margin: 4px 0 18px; }
-.tj-tabs {
-  border-bottom: none;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 3px;
-  gap: 2px;
-}
-.tj-tab { border-radius: 8px; padding: 6px 16px; }
-.tj-tab.active {
-  background: var(--interactive-accent) !important;
-  color: var(--text-on-accent) !important;
-  box-shadow: none !important;
-}
-
-/* Gold rating stars */
-.tj-star { color: var(--tj-fg-3); }
-.tj-star:hover,
-.tj-star.on { color: #f5b301 !important; }
 
 /* Large print preview inside the form */
 .tj-addpanel .tj-printpick-preview {
@@ -4311,12 +3832,572 @@
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-/* Add Trade — wider canvas, less top margin, centered import */
-.tj-addpanel-view .tj-app-main { padding-top: 4px; }
-.tj-addpanel .tj-modal-inner { max-width: 1280px; }
-.tj-import-ui { max-width: 860px; margin: 0 auto; }
-.tj-import-ui .tj-import-info { text-align: center; margin: 0 auto 16px; }
-.tj-import-ui .tj-dropzone { margin: 0 auto; }
+/* Add Manual Trade + Import CSV — both are centered pop-up modals */
+.tj-addtrade-body { min-height: 120px; }
+.tj-import-modal.modal {
+  width: min(620px, 92vw);
+}
+.tj-import-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.tj-import-headico {
+  display: inline-flex;
+  line-height: 0;
+  margin-top: 2px;
+  color: var(--interactive-accent);
+}
+.tj-import-headico svg { width: 22px; height: 22px; }
+.tj-import-headtxt { flex: 1 1 auto; }
+.tj-import-headtxt h2 {
+  margin: 0 0 4px 0;
+  font-size: var(--tj-fs-display);
+  line-height: 1.25;
+}
+.tj-import-sub {
+  margin: 0;
+  font-size: var(--tj-fs-body);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.tj-import-zone-ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+  color: var(--tj-fg-3);
+}
+.tj-import-zone-ico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-import-zone-dd { flex: 0 0 auto; }
+.tj-import-modal .tj-dropzone {
+  margin-bottom: 0;
+  max-width: none;
+  padding: 36px 20px;
+}
+/* Step two's home: the settings that belong to the file in hand. */
+.tj-import-setup { margin-bottom: 4px; }
+
+/* The zone is the one answer that has to be right before a number means
+   anything, so it gets a box of its own instead of sharing a line. */
+.tj-import-zonebox {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+.tj-import-zonetitle {
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-1);
+}
+.tj-import-zonebox .tj-import-zone-dd { flex: 1 1 auto; min-width: 150px; }
+.tj-import-zonenote {
+  margin-inline-start: auto;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* The group's members, together, so ten ticked rows still read as two
+   decisions: the accounts in this file, and the accounts following the base. */
+.tj-import-group {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  padding: 11px 13px;
+  margin-top: 14px;
+}
+.tj-import-grouphead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--tj-fs-strong);
+  color: var(--tj-fg-1);
+}
+.tj-import-groupico { display: inline-flex; line-height: 0; color: var(--tj-fg-3); }
+.tj-import-groupico svg { width: 14px; height: 14px; }
+.tj-import-groupsub {
+  margin: 6px 0 8px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+
+/* The fees: one switch, one line, and the drop zone only while it is on. */
+.tj-import-costsbox {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+.tj-import-costshead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--tj-fs-body);
+  color: var(--tj-fg-1);
+}
+.tj-import-coststitle { font-weight: var(--tj-w-medium); }
+
+.tj-import-result { margin-top: 14px; }
+
+/* Import CSV — the review, before anything is written */
+/* The file, as a badge: a name, not a surface. */
+.tj-import-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 11px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 20px;
+  background: var(--background-secondary);
+  font-size: var(--tj-fs-small);
+}
+.tj-import-chipico { display: inline-flex; line-height: 0; color: var(--tj-fg-3); }
+.tj-import-chipico svg { width: 16px; height: 16px; }
+.tj-import-chipname { color: var(--tj-fg-1); }
+.tj-import-chipmore { color: var(--tj-fg-3); }
+.tj-import-chipkind {
+  padding: 1px 7px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 20px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+}
+
+/* Two decisions, two blocks: the trades, then the platform's costs. */
+.tj-import-block { margin-bottom: 14px; }
+.tj-import-blocktitle {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+  margin-bottom: 7px;
+}
+.tj-import-costssub {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+/* A switch is a control, so it is a full 24px tall — a target, not a dot. */
+.tj-import-switch {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 40px;
+  height: 24px;
+  cursor: pointer;
+}
+.tj-import-switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tj-import-switch-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: var(--background-modifier-border);
+  transition: background 120ms ease;
+}
+.tj-import-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--tj-fg-2);
+  transition: transform 120ms ease, background 120ms ease;
+}
+.tj-import-switch input:checked + .tj-import-switch-track { background: var(--interactive-accent); }
+.tj-import-switch input:checked + .tj-import-switch-track::after {
+  transform: translateX(16px);
+  background: var(--text-on-accent);
+}
+.tj-import-switch input:focus-visible + .tj-import-switch-track {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.tj-import-cashslot { margin-top: 10px; }
+.tj-import-costsoff,
+.tj-import-cashwarn,
+.tj-import-cashok,
+.tj-import-casherr {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: var(--tj-fs-small);
+  line-height: 1.5;
+}
+.tj-import-costsoff { color: var(--tj-fg-3); }
+.tj-import-cashwarn { color: var(--color-orange, #d9a441); }
+.tj-import-cashok { color: var(--color-green-bright, #34d17a); }
+.tj-import-casherr { color: var(--color-red-bright, #ff5d48); }
+.tj-import-costsoff-ico,
+.tj-import-cashwarn-ico,
+.tj-import-cashok-ico,
+.tj-import-casherr-ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.tj-import-costsoff-ico svg,
+.tj-import-cashwarn-ico svg,
+.tj-import-cashok-ico svg,
+.tj-import-casherr-ico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-import-cashswap {
+  margin-inline-start: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  cursor: pointer;
+}
+/* Inside a modal Obsidian paints its own buttons over ours, so the ghost has to
+   be insisted on. A secondary action is a word, not a block. */
+.tj-import-modal .tj-import-cashswap {
+  height: auto !important;
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+}
+.tj-import-modal .tj-import-cashswap:hover {
+  color: var(--tj-fg-1) !important;
+  text-decoration: underline;
+  background: none !important;
+}
+.tj-import-cashswap:hover { color: var(--tj-fg-1); }
+.tj-import-modal .tj-dropzone.is-cash {
+  margin-top: 10px;
+  padding: 18px 14px;
+}
+.tj-import-mapdd { flex: 1 1 auto; min-width: 0; margin-inline-start: 12px; }
+/* The platform's own ledger, or the plain truth that this file has none. */
+.tj-import-costs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+.tj-import-costs-ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.tj-import-costs-ico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-import-costs.is-warn {
+  color: var(--color-orange, #d9a441);
+}
+/* The journal's balance against the platform's own closing figure. */
+.tj-import-balance {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tj-import-balanceico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.tj-import-balanceico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-import-balance.is-ok {
+  color: var(--tj-fg-2);
+}
+.tj-import-balance.is-warn {
+  color: var(--color-orange, #d9a441);
+}
+/* The account pick. It is the first question on the screen and the one that has
+   been answered wrongly before, so it carries a frame, a state line and the
+   file's own label — and it goes quiet the moment the answer exists. */
+.tj-import-pick {
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 6%, transparent);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.tj-import-pick.is-set {
+  border-color: var(--background-modifier-border);
+  background: transparent;
+}
+.tj-import-pickhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.tj-import-pickico {
+  display: inline-flex;
+  color: var(--tj-fg-2);
+}
+.tj-import-pickico svg { width: 15px; height: 15px; }
+.tj-import-picktitle {
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-bold);
+  color: var(--tj-fg-1);
+}
+.tj-import-pickstate {
+  margin-inline-start: auto;
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--tj-fg-3);
+}
+.tj-import-pickstate.is-empty {
+  color: var(--color-orange, #d9a441);
+  border-color: color-mix(in srgb, var(--color-orange, #d9a441) 40%, transparent);
+}
+.tj-import-pickstate.is-set {
+  color: var(--color-green-bright, #34d17a);
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 40%, transparent);
+}
+.tj-import-pickhint {
+  margin-top: 8px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+.tj-import-pickhint.is-warn { color: var(--color-orange, #d9a441); }
+.tj-import-maphead {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+  margin-bottom: 7px;
+}
+.tj-import-maprow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: var(--tj-fs-body);
+}
+.tj-import-maprow + .tj-import-maprow {
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+}
+.tj-import-mapname {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-width: 46%;
+}
+.tj-import-maplabel {
+  color: var(--tj-fg-1);
+  font-weight: var(--tj-w-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tj-import-mapcount {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* With a single account in the file the row has no label above the count, so
+   the count is the row's only words and has to carry itself. */
+.tj-import-mapname.is-plain .tj-import-mapcount {
+  color: var(--tj-fg-2);
+}
+.tj-import-accs {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  padding: 11px 13px;
+  margin-top: 14px;
+}
+.tj-import-acc {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  font-size: var(--tj-fs-body);
+  cursor: pointer;
+  position: relative;
+}
+.tj-import-acc + .tj-import-acc {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-import-acc:hover {
+  background: var(--background-modifier-hover);
+}
+/* The tick decides what gets written, so it has to be impossible to miss.
+   Scaled rather than resized: the row is the target, and a bigger box here
+   would only push the name around. */
+/* The row is the control; the tick itself is invisible. What the eye reads is
+   the dot: green means "this account gets these trades too". */
+.tj-import-acc input {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tj-import-accdot,
+.tj-import-mapdot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--background-modifier-border);
+  background: transparent;
+}
+.tj-import-accdot.is-on,
+.tj-import-mapdot.is-on {
+  border-color: var(--color-green-bright, #34d17a);
+  background: var(--color-green-bright, #34d17a);
+}
+.tj-import-accname { color: var(--tj-fg-1); }
+.tj-import-accwho { margin-inline-start: auto; display: flex; align-items: center; gap: 7px; }
+.tj-role {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--tj-fg-3);
+}
+.tj-role.is-leader {
+  color: var(--color-orange, #d9a441);
+  border-color: color-mix(in srgb, var(--color-orange, #d9a441) 40%, transparent);
+}
+.tj-role.is-copier {
+  color: var(--interactive-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+}
+.tj-ratio { color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-variant-numeric: tabular-nums; }
+/* How much of this file a copier actually mirrors — its window is honest. */
+.tj-import-window { color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-variant-numeric: tabular-nums; }
+.tj-import-window.is-warn { color: var(--color-orange, #d9a441); }
+.tj-import-note {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  font-size: var(--tj-fs-body);
+  color: var(--tj-fg-2);
+}
+.tj-import-review {
+  margin-top: 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.tj-import-reviewtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.tj-import-reviewcount {
+  font-size: var(--tj-fs-strong);
+  color: var(--tj-fg-1);
+  font-weight: var(--tj-w-medium);
+}
+.tj-import-pill {
+  font-size: var(--tj-fs-label);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--background-modifier-border);
+  color: var(--tj-fg-2);
+}
+.tj-import-pill.is-warn { color: var(--color-orange, #d9a441); }
+.tj-import-tbl { width: 100%; border-collapse: collapse; }
+.tj-import-tbl th,
+.tj-import-tbl td { padding: 6px 10px; text-align: left; font-size: var(--tj-fs-small); }
+.tj-import-tbl th {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+  font-weight: var(--tj-w-medium);
+}
+.tj-import-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tj-import-tbl tbody tr { border-top: 1px solid var(--background-modifier-border); }
+.tj-import-tbl tr.is-more td { color: var(--tj-fg-3); }
+.tj-import-tbl .pos,
+.tj-import-net.pos { color: var(--color-green, #34d17a); }
+.tj-import-tbl .neg,
+.tj-import-net.neg { color: var(--color-red, #ad3527); }
+.tj-import-side { font-size: var(--tj-fs-label); padding: 1px 7px; border-radius: 5px; }
+.tj-import-side.is-long { color: var(--color-green, #34d17a); background: rgba(52, 209, 122, 0.12); }
+.tj-import-side.is-short { color: var(--color-red, #ad3527); background: rgba(255, 93, 72, 0.12); }
+.tj-import-reviewfoot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+}
+.tj-import-net { font-weight: var(--tj-w-medium); font-variant-numeric: tabular-nums; }
+.tj-import-dot { color: var(--tj-fg-3); }
+.tj-import-emptyline { padding: 12px; font-size: var(--tj-fs-body); color: var(--tj-fg-2); }
+.tj-import-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.tj-import-spacer { flex: 1 1 auto; }
+.tj-import-footnote {
+  margin-top: 10px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* Why the one action is asleep — it says so, and it goes away on its own. */
+.tj-import-helper {
+  margin-top: 8px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+/* The receipt after a successful import — a line, not a new surface. */
+.tj-import-done {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  font-size: var(--tj-fs-body);
+  color: var(--color-green-bright, #34d17a);
+  font-variant-numeric: tabular-nums;
+}
+.tj-import-doneico { display: inline-flex; }
+.tj-import-doneico svg { width: 15px; height: 15px; }
 
 /* Radar sizing safety + error surface */
 .tj-radar-box { min-height: 200px; }
@@ -5115,7 +5196,6 @@
   font-size: var(--tj-fs-body);
 }
 .tj-tl-edtext:focus { border-color: var(--interactive-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent); outline: none; }
-@media (max-width: 900px) { }
 
 /* Right side: WIN/LOSS + P&L + points{
   align-items: flex-end;
@@ -5125,7 +5205,6 @@
 }
 
 .tj-tl-dir-arrow { font-size: var(--tj-fs-strong); font-weight: 700; color: var(--text-muted); width: 14px; text-align: center; }
-
 
 /* Settings — editable string lists */
 .tj-settings-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 16px; }
@@ -5547,13 +5626,124 @@
 /* Date field that honours the Date format setting */
 .tj-datefield { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; }
 .tj-datefield-input { flex: 1 1 auto; min-width: 0; }
-.tj-datefield-native {
-  position: absolute; left: 0; bottom: 0; width: 100%; height: 1px;
-  opacity: 0; pointer-events: none; border: none; background: transparent;
-}
 .tj-datefield-input { cursor: pointer; }
 /* Custom range in the period bar: two compact date fields side by side. */
 .tj-period-custom .tj-datefield { width: 124px; }
+
+/* The plugin's own calendar (lib/calendar.ts). Drawn at body level and pinned
+   to the field, so a scrolling modal can never cut it off. Obsidian styles
+   every <button>, hence the !important on the visual properties. */
+.tj-cal {
+  position: fixed;
+  z-index: 1100;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color: var(--text-normal);
+  font-size: var(--tj-fs-body);
+  user-select: none;
+}
+.tj-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.tj-cal-title {
+  font-size: var(--tj-fs-strong);
+  font-weight: 700;
+}
+.tj-cal-nav {
+  width: 28px !important;
+  height: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-2) !important;
+  font-size: var(--tj-fs-big) !important;
+  line-height: 1 !important;
+  cursor: pointer;
+}
+.tj-cal-nav:hover {
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
+  color: var(--text-normal) !important;
+}
+.tj-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 30px);
+  gap: 2px;
+}
+.tj-cal-wd {
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+}
+.tj-cal-day {
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  font-family: inherit !important;
+  font-size: var(--tj-fs-body) !important;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.tj-cal-day:hover {
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
+}
+.tj-cal-day.is-out {
+  color: var(--tj-fg-3) !important;
+  opacity: 0.55;
+}
+.tj-cal-day.is-today {
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, rgba(255, 255, 255, 0.24)) !important;
+}
+.tj-cal-day.is-sel {
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent) !important;
+  color: var(--text-normal) !important;
+  font-weight: 700;
+}
+.tj-cal-day:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+.tj-cal-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+.tj-cal-today {
+  min-height: 26px !important;
+  padding: 0 10px !important;
+  border: none !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-2) !important;
+  font-size: var(--tj-fs-small) !important;
+  cursor: pointer;
+}
+.tj-cal-today:hover {
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
+  color: var(--text-normal) !important;
+}
 
 /* Trading Score v2 — weighted radar / unlock ring */
 .tj-score2 { display: flex; flex-direction: column; height: 100%; min-height: 0; }
@@ -5598,11 +5788,13 @@
 }
 .tj-acct-strip-v { font-size: var(--tj-fs-head); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tj-acct-strip-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
+/* The information glyph is the engine's own pictogram — it already draws its
+   circle, so we add no ring of our own. One vocabulary, everywhere. */
 .tj-info-dot {
-  width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--background-modifier-border);
-  color: var(--tj-fg-3); font-size: var(--tj-fs-label); display: inline-flex; align-items: center;
+  color: var(--tj-fg-3); display: inline-flex; align-items: center;
   justify-content: center; cursor: help; flex: 0 0 auto;
 }
+.tj-info-dot svg { width: 14px; height: 14px; }
 
 .tj-acct-chartcard {
   border: 1px solid var(--background-modifier-border); border-radius: 15px;
@@ -5885,19 +6077,38 @@
 .tj-wz-body { min-height: 220px; }
 .tj-wz-foot { display: flex; gap: 8px; justify-content: flex-end; padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--background-modifier-border); }
 .tj-wz-foot .tj-btn:first-child { margin-right: auto; }
+.tj-account-wizard .tj-wz-foot .tj-btn:disabled { opacity: .45; cursor: not-allowed; }
 
 .tj-wz-types { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
 .tj-wz-type {
-  border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 14px;
-  cursor: pointer; transition: border-color .15s ease, background .15s ease;
+  border: 1px solid var(--background-modifier-border); border-radius: 12px; padding: 16px 14px;
+  cursor: pointer; transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
 }
-.tj-wz-type:hover { border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18)); }
-.tj-wz-type.on { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .06); }
-.tj-wz-type-ico { font-size: var(--tj-fs-head); margin-bottom: 6px; }
+.tj-wz-type:hover { border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18)); background: rgba(255,255,255,.03); }
+.tj-wz-type.on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+.tj-wz-type-ico { color: var(--text-muted); margin-bottom: 8px; line-height: 1; }
+.tj-wz-type.on .tj-wz-type-ico { color: var(--interactive-accent); }
+.tj-wz-type-ico svg { width: 22px; height: 22px; }
 .tj-wz-type-l { font-size: var(--tj-fs-strong); font-weight: 700; margin-bottom: 3px; }
 .tj-wz-type-d { font-size: var(--tj-fs-small); color: var(--text-muted); line-height: 1.35; }
 
 .tj-wz-row { display: flex; gap: 18px 16px; flex-wrap: wrap; }
+/* Name and balance share one row: the wizard stays short as the brand grid
+   grows below. Stacks again on narrow modals. */
+.tj-wz-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 560px) {
+  .tj-wz-row-2 {
+    grid-template-columns: 1fr;
+  }
+}
 .tj-wz-field { display: flex; flex-direction: column; gap: 7px; flex: 1 1 180px; min-width: 0; }
 .tj-wz-wide { flex: 1 1 100%; }
 .tj-wz-label { font-size: var(--tj-fs-label); letter-spacing: .18em; text-transform: uppercase; color: var(--tj-fg-3); font-weight: 600; }
@@ -5954,57 +6165,178 @@
 .tj-acc-settings .tj-datefield-input { width: 96px; flex: 0 0 auto; min-width: 96px; text-align: right; }
 .tj-acc-settings .tj-datefield-input:hover { border-bottom: 1px solid rgba(255, 255, 255, .16) !important; }
 .tj-acc-settings .tj-datefield-input:focus { border-bottom: 1px solid var(--text-muted) !important; }
-/* `Starts at $50,000` is a value, not a field: no dashed box around it. */
-.tj-account-wizard .tj-wz-static {
-  border: none !important; background: transparent !important; box-shadow: none !important;
-  padding: 4px 2px; font-size: var(--tj-fs-strong); color: var(--text-muted);
-}
-.tj-wz-chips { display: flex; gap: 10px; flex-wrap: wrap; }
-.tj-wz-chip {
-  border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 8px 12px;
-  cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 84px;
-}
-.tj-wz-chip.on { border-color: rgba(255, 255, 255, .3); background: rgba(255, 255, 255, .07); }
-.tj-wz-chip span:first-child { font-size: var(--tj-fs-strong); font-weight: 700; }
-.tj-wz-chipname { font-size: var(--tj-fs-strong); font-weight: 700; }
-.tj-wz-firmlogo { width: 30px; height: 30px; border-radius: 8px; object-fit: cover; margin-bottom: 3px; }
-.tj-wz-chip-sub { font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
 
-.tj-wz-rules {
-  margin-top: 16px; border: 1px solid var(--background-modifier-border); border-radius: 11px; padding: 12px 16px;
-  align-content: start;
+/* A step that does not apply to this account type (personal / demo skip the
+   Rules step) is removed from the strip entirely — a crossed-out step reads
+   like an error the trader has to fix. */
+.tj-wz-step.off {
+  display: none;
 }
-.tj-wz-rules .tj-btn { justify-self: start; margin-top: 12px; }
-.tj-wz-rule { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; font-size: var(--tj-fs-body); padding: 8px 0; color: var(--text-muted); border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent); }
-.tj-wz-rule:last-of-type { border-bottom: none; }
-.tj-wz-rule b { color: var(--text-normal); font-variant-numeric: tabular-nums; }
-.tj-wz-editrules { margin-top: 2px; gap: 12px; }
-.tj-wz-editrules .tj-wz-field { flex: 1 1 120px; }
+.tj-wz-secthint {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+  margin: -4px 0 12px;
+}
+/* The rules the trader types, laid out like the rest of the wizard: a grid of
+   ghost fields, never a wall of boxes. */
+.tj-wz-rulegrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+}
+.tj-wz-rulegrid .tj-wz-wide {
+  grid-column: 1 / -1;
+}
+/* Amounts carry their unit inside the box — a fixed prefix/suffix, or the inline
+   $ | % switch for the rules a firm may publish either way. */
+.tj-wz-affixhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.tj-wz-affix {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tj-wz-affix-pre,
+.tj-wz-affix-suf {
+  flex: 0 0 auto;
+  font-size: var(--tj-fs-strong);
+  color: var(--text-muted);
+}
+.tj-wz-affix-suf {
+  font-size: var(--tj-fs-small);
+  padding-left: 4px;
+}
+.tj-wz-affix .tj-wz-input {
+  flex: 1 1 auto;
+}
+.tj-wz-untoggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+.tj-account-wizard .tj-wz-unbtn {
+  font: inherit;
+  font-size: var(--tj-fs-small);
+  font-weight: 600;
+  color: var(--tj-fg-2);
+  background: transparent !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 1px 7px !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  min-width: 24px;
+  min-height: 24px;
+}
+.tj-account-wizard .tj-wz-unbtn:hover {
+  color: var(--text-normal);
+}
+.tj-account-wizard .tj-wz-unbtn.on {
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent) !important;
+}
+/* Firm logos: the grid the trader picks a face from. A catalog entry without a
+   packaged file still shows — its initials stand in until the PNG arrives. */
+.tj-wz-logogrid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+.tj-wz-logogroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tj-wz-logoglbl {
+  font-size: var(--tj-fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--tj-fg-3);
+  font-weight: 700;
+}
+.tj-wz-logotiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tj-wz-logotile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 7px 10px;
+  height: 40px;
+  box-sizing: border-box;
+  max-width: 100%;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.tj-wz-logotile:hover {
+  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, 0.18));
+}
+.tj-wz-logotile.on {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.07);
+}
+.tj-wz-logotile-img {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: contain;
+}
+.tj-wz-logotile-init {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--tj-fs-small);
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.06);
+}
+.tj-wz-logo-own {
+  font-size: var(--tj-fs-strong);
+  line-height: 1;
+  color: var(--text-muted);
+}
+.tj-wz-logotile-lbl {
+  font-size: var(--tj-fs-small);
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tj-wz-logocustom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .tj-wz-disclaimer {
   display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; font-size: var(--tj-fs-small);
   color: var(--text-muted); background: color-mix(in srgb, #d9a441 10%, transparent);
   border: 1px solid color-mix(in srgb, #d9a441 26%, transparent);
   border-radius: 10px; padding: 10px 12px; line-height: 1.45;
 }
+.tj-wz-disclaimer-ico { flex: 0 0 auto; color: #d9a441; line-height: 1; }
+.tj-wz-disclaimer-ico svg { width: 14px; height: 14px; }
 .tj-wz-review { border: 1px solid var(--background-modifier-border); border-radius: 11px; padding: 6px 14px; }
-.tj-wz-copy { margin-top: 16px; border-top: 1px solid var(--background-modifier-border); padding-top: 14px; }
-.tj-wz-copy-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: var(--tj-fs-body); font-weight: 600; }
-.tj-wz-copy-title { color: var(--text-normal); }
-.tj-wz-copydetail { margin-top: 12px; }
-.tj-wz-copy-hint { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 8px; line-height: 1.45; }
-/* Review step: what the link will actually do, in plain words. */
-.tj-wz-copynote {
-  display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; padding: 9px 11px;
-  border-radius: 9px; font-size: var(--tj-fs-small); line-height: 1.45;
-  color: var(--text-muted); background: rgba(255, 255, 255, .025);
-  border: 1px solid var(--background-modifier-border);
-}
-.tj-wz-copynote-ico { flex: 0 0 auto; opacity: .85; }
-.tj-wz-copynote.is-warn {
-  color: #d9a441; background: rgba(217, 164, 65, .08); border-color: rgba(217, 164, 65, .3);
-}
 
-/* Review: two summary cards — what the account is, then its trading group. */
+/* Review: the summary card — what the account is. */
 .tj-wz-review { display: flex; flex-direction: column; gap: 12px; }
 .tj-wz-sumcard {
   border: 1px solid var(--background-modifier-border); border-radius: 10px;
@@ -6014,10 +6346,19 @@
   font-size: var(--tj-fs-label); text-transform: uppercase; letter-spacing: .12em;
   color: var(--tj-fg-3); font-weight: 700; margin-bottom: 8px;
 }
-.tj-wz-sumrows { display: flex; flex-direction: column; gap: 4px; }
-.tj-wz-sumrow { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: var(--tj-fs-body); }
+.tj-wz-sumrows { display: flex; flex-direction: column; gap: 0; }
+.tj-wz-sumrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: var(--tj-fs-body);
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+}
+.tj-wz-sumrow:last-child { border-bottom: none; }
 .tj-wz-sumk { color: var(--text-muted); }
-.tj-wz-sumv { color: var(--text-normal); font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.tj-wz-sumv { color: var(--text-normal); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Flat text options, no boxes — one control, used everywhere in the wizard.
    Scoped under the modal because Obsidian styles `button` with a filled box. */
@@ -6075,14 +6416,8 @@
 .tj-wz-copydetail > .tj-wz-row:first-child { margin-top: 0; }
 .tj-wz-dateinput { margin-top: 0; }
 
-.tj-wz-static {
-  padding: 7px 10px; border: 1px dashed var(--background-modifier-border);
-  border-radius: 8px; font-size: var(--tj-fs-body); color: var(--text-muted); font-variant-numeric: tabular-nums;
-}
-
 /* Wizard — custom dropdown (no native select chrome) */
 .tj-dd { position: relative; min-width: 220px; }
-.tj-wz-dd-slot { min-width: 240px; }
 .tj-dd-btn {
   width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 7px 11px; border-radius: 9px; cursor: pointer; font: inherit; font-size: var(--tj-fs-strong);
@@ -6104,14 +6439,67 @@
 .tj-dd-item.on { color: var(--text-normal); background: color-mix(in srgb, var(--interactive-accent) 12%, transparent); }
 .tj-dd-check { color: var(--interactive-accent); }
 .tj-dd-empty { padding: 8px 10px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
-.tj-wz-chip-wide { min-width: 110px; padding: 8px 14px; }
-.tj-wz-chip-wide span:first-child { font-size: var(--tj-fs-body); font-weight: 600; }
-
-/* Wizard — two-column account step + calmer buttons */
-.tj-wz-cols { display: grid; grid-template-columns: 1fr 1.05fr; gap: 24px; align-items: start; }
-.tj-wz-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
-.tj-wz-col > .tj-wz-field { flex: 0 0 auto; }
-@media (max-width: 620px) { .tj-wz-cols { grid-template-columns: 1fr; } }
+/* Inside a modal Obsidian paints its own button chrome over a lone class, which
+   is what made the wizard's dropdown read like a native select. Scoped to the
+   wizard and won with !important, so it matches the catalog menus exactly. */
+.tj-account-wizard .tj-dd-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  padding: 8px 11px !important;
+  border-radius: 9px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: var(--text-normal) !important;
+  font: inherit !important;
+  font-size: var(--tj-fs-strong) !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+.tj-account-wizard .tj-dd-btn:hover {
+  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, 0.18)) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+.tj-account-wizard .tj-dd-chev {
+  color: var(--tj-fg-3) !important;
+  font-size: var(--tj-fs-small) !important;
+}
+.tj-account-wizard .tj-dd-list {
+  position: absolute !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: calc(100% + 6px) !important;
+  z-index: 30 !important;
+  background: var(--background-secondary) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 10px !important;
+  padding: 5px !important;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45) !important;
+}
+.tj-account-wizard .tj-dd-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  padding: 7px 10px !important;
+  border-radius: 7px !important;
+  font-size: var(--tj-fs-body) !important;
+  color: var(--text-muted) !important;
+  cursor: pointer;
+}
+.tj-account-wizard .tj-dd-item:hover {
+  background: var(--background-modifier-hover) !important;
+  color: var(--text-normal) !important;
+}
+.tj-account-wizard .tj-dd-item.on {
+  color: var(--text-normal) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent) !important;
+}
+.tj-account-wizard .tj-dd-check {
+  color: var(--interactive-accent) !important;
+}
 
 .tj-account-wizard .tj-btn {
   background: transparent !important;
@@ -6636,7 +7024,7 @@
    the exact list, so the modal is a review surface first and a button second. */
 .tj-rename-modal { min-width: min(720px, 80vw); }
 .tj-rename-modal h2 { margin: 0 0 6px; }
-.tj-rename-modal p { margin: 0 0 10px; color: var(--text-muted); font-size: var(--tj-fs-body); }
+.tj-rename-modal p { margin: 0 0 10px; color: var(--tj-fg-3); font-size: var(--tj-fs-body); }
 .tj-rename-skipped { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
 .tj-rename-list {
   max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
@@ -6675,52 +7063,57 @@
 }
 .tj-manage-titleicon {
   display: inline-flex;
-  color: var(--text-muted);
+  color: var(--tj-fg-3);
 }
 .tj-manage-titleicon svg {
   width: 17px;
   height: 17px;
 }
-.tj-manage-sub { margin: 0 0 14px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); line-height: 1.45; }
-.tj-manage-tabs { margin-bottom: 16px; border-bottom: 1px solid var(--background-modifier-border); }
-.tj-manage-body { max-height: 62vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 2px; }
+.tj-manage-sub { margin: 0 0 10px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); line-height: 1.45; }
+.tj-manage-body { max-height: 70vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 2px; }
 .tj-manage-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
-/* Same flat segment as the wizard — it is the same control. */
-.tj-manage .tj-wz-seg-opt {
-  font: inherit; font-size: var(--tj-fs-body); font-weight: 600; color: var(--tj-fg-3);
-  background: transparent !important; border: 1px solid transparent !important;
-  border-bottom: 2px solid transparent !important; border-radius: 0 !important;
-  padding: 6px 12px 5px; cursor: pointer; box-shadow: none !important;
-}
-.tj-manage .tj-wz-seg-opt:hover { color: var(--text-normal); background: transparent !important; }
-.tj-manage .tj-wz-seg-opt.on { color: var(--text-normal); border-bottom-color: var(--text-normal) !important; }
-
-.tj-manage-sect { margin-bottom: 22px; }
+.tj-manage-sect { margin-bottom: var(--tj-sp-5); }
 .tj-manage-sectitle {
-  font-size: var(--tj-fs-label); text-transform: uppercase; letter-spacing: .13em;
-  color: var(--tj-fg-3); font-weight: 700; margin-bottom: 6px;
+  font-size: var(--tj-fs-label); text-transform: uppercase; letter-spacing: .12em;
+  color: var(--tj-fg-3); font-weight: 700;
 }
+/* The explanation lives behind the (i), not in a banner: the header keeps its
+   height, and the sentence is still one hover (or Tab) away. The gap below the
+   head belongs to the head, so every section title sits the same distance from
+   its first row. */
+.tj-manage-secthead { display: flex; align-items: center; gap: 6px; margin-bottom: var(--tj-sp-2); }
+.tj-manage-secthead .tj-manage-sectitle { margin-bottom: 0; }
+.tj-manage-infoico { color: var(--tj-fg-3); cursor: help; line-height: 1; display: inline-flex; align-items: center; }
+.tj-manage-infoico svg { width: 14px; height: 14px; }
+.tj-manage-infoico:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 3px; }
+/* A name for the screen reader that is not drawn: the (i) is a glyph, and its
+   meaning lives in the tip. */
+.tj-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 .tj-mg-row { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; padding: 8px 0; }
 .tj-mg-row + .tj-mg-row { border-top: 1px solid rgba(255, 255, 255, .05); }
 .tj-mg-rowlbl { min-width: 0; }
-.tj-mg-rowlabel { font-size: var(--tj-fs-body); color: var(--text-muted); }
+.tj-mg-rowlabel { font-size: var(--tj-fs-body); color: var(--tj-fg-2); }
 .tj-mg-rowhint { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; line-height: 1.4; max-width: 46ch; }
 .tj-mg-rowval { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 10px; flex: 0 1 auto; min-width: 0; }
 .tj-mg-check { margin: 0; }
 
 .tj-manage-note, .tj-manage-empty {
-  display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 9px;
-  font-size: var(--tj-fs-small); line-height: 1.45; color: var(--text-muted);
+  gap: 8px; padding: 9px 11px; border-radius: 9px;
+  font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-3);
   background: rgba(255, 255, 255, .025); border: 1px solid var(--background-modifier-border);
-  margin-bottom: 14px;
+  margin-bottom: var(--tj-sp-4);
 }
+.tj-manage-note { display: flex; align-items: flex-start; }
+/* Nothing exists yet: one short line and the button that fixes it, no diagram. */
+.tj-manage-empty { display: flex; flex-direction: column; gap: 4px; text-align: center; }
+.tj-manage-emptytitle { font-size: var(--tj-fs-body); font-weight: 700; color: var(--tj-fg-2); }
 .tj-manage-note-ico { flex: 0 0 auto; opacity: .7; }
 
 /* --- a group --- */
 .tj-mg-card {
   border: 1px solid var(--background-modifier-border); border-radius: 12px;
-  padding: 12px 14px 13px; background: rgba(255, 255, 255, .018); margin-bottom: 14px;
+  padding: 12px 14px 13px; background: rgba(255, 255, 255, .018); margin-bottom: var(--tj-sp-4);
 }
 .tj-mg-head { display: flex; align-items: center; gap: 9px; }
 .tj-mg-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; cursor: pointer; }
@@ -6731,15 +7124,24 @@
   box-shadow: none !important; padding: 3px 2px;
 }
 .tj-mg-name:hover { border-bottom-color: rgba(255, 255, 255, .16) !important; }
-.tj-mg-name:focus { border-bottom-color: var(--text-muted) !important; outline: none; }
+.tj-mg-name:focus { border-bottom-color: var(--tj-fg-3) !important; outline: none; }
 .tj-mg-name::placeholder { color: var(--tj-fg-3); font-weight: 600; }
 .tj-mg-count { flex: 0 0 auto; font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
-.tj-mg-lrow { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 6px; }
-.tj-mg-crown { font-size: var(--tj-fs-body); }
+.tj-mg-lrow { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 4px; }
+/* LEADER / COPIER are written, not just coloured — the word is the signal, the
+   tint only reinforces it. */
+.tj-mg-badge {
+  flex: 0 0 auto; font-size: var(--tj-fs-label); font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--tj-fg-2); background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--background-modifier-border); border-radius: 5px; padding: 2px 6px;
+}
+.tj-mg-badge.is-copier { color: var(--tj-fg-3); background: transparent; }
+/* Type rows read as one rounded pill each, not a spreadsheet line. */
+.tj-mg-typerow { border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 6px 12px; background: rgba(255, 255, 255, .02); }
 .tj-mg-lname { flex: 1 1 auto; min-width: 0; font-size: var(--tj-fs-body); font-weight: 600; }
 .tj-mg-lsize { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
 .tj-mg-mrow {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 8px 0 8px 8px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 0 6px 8px;
   border-top: 1px solid rgba(255, 255, 255, .05);
 }
 .tj-mg-mname { flex: 1 1 auto; min-width: 0; font-size: var(--tj-fs-body); }
@@ -6751,12 +7153,37 @@
 }
 .tj-mg-x { flex: 0 0 auto; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-mg-add, .tj-mg-swap {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 10px;
-  padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .05);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 8px;
+  padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .05);
 }
 .tj-mg-swaplbl { font-size: var(--tj-fs-small); color: var(--tj-fg-3); text-transform: uppercase; letter-spacing: .08em; }
-/* Members hang under their leader. */
-.tj-mg-mrow { margin-left: 2px; }
+/* Members hang under their leader: a vertical spine with a stub per row, so the
+   group reads as one tree instead of a stack of unrelated lines. */
+.tj-mg-tree {
+  position: relative;
+  padding-left: 16px;
+}
+.tj-mg-tree::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 0;
+  bottom: 10px;
+  width: 1px;
+  background: color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+}
+.tj-mg-tree .tj-mg-mrow {
+  position: relative;
+}
+.tj-mg-tree .tj-mg-mrow::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  top: 17px;
+  width: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--background-modifier-border) 80%, transparent);
+}
 
 /* Ghost dropdown — our own control (see src/lib/dropdown.ts). A native select
    arrives wearing Obsidian's box, which fights every other control we have. */
@@ -6780,10 +7207,38 @@
 }
 .tj-mg-dd:not(.is-right) .tj-mg-dd-list { left: 0; right: auto; }
 .tj-mg-dd.open .tj-mg-dd-list { display: block; }
-.tj-mg-dd-item { padding: 6px 9px; border-radius: 7px; cursor: pointer; }
+/* Lifted to <body> while open: fixed against the viewport so a scrolling panel
+   cannot clip the list. Left/top come from the button's rect. */
+.tj-mg-dd-list.is-portal {
+  position: fixed; left: auto; right: auto; top: auto; z-index: 1100; display: block;
+}
+.tj-mg-dd-item { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px; cursor: pointer; }
 .tj-mg-dd-item:hover { background: rgba(255, 255, 255, .06); }
-.tj-mg-dd-lbl { font-size: var(--tj-fs-body); color: var(--text-muted); }
+.tj-mg-dd-txt { flex: 1 1 auto; min-width: 0; }
+.tj-mg-dd-lbl { font-size: var(--tj-fs-body); color: var(--tj-fg-2); }
 .tj-mg-dd-item.on .tj-mg-dd-lbl { color: var(--text-normal); font-weight: 600; }
+/* A section inside the list: the answers that follow are a different kind of
+   answer from the ones above, and the reader should see that before reading. */
+.tj-mg-dd-head {
+  padding: 9px 9px 3px; font-size: var(--tj-fs-label); font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3);
+}
+.tj-mg-dd-head:first-child { padding-top: 4px; }
+/* The role, as a chip: quiet by default, amber for the account that leads and
+   accent for the ones that follow it. */
+.tj-mg-dd-tag {
+  flex: 0 0 auto; font-size: var(--tj-fs-label); letter-spacing: .06em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 5px; border: 1px solid var(--background-modifier-border);
+  color: var(--tj-fg-3);
+}
+.tj-mg-dd-tag.is-leader {
+  color: var(--color-orange, #d9a441);
+  border-color: color-mix(in srgb, var(--color-orange, #d9a441) 40%, transparent);
+}
+.tj-mg-dd-tag.is-copier {
+  color: var(--interactive-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+}
 .tj-mg-dd-note { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
 .tj-mg-dd-item.is-off { opacity: .45; cursor: not-allowed; }
 .tj-mg-dd-item.is-off:hover { background: transparent; }
@@ -6791,23 +7246,103 @@
 
 /* A quiet action: text, no box — the same language as the segments. */
 .tj-mg-act {
-  flex: 0 0 auto; font: inherit; font-size: var(--tj-fs-body); font-weight: 600; color: var(--text-muted);
+  flex: 0 0 auto; font: inherit; font-size: var(--tj-fs-body); font-weight: 600; color: var(--tj-fg-2);
   background: transparent !important; border: 1px solid transparent !important;
   border-radius: 7px; padding: 3px 8px; cursor: pointer; box-shadow: none !important;
 }
 .tj-mg-act:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07) !important; }
 .tj-mg-act.is-quiet { color: var(--tj-fg-3); }
 .tj-mg-act.is-quiet:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1) !important; }
-.tj-mg-hint { font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-3); margin: 0 0 6px; }
+.tj-mg-act.is-danger { color: var(--color-red, #ff5d48); }
+.tj-mg-act.is-danger:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .14) !important; }
+/* Disband: the button lives in the group header and asks twice, in place. */
+.tj-mg-del {
+  flex: 0 0 auto; width: 24px; height: 24px; display: inline-flex; align-items: center;
+  justify-content: center; font: inherit; color: var(--tj-fg-3); background: transparent !important;
+  border: 1px solid transparent !important; border-radius: 7px; padding: 0; cursor: pointer;
+  box-shadow: none !important;
+}
+.tj-mg-del:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1) !important; }
+.tj-mg-del.is-armed { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .12) !important; }
+.tj-mg-del svg { width: 15px; height: 15px; }
+.tj-mg-confirmslot:empty { display: none; }
+.tj-mg-confirm {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 8px 0 2px;
+  padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--color-red, #ff5d48) 35%, transparent);
+  border-radius: 9px; background: color-mix(in srgb, var(--color-red, #ff5d48) 8%, transparent);
+}
+.tj-mg-confirm-txt { flex: 1 1 220px; font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-2); }
+.tj-mg-hint { font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-3); margin: 0 0 4px; }
 .tj-mg-empty { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 
 /* New-group composer: the same card shape as a group, so it reads as "one more
-   group", not a different kind of form. */
+   group", not a different kind of form. It is walked in order — leader, then
+   copiers, then when — so each step carries a number and the later ones stay
+   shut until the earlier one is answered. */
 .tj-mg-new { margin-top: 12px; }
-.tj-mg-newtitle { font-size: var(--tj-fs-body); font-weight: 700; color: var(--text-normal); margin-bottom: 10px; }
-.tj-mg-row2 { display: flex; align-items: center; gap: 12px; padding: 7px 0; flex-wrap: wrap; }
+.tj-mg-newtitle { font-size: var(--tj-fs-body); font-weight: 700; color: var(--text-normal); margin-bottom: 8px; }
+.tj-mg-row2 { display: flex; align-items: center; gap: 12px; padding: 5px 0; flex-wrap: wrap; }
 .tj-mg-row2 > .tj-mg-rowlabel { flex: 0 0 auto; }
 .tj-mg-row2 > .tj-wz-leader-list { flex: 1 1 320px; }
+.tj-mg-stepblock { padding: 5px 0; }
+.tj-mg-stepblock.is-locked { opacity: .45; }
+.tj-mg-stepblock.is-locked .tj-mg-empty { cursor: not-allowed; }
+/* The composer must fit the modal: the copier list scrolls, the card does not. */
+.tj-mg-stepblock .tj-wz-leader-list { max-height: 120px; }
+.tj-mg-step { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.tj-mg-stepnum {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; font-size: var(--tj-fs-label);
+  font-weight: 700; color: var(--tj-fg-1); background: rgba(255, 255, 255, .1);
+  border: 1px solid var(--background-modifier-border); font-variant-numeric: tabular-nums;
+}
+.tj-mg-stepfill { display: none; }
+.tj-mg-steptitle {
+  font-size: var(--tj-fs-small); font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--tj-fg-2);
+}
+/* The leader picker: cards you click, not a dropdown. Choosing the wrong thing
+   here is expensive, so the choice is the thing you can see. */
+.tj-mg-leadgrid { display: flex; flex-wrap: wrap; gap: 8px; }
+.tj-mg-leadcard {
+  display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border); border-radius: 10px;
+  background: rgba(255, 255, 255, .015); cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+}
+.tj-mg-leadcard:hover { border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, .2)); }
+.tj-mg-leadcard.on {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+.tj-mg-leadcard-nm { font-size: var(--tj-fs-body); font-weight: 600; color: var(--text-normal); }
+.tj-mg-leadcard-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-mg-lockedlead {
+  display: inline-flex; align-items: baseline; gap: 7px; margin-bottom: 6px; padding: 3px 9px;
+  border-radius: 999px; border: 1px solid var(--background-modifier-border);
+  background: rgba(255, 255, 255, .04);
+}
+.tj-mg-lockedlead-nm { font-size: var(--tj-fs-small); font-weight: 600; color: var(--text-normal); }
+.tj-mg-lockedlead-sub {
+  font-size: var(--tj-fs-label); letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3);
+}
+/* Copier rows: a checkbox on the left says "this one joins", nothing else. */
+.tj-mg-copier {
+  display: flex; align-items: center; gap: 9px; padding: 4px 8px; border-radius: 7px;
+  border: 1px solid transparent; cursor: pointer;
+}
+.tj-mg-copier:hover { background: rgba(255, 255, 255, .05); }
+.tj-mg-copier.on { border-color: rgba(255, 255, 255, .16); background: rgba(255, 255, 255, .06); }
+.tj-mg-pick {
+  flex: 0 0 auto; width: 15px; height: 15px; border-radius: 4px; display: inline-flex;
+  align-items: center; justify-content: center; font-size: var(--tj-fs-label);
+  border: 1px solid var(--background-modifier-border); color: var(--tj-fg-1);
+}
+.tj-mg-copier.on .tj-mg-pick { border-color: rgba(255, 255, 255, .32); background: rgba(255, 255, 255, .1); }
+.tj-mg-copier-body { min-width: 0; }
+.tj-mg-copier-nm { font-size: var(--tj-fs-body); font-weight: 600; }
+.tj-mg-copier-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 
 /* Types tab (Manage → Types): one row per type — a list you can drag, so the
    order on screen is the order in the file. Two columns looked tidy but made a
@@ -6875,10 +7410,10 @@
   opacity: .45;
 }
 .tj-mg-typerow.is-drop {
-  box-shadow: inset 0 1px 0 var(--text-muted);
+  box-shadow: inset 0 1px 0 var(--interactive-accent);
 }
 .tj-mg-typerow.is-drop-below {
-  box-shadow: inset 0 -1px 0 var(--text-muted);
+  box-shadow: inset 0 -1px 0 var(--interactive-accent);
 }
 .tj-mg-typerow .tj-mg-rowval {
   flex: 1 1 auto;
@@ -6886,6 +7421,35 @@
 }
 .tj-mg-typerow .tj-mg-name {
   flex: 1 1 auto;
+}
+/* Types tab: show / hide a type on the Accounts page. An eye, not a checkbox —
+   and it only tidies the page, it never stops the accounts reporting. */
+.tj-mg-vis {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tj-fg-3);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-mg-vis svg {
+  width: 16px;
+  height: 16px;
+}
+.tj-mg-vis:hover {
+  color: var(--text-normal);
+  background: rgba(255, 255, 255, .07);
+}
+.tj-mg-vis.on {
+  color: var(--tj-fg-1);
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
 }
 /* Colour palette: a small popover of dots, never a native colour picker. */
 .tj-mg-swatches {
@@ -6919,83 +7483,12 @@
   outline: 2px solid var(--text-normal);
   outline-offset: 1px;
 }
-
-/* Cards tab (Manage → Cards): the pickers on the left, a real card on the
-   right. The preview is drawn by the list's own card component, so this block
-   only has to place it — never to restyle it. */
-.tj-mg-cardtypes {
-  flex-wrap: wrap;
-  margin-bottom: var(--tj-sp-3);
-}
-.tj-mg-cardwrap {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 24px;
-  margin-top: var(--tj-sp-3);
-}
-.tj-mg-cardpick {
-  flex: 1 1 300px;
-  min-width: 0;
-}
-.tj-mg-cardgroup + .tj-mg-cardgroup {
-  margin-top: var(--tj-sp-4);
-}
-.tj-mg-cardline {
-  margin-bottom: 2px;
-}
-.tj-mg-cardline .tj-mg-dd {
-  width: 100%;
-}
-.tj-mg-cardline .tj-mg-dd-btn {
-  width: 100%;
-  max-width: none;
-  justify-content: space-between;
-}
-.tj-mg-cardprev {
-  flex: 0 0 auto;
-}
-.tj-mg-cardprev-lbl {
-  font-size: var(--tj-fs-label);
-  font-weight: var(--tj-w-bold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--tj-fg-3);
-  margin-bottom: var(--tj-sp-2);
-}
-/* Fixed width so the preview keeps the proportions of a real card. */
-.tj-mg-cardprev .tj-acct-tile {
-  width: 300px;
-}
-.tj-mg-cardprev-sub {
-  width: 300px;
-  margin-top: var(--tj-sp-2);
-  font-size: var(--tj-fs-small);
-  line-height: 1.4;
-  color: var(--tj-fg-3);
-}
-.tj-mg-cardpick .tj-mg-act {
-  margin-top: var(--tj-sp-4);
-}
-
 /* Batch creation (wizard → Review): how many accounts, and what they will be
-   called. Numbered names are the whole promise here — nobody wants to invent
-   five of them by hand. */
-.tj-wz-many {
-  margin-top: var(--tj-sp-4);
-  padding-top: var(--tj-sp-3);
-  border-top: 1px solid var(--background-modifier-border);
-}
-.tj-wz-many-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--tj-sp-3);
-}
+   called. */
 .tj-wz-many-lbl {
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
-  color: var(--text-muted);
+  color: var(--tj-fg-2);
 }
 .tj-wz-stepper {
   display: flex;
@@ -7009,7 +7502,7 @@
   border-radius: 6px;
   background: transparent;
   border: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
+  color: var(--tj-fg-2);
   font-size: var(--tj-fs-strong);
   line-height: 1;
   cursor: pointer;
@@ -7025,7 +7518,6 @@
   font-weight: var(--tj-w-bold);
   font-variant-numeric: tabular-nums;
 }
-.tj-wz-many-hint,
 .tj-wz-many-note {
   margin-top: var(--tj-sp-2);
   font-size: var(--tj-fs-small);
@@ -7661,7 +8153,6 @@
   margin-top: 14px;
 }
 
-
 /* Multi-value filters (Trade Log → Filters): a filter can hold several accounts,
    setups, mistakes or tags at once, because "these two accounts" is one question,
    not two passes through the same list. Chips wrap and scroll rather than push
@@ -8047,9 +8538,13 @@
 .tj-payout-modal input.tj-payout-input::placeholder {
   color: var(--tj-fg-3);
 }
-.tj-payout-modal input.tj-payout-input:focus,
 .tj-payout-modal input.tj-payout-input:hover {
   border-bottom-color: var(--text-muted) !important;
+  outline: none;
+}
+.tj-payout-modal input.tj-payout-input:focus {
+  border-bottom-color: var(--interactive-accent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
   outline: none;
 }
 /* The number spinner is a browser default that fights the hairline. */
@@ -8102,18 +8597,42 @@
   gap: var(--tj-sp-3);
   margin: var(--tj-sp-3) 0 var(--tj-sp-4);
 }
-/* Obsidian paints modal buttons its own way, so the ghost recipe has to win. */
-.tj-payout-modal button.tj-actionbtn {
+/* Every modal speaks the same language: words, not boxes. Obsidian paints its
+   own button styles inside a modal, so the ghost recipe has to win by name. */
+.tj-payout-modal button.tj-actionbtn,
+.tj-import-modal button.tj-actionbtn,
+.tj-addtrade-modal button.tj-actionbtn {
   height: 30px;
+  padding: 0 8px;
   background: transparent !important;
   color: var(--text-muted) !important;
-  border: 1px solid var(--background-modifier-border) !important;
+  border: none !important;
   box-shadow: none !important;
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-medium);
 }
-.tj-payout-modal button.tj-actionbtn:hover {
+.tj-payout-modal button.tj-actionbtn:hover,
+.tj-import-modal button.tj-actionbtn:hover,
+.tj-addtrade-modal button.tj-actionbtn:hover {
   background: var(--background-modifier-hover) !important;
   color: var(--text-normal) !important;
-  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, 0.22)) !important;
+}
+.tj-payout-modal button.tj-actionbtn.is-primary,
+.tj-import-modal button.tj-actionbtn.is-primary,
+.tj-addtrade-modal button.tj-actionbtn.is-primary {
+  color: var(--text-normal) !important;
+}
+.tj-payout-modal button.tj-actionbtn.is-primary:hover,
+.tj-import-modal button.tj-actionbtn.is-primary:hover,
+.tj-addtrade-modal button.tj-actionbtn.is-primary:hover {
+  color: var(--interactive-accent) !important;
+  background: var(--background-modifier-hover) !important;
+}
+.tj-payout-modal button.tj-actionbtn:disabled,
+.tj-import-modal button.tj-actionbtn:disabled,
+.tj-addtrade-modal button.tj-actionbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .tj-payout-error {
   display: flex;
@@ -8150,6 +8669,123 @@
 .tj-payout-empty-ico svg {
   width: 15px;
   height: 15px;
+}
+/* ---- Correct fees: the balance the journal keeps against the real one ---- */
+.tj-fees-note {
+  margin-top: var(--tj-sp-3);
+  font-size: var(--tj-fs-body);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+.tj-fees-ro {
+  font-size: var(--tj-fs-body);
+  font-weight: var(--tj-w-medium);
+  font-variant-numeric: tabular-nums;
+}
+.tj-fees-diff {
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-bold);
+  font-variant-numeric: tabular-nums;
+}
+.tj-fees-diffsub {
+  margin-top: 2px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* The correction's window, and the trades that still take a slice of it. */
+.tj-fees-window {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.tj-fees-window > * {
+  min-width: 0;
+}
+.tj-fees-warrow {
+  color: var(--tj-fg-3);
+}
+.tj-fees-spread {
+  margin-top: var(--tj-sp-3);
+  padding-top: var(--tj-sp-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-fees-spreadline {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+.tj-fees-spreadsub {
+  margin-top: 3px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+}
+/* The helper under the window: what "spread over" actually does, in one line. */
+.tj-fees-windowhint {
+  margin-top: 4px;
+  max-width: 260px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  line-height: 1.5;
+  text-align: right;
+}
+/* A saved slice that no longer finds its trade — still moves the balance. */
+.tj-fees-orphan {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: var(--tj-sp-3);
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+  line-height: 1.5;
+}
+.tj-fees-orphan-ico {
+  display: flex;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+.tj-fees-orphan-ico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-fees-preview {
+  margin-top: 7px;
+}
+.tj-fees-prow {
+  display: flex;
+  align-items: center;
+  gap: var(--tj-sp-2);
+  padding: 2px 0;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.tj-fees-total {
+  display: flex;
+  align-items: baseline;
+  gap: var(--tj-sp-2);
+  margin-top: var(--tj-sp-3);
+  padding-top: var(--tj-sp-3);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-fees-total .tj-pay-k {
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+}
+.tj-fees-modal .tj-mg-rowval {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* The payouts square is the tinted one: it is where money leaves the account. */
+.tj-iconbtn-payout {
+  color: var(--color-orange, #d9a441) !important;
+  border-color: color-mix(in srgb, var(--color-orange, #d9a441) 45%, transparent) !important;
+}
+.tj-iconbtn-payout:hover {
+  color: var(--color-orange, #d9a441) !important;
+  border-color: color-mix(in srgb, var(--color-orange, #d9a441) 75%, transparent) !important;
+  background: color-mix(in srgb, var(--color-orange, #d9a441) 12%, transparent) !important;
 }
 /* Title row: the gold coin, then the name. */
 .tj-payout-head {
@@ -9106,278 +9742,362 @@
 .tj-pq-done.visible { display: block; }
 
 /* ================================================================
-   ADD TRADE v2 — Flip card + Print mosaic
+   ADD MANUAL TRADE — the form in the pop-up
    ================================================================ */
 
-/* Trade card container */
-.tj-add-cards {
+.tj-add-body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 10px;
-}
-.tj-add-card {
-  position: relative;
-  display: flex;
-  gap: 0;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  overflow: hidden;
-  transition: border-color .15s ease;
-}
-.tj-add-card:hover {
-  border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
-}
-/* Remove card button */
-.tj-add-card-rm {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 10;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  background: rgba(0,0,0,0.5);
-  border: 1px solid rgba(255,255,255,0.12);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transition: opacity .12s ease, color .12s ease, background .12s ease;
-}
-.tj-add-card-rm svg { width: 14px; height: 14px; }
-.tj-add-card:hover .tj-add-card-rm { opacity: 0.7; }
-.tj-add-card-rm:hover {
-  opacity: 1 !important;
-  color: #fff;
-  background: var(--color-red, #ad3527);
-  border-color: var(--color-red, #ad3527);
 }
 
-/* ---- Trade card form ---- */
-.tj-add-flipcard {
-  flex: 1 1 auto;
+/* The modal's own title carries the one-line explanation under it. */
+.tj-addtrade-modal .modal-title {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.tj-addtrade-sub {
+  font-size: var(--tj-fs-small);
+  font-weight: 400;
+  color: var(--tj-fg-2);
+}
+
+.tj-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tj-sp-4);
+}
+
+.tj-add-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tj-sp-4);
+}
+
+/* ---- the field grid ---- */
+.tj-add-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tj-sp-3) var(--tj-sp-4);
+}
+
+.tj-add-f {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   min-width: 0;
-  position: relative;
-  overflow: visible;
 }
-.tj-add-flip-face {
-  padding: 12px 14px;
-}
-.tj-add-ffront {
-  position: relative;
-  padding-top: 12px;
-  padding-right: 14px;
-  overflow-y: auto;
-  max-height: 640px;
-}
-.tj-add-fback {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  background: var(--background-secondary);
-  padding-top: 14px;
-  padding-right: 44px;
-}
-.tj-add-flip-face.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.tj-add-flip-face:not(.is-hidden) {
-  opacity: 1;
-  pointer-events: auto;
-}
-@keyframes tjAddFlipIn {
-  from { opacity: 0; transform: perspective(600px) rotateY(-12deg); }
-  to   { opacity: 1; transform: perspective(600px) rotateY(0deg); }
-}
-.tj-add-flipin { animation: tjAddFlipIn .3s ease; }
 
-/* Flip row — flat label: value */
-.tj-add-flip-row {
+.tj-add-f-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-  gap: 8px;
+  gap: 6px;
 }
-.tj-add-flip-row:last-child { border-bottom: none; }
-.tj-add-flip-key {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  flex-shrink: 0;
+
+.tj-add-f-lbl {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
 }
-.tj-add-flip-val {
-  font-size: var(--tj-fs-body);
-  font-weight: 600;
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  cursor: default;
-}
-.tj-add-flip-val:hover { color: var(--interactive-accent); }
-.tj-add-flip-val.pos { color: var(--color-green-bright, #34d17a); }
-.tj-add-flip-val.neg { color: var(--color-red-bright, #ff5d48); }
+
+/* The journal's clock, shown next to a time field ("ET", "CT", …). */
 .tj-add-tz {
-  flex: 0 0 auto;
-  margin-left: var(--tj-sp-1);
   font-size: var(--tj-fs-label);
   color: var(--tj-fg-3);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.tj-add-flip-input {
-  background: var(--background-primary);
-  border: 1px solid var(--interactive-accent);
-  border-radius: 4px;
-  padding: 2px 6px;
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: var(--tj-fs-body);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  outline: none;
+
+.tj-add-ctl {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.tj-add-ctl .tj-mg-dd {
   width: 100%;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+}
+.tj-add-ctl .tj-mg-dd-btn {
+  width: 100%;
+  justify-content: space-between;
+}
+.tj-add-ctl datalist {
+  display: none;
 }
 
-/* Hero row (Net P&L) */
-.tj-add-flip-row-hero {
-  background: var(--background-primary);
-  border-radius: 6px;
-  padding: 8px 10px;
-  margin-bottom: 2px;
-  border-bottom: none;
+/* Inside a modal Obsidian paints its own control surfaces over a loose class. */
+.tj-addtrade-modal .tj-add-input {
+  width: 100%;
+  height: auto !important;
+  background: var(--background-primary) !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 7px !important;
+  padding: 7px 9px !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
+  font-family: inherit;
+  font-size: var(--tj-fs-body) !important;
+  line-height: 1.4;
 }
-.tj-add-flip-row-hero .tj-add-flip-key { font-size: var(--tj-fs-body); }
-.tj-add-flip-row-hero .tj-add-flip-val { font-size: var(--tj-fs-big); font-weight: 700; }
+.tj-addtrade-modal .tj-add-input:focus {
+  border-color: var(--interactive-accent) !important;
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
+}
+.tj-addtrade-modal .tj-add-input::placeholder {
+  color: var(--tj-fg-3);
+}
 
-/* Strategy/Session row (contains dropdown) */
-.tj-add-flip-row-strat { gap: 6px; }
-.tj-add-flip-strat-wrap {
-  flex: 1;
-  min-width: 0;
+/* ---- direction: Long | Short ---- */
+.tj-add-seg {
   display: flex;
-  justify-content: flex-end;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  overflow: hidden;
 }
-.tj-add-flip-strat-wrap .tj-mg-dd { flex: 0 1 auto; min-width: 0; max-width: 160px; }
-.tj-add-flip-strat-wrap .tj-mg-dd-btn {
-  border-bottom: none !important;
-  justify-content: flex-end;
-  padding: 2px 0 !important;
-  gap: 4px;
+.tj-addtrade-modal .tj-add-seg-btn {
+  flex: 1 1 0;
+  padding: 7px 0 !important;
+  background: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-2) !important;
+  font-family: inherit;
+  font-size: var(--tj-fs-body) !important;
+  cursor: pointer;
 }
-.tj-add-flip-strat-wrap .tj-mg-dd-val { text-align: right; }
-
-/* Date row */
-.tj-add-flip-date-wrap {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  justify-content: flex-end;
-}
-.tj-add-flip-date-wrap .tj-date-field {
-  width: auto;
-}
-.tj-add-flip-date-wrap input {
-  background: transparent;
-  border: none;
-  color: var(--text-normal);
-  font-size: var(--tj-fs-body);
+.tj-addtrade-modal .tj-add-seg-btn.on {
+  background: var(--interactive-accent) !important;
+  color: var(--text-on-accent, #fff) !important;
   font-weight: 600;
-  text-align: right;
-  padding: 0;
-  width: 100%;
-  font-family: inherit;
-}
-.tj-add-flip-date-wrap input:focus {
-  outline: none;
-  color: var(--interactive-accent);
 }
 
-/* Rating row */
-.tj-add-flip-row-rating { gap: 8px; }
-.tj-add-stars { gap: 2px; display: flex; }
+/* ---- the live strip: what the trade came to ---- */
+.tj-add-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--tj-sp-4);
+  padding: var(--tj-sp-3);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+}
+.tj-add-strip-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tj-add-strip-k {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+}
+.tj-add-strip-v {
+  font-size: var(--tj-fs-big);
+  font-weight: 600;
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+.tj-add-strip-v.pos {
+  color: var(--color-green-bright, #34d17a);
+}
+.tj-add-strip-v.neg {
+  color: var(--color-red-bright, #ff5d48);
+}
+.tj-add-strip-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- accounts on this trade ---- */
+.tj-add-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  padding: 11px 13px;
+  margin-top: 14px;
+}
+.tj-add-accounts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tj-sp-2);
+}
+.tj-add-accounts-lbl {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+}
+.tj-add-accounts-add {
+  font-size: var(--tj-fs-small);
+  color: var(--interactive-accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+.tj-add-accounts-add:hover {
+  text-decoration: underline;
+}
+.tj-add-accounts-hint {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+.tj-add-acclist {
+  display: flex;
+  flex-direction: column;
+}
+.tj-add-acc {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  font-size: var(--tj-fs-body);
+  cursor: pointer;
+  /* The row is the control, so the tick can hide inside it. */
+  position: relative;
+}
+.tj-add-acc + .tj-add-acc {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-add-acc:hover {
+  background: var(--background-modifier-hover);
+}
+/* The tick is invisible and fills the row's left corner: the dot beside it is
+   the state, the same green the import review uses. */
+.tj-add-acc input {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.tj-add-accdot {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--background-modifier-border);
+  background: transparent;
+}
+.tj-add-accdot.is-on {
+  border-color: var(--color-green-bright, #34d17a);
+  background: var(--color-green-bright, #34d17a);
+}
+.tj-add-acc-name {
+  color: var(--text-normal);
+}
+.tj-add-acc-who {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.tj-add-grp {
+  padding: var(--tj-sp-3);
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-body);
+}
+.tj-add-grp b {
+  color: var(--text-normal);
+}
+.tj-add-grp-sub {
+  margin-top: 3px;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+}
+
+/* ---- more details, folded away ---- */
+.tj-add-more {
+  padding-top: var(--tj-sp-2);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-add-more-sum {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+  cursor: pointer;
+  list-style: none;
+}
+.tj-add-more-sum::-webkit-details-marker {
+  display: none;
+}
+.tj-add-more-sum::before {
+  content: "＋";
+  margin-right: 6px;
+  color: var(--tj-fg-3);
+}
+.tj-add-more[open] .tj-add-more-sum::before {
+  content: "－";
+}
+.tj-add-more-sum:hover {
+  color: var(--text-normal);
+}
+.tj-add-more .tj-add-grid {
+  margin-top: var(--tj-sp-3);
+}
+.tj-add-more-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tj-sp-2);
+  margin-top: var(--tj-sp-3);
+}
+.tj-add-ro {
+  font-size: var(--tj-fs-body);
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- rating ---- */
+.tj-add-stars {
+  display: flex;
+  gap: 2px;
+}
 .tj-add-star {
   width: 24px;
   height: 24px;
-  font-size: var(--tj-fs-big);
-  color: var(--tj-fg-3);
-  cursor: pointer;
+  padding: 0;
   background: none;
   border: none;
-  padding: 0;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-big);
   line-height: 1;
-  transition: color 120ms ease;
+  cursor: pointer;
 }
-.tj-add-star:hover { color: var(--interactive-accent); }
-.tj-add-star.active { color: var(--text-warning, #f59e0b); }
+.tj-add-star:hover {
+  color: var(--interactive-accent);
+}
+.tj-add-star.on {
+  color: var(--text-warning, #f59e0b);
+}
 
-/* Back face fields */
-.tj-add-field { margin-bottom: 10px; }
-.tj-add-field-label {
+/* ---- footer ---- */
+.tj-add-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+  gap: var(--tj-sp-2);
+  margin-top: var(--tj-sp-1);
+  padding-top: var(--tj-sp-3);
+  border-top: 1px solid var(--background-modifier-border);
 }
-.tj-add-char-count {
-  font-size: var(--tj-fs-small);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--tj-fg-3);
-}
-.tj-add-textarea {
-  width: 100%;
-  min-height: 60px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  color: var(--text-normal);
-  font-family: inherit;
-  font-size: var(--tj-fs-body);
-  resize: vertical;
-}
-.tj-add-textarea:focus {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 15%, transparent);
-  outline: none;
-}
-.tj-add-textarea::placeholder {
-  color: var(--tj-fg-3);
+.tj-add-foot-spacer {
+  flex: 1 1 auto;
 }
 
-/* Add trade button row */
-.tj-add-trade-row {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0;
-}
-
-/* ---- Responsive: stack on small screens ---- */
-@media (max-width: 720px) {
-  .tj-add-card { flex-direction: column; }
-  .tj-add-flipcard {
-    flex: none;
-    min-width: 0;
-    border-right: none;
-    border-bottom: 1px solid var(--background-modifier-border);
+/* ---- small screens: one column ---- */
+@media (max-width: 560px) {
+  .tj-add-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .tj-add-flip-face.is-hidden { position: absolute; inset: 0; }
+  .tj-add-strip {
+    flex-wrap: wrap;
+    gap: var(--tj-sp-3);
+  }
+  .tj-add-strip-spacer {
+    display: none;
+  }
 }
-
 

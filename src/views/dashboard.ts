@@ -2,10 +2,11 @@ import { ItemView, setIcon, TFile } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { accountFilters, attachTooltip, clamp, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
-import { effectiveSize, getFirm, getProgram, getSize } from "../props";
+import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
+import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import {
   clamp as gClamp,
   collides,
@@ -233,8 +234,10 @@ export class DashboardView extends ItemView {
   async refresh(): Promise<void> {
     // Expanded: copied trades are real money in every account they reached. The
     // per-trade widgets dedupe them again (see PER_TRADE_METRICS) so a copy is
-    // never both counted twice and dropped.
-    this.trades = await this.plugin.loadTradesExpanded();
+    // never both counted twice and dropped. Archived accounts are out of every
+    // Home number — their notes live in the Trade Log, not in the balance.
+    const all = await this.plugin.loadTradesExpanded();
+    this.trades = all.filter((t) => !this.plugin.isArchivedTrade(t));
     this.render();
   }
 
@@ -664,29 +667,19 @@ export class DashboardView extends ItemView {
   renderEmptyState(main: HTMLElement): void {
     const acc = this.accountId ? this.plugin.settings.propAccounts.find((a) => a.id === this.accountId) : undefined;
     const hasAny = this.trades.length > 0;
-    const box = main.createDiv({ cls: "tj-emptystate" });
-    const icon = box.createDiv({ cls: "tj-emptystate-icon" });
-    setIcon(icon, "ghost");
-    box.createDiv({
-      cls: "tj-emptystate-title",
-      text: hasAny ? "No trades in this period" : "No trading data available",
-    });
-    box.createDiv({
-      cls: "tj-emptystate-sub",
-      text: hasAny
+    renderEmptyBox(main, {
+      title: hasAny ? "No trades in this period" : "No trading data available",
+      sub: hasAny
         ? "Nothing matches the selected period or filters. Try a wider range, or add/import trades."
         : "Import your previous trades to explore your performance now, or record a new trade manually.",
+      note: acc ? `Filtered to “${acc.name}”.` : undefined,
+      primaryText: "Import existing trades",
+      primaryIcon: "download",
+      onPrimary: () => this.plugin.openImport(),
+      secondaryText: "Add a trade manually",
+      secondaryIcon: "plus",
+      onSecondary: () => this.plugin.openAddPanel(),
     });
-    if (acc) box.createDiv({ cls: "tj-emptystate-note", text: `Filtered to “${acc.name}”.` });
-
-    const actions = box.createDiv({ cls: "tj-emptystate-actions" });
-    const importBtn = actions.createEl("button", { cls: "mod-cta tj-empty-primary", text: "Import existing trades" });
-    setIcon(importBtn.createSpan({ cls: "tj-btn-icon" }), "download");
-    importBtn.addEventListener("click", () => this.plugin.openImport());
-    const addBtn = actions.createEl("button", { cls: "tj-empty-secondary" });
-    setIcon(addBtn.createSpan({ cls: "tj-btn-icon" }), "plus");
-    addBtn.createSpan({ text: "Add a trade manually" });
-    addBtn.addEventListener("click", () => this.plugin.openAddPanel());
   }
 
   async onClose(): Promise<void> {
@@ -1191,11 +1184,8 @@ export class DashboardView extends ItemView {
     const accounts = this.plugin.settings.propAccounts;
     const byFirm = new Map<string, { acc: (typeof accounts)[number]; type: string; label: string; order: number }[]>();
     for (const acc of accounts) {
-      const firm = getFirm(acc.firmId);
-      const program = getProgram(firm, acc.programId);
-      const size = effectiveSize(getSize(program, acc.size), acc.rules);
-      const firmLabel = firm?.name ?? "Other";
-      const sizeLabel = size ? `$${(acc.size / 1000).toFixed(0)}K` : "";
+      const firmLabel = catalogLabel(acc.firmId) ?? "Other";
+      const sizeLabel = acc.size ? `$${(acc.size / 1000).toFixed(0)}K` : "";
       const typeTag = acc.type === "eval" ? "Eval" : acc.type === "funded" ? "Funded" : acc.type === "live" ? "Live" : acc.type === "personal" ? "Personal" : acc.type === "demo" ? "Demo" : "Other";
       const label = acc.name.length > 0 && acc.name !== "Custom Account" ? acc.name : `${firmLabel} ${sizeLabel} ${typeTag}`.trim();
       const order = acc.type === "funded" ? 0 : acc.type === "live" ? 1 : acc.type === "personal" ? 2 : acc.type === "eval" ? 3 : 4;
@@ -1246,7 +1236,7 @@ export class DashboardView extends ItemView {
     const accounts = this.plugin.settings.propAccounts ?? [];
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const rows = (this.plugin.settings.payouts ?? [])
-      .filter((p) => !(excludeDemos && byId.get(p.accountId)?.type === "demo"))
+      .filter((p) => byId.has(p.accountId) && !(excludeDemos && byId.get(p.accountId)?.type === "demo"))
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date));
 

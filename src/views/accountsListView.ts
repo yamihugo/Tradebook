@@ -1,7 +1,8 @@
 import { ItemView, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
-import { AccountType, PropAccount, Trade } from "../types";
-import { effectiveSize, getFirm, getProgram, getSize } from "../props";
+import { PropAccount, Trade } from "../types";
+import { resolveAccountView } from "../lib/accountRules";
+import { firmLabel } from "../lib/firmLogos";
 import { clamp, openPluginSettings as openSettings, renderAppShell } from "../ui";
 import { attachTip } from "../lib/tip";
 import { fmtMoney, isFiniteNumber, todayKey, toZoneDate } from "../tz";
@@ -9,9 +10,10 @@ import { renderLineChart } from "../lib/lineChart";
 import { computeAccountMetrics, AccountMetrics } from "../lib/accountMetrics";
 import { analyticsTrades } from "../lib/scope";
 import { mountDropdown } from "../lib/dropdown";
-import { BAR_SLOTS, MINI_SLOTS, barsFor as cardBars, miniFor as cardMini } from "../lib/cardSlots";
+import { BAR_SLOTS, MINI_SLOTS, layoutFor } from "../lib/cardSlots";
 import { openAccountWizard } from "./accountWizard";
-import { openAccountsManage } from "./accountsManage";
+import { openAccountsDisplay, openCopyGroups } from "./accountsManage";
+import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 
 export const ACCOUNTS_LIST_VIEW_TYPE = "tradebook-accounts-list-view";
 
@@ -60,12 +62,6 @@ interface CardBar {
   fill?: string;
   tone?: string;
   title?: string;
-}
-
-/** Which slots a card uses, when we are previewing something not yet saved. */
-export interface CardSlotOverride {
-  bars?: string[];
-  mini?: string[];
 }
 
 interface AccStats {
@@ -164,6 +160,9 @@ export class AccountsListView extends ItemView {
     const flowByDay = new Map<string, number>();
     for (const p of this.plugin.payoutsFor(acc.id)) flowByDay.set(p.date, (flowByDay.get(p.date) ?? 0) - Math.abs(p.amount));
     for (const d of this.plugin.depositsFor(acc.id)) flowByDay.set(d.date, (flowByDay.get(d.date) ?? 0) + Math.abs(d.amount));
+    // A balance correction moves the account exactly like a payout does; the
+    // card's distance to the limit has to see it.
+    for (const a of this.plugin.feeAdjustmentsFor(acc.id)) flowByDay.set(a.date, (flowByDay.get(a.date) ?? 0) + a.amount);
     let cum = 0;
     let peak = 0;
     for (const d of [...new Set([...byDay.keys(), ...flowByDay.keys()])].sort()) {
@@ -171,9 +170,7 @@ export class AccountsListView extends ItemView {
       if (cum > peak) peak = cum;
     }
     const dd = Math.max(0, peak - cum);
-    const firm = getFirm(acc.firmId);
-    const program = getProgram(firm, acc.programId);
-    const size = firm && program ? effectiveSize(getSize(program, acc.size), acc.rules) : null;
+    const size = resolveAccountView(acc).rules;
     const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
     const deposited = this.plugin.accountDepositsTotal(acc.id);
     const symbols = new Set(list.map((t) => (t.symbol || "").toUpperCase()).filter(Boolean)).size;
@@ -182,19 +179,20 @@ export class AccountsListView extends ItemView {
     const m = computeAccountMetrics({
       trades: list,
       size: acc.size,
-      target: size?.target,
-      maxLoss: size?.maxLoss,
-      ddLockOffset: size?.ddLockOffset,
-      ddNoLock: size?.maxLossType === "eod-trailing-open",
-      dailyLoss: size?.dailyLoss,
-      consistency: size?.consistency,
-      consistencyBasis: size?.consistencyBasis,
+      target: size.target,
+      maxLoss: size.maxLoss,
+      ddLockOffset: size.ddLockOffset,
+      ddNoLock: size.maxLossType === "eod-trailing-open",
+      dailyLoss: size.dailyLoss,
+      consistency: size.consistency,
+      consistencyBasis: size.consistencyBasis,
       dayKey: (t) => this.dayKeyOf(t),
       todayKey: this.todayKey(),
       withdrawn,
       cashflows: [
         ...this.plugin.payoutsFor(acc.id).map((p) => ({ date: p.date, amount: -Math.abs(p.amount) })),
         ...this.plugin.depositsFor(acc.id).map((d) => ({ date: d.date, amount: Math.abs(d.amount) })),
+        ...this.plugin.feeAdjustmentsFor(acc.id).map((a) => ({ date: a.date, amount: a.amount })),
       ],
     });
     return {
@@ -260,13 +258,29 @@ export class AccountsListView extends ItemView {
     // recipe, no words. The explanation lives in our own tip (never the engine's
     // black box), and the `aria-label` is the name a screen reader reads out.
     const actions = head.createDiv({ cls: "tj-acct-header-actions" });
-    const manageBtn = actions.createEl("button", {
+
+    // Two accounts are the minimum for anything to copy anything, so the copy
+    // groups square says why it is off instead of opening an empty room.
+    const groupsBtn = actions.createEl("button", {
       cls: "tj-iconbtn",
-      attr: { type: "button", "aria-label": "Manage" },
+      attr: { type: "button", "aria-label": "Copy groups" },
     });
-    setIcon(manageBtn, "sliders-horizontal");
-    attachTip(manageBtn, { title: "Manage", sub: "Groups, look and copy flow — the control room for this page." });
-    manageBtn.addEventListener("click", () => openAccountsManage(this.plugin, this));
+    setIcon(groupsBtn, "users");
+    if (all.length < 2) {
+      groupsBtn.disabled = true;
+      attachTip(groupsBtn, { title: "Copy groups", sub: "Add a second account to copy between." });
+    } else {
+      attachTip(groupsBtn, { title: "Copy groups", sub: "Which account leads, who copies it, and how." });
+      groupsBtn.addEventListener("click", () => openCopyGroups(this.plugin));
+    }
+
+    const displayBtn = actions.createEl("button", {
+      cls: "tj-iconbtn",
+      attr: { type: "button", "aria-label": "Display" },
+    });
+    setIcon(displayBtn, "sliders-horizontal");
+    attachTip(displayBtn, { title: "Display", sub: "How this page is grouped and how it reads." });
+    displayBtn.addEventListener("click", () => openAccountsDisplay(this.plugin));
 
     const addBtn = actions.createEl("button", {
       cls: "tj-iconbtn is-primary",
@@ -304,6 +318,13 @@ export class AccountsListView extends ItemView {
     return acc.type === "demo";
   }
 
+  /** The colour of the copy group an account belongs to, or "" when it is free. */
+  private groupTint(acc: PropAccount): string {
+    if (acc.copyRole === "base") return acc.copyGroupColor?.trim() || "";
+    if (!acc.copyBaseId) return "";
+    return this.accounts().find((a) => a.id === acc.copyBaseId)?.copyGroupColor?.trim() || "";
+  }
+
   /** Accounts that feed the portfolio totals (demo accounts excluded by default). */
   private portfolioAccounts(all: PropAccount[]): PropAccount[] {
     if (this.plugin.settings.excludeDemosFromPortfolio === false) return all;
@@ -327,7 +348,7 @@ export class AccountsListView extends ItemView {
     const strip = main.createDiv({ cls: "tj-acct-strip" });
     const portfolio = this.portfolioAccounts(all);
     const demoCount = all.length - portfolio.length;
-    const firms = new Set(portfolio.map((a) => getFirm(a.firmId)?.name || a.firmId));
+    const firms = new Set(portfolio.map((a) => firmLabel(a.firmId) || a.firmId));
 
     // Capital = nominal buying power of the real accounts (not inflated by P&L).
     const capital = portfolio.reduce((s, a) => s + (a.size || 0), 0);
@@ -341,7 +362,17 @@ export class AccountsListView extends ItemView {
     // A copied trade lives in every account it reached. Count it once: gather
     // the real accounts' trades and dedupe by copyBaseKey. Money stays summed.
     const trades = analyticsTrades(windowTrades).unique.length;
-    const withdrawn = portfolio.reduce((s, a) => s + (stats.get(a.id)?.withdrawn ?? 0), 0);
+    // Payouts follow the window too, so the strip and the chart tell one story.
+    // "All time" is just the window that starts at the beginning.
+    const withdrawn = portfolio.reduce(
+      (s, a) =>
+        s +
+        this.plugin
+          .payoutsFor(a.id)
+          .filter((p) => !w.from || p.date >= w.from)
+          .reduce((t, p) => t + Math.abs(p.amount), 0),
+      0,
+    );
     const funded = portfolio.filter((a) => a.type === "funded" || a.type === "live" || a.type === "personal");
 
     /** Sub-line bits, so "which window" is never a guess. */
@@ -353,7 +384,8 @@ export class AccountsListView extends ItemView {
       const k = m.createDiv({ cls: "tj-acct-strip-k" });
       k.createSpan({ text: label });
       if (info) {
-        const i = k.createSpan({ cls: "tj-info-dot", text: "i" });
+        const i = k.createSpan({ cls: "tj-info-dot" });
+        setIcon(i, "info");
         attachTip(i, { title: label, sub: info });
       }
       m.createDiv({ cls: `tj-acct-strip-v ${tone}`.trim(), text: value });
@@ -368,11 +400,11 @@ export class AccountsListView extends ItemView {
     // paid + deposits. "Capital" stops being the headline because a payout is
     // money that left; the nominal size stays visible underneath.
     const inAccounts = portfolio.reduce((s, a) => s + (stats.get(a.id)?.value ?? a.size), 0);
-    cell("In accounts", fmtMoney(inAccounts), sub(`on ${fmtMoney(capital)} capital`, w.from ? "all time" : ""), "", "What is actually in your real accounts right now: the size you were given, plus realised P&L, minus payouts already paid, plus deposits. Always all-time — a payout is money that left, so the number moves even if the chart window does not.");
-    cell("Net P&L", fmtMoney(net), sub(demoCount ? "excl. demo" : "all accounts", windowNote), net >= 0 ? "tj-pos" : "tj-neg", `Realised P&L of your real accounts${w.from ? ` in the ${w.label.toLowerCase()}` : ""}. The chart window drives this number.`);
-    cell("Growth", `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`, sub("on capital", windowNote), growth >= 0 ? "tj-pos" : "tj-neg", `Net P&L as a percentage of total capital (P&L ÷ capital)${w.from ? `, for the ${w.label.toLowerCase()}` : ""}.`);
-    cell("Payouts", withdrawn ? fmtMoney(withdrawn) : "$0", sub(funded.length ? `${funded.length} funded` : "none yet", w.from ? "all time" : ""), withdrawn > 0 ? "tj-pos" : "", "Paid out to you from your funded and live accounts. Always all-time, whatever the chart is showing.");
-    cell("Trades", String(trades), sub(`across ${portfolio.length} account${portfolio.length === 1 ? "" : "s"}`, windowNote), "", "Unique trades across your real accounts — a copied trade counts once, not once per account.");
+    cell("In accounts", fmtMoney(inAccounts), sub(`on ${fmtMoney(capital)} capital`, w.from ? "all time" : ""), "", "What is really in your real accounts: size + realised P&L − payouts + deposits. Always all-time, whatever the chart shows.");
+    cell("Net P&L", fmtMoney(net), sub(demoCount ? "excl. demo" : "all accounts", windowNote), net >= 0 ? "tj-pos" : "tj-neg", "Real money only. Follows the chart window.");
+    cell("Growth", `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`, sub("on capital", windowNote), growth >= 0 ? "tj-pos" : "tj-neg", "Net P&L over your capital.");
+    cell("Payouts", withdrawn ? fmtMoney(withdrawn) : "$0", sub(funded.length ? `${funded.length} funded` : "none yet", windowNote), withdrawn > 0 ? "tj-pos" : "", "Money you took out. Follows the chart window.");
+    cell("Trades", String(trades), sub(`across ${portfolio.length} account${portfolio.length === 1 ? "" : "s"}`, windowNote), "", "Every decision counts once, however many accounts copied it. Real accounts only.");
 
     if (demoCount) {
       main.createDiv({ cls: "tj-acct-strip-note", text: "Demo accounts are excluded from these totals — open the Demo card below to see its numbers." });
@@ -441,11 +473,12 @@ export class AccountsListView extends ItemView {
     const head = card.createDiv({ cls: "tj-acct-chart-head" });
     const k = head.createDiv({ cls: "tj-acct-chart-k" });
     k.createSpan({ text: "Net P&L across accounts" });
-    const i = k.createSpan({ cls: "tj-info-dot", text: "i" });
-    i.setAttr(
-      "title",
-      "Realised P&L of your real accounts (demo excluded), minus payouts and plus deposits — so the line drops when you take money out. Green above zero, red below. Dashed grey = the same number of trading days just before this window."
-    );
+    const i = k.createSpan({ cls: "tj-info-dot" });
+    setIcon(i, "info");
+    attachTip(i, {
+      title: "Net P&L across accounts",
+      sub: "Real money only — payouts leave the account, deposits arrive. Dashed grey: the same window just before this one.",
+    });
 
     const headR = head.createDiv({ cls: "tj-acct-chart-headr" });
     // Filled once the series is built; hidden until then so an empty account
@@ -660,11 +693,16 @@ export class AccountsListView extends ItemView {
 
   private fillGroups(host: HTMLElement, all: PropAccount[], stats: Map<string, AccStats>): void {
     if (!all.length) {
-      const empty = host.createDiv({ cls: "tj-empty" });
-      empty.createDiv({ text: "No accounts configured yet — add your first account." });
-      empty
-        .createEl("button", { text: "Open Settings", cls: "mod-cta tj-btn", attr: { type: "button" } })
-        .addEventListener("click", () => this.openPluginSettings());
+      renderEmptyBox(host, {
+        title: "No accounts yet",
+        sub: "Create your first account — it is where every trade is recorded. Old trades can be imported afterwards.",
+        primaryText: "Create an account",
+        primaryIcon: "plus",
+        onPrimary: () => openAccountWizard(this.plugin, { onDone: () => void this.refresh() }),
+        secondaryText: "Import trades",
+        secondaryIcon: "upload",
+        onSecondary: () => this.plugin.openImport(),
+      });
       return;
     }
 
@@ -734,7 +772,7 @@ export class AccountsListView extends ItemView {
       if (!byFirm.has(key)) byFirm.set(key, []);
       byFirm.get(key)!.push(a);
     }
-    const firmName = (id: string) => getFirm(id)?.name || id;
+    const firmName = (id: string) => firmLabel(id) || id;
     const firms = [...byFirm.entries()].sort((x, y) => firmName(x[0]).localeCompare(firmName(y[0])));
 
     if (mode === "copy") {
@@ -760,7 +798,9 @@ export class AccountsListView extends ItemView {
           label: lead?.copyGroupName?.trim() || `Trading group — ${lead ? lead.name : hero.name}`,
           accounts: [hero, ...members],
           heroId: hero.id,
-          tone: typeColor(hero.type),
+          // The group's own colour, chosen in Manage, dresses the section and
+          // the Leader/Copier tags — so the dot there has a consequence here.
+          tone: lead?.copyGroupColor?.trim() || typeColor(hero.type),
         });
       }
       out.sort((x, y) => x.label.localeCompare(y.label));
@@ -936,32 +976,12 @@ export class AccountsListView extends ItemView {
   }
 
   /**
-   * Manage → Cards: a real card, drawn by the same code as the list, for the
-   * account of that type with the most history to show. A preview drawn by a
-   * second implementation is a preview that will lie eventually — so we reuse
-   * the card itself and swap only the slot choices.
-   */
-  previewFor(type: AccountType, override: CardSlotOverride): { el: HTMLElement; account: PropAccount | null } {
-    const ofType = this.accounts()
-      .filter((a) => typeKey(a.type) === type)
-      .sort((a, b) => this.statsFor(b).count - this.statsFor(a).count);
-    const sample = ofType[0];
-    if (!sample) {
-      const note = document.createElement("div");
-      note.className = "tj-mg-empty";
-      note.setText(`No ${typeLabel(type).toLowerCase()} account yet — create one and the preview will use it.`);
-      return { el: note, account: null };
-    }
-    return { el: this.renderTile(sample, this.statsFor(sample), override), account: sample };
-  }
-
-  /**
    * One account, in the shape that best fits its type: an evaluation shows the
    * challenge, a funded account shows the way to a payout, a personal account
    * shows how it is actually going, and a demo shows what practice looks like.
    * The corner logo says which firm it is at a glance.
    */
-  private renderTile(acc: PropAccount, st: AccStats, override?: CardSlotOverride): HTMLElement {
+  private renderTile(acc: PropAccount, st: AccStats): HTMLElement {
     const tile = document.createElement("div");
     const demo = this.isDemo(acc);
     tile.className = "tj-acct-tile" + (demo ? " is-demo" : "");
@@ -975,17 +995,17 @@ export class AccountsListView extends ItemView {
     edge.style.background = ddUsed > 0.75 ? "var(--color-red, #ff5d48)" : ddUsed > 0.4 ? "#d9a441" : "var(--color-green-bright, #34d17a)";
 
     // ---- firm logo, tucked in the corner so it identifies without shouting ----
-    const firm = getFirm(acc.firmId);
+    const firmName = firmLabel(acc.firmId) || "";
     const logoUrl = this.plugin.settings.accountsShowLogo !== false && acc.firmId ? this.plugin.firmLogoUrl(acc.firmId) : "";
     if (logoUrl) {
       const img = tile.createEl("img", { cls: "tj-acct-logo" });
       img.src = logoUrl;
-      img.alt = firm?.name ?? acc.firmId;
+      img.alt = firmName || acc.name;
       img.addEventListener("error", () => {
-        img.replaceWith(tile.createDiv({ cls: "tj-acct-logo tj-acct-logo-fb", text: this.initialsOf(firm?.name ?? acc.name) }));
+        img.replaceWith(tile.createDiv({ cls: "tj-acct-logo tj-acct-logo-fb", text: this.initialsOf(firmName || acc.name) }));
       });
     } else {
-      tile.createDiv({ cls: "tj-acct-logo tj-acct-logo-fb", text: this.initialsOf(firm?.name ?? acc.name) });
+      tile.createDiv({ cls: "tj-acct-logo tj-acct-logo-fb", text: this.initialsOf(firmName || acc.name) });
     }
 
     // ---- header: who it is on top, what it is worth on the right ----
@@ -1005,8 +1025,13 @@ export class AccountsListView extends ItemView {
     const tags = tile.createDiv({ cls: "tj-acct-tile-tags" });
     tags.createSpan({ cls: `tj-tag tj-tag-${acc.type}`, text: typeLabel(acc.type) });
     if (acc.copyRole) {
-      const label = acc.copyRole === "base" ? "👑 Leader" : `Copier ${acc.copyMultiplier ?? 1}x`;
-      tags.createSpan({ cls: `tj-tag ${acc.copyRole === "base" ? "tj-tag-base" : "tj-tag-copy"}`, text: label });
+      const label = acc.copyRole === "base" ? "Leader" : `Copier ${acc.copyMultiplier ?? 1}x`;
+      const tag = tags.createSpan({ cls: `tj-tag ${acc.copyRole === "base" ? "tj-tag-base" : "tj-tag-copy"}`, text: label });
+      const tint = this.groupTint(acc);
+      if (tint) {
+        tag.style.borderColor = tint;
+        tag.style.color = tint;
+      }
     }
     // A spent eval is not a running one: the tag says why it is still here.
     if (acc.type === "eval" && (acc.passedAt || acc.passKept || acc.linkedFundedId)) {
@@ -1028,7 +1053,7 @@ export class AccountsListView extends ItemView {
       attachTip(chip, { title: alert.label, sub: alert.why });
     }
 
-    for (const slot of this.slotsFor(acc, st, override)) {
+    for (const slot of this.slotsFor(acc, st)) {
       const prog = tile.createDiv({ cls: "tj-acct-prog" });
       const lbl = prog.createDiv({ cls: "tj-acct-prog-lbl" });
       lbl.createSpan({ text: slot.label });
@@ -1044,7 +1069,7 @@ export class AccountsListView extends ItemView {
     }
 
     const mini = tile.createDiv({ cls: "tj-acct-mini" });
-    for (const [label, value] of this.miniFor(acc, st, override)) {
+    for (const [label, value] of this.miniFor(acc, st)) {
       const c = mini.createDiv();
       c.createDiv({ cls: "tj-acct-mini-k", text: label });
       c.createDiv({ cls: "tj-acct-mini-v", text: value });
@@ -1062,9 +1087,8 @@ export class AccountsListView extends ItemView {
     const first = parts[0] ?? acc.name;
     if (parts.length > 1) return [first, parts.slice(1).join(" · ")];
     // A plain name (custom or single word): describe the account underneath.
-    const firm = getFirm(acc.firmId);
-    const program = getProgram(firm, acc.programId);
-    const segs = [firm?.name, program?.label, `$${Math.round(acc.size / 1000)}K`].filter(Boolean) as string[];
+    const view = resolveAccountView(acc);
+    const segs = [firmLabel(acc.firmId), view.program?.label, `$${Math.round(acc.size / 1000)}K`].filter(Boolean) as string[];
     const rest = segs.filter((s) => s.toLowerCase() !== first.toLowerCase()).join(" · ");
     return [first, rest];
   }
@@ -1108,7 +1132,7 @@ export class AccountsListView extends ItemView {
     return null;
   }
 
-  private slotsFor(acc: PropAccount, st: AccStats, override?: CardSlotOverride): CardBar[] {
+  private slotsFor(acc: PropAccount, st: AccStats): CardBar[] {
     const m = st.m;
     type Slot = CardBar;
 
@@ -1190,8 +1214,8 @@ export class AccountsListView extends ItemView {
       },
     };
 
-    // Exactly what you chose, in the order you chose it. No substitutes.
-    const wanted = override?.bars ?? cardBars(acc.type, this.plugin.settings.accountCardBars);
+    // The signed-off two bars for this type, in order. No substitutes.
+    const wanted = layoutFor(acc.type).bars;
     return wanted
       .slice(0, BAR_SLOTS)
       .map((id) => catalog[id])
@@ -1199,11 +1223,12 @@ export class AccountsListView extends ItemView {
   }
 
   /** The four quiet numbers under the bars, one set per account type. */
-  private miniFor(acc: PropAccount, st: AccStats, override?: CardSlotOverride): Array<[string, string]> {
+  private miniFor(acc: PropAccount, st: AccStats): Array<[string, string]> {
     const m = st.m;
     const catalog: Record<string, [string, string]> = {
       trades: ["Trades", String(st.count)],
       win: ["Win", st.count ? `${st.winRate.toFixed(0)}%` : "—"],
+      dayWin: ["Day win", m.dayCount ? `${m.dayWinRate.toFixed(0)}%` : "—"],
       withdrawn: ["Paid out", m.withdrawn ? fmtMoney(m.withdrawn) : "—"],
       avgR: ["Avg R", Number.isFinite(m.avgRiskR) && m.avgRiskR !== 0 ? `${m.avgRiskR > 0 ? "+" : ""}${m.avgRiskR.toFixed(1)}R` : "—"],
       profitFactor: ["Profit factor", Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : "∞"],
@@ -1214,7 +1239,7 @@ export class AccountsListView extends ItemView {
       expectancy: ["Expectancy", Number.isFinite(m.expectancy) ? fmtMoney(m.expectancy) : "—"],
     };
 
-    const wanted = override?.mini ?? cardMini(acc.type, this.plugin.settings.accountCardMini);
+    const wanted = layoutFor(acc.type).mini;
     const out: Array<[string, string]> = [];
     for (const id of wanted) {
       const item = catalog[id];

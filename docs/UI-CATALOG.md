@@ -94,13 +94,69 @@ avgwin, avgloss, avgrr, holdtime, winhold, losshold, besthour, worsthour.
 |---|---|---|
 | Accounts list | `views/accountsListView.ts` | `.tj-acct-tile`, `-edge`, `-logo`, `-hd*`, `-bal*`, `-prog*`, `-mini*`, `-strip`, `-comp*`, `-sect`; `.tj-tag*`, `.tj-alert*`, `.tj-archived-*` |
 | Account dashboard | `views/accountDashboard.ts` | `.tj-acc-hero`, `-eqcard`, `-riskcard`(flip), `-riskbar*`, `-ddbox`/`-ddtrack`, `-mcols`/`-mcol`, `-disc-*`, `-dial`/`-donut`, `-perffacts`, `-btabs`/`-treemap`/`-tile`, `-widgets`/`-widget`, `-cashline`/`.tj-payout-*`, `-passed-banner`/`-band`/`-ring*`, `-copybar`/`-copychip`/`-copyrows` |
-| Management modal | `views/accountsManage.ts` | `.tj-mg-card`, `-head`, `-new`, `-cardwrap`/`-cardpick`/`-cardprev`, `-typelist`/`-typerow`, `-row`/`-rowlabel`/`-rowval` |
-| Wizard | `views/accountWizard.ts` | `.tj-wz-type*`, `-review`, `-sumcard`, `-sumrows`, `-copynote` |
+| Management modal | `views/accountsManage.ts` | `.tj-mg-card`, `-head`, `-new`, `-step`/`-stepnum`/`-steptitle`/`-stepblock`(+`.is-locked`), `-leadgrid`/`-leadcard`(+`.on`)/`-leadcard-nm`/`-leadcard-sub`, `-lockedlead`(+`-nm`/`-sub`), `-copier`(+`.on`)/`-pick`/`-copier-body`/`-copier-nm`/`-copier-sub`, `-tree` (árvore líder→copiers com conectores CSS), `-typelist`/`-typerow` (pill: borda+radius 14), `-vis` (pill de olho `eye`/`eye-off`, 28px), `-row`/`-rowlabel`/`-rowval`, `-secthead`/`-infoico` (o `(i)` que substitui os banners), `-badge`(+`.is-copier`), `.tj-manage-empty`/`-emptytitle` (título calado + frase; sem diagrama), `-del` (lixo 24×24, `.is-armed`), `-confirmslot`/`-confirm`/`-confirm-txt` (disband com dois toques inline), `-act.is-danger`; dropdown em portal `.tj-mg-dd-list.is-portal` (`fixed`, `z-index` 1100). **duas superfícies sem separadores** — `openCopyGroups` · `openAccountsDisplay` abrem a mesma modal em dois modos, pelos três quadrados do header das Contas (`users` · `sliders-horizontal` · `plus`) — Cards saiu e Types vive dentro do Display |
+| Wizard | `views/accountWizard.ts` | `.tj-wz-type*` (ativo: borda `--interactive-accent` + glow), `-review`, `-sumcard`, `-sumrows`/`-sumrow`/`-sumk`/`-sumv` (tabela chave-valor), `-copynote`, `-secthint`, `-rulegrid` (2 colunas), `-affixhead`/`-affix`/`-affix-pre`/`-affix-suf` (afixos `$`/`%`/`days`), `-untoggle`/`-unbtn` (toggle `$ | %`), `-disclaimer-ico`, `-logogrid`/`-logogroup`/`-logoglbl`/`-logotiles`/`-logotile`(+`.on`)/`-logotile-img`/`-logotile-init`/`-logotile-lbl`/`-logo-own`/`-logocustom`, `-step.off`, `-preset` |
 | Strategies | `views/setupsView.ts` | `.tj-strat-card`, `-item`, `-name`, `-pnl`, `-actions` |
 | Settings | `src/settings.ts` | `.tj-account-card`, `.tj-group-card`, `.tj-acct-chip.{type}`, `.tj-theme-gallery`, `.tj-theme-card`(+`.active`) |
 | Trade detail | `views/tradeDetailView.ts` | `.tj-td-execs`/`-execcard`, `.tj-td-flip-card`/`-flip-face`/`-ffront`/`-fback`, `.tj-td-dropzone-card`/`-shot-mosaic` |
+| Import CSV | `views/importUi.ts` | `.tj-import-pick` (o bloco **Where these trades go**, primeiro da página; `.is-set` quando já há resposta), `-pickhead`/`-pickico` (crosshair)/`-picktitle`/`-pickstate`(`.is-empty` âmbar / `.is-set` verde)/`-pickhint`(`.is-warn`), `-maprow`/`-mapdot`(`.is-on`)/`-mapname`(+`.is-plain` quando o ficheiro traz um só nome, sem `-maplabel`)/`-maplabel` (`Account 1`, só com vários nomes)/`-mapcount` (`3 trades · 19 Aug → 14 Sep 2026`; o número de conta do broker **nunca** é escrito), `-mapdd` (dropdown da casa a largura toda); `.tj-import-group`/`-grouphead`/`-groupico`/`-groupsub` (**This Trading Group**, só depois de haver conta), `.tj-import-accs`/`-acc`/`-accdot`/`-accname`/`-accwho` (o *Also record these trades in*), `.tj-role`(+`.is-leader` âmbar/`.is-copier` acento), `.tj-ratio`, `.tj-import-window`(+`.is-warn`); `.tj-import-costs` (3 factos: platform · glued · in account), `.tj-import-balance`(+`.is-ok`/`.is-warn`)/`-balanceico` (saldo journal vs platform), `.tj-import-helper` (porque o CTA está desativado; também o aviso de trades sem conta), `.tj-file-badge`, `.tj-dropzone` |
+| Dropdown da casa | `lib/dropdown.ts` | `.tj-mg-dd` (wrapper) / `-btn` (ghost) / `-val`(+`.is-placeholder`) / `-chev` / `-list`(+`.is-portal`: lista em `<body>`, `fixed`, `z-index` 1100, flip, reposiciona em scroll/resize) / `-item`(+`.on`/`.is-off`) / `-txt` (coluna do rótulo) / `-head` (cabeçalho de secção, não clicável, ex. Leaders · Copiers · Standalone) / `-tag`(+`.is-leader` âmbar / `.is-copier` acento, ex. `Copier ×0.5`) / `-lbl` / `-note` / `-empty` |
+| Delete account | `views/accountDashboard.ts` | `.tj-delete-confirm`, `-icon`, `-desc`, `-list`/`-fact` (o que morre), `-hint`, `.tj-del` (vermelho) |
 
 Labels dos slots (account cards) vêm de `lib/cardSlots.ts` (`BAR_CATALOG`/`MINI_CATALOG`).
+
+**Wizard de conta** (`accountWizard.ts`): 4 passos — Type · Brand · Account · Review
+(`flow()` = `[0,1,2,3]` para todos; personal/demo param depois da identidade). O passo 1 usa
+ícones Lucide (`setIcon`) e o cartão ativo fica com borda `--interactive-accent` + glow.
+O passo 2 é **só marca**: a grelha `.tj-wz-logogrid` em 3 secções (Prop firms · Brokers ·
+Practice em símbolo CSS) + tile "Custom" com iniciais (`branding.initials`); as pills têm
+altura fixa (40px) e o rótulo corta com ellipsis. O passo 3 abre com o **tamanho da conta
+vazio e obrigatório**: um dropdown (`$25K · $50K · $100K · $150K · $300K · Custom…`, sem a
+palavra "Standard", botão "Choose a size" enquanto vazio) que, ao ser escolhido, preenche
+target/max loss/daily loss a 6%/4%/2%; **Custom…** revela um campo `$` cujo valor actualiza o
+tamanho **e** o nome. Não há campo manual de saldo inicial — o tamanho *é* o saldo. Segue-se
+**Nome + Started on numa linha de 2 colunas** (`.tj-wz-row-2`, empilha <560px): o **nome está
+ligado** à marca, tipo e tamanho (`Tradeify Eval` enquanto não há tamanho, `Tradeify Eval $50K`
+depois — `typeLabel` respeita as labels configuráveis; escrever no nome liberta-o, `nameTouched`)
+e o **Started on** nasce **vazio** e é obrigatório —
+o `Next` só desbloqueia com tamanho > 0 **e** data (`.tj-account-wizard .tj-wz-foot
+.tj-btn:disabled`), e o helper `.tj-wz-secthint` diz só o que falta: "Choose a size and a start
+date to continue." · "Choose a size to continue." · "Choose a start date to continue.". As regras são **escritas pelo
+trader** ($ ou % como afixos estáticos `.tj-wz-affix-pre`/`-affix-suf`, com toggle `$ | %` inline
+`.tj-wz-unbtn` dentro de um track `.tj-wz-untoggle`; sem `<select>`); o dropdown `.tj-dd` é
+endurecido dentro do modal (`.tj-account-wizard .tj-dd-*` com `!important` — o Obsidian pinta os
+botões por cima de uma classe solta e parecia nativo), e o aviso de que as regras das firms mudam
+fica sempre visível. O passo 4 é uma tabela chave-valor
+(`.tj-wz-sumrow` com hairline, valores à direita a 700). O resolvedor `lib/accountRules.ts`
+serve todos os ecrãs; uma conta sem preset conhecido nunca falha — as regras em falta
+leem-se como `0`.
+
+**Settings** (`src/settings.ts`): sem "Quick add" — o botão "Open wizard" é a única porta para
+criar contas; a lista lê as regras pelo resolvedor.
+
+**Ordem do header da conta** (`accountDashboard.ts`): badges (linha de payout) → carteira
+(payouts) → recibo (Correct fees) → roda (Account settings), o gear no canto direito.
+
+**Calendário** (`lib/calendar.ts`, usado por todos os `mountDateField`): popup próprio, sem o
+picker nativo do sistema. Cabeçalho `.tj-cal-head` (`‹ Mês Ano ›` + `.tj-cal-today` "Today"),
+grelha `.tj-cal-grid` de 7 colunas × 30px com a semana a começar à segunda, `.tj-cal-day` e
+estados `is-out` (outro mês), `is-today` (contorno), `is-sel` (acento `--interactive-accent`) e
+`:focus-visible`; `is-*` a `!important` sobre os botões do Obsidian. Popup `position: fixed`,
+`z-index: 1100`, preso ao campo por `getBoundingClientRect`, fora do modal para nunca ser cortado;
+fecha com clique fora, Escape ou scroll. Teclado: setas ±1/±7 dias, PageUp/PageDown ±1 mês,
+Enter escolhe; o campo continua a aceitar a data escrita à mão.
+
+**Correct fees** (`feeAdjustModal.ts`): o input do saldo foca ao abrir e a qualquer clique na
+linha inteira (handler no `.tj-mg-row` em `mousedown`, não só no `.tj-mg-rowval`), e o foco
+sobrevive ao re-render assíncrono; `:focus` usa `--interactive-accent` com fundo
+`color-mix(--interactive-accent 8%)`, hover mantém `--text-muted`. Sob o par de datas
+("Spread over") fica a linha `.tj-fees-windowhint` a explicar a partilha. A partilha é
+**proporcional ao nº de contratos** (`allocateProportional`), a chave de cada fatia é única
+(`tradeFeeKeys`: `fillId` → caminho da nota → composta antiga como fallback), e o Post-Trade
+Review (`tradeDetailView.ts`) mostra, na linha "Fees", `$total · $X corrected` com tooltip de
+**model** (o número da plataforma e a fatia da correção nunca se fundem às escondidas). Se uma
+fatia guardada já não encontra o trade, o modal avisa em `.tj-fees-orphan` (continua a contar
+para o saldo). Nenhuma nota é reescrita.
 
 ### 6.4 Estados vazios e erros
 
@@ -134,11 +190,22 @@ como string de classes na criação — `addClass` com espaços é rejeitado pel
 ### 8.1 Tooltips — `attachTip` é a API canónica
 
 `attachTip(el, { title?, value?, tone?("pos"|"neg"|""), sub? }, extraCls?)` em `lib/tip.ts`.
-O anchor ganha `.tj-tip-anchor`; o card vive no `<body>` como `.tj-tip`
+O anchor ganha `.tj-tip-anchor` (o próprio `attachTip` o garante); o card vive no `<body>`
+como `.tj-tip`
 (`.tj-tip-title`, `.tj-tip-value` com `pos`/`neg`, `.tj-tip-sub`, variante `.is-wide`).
 Aparece em foco de teclado e fecha com `Escape` (WCAG 1.4.13 / 2.2); um guard fecha tips
 se o ponteiro não está sobre `.tj-tip-anchor`. `showTip/moveTip/killTip` para hover cards
 interativos. `attachTooltip(parent)` em `ui.ts` é legacy — preferir `attachTip`.
+**Nunca pôr `aria-label` num elemento que já usa `attachTip`**: o Obsidian desenha a própria
+tooltip para qualquer `aria-label` e essa (genérica, igual em todo o lado — ex. "More
+information") passa a ser a única que se vê. Para um ícone `(i)`, o glifo é `aria-hidden` e o
+nome acessível é um `span.tj-sr-only` com o que aquela coisa explica (ex. `About Types`).
+
+**Um só glifo de informação.** O `(i)` é o pictograma do próprio Obsidian —
+`const g = el.createSpan(); setIcon(g, "info")` — a 14px e `--tj-fg-3` (`.tj-info-dot svg`,
+`.tj-manage-infoico svg`). O ícone já desenha o seu círculo, por isso **não** se acrescenta
+borda nem raio nossos (daria um aro dentro de outro). Vale para a faixa, o gráfico, o
+dashboard da conta e as secções do Management.
 
 ### 8.2 Interação & acessibilidade
 
@@ -181,3 +248,11 @@ identifica o widget; layout persistido.
 - **Não duplicar**: usar as primitivas partilhadas (`kpiCard`, `renderTradeTable`,
   `mountDropdown`, `mountDateField`, `cardSlots`, `computeAccountMetrics`,
   `analyticsTrades`, `attachTip`) em vez de reinventar.
+- **`input[type=number]` passa sempre por `freeNumeric`** (`lib/numeric.ts`): `step="any"`,
+  sem `min`/`max` no markup, `invalid` cancelado e `novalidate` no form mais próximo. Os
+  limites são impostos pelos handlers que lêem o valor — a bolha de validação nativa do
+  Chromium é do browser, não se estiliza e parece um bug dentro de um modal escuro.
+- **Ritmo das secções (Management)**: `.tj-manage-sect` separa com `--tj-sp-5`, o título
+  `.tj-manage-sectitle` usa `--tj-fs-label` com tracking `.12em` e o `.tj-manage-secthead`
+  dá `--tj-sp-2` até ao primeiro conteúdo; notas e cartões fecham com `--tj-sp-4`. O mesmo
+  intervalo em todas as secções (Layout · What appears · Types).

@@ -1,9 +1,11 @@
-import { App, Notice, Plugin, PluginManifest, TFile, normalizePath } from "obsidian";
+import { App, Notice, Plugin, PluginManifest, TFile, addIcon, normalizePath } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
-import { PropAccount, AccountGroup, Trade, Payout, Deposit, AccountType } from "./types";
+import { PropAccount, AccountGroup, Trade, Payout, Deposit, FeeAdjustment, AccountType } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, setTradeAccount, setTradeFields, updateTradeFields } from "./storage";
 import { computeAccountMetrics, computeDrawdownEpisodes } from "./lib/accountMetrics";
-import { PROP_FIRMS, effectiveSize, getFirm, getProgram, getSize, makeAccount, uniqueAccountName } from "./props";
+import { PROP_FIRMS, makeAccount, uniqueAccountName } from "./props";
+import { resolveAccountView } from "./lib/accountRules";
+import { firmLogoUrl } from "./lib/firmLogos";
 import {
   buildLeg,
   crossSymbol,
@@ -37,7 +39,8 @@ import { SettingsTab } from "./settings";
 import { DashboardView, DASHBOARD_VIEW_TYPE } from "./views/dashboard";
 import type { DashItem } from "./views/dashboard";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
-import { AddTradeView, ADD_TRADE_VIEW_TYPE } from "./views/addTradeView";
+import { openAddTradeModal } from "./views/addTradeModal";
+import { openImportCsvModal } from "./views/importUi";
 import { TradeLogView, TRADE_LOG_VIEW_TYPE } from "./views/tradeLogView";
 import { AccountsListView, ACCOUNTS_LIST_VIEW_TYPE } from "./views/accountsListView";
 import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView";
@@ -48,10 +51,8 @@ import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE, QueuedPrint } from "./views/prin
 import { openTradeModal } from "./views/tradeModal";
 import { openGettingStarted } from "./views/gettingStarted";
 import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
-import ownFirmLogo from "../assets/firm-logos/own.png";
-import topstepFirmLogo from "../assets/firm-logos/topstep.png";
-import tradeifyFirmLogo from "../assets/firm-logos/tradeify.png";
-import tradovateFirmLogo from "../assets/firm-logos/tradovate.png";
+import { allocatedKeys } from "./lib/fees";
+import { BRAND_ICON_ID, BRAND_ICON_SVG } from "./lib/brand";
 
 export interface ThemeSettings {
   /** Chosen preset id (see themes.ts). */
@@ -176,10 +177,6 @@ export interface TradebookSettings {
   accountTypeColors?: Record<string, string>;
   /** Accounts page: the order the type sections appear in. */
   accountTypeOrder?: AccountType[];
-  /** Accounts page: which two bars each account type shows (Manage → Cards). */
-  accountCardBars?: Record<string, string[]>;
-  /** Accounts page: which four mini-stats each account type shows (Manage → Cards). */
-  accountCardMini?: Record<string, string[]>;
   /** Accounts page: how accounts are grouped. Remembered between sessions. */
   accountsGroupBy?: "type" | "firm" | "firm-type" | "copy";
   // ---- Maturity / phase (stage 1: measure only, nothing hidden) ----
@@ -219,6 +216,8 @@ export interface TradebookSettings {
   archivedAccounts: PropAccount[];
   payouts: Payout[];
   deposits: Deposit[];
+  /** Balance corrections: the platform's figure against the journal's, dated. */
+  feeAdjustments: FeeAdjustment[];
   accountMappings: Record<string, string>;
   /** One-off migration flag: legacy notes that carried a broker/export account
    *  name were rewritten to the account's friendly name. */
@@ -252,16 +251,12 @@ const DEFAULT_SETTINGS: TradebookSettings = {
   accountTypeLabels: {},
   accountTypeColors: {},
   accountTypeOrder: ["personal", "live", "funded", "eval", "demo", "unknown"],
-  // Empty by design: the defaults live in lib/cardSlots.ts next to the builders,
-  // so a type with nothing saved always has something sensible to draw.
-  accountCardBars: {},
-  accountCardMini: {},
   excludeDemosFromPortfolio: true,
   accountsGroupBy: "type",
   maturityPhaseOverride: "auto",
   dateFormat: "YYYY-MM-DD",
-  use24HourTime: false,
-  showSeconds: false,
+  use24HourTime: true,
+  showSeconds: true,
   defaultAccountId: "",
   defaultSymbol: "NQ",
   defaultQty: 1,
@@ -281,6 +276,7 @@ const DEFAULT_SETTINGS: TradebookSettings = {
   archivedAccounts: [],
   payouts: [],
   deposits: [],
+  feeAdjustments: [],
   accountMappings: {},
   recentLimit: 20,
   theme: { preset: "default", background: "default", accent: "", dotColor: "", surface: "", bg: "", bg2: "", border: "", pattern: "none", font: "sans", glow: false },
@@ -291,7 +287,6 @@ const ALL_VIEW_TYPES = [
   DASHBOARD_VIEW_TYPE,
   ACCOUNT_DASH_VIEW_TYPE,
   ACCOUNTS_LIST_VIEW_TYPE,
-  ADD_TRADE_VIEW_TYPE,
   TRADE_LOG_VIEW_TYPE,
   TRADE_DETAIL_VIEW_TYPE,
   TRADEBOOK_SIDEBAR_VIEW_TYPE,
@@ -314,15 +309,9 @@ export interface RenamePlan {
   skipped: number;
 }
 
-/** Firm logos, embedded at build time as data URIs (source: `assets/firm-logos/<id>.png`).
- *  Embedding keeps them working for BRAT and community-store installs, which only
- *  download `main.js`, `manifest.json` and `styles.css` from the release. */
-const FIRM_LOGOS: Record<string, string> = {
-  own: ownFirmLogo,
-  topstep: topstepFirmLogo,
-  tradeify: tradeifyFirmLogo,
-  tradovate: tradovateFirmLogo,
-};
+/** Firm logos are packaged in `lib/firmLogos.ts`, embedded as data URIs at build
+ *  time so BRAT and community-store installs (which only download `main.js`,
+ *  `manifest.json` and `styles.css`) still get them. */
 
 export default class TradebookPlugin extends Plugin {
   settings: TradebookSettings;
@@ -336,6 +325,7 @@ export default class TradebookPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+    addIcon(BRAND_ICON_ID, BRAND_ICON_SVG);
 
     // Keep the last uncaught error so a bug report can carry it:
     // Settings → Advanced → Diagnostics.
@@ -352,7 +342,6 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(SETUPS_VIEW_TYPE, (leaf) => new SetupsView(leaf, this));
     this.registerView(PRINT_QUEUE_VIEW_TYPE, (leaf) => new PrintQueueView(leaf, this));
     this.registerView(ACCOUNT_DASH_VIEW_TYPE, (leaf) => new AccountDashboardView(leaf, this));
-    this.registerView(ADD_TRADE_VIEW_TYPE, (leaf) => new AddTradeView(leaf, this));
     this.registerView(TRADE_LOG_VIEW_TYPE, (leaf) => new TradeLogView(leaf, this));
     this.registerView(ACCOUNTS_LIST_VIEW_TYPE, (leaf) => new AccountsListView(leaf, this));
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
@@ -367,7 +356,7 @@ export default class TradebookPlugin extends Plugin {
     this.addRibbonIcon("list", "Tradebook — Trade Log", () => {
       this.openTradeLog();
     });
-    this.addRibbonIcon("plus", "Tradebook — Add Trade", () => {
+    this.addRibbonIcon("plus", "Tradebook — Manual Trade", () => {
       this.openAddPanel();
     });
 
@@ -388,8 +377,13 @@ export default class TradebookPlugin extends Plugin {
     });
     this.addCommand({
       id: "add-trade",
-      name: "Add Trade",
+      name: "Manual Trade",
       callback: () => this.openAddPanel(),
+    });
+    this.addCommand({
+      id: "import-csv",
+      name: "Import trades from CSV",
+      callback: () => this.openImport(),
     });
 
     this.addCommand({
@@ -554,18 +548,14 @@ export default class TradebookPlugin extends Plugin {
     await this.app.workspace.revealLeaf(target);
   }
 
-  /** Opens the unified Add Trade page (Manual or Import tab). */
-  async openAddTrade(tab: "manual" | "import" = "manual") {
-    const target = this.getJournalLeaf();
-    await target.setViewState({ type: ADD_TRADE_VIEW_TYPE, active: true });
-    await this.app.workspace.revealLeaf(target);
-    const leaves = this.app.workspace.getLeavesOfType(ADD_TRADE_VIEW_TYPE);
-    const view: any = leaves.length ? leaves[0].view : null;
-    if (view && typeof view.setTab === "function") view.setTab(tab);
+  /** Opens the Add Trade form in a modal, from whatever page you are on. */
+  openAddPanel() {
+    openAddTradeModal(this, () => void this.reloadAllViews());
   }
 
-  async openImport() {
-    await this.openAddTrade("import");
+  /** Opens the CSV import in a modal; it reports what it recognised and saves. */
+  openImport() {
+    openImportCsvModal(this, () => void this.reloadAllViews());
   }
 
   /** Opens the Trade Log pre-filtered to a single day (used by Calendar). */
@@ -658,10 +648,6 @@ export default class TradebookPlugin extends Plugin {
     if (view && typeof (view as any).setTrade === "function") {
       await (view as any).setTrade(resolved);
     }
-  }
-
-  async openAddPanel() {
-    await this.openAddTrade("manual");
   }
 
   getTradesFolder(): string {
@@ -769,10 +755,7 @@ export default class TradebookPlugin extends Plugin {
   }
 
   getDashboardTitle(): string {
-    return (
-      this.settings.dashboardTitle ||
-      `${this.settings.journalName || "Your name"} Trading Dashboard`
-    );
+    return this.settings.dashboardTitle || "Tradebook";
   }
 
   getAccountRules(): AccountRule[] {
@@ -824,16 +807,50 @@ export default class TradebookPlugin extends Plugin {
     return mapped ? mapped.name : (name || "").trim();
   }
 
+  /** The accounts still in play. The archive is a shelf, not a balance. */
+  activeAccounts(): PropAccount[] {
+    return this.settings.propAccounts;
+  }
+
+  /**
+   * True when a trade belongs to an account the trader has archived. An
+   * archived account is out of every total, metric and balance — but its notes
+   * stay in the vault and stay listed in the Trade Log and Strategies.
+   */
+  isArchivedTrade(t: Trade): boolean {
+    const archived = this.settings.archivedAccounts || [];
+    if (!archived.length) return false;
+    const name = (t.account || "").trim();
+    if (!name) return false;
+    const lower = name.toLowerCase();
+    const maps = this.settings.accountMappings || {};
+    let id: string | undefined = maps[name];
+    if (!id) {
+      for (const [k, v] of Object.entries(maps)) {
+        if (k.trim().toLowerCase() === lower) {
+          id = v;
+          break;
+        }
+      }
+    }
+    if (id && archived.some((a) => a.id === id)) return true;
+    return archived.some(
+      (a) =>
+        (a.name || "").trim().toLowerCase() === lower ||
+        (a.aliases || []).some((al) => (al || "").trim().toLowerCase() === lower)
+    );
+  }
+
   /** The first configured account. */
   getPrimaryAccount(): PropAccount | undefined {
     const accounts = this.settings.propAccounts || [];
     return accounts.length > 0 ? accounts[0] : undefined;
   }
 
-  /** Data-URI for a firm logo embedded in the plugin at build time (assets/firm-logos/<id>.png).
-   *  Returns null for firms without a logo (caller falls back to initials). */
+  /** Data-URI for a packaged firm/broker logo (see `lib/firmLogos.ts`).
+   *  Returns null for names without a file (caller falls back to initials). */
   firmLogoUrl(firmId: string): string | null {
-    return firmId && FIRM_LOGOS[firmId] ? FIRM_LOGOS[firmId] : null;
+    return firmLogoUrl(firmId);
   }
 
   /** Load all trade notes from the configured folder into Trade objects. */
@@ -1217,9 +1234,9 @@ export default class TradebookPlugin extends Plugin {
 
     let breachCount = 0;
     for (const acc of accounts) {
-      const size = effectiveSize(getSize(getProgram(getFirm(acc.firmId), acc.programId), acc.size), acc.rules);
+      const size = resolveAccountView(acc).rules;
       const mine = byAccount.get(acc.id);
-      if (!size || size.maxLoss <= 0 || !mine || !mine.length) continue;
+      if (!size.maxLoss || size.maxLoss <= 0 || !mine || !mine.length) continue;
 
       let cum = 0, peak = 0, dd = 0;
       const ordered = mine
@@ -1321,11 +1338,10 @@ export default class TradebookPlugin extends Plugin {
     for (const a of this.settings.propAccounts) {
       if (a.type !== "eval" || a.passedAt) continue;
       if (!a.linkedFundedId && !a.passKept) continue;
-      const program = getProgram(getFirm(a.firmId), a.programId);
-      const size = program ? effectiveSize(getSize(program, a.size), a.rules) : null;
+      const size = resolveAccountView(a).rules;
       const funded = (this.settings.propAccounts ?? []).find((f) => f.id === a.linkedFundedId);
       a.passedAt =
-        (await this.passedDateOf(a.id, size?.target ?? 0)) ||
+        (await this.passedDateOf(a.id, size.target ?? 0)) ||
         funded?.createdAt ||
         new Date().toISOString().slice(0, 10);
       settingsDirty = true;
@@ -1558,26 +1574,38 @@ export default class TradebookPlugin extends Plugin {
   /** Copy trades onto the given prop accounts (broadcast). Returns the full list to save. */
   async applyBroadcast(trades: Trade[], accountIds: string[]): Promise<Trade[]> {
     if (!accountIds || accountIds.length === 0) return trades;
+    const { buildLeg, effectiveCopyConfig, isActiveCopier, legBaseKey } = await import("./lib/copy");
     const out: Trade[] = [];
     for (const t of trades) {
       // Give the broadcast trade a stable group key so copies can be deduped.
       const baseKey = t.copyBaseKey || legBaseKey(t);
       t.copyBaseKey = baseKey;
       out.push(t);
+      const baseAccount = this.mappedAccount(t.account);
       for (const id of accountIds) {
         const acc = this.settings.propAccounts.find((a) => a.id === id);
         if (!acc) continue;
-        const copy: Trade = {
-          ...t,
-          id: "",
-          account: acc.name,
-          accountType: acc.type,
-          isCopiedTrade: true,
-          copiedFromAccount: t.account,
-          copyBaseKey: baseKey,
-          copyMultiplier: 1,
-          copyOrigin: "generated",
+        // A copier only mirrors a trade it was actually following that day. An
+        // account that started copying on 6 September never received the 1
+        // September trade, and writing a leg anyway would put a copy in the
+        // vault that never happened — a note the account's own numbers then
+        // silently ignore, which is exactly how a wrong number is born.
+        const follows =
+          !!baseAccount && acc.copyRole === "copier" && (!acc.copyBaseId || acc.copyBaseId === baseAccount.id);
+        if (follows) {
+          if (!baseAccount || !isActiveCopier(acc, baseAccount.id, t.date)) continue;
+        }
+        // Any other tick is the user stating a fact — "this trade happened in
+        // this account too" — so it mirrors 1:1 (or by its own multiplier) and
+        // an account opened later does not lose the trades it was ticked on.
+        const cfg: import("./types").CopyConfigEntry = effectiveCopyConfig(acc, t.date) ?? {
+          from: t.date,
+          ratio: acc.copyMultiplier ?? 1,
         };
+        const copy = buildLeg(t, acc, cfg);
+        copy.copyBaseKey = baseKey;
+        copy.copiedFromAccount = t.account;
+        copy.copyOrigin = "generated";
         out.push(copy);
       }
     }
@@ -1655,6 +1683,83 @@ export default class TradebookPlugin extends Plugin {
     await this.reloadAllViews();
   }
 
+  // ---- Balance corrections (the platform's figure against the journal's) ----
+  // A signed, dated difference. It never touches a trade note: it is a cash-flow
+  // on its own day, exactly like a payout or a deposit.
+  feeAdjustmentsFor(accountId: string): FeeAdjustment[] {
+    return (this.settings.feeAdjustments || [])
+      .filter((a) => a.accountId === accountId)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  accountFeeAdjustmentsTotal(accountId: string): number {
+    return this.feeAdjustmentsFor(accountId).reduce((s, a) => s + a.amount, 0);
+  }
+
+  /** Every trade key of this account that already carries a slice of a correction. */
+  allocatedKeysFor(accountId: string): Set<string> {
+    return allocatedKeys(this.feeAdjustmentsFor(accountId));
+  }
+
+  async registerFeeAdjustment(
+    accountId: string,
+    date: string,
+    amount: number,
+    note?: string,
+    period?: { from: string; to: string },
+    allocations?: { key: string; date: string; amount: number }[],
+    remainderCents?: number
+  ): Promise<void> {
+    this.settings.feeAdjustments = this.settings.feeAdjustments || [];
+    this.settings.feeAdjustments.push({
+      id: "adj_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      accountId,
+      date,
+      amount,
+      note,
+      period,
+      trades: allocations ? allocations.length : undefined,
+      allocations,
+      remainderCents,
+    });
+    await this.saveSettings();
+    await this.reloadAllViews();
+  }
+
+  async removeFeeAdjustment(adjustmentId: string): Promise<void> {
+    this.settings.feeAdjustments = (this.settings.feeAdjustments || []).filter((a) => a.id !== adjustmentId);
+    await this.saveSettings();
+    await this.reloadAllViews();
+  }
+
+  /**
+   * A cost the platform charged that no trade could claim — the Orders export
+   * aggregated several executions into one row. It is a dated cash-flow like a
+   * correction, but it is the platform's own bill, not a hand-written
+   * difference, so it stays out of the Correct-fees list. Re-importing the same
+   * file must not double it: an identical cost on the same day is left alone.
+   */
+  async registerAccountCost(accountId: string, date: string, amount: number, note?: string): Promise<void> {
+    this.settings.feeAdjustments = this.settings.feeAdjustments || [];
+    const value = Math.round(amount * 100) / 100;
+    if (!Number.isFinite(value) || value === 0) return;
+    const day = date || new Date().toISOString().slice(0, 10);
+    const already = this.settings.feeAdjustments.some(
+      (a) => a.kind === "cost" && a.accountId === accountId && a.date === day && Math.abs(a.amount - value) < 0.005
+    );
+    if (already) return;
+    this.settings.feeAdjustments.push({
+      id: "cost_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+      accountId,
+      date: day,
+      amount: value,
+      note,
+      kind: "cost",
+    });
+    await this.saveSettings();
+    await this.reloadAllViews();
+  }
+
   async deleteTrade(tradeId: string): Promise<boolean> {
     const success = await deleteTradeFile(this.app, tradeId);
     if (success) {
@@ -1672,10 +1777,9 @@ export default class TradebookPlugin extends Plugin {
     // The pass is remembered before anything is moved: this date is what stops
     // the celebration from firing again if the eval comes back from the archive.
     if (!evalAcc.passedAt) {
-      const program = getProgram(getFirm(evalAcc.firmId), evalAcc.programId);
-      const size = program ? effectiveSize(getSize(program, evalAcc.size), evalAcc.rules) : null;
+      const size = resolveAccountView(evalAcc).rules;
       evalAcc.passedAt =
-        (await this.passedDateOf(evalAccountId, size?.target ?? 0)) || new Date().toISOString().slice(0, 10);
+        (await this.passedDateOf(evalAccountId, size.target ?? 0)) || new Date().toISOString().slice(0, 10);
     }
     if (action === "keep") evalAcc.passKept = true;
     // If this eval already produced a funded account, reuse it instead of duplicating.
@@ -1717,9 +1821,12 @@ export default class TradebookPlugin extends Plugin {
     if (action === "archive") {
       this.settings.archivedAccounts = this.settings.archivedAccounts || [];
       this.settings.archivedAccounts.push(evalAcc);
-    }
-    if (action !== "keep") {
       this.settings.propAccounts = this.settings.propAccounts.filter((a) => a.id !== evalAccountId);
+    }
+    if (action === "delete") {
+      // The promoted funded account is a new home; the eval's own notes leave
+      // the vault, exactly as a plain delete would.
+      await this.purgeAccountData(evalAccountId);
     }
     this.settings.propAccounts.push(fundedAcc);
     await this.saveSettings();
@@ -1766,10 +1873,9 @@ export default class TradebookPlugin extends Plugin {
     funded.linkedEvalId = evalAcc.id;
     // The pass date is still worth keeping, even when the funded was created by hand.
     if (!evalAcc.passedAt) {
-      const program = getProgram(getFirm(evalAcc.firmId), evalAcc.programId);
-      const size = program ? effectiveSize(getSize(program, evalAcc.size), evalAcc.rules) : null;
+      const size = resolveAccountView(evalAcc).rules;
       evalAcc.passedAt =
-        (await this.passedDateOf(evalAccountId, size?.target ?? 0)) || funded.createdAt || new Date().toISOString().slice(0, 10);
+        (await this.passedDateOf(evalAccountId, size.target ?? 0)) || funded.createdAt || new Date().toISOString().slice(0, 10);
     }
     await this.saveSettings();
     await this.reloadAllViews();
@@ -1809,13 +1915,98 @@ export default class TradebookPlugin extends Plugin {
     return renamed;
   }
 
-  async removeAccount(accountId: string): Promise<void> {
+  /**
+   * Every note that belongs to an account, resolved the same way the rest of
+   * the plugin resolves a trade's account: mapping first, then name, then the
+   * account's stored aliases. An archived account is searched too, because it
+   * can still be deleted from the archive list.
+   */
+  private async accountTrades(accountId: string): Promise<Trade[]> {
+    const acc =
+      this.settings.propAccounts.find((a) => a.id === accountId) ||
+      (this.settings.archivedAccounts || []).find((a) => a.id === accountId);
+    const names = new Set<string>();
+    if (acc) {
+      names.add(acc.name);
+      for (const al of acc.aliases || []) names.add(al);
+    }
+    for (const [key, id] of Object.entries(this.settings.accountMappings || {})) {
+      if (id === accountId) names.add(key);
+    }
+    const lower = new Set([...names].map((n) => (n || "").trim().toLowerCase()));
+    const trades = await this.loadTrades();
+    return trades.filter((t) => {
+      const mapped = this.mappedAccount(t.account);
+      if (mapped) return mapped.id === accountId;
+      return lower.has((t.account || "").trim().toLowerCase());
+    });
+  }
+
+  /** How many copy relationships an account takes down with it. */
+  private copyLinksFor(accountId: string): number {
+    const all = [...this.settings.propAccounts, ...(this.settings.archivedAccounts || [])];
+    const groupsLed = (this.settings.copyGroups || []).filter((g) => g.baseAccountId === accountId).length;
+    const followers = all.filter((a) => a.copyBaseId === accountId).length;
+    const me = all.find((a) => a.id === accountId);
+    return groupsLed + followers + (me?.copyBaseId ? 1 : 0);
+  }
+
+  /** What the delete confirmation lists, so nothing is a surprise. */
+  async accountDeletionSummary(accountId: string): Promise<{
+    trades: number;
+    payouts: number;
+    deposits: number;
+    corrections: number;
+    copyLinks: number;
+  }> {
+    const trades = await this.accountTrades(accountId);
+    return {
+      trades: trades.length,
+      payouts: (this.settings.payouts || []).filter((p) => p.accountId === accountId).length,
+      deposits: (this.settings.deposits || []).filter((d) => d.accountId === accountId).length,
+      corrections: (this.settings.feeAdjustments || []).filter((a) => a.accountId === accountId).length,
+      copyLinks: this.copyLinksFor(accountId),
+    };
+  }
+
+  /**
+   * The destructive half of a delete: the notes leave the vault (Obsidian's own
+   * trash) and every record that pointed at the account is dropped. It does not
+   * save or repaint — the callers decide when the world is told.
+   */
+  private async purgeAccountData(accountId: string): Promise<void> {
+    // The notes go first, to Obsidian's own trash, so an interrupted delete
+    // never leaves trade notes without the account that explains them.
+    const trades = await this.accountTrades(accountId);
+    for (const t of trades) {
+      if (t.id) await deleteTradeFile(this.app, t.id);
+    }
     this.settings.propAccounts = this.settings.propAccounts.filter((a) => a.id !== accountId);
-    // Also remove from archived
     this.settings.archivedAccounts = (this.settings.archivedAccounts || []).filter((a) => a.id !== accountId);
-    // Remove related payouts and deposits
     this.settings.payouts = (this.settings.payouts || []).filter((p) => p.accountId !== accountId);
     this.settings.deposits = (this.settings.deposits || []).filter((d) => d.accountId !== accountId);
+    this.settings.feeAdjustments = (this.settings.feeAdjustments || []).filter((a) => a.accountId !== accountId);
+    // Mappings point at an id that no longer exists.
+    for (const [key, id] of Object.entries(this.settings.accountMappings || {})) {
+      if (id === accountId) delete this.settings.accountMappings[key];
+    }
+    // Copy: the group this account led goes entirely; as a member it is simply
+    // gone with the account.
+    this.settings.copyGroups = (this.settings.copyGroups || []).filter((g) => g.baseAccountId !== accountId);
+    // Anyone who followed it loses the link rather than keeping a dead base id.
+    const cutBase = (a: PropAccount) => {
+      if (a.copyBaseId === accountId) {
+        a.copyBaseId = undefined;
+        a.copyRole = undefined;
+      }
+    };
+    this.settings.propAccounts.forEach(cutBase);
+    (this.settings.archivedAccounts || []).forEach(cutBase);
+    this.clearTradeCache();
+  }
+
+  async removeAccount(accountId: string): Promise<void> {
+    await this.purgeAccountData(accountId);
     await this.saveSettings();
     await this.reloadAllViews();
   }

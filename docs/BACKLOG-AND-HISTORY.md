@@ -138,6 +138,7 @@
 | Animations: toggles por-animação | ⬜ | Registado. |
 | R-multiples / risk-based RR | ⬜ | Precisa de campo Stop Loss por trade. |
 | Identidade visual: hero row, donuts, gauges, winstreak, duration table, hourly table, toggle cumulativo | 🟡 | Donuts/radar/best-hours feitos; resto por fazer. |
+| **Missed trades** (setups não tomados) | ⬜ | Pedido 2026-09-18. **Só no Add Manual Trade**: uma trade não executada não existe no CSV do broker, portanto nunca entra pelo import (confere com o TradesViz/Journalit — também só por registo manual). Motivo (hesitação, falta de confluência, emocional) + tags, a alimentar o motor de disciplina/mindset (§5, Psychology). Fica dentro do módulo de estratégias/psicologia. |
 
 ---
 

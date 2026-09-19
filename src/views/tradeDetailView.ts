@@ -12,6 +12,8 @@ import { futuresSpec } from "../futures";
 import { sessionOf, SESSION_LABELS } from "../lib/sessions";
 import { holdFmt, tradeR } from "../lib/tradeTable";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
+import { freeNumeric } from "../lib/numeric";
+import { feeForTrade } from "../lib/fees";
 
 export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
 
@@ -257,22 +259,25 @@ export class TradeDetailView extends ItemView {
       label: string,
       currentValue: string,
       onSave: (newVal: string) => Promise<void>,
-      opts?: { numeric?: boolean; suffix?: string; min?: string; max?: string; step?: string }
+      opts?: { numeric?: boolean; tip?: string }
     ) => {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
       r.createEl("span", { cls: "tj-td-flip-key", text: label });
       const valSpan = r.createEl("span", { cls: "tj-td-flip-val", text: currentValue });
       valSpan.style.cursor = "pointer";
-      attachTip(valSpan, { title: "Click to edit", sub: `Change ${label.toLowerCase()}` });
+      attachTip(
+        valSpan,
+        opts?.tip
+          ? { title: "Click to edit", sub: opts.tip }
+          : { title: "Click to edit", sub: `Change ${label.toLowerCase()}` }
+      );
       valSpan.addEventListener("click", () => {
         // Replace span with input
         const input = document.createElement("input");
         input.type = opts?.numeric ? "number" : "text";
         input.className = "tj-td-flip-input";
         input.value = currentValue.replace(/[^0-9.\-]/g, "");
-        if (opts?.min) input.min = opts.min;
-        if (opts?.max) input.max = opts.max;
-        if (opts?.step) input.step = opts.step;
+        if (opts?.numeric) freeNumeric(input);
         input.style.width = "100%";
         valSpan.replaceWith(input);
         input.focus();
@@ -443,7 +448,7 @@ export class TradeDetailView extends ItemView {
         await this.saveFields({ quantity: String(n) });
         this.render();
       }
-    }, { numeric: true, min: "1", step: "1" });
+    }, { numeric: true });
 
     // ---- Symbol (editable) ----
     editableRow(front, "Symbol", t.symbol || "—", async (raw) => {
@@ -521,16 +526,32 @@ export class TradeDetailView extends ItemView {
     }, { numeric: true });
 
     // ---- Fees (editable) ----
-    const totalFees = ((t.commission || 0) + (t.fees || 0));
-    const feesVal = `$${totalFees.toFixed(2)}`;
-    editableRow(front, "Fees", feesVal, async (raw) => {
+    // The platform's own figure, plus this trade's slice of any balance
+    // correction — the same split the Correct fees modal logs. The slice is a
+    // model, not a line the broker wrote, so it is shown beside the real number
+    // and never folds into it; editing only ever changes the platform figure.
+    const realFees = (t.commission || 0) + (t.fees || 0);
+    const mapped = this.plugin.mappedAccount(t.account || "");
+    const fees = mapped
+      ? feeForTrade(t, this.plugin.feeAdjustmentsFor(mapped.id))
+      : { real: realFees, allocated: 0, total: realFees };
+    const feesSpan = editableRow(front, "Fees", `$${realFees.toFixed(2)}`, async (raw) => {
       const val = parseFloat(raw.replace(/[$]/g, ""));
       if (Number.isFinite(val)) {
         // Split evenly or put all in fees
         await this.saveFields({ fees: String(val), commission: "0" });
         this.render();
       }
-    }, { numeric: true });
+    }, {
+      numeric: true,
+      tip:
+        fees.allocated !== 0
+          ? `$${fees.real.toFixed(2)} the platform reported, plus $${fees.allocated.toFixed(2)} this trade's share of the account's balance correction. Editing sets the platform figure.`
+          : undefined,
+    });
+    if (fees.allocated !== 0) {
+      feesSpan.setText(`$${fees.total.toFixed(2)} · $${fees.allocated.toFixed(2)} corrected`);
+    }
 
     // ---- Order Type (dropdown) ----
     const otRow = front.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });

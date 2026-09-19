@@ -1,6 +1,7 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { mountDateField } from "../lib/dates";
+import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
 import { fmtMoney, fmtMoneyCompact } from "../tz";
 
@@ -76,7 +77,7 @@ class PayoutsModal extends Modal {
     // Gold coin to the left of the title: the modal is about money, and a plain
     // h2 with nothing around it reads as a dead screen.
     const titleRow = contentEl.createDiv({ cls: "tj-payout-head" });
-    setIcon(titleRow.createSpan({ cls: "tj-payout-headico" }), "banknote");
+    setIcon(titleRow.createSpan({ cls: "tj-payout-headico" }), "wallet");
     const headTxt = titleRow.createDiv({ cls: "tj-payout-headtxt" });
     headTxt.createEl("h2", { text: "Payouts" });
     headTxt.createDiv({ cls: "tj-payout-sub", text: this.accountName() });
@@ -113,11 +114,13 @@ class PayoutsModal extends Modal {
     });
 
     const amountVal = this.row(form, "Amount ($)");
-    const amountInput = amountVal.createEl("input", {
-      type: "number",
-      cls: "tj-payout-input",
-      attr: { min: "1", step: "1", placeholder: "1,000" },
-    });
+    const amountInput = freeNumeric(
+      amountVal.createEl("input", {
+        type: "number",
+        cls: "tj-payout-input",
+        attr: { placeholder: "1,000" },
+      })
+    );
 
     const noteVal = this.row(form, "Note");
     const noteInput = noteVal.createEl("input", {

@@ -3,6 +3,8 @@
  * Stored dates are always ISO (YYYY-MM-DD); only the display changes.
  */
 
+import { openCalendar } from "./calendar";
+
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function formatDate(iso: string, fmt?: string): string {
@@ -64,7 +66,8 @@ export interface DateFieldOpts {
 /**
  * A date field that *displays* the user's format (native <input type="date">
  * always shows the browser locale, which is why the setting seemed ignored).
- * A small calendar button opens the native picker when a real date is needed.
+ * Clicking the field opens the plugin's own themed calendar (lib/calendar.ts);
+ * typing a date still works and is parsed back to ISO.
  */
 export function mountDateField(host: HTMLElement, opts: DateFieldOpts): HTMLInputElement {
   const wrap = host.createDiv({ cls: "tj-datefield" });
@@ -72,51 +75,41 @@ export function mountDateField(host: HTMLElement, opts: DateFieldOpts): HTMLInpu
     cls: "tj-datefield-input" + (opts.className ? " " + opts.className : ""),
     attr: { type: "text", value: formatDate(opts.value, opts.format), placeholder: datePlaceholder(opts.format) },
   });
-  // Invisible native input on top: clicking the field opens the OS calendar
-  // (the native input always shows the OS format, so we keep our own display).
-  const native = wrap.createEl("input", { cls: "tj-datefield-native", attr: { type: "date" } }) as HTMLInputElement;
-  // Inline, not just in the stylesheet: inside a modal Obsidian's own rules for
-  // `input[type="date"]` can outrank a class, and the field would stretch and
-  // push the visible value off its corner. Inline styles cannot be outranked
-  // without `!important`, so the picker stays a 1px invisible line for good.
-  native.style.cssText =
-    "position:absolute;left:0;bottom:0;width:100%;height:1px;opacity:0;pointer-events:none;" +
-    "border:0;padding:0;margin:0;background:transparent;appearance:none;box-shadow:none;";
-  native.value = opts.value || "";
 
-  const sync = () => {
-    if (!native.value) return;
-    input.value = formatDate(native.value, opts.format);
-    opts.onChange(native.value);
+  const commit = (iso: string): void => {
+    if (!iso) return;
+    input.value = formatDate(iso, opts.format);
+    opts.onChange(iso);
   };
-  native.addEventListener("change", sync);
-  native.addEventListener("input", sync);
-
-  // Clicking the field opens the OS calendar straight away (anchored to the field).
-  const openPicker = () => {
-    try {
-      (native as any).showPicker?.();
-    } catch {
-      /* older engine: fall back to focusing the native input */
-      native.focus();
-    }
+  const open = (): void => {
+    openCalendar(wrap, {
+      value: parseDateInput(input.value, opts.format) || opts.value || "",
+      onPick: commit,
+    });
   };
-  // The whole field is the hit area: the glyph is drawn by CSS and the text input
-  // can be narrower than the row, so a click next to it must open the calendar too.
-  wrap.addEventListener("click", openPicker);
-  input.addEventListener("click", openPicker);
 
-  // Typing still works as a fallback and keeps the native picker in sync.
+  // The whole field is the hit area: the glyph is drawn by CSS and the text
+  // input can be narrower than the row, so a click next to it opens too.
+  wrap.addEventListener("click", open);
+
+  // Typing still works as a fallback (and is the only path on a keyboard until
+  // the calendar is opened with ArrowDown).
   input.addEventListener("input", () => {
     const iso = parseDateInput(input.value, opts.format);
-    if (iso) {
-      native.value = iso;
-      opts.onChange(iso);
-    }
+    if (iso) opts.onChange(iso);
   });
   input.addEventListener("blur", () => {
     const iso = parseDateInput(input.value, opts.format);
     if (iso) input.value = formatDate(iso, opts.format);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit(parseDateInput(input.value, opts.format));
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      open();
+    }
   });
   return input;
 }

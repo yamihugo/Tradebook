@@ -58,7 +58,7 @@ export function tradeToMarkdown(t: Trade): string {
   const frontmatter = [
     `date: ${t.date}`,
     `symbol: ${t.symbol}`,
-    `account: "${t.account.replace(/"/g, '\\"')}"`,
+    `account: ${quoteYaml(t.account)}`,
     `account_type: ${t.accountType}`,
     `direction: ${t.direction}`,
     num("quantity", t.quantity),
@@ -68,18 +68,24 @@ export function tradeToMarkdown(t: Trade): string {
     num("target", t.target ?? 0),
     num("pnl", t.pnl),
     num("pnl_points", t.pnlPoints),
+    // The platform's bill lives at the trade level as well as inside each fill:
+    // without it a reload loses every cost the cash history brought, and the
+    // fees card reads $0.00 on a trade that was charged. Zero is omitted so a
+    // note with no cost stays clean.
+    t.commission ? num("commission", t.commission) : null,
+    t.fees ? num("fees", t.fees) : null,
     `entry_time: ${t.entryTime}`,
     `exit_time: ${t.exitTime}`,
     ...fillLines(t),
-    `setup: "${t.setup ?? ""}"`,
-    `mistake: "${t.mistake ?? ""}"`,
-    `thesis: "${t.thesis ?? ""}"`,
-    `review: "${t.review ?? ""}"`,
+    `setup: ${quoteYaml(t.setup ?? "")}`,
+    `mistake: ${quoteYaml(t.mistake ?? "")}`,
+    `thesis: ${quoteYaml(t.thesis ?? "")}`,
+    `review: ${quoteYaml(t.review ?? "")}`,
     t.orderType ? `order_type: "${t.orderType}"` : null,
-    t.fillId ? `fill_id: "${t.fillId.replace(/"/g, '\\"')}"` : null,
-    t.notes ? `notes: "${t.notes.replace(/"/g, '\\"')}"` : null,
+    t.fillId ? `fill_id: ${quoteYaml(t.fillId)}` : null,
+    t.notes ? `notes: ${quoteYaml(t.notes)}` : null,
     t.timezone ? `timezone: "${t.timezone}"` : null,
-    `screenshot: "${t.screenshot ?? ""}"`,
+    `screenshot: ${quoteYaml(t.screenshot ?? "")}`,
     ...screenshotsLines(t),
     num("rating", t.rating ?? 0),
     `reviewed: ${t.reviewed ? "true" : "false"}`,
@@ -88,9 +94,9 @@ export function tradeToMarkdown(t: Trade): string {
   if (t.isCopiedTrade) {
     frontmatter.push(
       `is_copied_trade: true`,
-      `copied_from_account: "${(t.copiedFromAccount ?? "").replace(/"/g, '\\"')}"`,
+      `copied_from_account: ${quoteYaml(t.copiedFromAccount ?? "")}`,
       `copy_base_key: "${t.copyBaseKey ?? ""}"`,
-      `copy_base_file: "${(t.copyBaseFile ?? "").replace(/"/g, '\\"')}"`,
+      `copy_base_file: ${quoteYaml(t.copyBaseFile ?? "")}`,
       `copy_multiplier: ${t.copyMultiplier ?? 1}`,
       `copy_symbol_map: "${t.copySymbolMap ?? ""}"`,
       `copy_origin: ${t.copyOrigin ?? "generated"}`,
@@ -186,7 +192,9 @@ export async function saveTrade(app: App, folder: string, t: Trade, dateFormat?:
   while (app.vault.getAbstractFileByPath(normalizePath(`${dir}/${tradeFilename(t, dateFormat)}_${n}.md`))) {
     n++;
   }
-  await app.vault.create(normalizePath(`${dir}/${tradeFilename(t)}_${n}.md`), content);
+  // Same format as the first file — a collision must not silently switch the
+  // date back to the default shape (YYYY-MM-DD) the user did not choose.
+  await app.vault.create(normalizePath(`${dir}/${tradeFilename(t, dateFormat)}_${n}.md`), content);
   return true;
 }
 
@@ -309,7 +317,14 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
   const get = (key: string): string => {
     const re = new RegExp(`^\\s*${key}:\\s*(.*)$`, "m");
     const match = fm.match(re);
-    return match ? match[1].replace(/^"|"$/g, "").replace(/\\"/g, '"').trim() : "";
+    // Written by quoteYaml: undo the escapes in one pass, so a literal
+    // backslash stays a backslash and a real newline comes back as a newline.
+    return match
+      ? match[1]
+          .replace(/^"|"$/g, "")
+          .replace(/\\(.)/g, (_, c: string) => (c === "n" ? "\n" : c === "t" ? "\t" : c))
+          .trim()
+      : "";
   };
   return {
     date: get("date"),
@@ -324,6 +339,8 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     target: parseFloat(get("target")) || 0,
     pnl: parseFloat(get("pnl")),
     pnlPoints: parseFloat(get("pnl_points")),
+    commission: parseFloat(get("commission")) || 0,
+    fees: parseFloat(get("fees")) || 0,
     entryTime: get("entry_time"),
     exitTime: get("exit_time"),
     fills: parseFills(fm),
@@ -351,6 +368,21 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
   };
 }
 
+/**
+ * One value, one physical line.
+ *
+ * The frontmatter is read line by line, so a note that holds real newlines
+ * cannot be written as-is: its second line would be read as a key of its own.
+ * Newlines travel as the two characters \n, quotes and backslashes are
+ * escaped, and `get` turns them back when the file is read again.
+ */
+const quoteYaml = (value: string): string =>
+  `"${value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r?\n/g, "\\n")
+    .replace(/\t/g, "\\t")}"`;
+
 export async function updateTradeFields(app: App, file: TFile, fields: Record<string, string | number | boolean>): Promise<void> {
   await app.vault.process(file, (content) => {
     let out = content;
@@ -364,7 +396,7 @@ export async function updateTradeFields(app: App, file: TFile, fields: Record<st
           ? value
             ? "true"
             : "false"
-          : `"${String(value).replace(/"/g, '\\"')}"`;
+          : quoteYaml(String(value));
       const re = new RegExp(`^(\\s*${key}:\\s*).*$`, "m");
       if (re.test(out)) {
         out = out.replace(re, `$1${raw}`);
