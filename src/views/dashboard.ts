@@ -96,9 +96,6 @@ export const HOME_DEFAULT: GridItem[] = [
   { i: "payouts", x: 12, y: 12, w: 12, h: 4 },
 ];
 
-/** Home's curated surface — also the allow-list for its Edit menu. */
-export const HOME_IDS: string[] = HOME_DEFAULT.map((t) => t.i);
-
 /** Metric widgets the archive seeds, in reading order. */
 const DASHBOARD_METRIC_IDS = [
   "m.netpnl", "m.winrate", "m.trades", "m.maxdd", "m.profitfactor", "m.sharpe",

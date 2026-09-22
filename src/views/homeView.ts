@@ -1,16 +1,16 @@
 import type TradebookPlugin from "../main";
 import type { GridItem } from "../lib/grid";
-import { HOME_DEFAULT, HOME_IDS, WidgetGridView, type DashItem } from "./dashboard";
+import { HOME_DEFAULT, WidgetGridView, type DashItem } from "./dashboard";
 
 export const HOME_VIEW_TYPE = "tradebook-home-view";
 
 /**
- * Home = the journal talking to you. A fixed narrative of eight blocks that fit
- * one screen, seeded from HOME_DEFAULT and curated to the same eight ids.
+ * Home = the journal talking to you. It reuses the shared WidgetGridView engine
+ * and owns its own persisted layout (`settings.homeLayout`), seeded from the six
+ * curated HOME_DEFAULT tiles.
  *
- * It reuses the shared WidgetGridView engine (same grid, same widgets) but owns
- * its own persisted layout (`settings.homeLayout`) so it can never drift from
- * the Dashboard archive.
+ * The difference from Dashboard is the DEFAULT, not the allow-list: both views
+ * accept any widget, so the trader can add whatever they want to either.
  */
 export class HomeView extends WidgetGridView {
   constructor(leaf: any, plugin: TradebookPlugin) {
@@ -39,10 +39,6 @@ export class HomeView extends WidgetGridView {
 
   defaultLayout(): GridItem[] {
     return HOME_DEFAULT;
-  }
-
-  allowedIds(): Set<string> {
-    return new Set(HOME_IDS);
   }
 
   viewKey(): string {
