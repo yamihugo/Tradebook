@@ -139,6 +139,10 @@ export interface TradeRow {
 /**
  * Fold the flat list into logical trades. Records share a `copyBaseKey` when one
  * is a copy of the other; anything without one is a trade of its own.
+ *
+ * The row is one line per decision, and its P&L is the trade's own gross — the
+ * base note's figure, never the sum of the legs it was mirrored into. What each
+ * copier's account made belongs to that account, not on the leader's row.
  */
 export function tradeRows(trades: Trade[]): TradeRow[] {
   const map = new Map<string, TradeRow>();
@@ -150,10 +154,12 @@ export function tradeRows(trades: Trade[]): TradeRow[] {
       continue;
     }
     row.legs.push(t);
-    row.money += Number.isFinite(t.pnl) ? t.pnl : 0;
     // The original note wins the row: it is the one with the screenshot, the
     // review and the file on disk. Copies only stand in when it is not loaded.
     if (row.rep.isCopiedTrade && !t.isCopiedTrade) row.rep = t;
+    // One row, one trade: the money is the winning record's own P&L, not the
+    // sum of every leg. The day totals add up because each decision appears once.
+    row.money = Number.isFinite(row.rep.pnl) ? row.rep.pnl : 0;
   }
   return [...map.values()];
 }
@@ -353,8 +359,9 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     sortValue: (t) => (Number.isFinite(t.pnl) ? t.pnl : null),
     firstDir: "desc",
     render: (td, t, _plugin, ctx) => {
-      // Money is what the trade made in every account it reached: the row sums
-      // its records so the day total above it adds up exactly.
+      // Money is the trade's own gross, once. A trade mirrored into a copier is
+      // still one decision on this ledger; the copier's account carries its own
+      // leg. The day total adds up because every decision appears exactly once.
       const money = ctx.row ? ctx.row.money : t.pnl;
       td.addClass("tj-tbl-pnl");
       // A trade that nets exactly zero is neither a win nor a loss: it gets no
@@ -380,10 +387,9 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     sortValue: (t) => (Number.isFinite(t.pnl) ? netPnl(t) : null),
     firstDir: "desc",
     render: (td, t, _plugin, ctx) => {
-      // Net of costs, summed across every account the row reached — what the
-      // row left behind after commission and fees. Hidden by default; the
-      // column picker turns it on.
-      const money = ctx.row ? ctx.row.legs.reduce((s, l) => s + netPnl(l), 0) : netPnl(t);
+      // Net of costs, for the row's one trade — the base note's own result.
+      // A copy's net belongs to the copy's account, not on this row.
+      const money = ctx.row ? netPnl(ctx.row.rep) : netPnl(t);
       td.addClass("tj-tbl-pnl");
       td.addClass(toneClass(money));
       td.setText(money === 0 ? fmtMoneyAbs(0) : fmtMoney(money));

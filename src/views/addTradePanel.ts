@@ -667,7 +667,16 @@ export class AddTradePanel {
       t.accountType = this.plugin.resolveAccountType(t.account);
     }
     // Copies for the ticked accounts — the journal records every leg it was told about.
-    const trades = await this.plugin.applyBroadcast(this.manualTrades, [...this.pickedAccounts]);
+    // An account that is itself where the trade was entered never also receives a
+    // leg: that would write the same trade twice into one account. The CSV path
+    // filters its bases the same way.
+    const bases = new Set(
+      this.manualTrades
+        .map((t) => this.plugin.mappedAccount(t.account)?.id)
+        .filter((id): id is string => !!id)
+    );
+    const broadcast = [...this.pickedAccounts].filter((id) => !bases.has(id));
+    const trades = await this.plugin.applyBroadcast(this.manualTrades, broadcast);
     btn.setAttr("disabled", "true");
     btn.setText("Saving…");
     const count = await this.plugin.storeTrades(trades);
