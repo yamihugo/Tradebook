@@ -2,11 +2,16 @@
  * chartKit — the small set of chart shapes the journal reuses.
  *
  * Pure-ish and DOM-in: an adapter in a widget computes the values, the shape
- * renders them. Four shapes cover the Home/Dashboard widgets:
- *   - bar row   (bucket → value, optional stacked overlay)
- *   - dumbbell  (before → after, per-row scale)
- *   - arc gauge (a ring with an optional inner label)
- *   - ribbon    (ordered sequence of up/down marks)
+ * renders them. Shapes:
+ *   - continuous bar (one horizontal track, segments coloured by result)
+ *   - treemap        (tiles sized by activity, coloured by result)
+ *   - dumbbell       (before → after, per-row scale)
+ *   - arc gauge      (a ring with an optional inner label)
+ *   - ribbon         (ordered sequence of up/down marks)
+ *
+ * NO VERTICAL BARS: performance-by-X widgets use a continuous bar or a treemap.
+ * The legacy `renderBarRow` (vertical) is retained only until its callers are
+ * converted; it must not be used for new widgets.
  *
  * No styling lives here beyond class names; the CSS is owned by styles.css and
  * added with the widget that first uses the shape.
@@ -160,6 +165,126 @@ export function renderBarRow(host: HTMLElement, spec: BarRowSpec): HTMLElement {
   return wrap;
 }
 
+// ---------------------------------------------------------- continuous bar
+
+export interface ContinuousSegment {
+  key: string;
+  /** Label shown under the segment (when `showLabels`). */
+  label: string;
+  /** Signed value; drives the colour, and the width when no `weightOf`. */
+  value: number;
+  tone?: "pos" | "mid" | "neg" | "neutral";
+  /** Optional stacked overlay as a 0..1 fraction of the segment. */
+  overlay?: number;
+  tip?: { title: string; value?: string; sub?: string };
+}
+
+export interface ContinuousBarSpec {
+  segments: ContinuousSegment[];
+  /** Segment width. Default: equal widths (a timeline). Use |value| to size by result. */
+  weightOf?: (s: ContinuousSegment) => number;
+  className?: string;
+  /** Render a label row aligned under the track. */
+  showLabels?: boolean;
+}
+
+/**
+ * One horizontal track split into proportional segments — the Journalit
+ * "continuous bar". Never vertical. Returns the root element.
+ */
+export function renderContinuousBar(host: HTMLElement, spec: ContinuousBarSpec): HTMLElement {
+  const wrap = host.createDiv({ cls: "tj-cbar" + (spec.className ? " " + spec.className : "") });
+  const track = wrap.createDiv({ cls: "tj-cbar-track" });
+  const weightOf = (s: ContinuousSegment): number => Math.max(1, spec.weightOf ? spec.weightOf(s) : 1);
+
+  for (const s of spec.segments) {
+    const tone = s.tone ?? (s.value >= 0 ? "pos" : "neg");
+    const seg = track.createDiv({ cls: "tj-cbar-seg " + tone });
+    seg.style.flex = `${weightOf(s)} 1 0`;
+    if (s.overlay !== undefined) {
+      const ov = seg.createEl("b", { cls: "tj-cbar-overlay" });
+      ov.style.width = `${Math.max(0, Math.min(1, s.overlay)) * 100}%`;
+    }
+    if (s.tip) attachTip(seg, s.tip);
+  }
+
+  if (spec.showLabels) {
+    const labels = wrap.createDiv({ cls: "tj-cbar-labels" });
+    for (const s of spec.segments) {
+      const l = labels.createSpan({ cls: "tj-cbar-label", text: s.label });
+      l.style.flex = `${weightOf(s)} 1 0`;
+    }
+  }
+  return wrap;
+}
+
+// ------------------------------------------------------------------ treemap
+
+export interface TreemapTile {
+  key: string;
+  label: string;
+  /** Net result — drives the colour and the value text. */
+  net: number;
+  /** Activity — drives the tile width. */
+  count: number;
+  wins: number;
+  tip?: { title: string; value?: string; sub?: string };
+}
+
+export interface TreemapSpec {
+  tiles: TreemapTile[];
+  className?: string;
+  /** Tiles beyond this are merged into "Other". Default 6. */
+  maxTiles?: number;
+  formatMoney?: (v: number) => string;
+}
+
+/**
+ * Activity-sized tiles coloured by result (the account page's treemap, lifted
+ * here so every breakdown shares one implementation). Returns the root element.
+ */
+export function renderTreemap(host: HTMLElement, spec: TreemapSpec): HTMLElement {
+  const maxTiles = spec.maxTiles ?? 6;
+  const fmt = spec.formatMoney ?? ((v: number) => String(v));
+  const wrap = host.createDiv({ cls: "tj-treemap" + (spec.className ? " " + spec.className : "") });
+
+  let tiles = spec.tiles;
+  if (tiles.length > maxTiles) {
+    const head = tiles.slice(0, maxTiles);
+    const rest = tiles.slice(maxTiles);
+    const merged = rest.reduce(
+      (a, t) => ({ key: "other", label: "Other", net: a.net + t.net, count: a.count + t.count, wins: a.wins + t.wins }),
+      { key: "other", label: "Other", net: 0, count: 0, wins: 0 }
+    );
+    tiles = [...head, merged];
+  }
+
+  const maxAbs = Math.max(...tiles.map((t) => Math.abs(t.net)), 1);
+  const total = tiles.reduce((a, t) => a + t.count, 0) || 1;
+
+  for (const t of tiles) {
+    const tile = wrap.createDiv({ cls: "tj-treemap-tile" });
+    tile.style.flex = `${Math.max(1, t.count)} 1 0`;
+    const good = t.net >= 0;
+    const strength = 0.14 + (Math.abs(t.net) / maxAbs) * 0.34;
+    tile.style.background = good
+      ? `linear-gradient(160deg, rgba(52,209,122,${strength.toFixed(2)}), rgba(34,122,74,${(strength * 0.5).toFixed(2)}))`
+      : `linear-gradient(160deg, rgba(255,93,72,${strength.toFixed(2)}), rgba(143,43,30,${(strength * 0.5).toFixed(2)}))`;
+    tile.createDiv({ cls: "tj-treemap-t", text: t.label });
+    tile.createDiv({ cls: "tj-treemap-v " + (good ? "tj-pos" : "tj-neg"), text: fmt(t.net) });
+    tile.createDiv({ cls: "tj-treemap-w", text: `${t.count ? Math.round((t.wins / t.count) * 100) : 0}% win` });
+    attachTip(
+      tile,
+      t.tip ?? {
+        title: t.label,
+        value: fmt(t.net),
+        sub: `${t.count} trades (${Math.round((t.count / total) * 100)}% of activity)`,
+      }
+    );
+  }
+  return wrap;
+}
+
 // ------------------------------------------------------------------ dumbbell
 
 export interface DumbbellRow {
@@ -261,5 +386,5 @@ export function renderRibbon(host: HTMLElement, spec: RibbonSpec): HTMLElement {
 
 // Test hook, same pattern as the other pure-ish modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjChartKit = { renderGauge, renderBarRow, renderDumbbell, renderRibbon };
+  (window as any).__tjChartKit = { renderGauge, renderBarRow, renderContinuousBar, renderTreemap, renderDumbbell, renderRibbon };
 }
