@@ -10,8 +10,6 @@
  *   - ribbon         (ordered sequence of up/down marks)
  *
  * NO VERTICAL BARS: performance-by-X widgets use a continuous bar or a treemap.
- * The legacy `renderBarRow` (vertical) is retained only until its callers are
- * converted; it must not be used for new widgets.
  *
  * No styling lives here beyond class names; the CSS is owned by styles.css and
  * added with the widget that first uses the shape.
@@ -108,62 +106,6 @@ export function renderGauge(host: HTMLElement, spec: GaugeSpec): HTMLElement {
 }
 
 // ------------------------------------------------------------------- bar row
-
-export interface BarRowItem {
-  key: string;
-  /** Axis label under the column. */
-  label: string;
-  /** Signed value; the magnitude drives the bar height. */
-  value: number;
-  /** Optional stacked overlay as a 0..1 fraction of the bar (e.g. win rate). */
-  overlay?: number;
-  tone?: "pos" | "mid" | "neg" | "neutral";
-  /** Tooltip shown on hover. */
-  tip?: { title: string; value?: string; sub?: string };
-  /** Draw an empty slot (no data at this bucket). */
-  empty?: boolean;
-}
-
-export interface BarRowSpec {
-  items: BarRowItem[];
-  /** Magnitude the tallest bar maps to; default = max |value|. */
-  max?: number;
-  className?: string;
-  /** Show every Nth axis label; default picks ~5 labels. */
-  axisEvery?: number;
-}
-
-/** A row of vertical bars with an optional stacked overlay. Returns the root. */
-export function renderBarRow(host: HTMLElement, spec: BarRowSpec): HTMLElement {
-  const max = spec.max ?? Math.max(...spec.items.map((i) => Math.abs(i.value)), 1);
-  const every = spec.axisEvery ?? Math.max(1, Math.ceil(spec.items.length / 5));
-  const wrap = host.createDiv({ cls: "tj-barrow" + (spec.className ? " " + spec.className : "") });
-  const track = wrap.createDiv({ cls: "tj-barrow-track" });
-  const labels = wrap.createDiv({ cls: "tj-barrow-axis" });
-
-  spec.items.forEach((it, i) => {
-    const col = track.createDiv({ cls: "tj-barrow-col" });
-    const tone = it.tone ?? (it.value >= 0 ? "pos" : "neg");
-    const bar = col.createEl("i", { cls: "tj-barrow-bar " + tone });
-    if (it.empty || it.value === 0) {
-      bar.addClass("is-empty");
-      bar.style.height = "0%";
-    } else {
-      bar.style.height = `${Math.max(2, (Math.abs(it.value) / max) * 100)}%`;
-    }
-    if (it.overlay !== undefined) {
-      const ov = bar.createEl("b", { cls: "tj-barrow-overlay" });
-      ov.style.height = `${Math.max(0, Math.min(1, it.overlay)) * 100}%`;
-    }
-    if (it.tip) attachTip(col, it.tip);
-    labels.createSpan({
-      cls: "tj-barrow-tick",
-      text: i % every === 0 || i === spec.items.length - 1 ? it.label : "",
-    });
-  });
-
-  return wrap;
-}
 
 // ---------------------------------------------------------- continuous bar
 
@@ -386,5 +328,5 @@ export function renderRibbon(host: HTMLElement, spec: RibbonSpec): HTMLElement {
 
 // Test hook, same pattern as the other pure-ish modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjChartKit = { renderGauge, renderBarRow, renderContinuousBar, renderTreemap, renderDumbbell, renderRibbon };
+  (window as any).__tjChartKit = { renderGauge, renderContinuousBar, renderTreemap, renderDumbbell, renderRibbon };
 }

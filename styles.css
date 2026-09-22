@@ -5845,34 +5845,34 @@ textarea.tj-anno-textinput {
 .tj-arc-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-arc-color, var(--text-normal)); }
 .tj-arc-small { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
 .tj-score-gauge { width: min(56%, 170px); }
-/* Bar-row primitive (lib/chartKit.ts) — timing buckets, discipline process. */
-.tj-barrow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
-.tj-barrow-track { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 100%; min-height: 24px; }
-.tj-barrow-col { flex: 0 1 48px; max-width: 48px; display: flex; align-items: flex-end; justify-content: center; min-width: 0; height: 100%; position: relative; }
-.tj-barrow-bar { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--tj-tone-mid); position: relative; overflow: hidden; }
-.tj-barrow-bar.pos { background: var(--tj-tone-good); }
-.tj-barrow-bar.neg { background: var(--tj-tone-bad); }
-.tj-barrow-bar.mid { background: var(--tj-tone-mid); }
-.tj-barrow-bar.neutral { background: color-mix(in srgb, var(--tj-fg-3) 30%, transparent); }
-.tj-barrow-bar.is-empty { background: color-mix(in srgb, var(--tj-fg-3) 10%, transparent); }
-.tj-barrow-overlay { position: absolute; left: 0; right: 0; bottom: 0; display: block; background: color-mix(in srgb, var(--text-normal) 55%, transparent); }
-.tj-barrow-axis { display: flex; justify-content: center; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
-.tj-barrow-tick { flex: 0 1 48px; max-width: 48px; text-align: center; white-space: nowrap; overflow: hidden; }
+/* Continuous-bar primitive (lib/chartKit.ts) — horizontal, never vertical. */
+.tj-cbar { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.tj-cbar-track { display: flex; gap: 2px; height: 26px; border-radius: 6px; overflow: hidden; }
+.tj-cbar-seg { position: relative; border-radius: 3px; min-width: 3px; background: color-mix(in srgb, var(--tj-fg-3) 24%, transparent); transition: filter 120ms ease; }
+.tj-cbar-seg.pos { background: var(--tj-tone-good); }
+.tj-cbar-seg.neg { background: var(--tj-tone-bad); }
+.tj-cbar-seg.mid { background: var(--tj-tone-mid); }
+.tj-cbar-seg.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
+.tj-cbar-seg:hover { filter: brightness(1.2); }
+.tj-cbar-overlay { position: absolute; left: 0; top: 0; bottom: 0; display: block; background: color-mix(in srgb, var(--text-normal) 45%, transparent); }
+.tj-cbar-labels { display: flex; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
+.tj-cbar-label { text-align: center; white-space: nowrap; overflow: hidden; }
 /* Overflow policy: charts scale inside the card; tables/lists scroll. */
 .tj-gridcard-body.tj-scale { overflow: hidden; }
 .tj-gridcard-body.tj-scroll { overflow: auto; }
-/* Discipline — hero gauge + process bars */
+/* Discipline — hero gauge + process continuous bar */
 .tj-disc-gauge { width: 108px; }
-.tj-disc-process .tj-barrow-track { height: 42px; }
 .tj-disc-process { margin-top: 2px; }
-/* Dimension widgets (hour / session / weekday) — one bar row + a summary line */
+.tj-disc-process .tj-cbar-track { height: 22px; }
+/* Dimension widgets (hour / session / weekday) — one continuous bar + a summary */
 .tj-dim { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
 .tj-dim-summary { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-dim-k { text-transform: uppercase; letter-spacing: 0.05em; }
 .tj-dim-best { font-weight: 600; color: var(--text-normal); }
 .tj-dim-val { font-weight: 700; }
 .tj-dim-bars { flex: 1 1 auto; min-height: 0; }
-.tj-dim-bars .tj-barrow-track { height: 64px; }
+.tj-dim-bars .tj-cbar-track { height: 30px; }
+.tj-pay-cbar .tj-cbar-track { height: 26px; }
 .tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
 .tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
 .tj-score-foot { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: center; gap: 9px; margin-top: 2px; }
@@ -8624,38 +8624,6 @@ textarea.tj-anno-textinput {
   font-weight: var(--tj-w-medium);
   font-variant-numeric: tabular-nums;
   color: var(--text-normal);
-}
-.tj-pay-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  height: 56px;
-}
-.tj-pay-bar {
-  flex: 1 1 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-}
-.tj-pay-bar i {
-  display: block;
-  border-radius: 3px 3px 0 0;
-  background: color-mix(in srgb, var(--interactive-accent) 70%, transparent);
-}
-.tj-pay-bar i.is-empty {
-  box-shadow: inset 0 0 0 1px var(--background-modifier-border);
-  background: transparent;
-}
-.tj-pay-blabels {
-  display: flex;
-  gap: 6px;
-}
-.tj-pay-blbl {
-  flex: 1 1 0;
-  text-align: center;
-  font-size: var(--tj-fs-label);
-  color: var(--tj-fg-3);
 }
 .tj-pay-last {
   font-size: var(--tj-fs-small);

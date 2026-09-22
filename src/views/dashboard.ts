@@ -28,7 +28,7 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderBarRow } from "../lib/chartKit";
+import { renderGauge, renderContinuousBar } from "../lib/chartKit";
 import { dimensionBars, type DimensionBarsOpts } from "../lib/breakdown";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
@@ -1416,17 +1416,19 @@ export class WidgetGridView extends ItemView {
       const bucket = months.find((m) => m.key === p.date.slice(0, 7));
       if (bucket) bucket.amount += p.amount;
     }
-    const maxMonth = Math.max(...months.map((m) => m.amount), 1);
-    const bars = wrap.createDiv({ cls: "tj-pay-bars" });
-    const labels = wrap.createDiv({ cls: "tj-pay-blabels" });
-    for (const m of months) {
-      const col = bars.createDiv({ cls: "tj-pay-bar" });
-      const bar = col.createEl("i");
-      bar.style.height = `${m.amount > 0 ? Math.max(3, (m.amount / maxMonth) * 100) : 0}%`;
-      bar.toggleClass("is-empty", m.amount <= 0);
-      if (m.amount > 0) bar.setAttr("title", `${fmtMoney2(m.amount)} in ${m.key}`);
-      labels.createSpan({ cls: "tj-pay-blbl", text: MON_ABBR[Number(m.key.slice(5, 7)) - 1] });
-    }
+    // Six months of cash out as one continuous bar — width by amount (magnitude).
+    renderContinuousBar(wrap, {
+      className: "tj-pay-cbar",
+      showLabels: true,
+      weightOf: (s) => Math.abs(s.value),
+      segments: months.map((m) => ({
+        key: m.key,
+        label: MON_ABBR[Number(m.key.slice(5, 7)) - 1],
+        value: m.amount,
+        tone: m.amount > 0 ? "pos" : "neutral",
+        tip: m.amount > 0 ? { title: m.key, value: fmtMoney2(m.amount) } : undefined,
+      })),
+    });
 
     const lastAcc = byId.get(last.accountId);
     wrap.createDiv({
@@ -1576,11 +1578,10 @@ export class WidgetGridView extends ItemView {
     // Good signals read green when high; bad signals read green when low.
     const pctTone = (v: number, good: boolean): "pos" | "mid" | "neg" =>
       good ? (v >= 70 ? "pos" : v >= 40 ? "mid" : "neg") : v <= 10 ? "pos" : v <= 25 ? "mid" : "neg";
-    renderBarRow(foot, {
-      max: 100,
+    renderContinuousBar(foot, {
       className: "tj-disc-process",
-      axisEvery: 1,
-      items: [
+      showLabels: true,
+      segments: [
         { key: "review", label: "Review", value: rev.pct, tone: pctTone(rev.pct, true),
           tip: { title: "Reviewed", value: `${rev.pct}%`, sub: `${rev.complete} of ${rev.total} complete` } },
         { key: "journal", label: "Journal", value: journalPct, tone: pctTone(journalPct, true),
@@ -1744,14 +1745,13 @@ export class WidgetGridView extends ItemView {
     keyOf: (t: Trade) => string,
     opts: DimensionBarsOpts,
     bestLabel: string,
-    cls: string,
-    axisEvery?: number
+    cls: string
   ): void {
     if (!trades.some((t) => keyOf(t))) {
       body.createDiv({ cls: "tj-empty", text: "No time data yet." });
       return;
     }
-    const { items, max, best } = dimensionBars(trades, counted, keyOf, opts);
+    const { items, best } = dimensionBars(trades, counted, keyOf, opts);
     const wrap = body.createDiv({ cls: "tj-dim " + cls });
     if (best) {
       const line = wrap.createDiv({ cls: "tj-dim-summary" });
@@ -1762,7 +1762,8 @@ export class WidgetGridView extends ItemView {
         text: fmtMoney2(best.value),
       });
     }
-    renderBarRow(wrap, { items, max, className: "tj-dim-bars", axisEvery });
+    // Equal-width chronological slots: a timeline read, never vertical bars.
+    renderContinuousBar(wrap, { segments: items, className: "tj-dim-bars", showLabels: true });
   }
 
   /** P&L + win% by entry hour (active hours only, chronological). */
@@ -1790,7 +1791,7 @@ export class WidgetGridView extends ItemView {
         orderOf: sessionRank,
         formatMoney: fmtMoney2,
       },
-      "Best session", "tj-session", 1
+      "Best session", "tj-session"
     );
   }
 
@@ -1812,7 +1813,7 @@ export class WidgetGridView extends ItemView {
         },
         formatMoney: fmtMoney2,
       },
-      "Best day", "tj-weekday", 1
+      "Best day", "tj-weekday"
     );
   }
 
