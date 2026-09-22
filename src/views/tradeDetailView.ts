@@ -15,7 +15,7 @@ import { formatDate } from "../lib/dates";
 import { holdFmt, tradeR } from "../lib/tradeTable";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
-import { feeForTrade } from "../lib/fees";
+import { feeForTrade, priceFromRisk } from "../lib/fees";
 import { optionalSummary, reviewStatus } from "../lib/review";
 
 export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
@@ -523,9 +523,10 @@ export class TradeDetailView extends ItemView {
       if (raw.startsWith("$")) {
         const dollars = parseFloat(raw.replace(/[$,]/g, ""));
         if (!Number.isFinite(dollars) || !t.entryPrice) return null;
+        // The stop uses the shared helper so it matches the Manual Trade.
+        if (towards === "stop") return priceFromRisk(t.entryPrice, t.direction, dollars, pointValue, qty);
         const dist = dollars / pointValue / qty;
-        if (towards === "target") return t.direction === "long" ? t.entryPrice + dist : t.entryPrice - dist;
-        return t.direction === "long" ? t.entryPrice - dist : t.entryPrice + dist;
+        return t.direction === "long" ? t.entryPrice + dist : t.entryPrice - dist;
       }
       const price = parseFloat(raw.replace(/[,$]/g, ""));
       return Number.isFinite(price) ? price : null;
@@ -696,7 +697,10 @@ export class TradeDetailView extends ItemView {
     const stratLbl = stratField.createEl("div", { cls: "tj-td-field-label" });
     stratLbl.createEl("span", { text: "Strategy" });
     const stratWrap = stratField.createDiv({ cls: "tj-td-flip-strat-wrap" });
-    const setupItems: DropdownItem[] = this.setupOptions.map((s) => ({ id: s, label: s }));
+    const setupItems: DropdownItem[] = [
+      { id: "__none__", label: "No strategy", note: "Record it without filing it under one" },
+    ];
+    for (const s of this.setupOptions) setupItems.push({ id: s, label: s });
     setupItems.push({ id: "__new__", label: "＋ New strategy…", note: "Saved to Strategies" });
     const currentSetup = (t.setup || "").trim();
     if (currentSetup && !this.setupOptions.some((s) => s.toLowerCase() === currentSetup.toLowerCase())) {
@@ -707,6 +711,12 @@ export class TradeDetailView extends ItemView {
       setupItems,
       currentSetup,
       async (id) => {
+        if (id === "__none__") {
+          this.trade!.setup = "";
+          await this.saveField("setup", "");
+          this.render();
+          return;
+        }
         if (id === "__new__") {
           const name = window.prompt("Name your strategy");
           if (!name || !name.trim()) return;

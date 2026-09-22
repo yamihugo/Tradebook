@@ -27,6 +27,26 @@ export function netPnl(t: Trade): number {
 }
 
 /**
+ * The stop price a given dollar risk sits at, relative to the entry.
+ *
+ * A long risks below the entry, a short above it. `dist` is the price distance
+ * that `riskDollars` buys at this contract's point value and size. Returns null
+ * when there is nothing to measure against (no entry, no size, no point value),
+ * so a caller can leave the field alone rather than invent a stop.
+ */
+export function priceFromRisk(
+  entryPrice: number,
+  direction: "long" | "short",
+  riskDollars: number,
+  pointValue: number,
+  qty: number
+): number | null {
+  if (!(entryPrice > 0) || !(qty > 0) || !(pointValue > 0)) return null;
+  const dist = riskDollars / (pointValue * qty);
+  return direction === "long" ? entryPrice - dist : entryPrice + dist;
+}
+
+/**
  * Every key this trade answers to, most specific first.
  *
  * The fill id is the platform's own identity and never collides. A hand-entered

@@ -7,7 +7,7 @@ import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
 import { fmtMoney2, isDateStr, todayStr, zoneShortLabel } from "../tz";
 import { holdFmt } from "../lib/tradeTable";
-import { netPnl } from "../lib/fees";
+import { netPnl, priceFromRisk } from "../lib/fees";
 import { sessionOf } from "../lib/sessions";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { openAccountWizard } from "./accountWizard";
@@ -67,8 +67,6 @@ export class AddTradePanel {
   pickedAccounts = new Set<string>();
   private prefilledBase = "";
   knownSetups: string[] = [];
-  /** Trade indexes whose strategy question has been answered (a name or "No strategy"). */
-  private strategyResolved = new Set<number>();
 
   constructor(plugin: TradebookPlugin, opts: AddTradePanelOptions = {}) {
     this.plugin = plugin;
@@ -207,6 +205,8 @@ export class AddTradePanel {
     });
 
     // ---- Strategy (the form asks; the engine never imposes — §0) ----
+    // "No strategy" is the default and a real answer: an unfiled trade saves,
+    // and the review checklist reports the strategy as missing on its own.
     const fSetup = field("Strategy");
     const setupItems: DropdownItem[] = [
       { id: "__none__", label: "No strategy", note: "Record it without filing it under one" },
@@ -220,38 +220,26 @@ export class AddTradePanel {
     mountDropdown(
       fSetup.createDiv({ cls: "tj-add-ctl" }),
       setupItems,
-      currentSetup || (this.strategyResolved.has(i) ? "__none__" : ""),
+      currentSetup || "__none__",
       async (id) => {
         if (id === "__new__") {
           const name = window.prompt("Name your strategy");
           if (!name || !name.trim()) return;
           t.setup = await this.plugin.addSetup(name);
-          this.strategyResolved.add(i);
           this.knownSetups = await this.plugin.knownSetups();
           this.renderBody();
           return;
         }
         if (id === "__none__") {
           t.setup = "";
-          this.strategyResolved.add(i);
           this.renderBody();
           return;
         }
         t.setup = id;
-        this.strategyResolved.add(i);
         this.renderBody();
       },
-      { placeholder: "Choose a strategy" }
+      { placeholder: "No strategy" }
     );
-    if (!currentSetup && !this.strategyResolved.has(i) && this.knownSetups.length !== 1) {
-      fSetup
-        .createDiv({ cls: "tj-add-hint" })
-        .setText(
-          this.knownSetups.length === 0
-            ? "No strategy registered yet — add one, or record it as no strategy."
-            : "Pick the strategy this trade belongs to."
-        );
-    }
 
     // ---- Direction ----
     const fDir = field("Direction");
@@ -319,6 +307,8 @@ export class AddTradePanel {
     });
 
     // ---- Times (HH:MM:SS, kept n the journal's own clock) ----
+    /** Re-mounts the Session dropdown in place when the entry time moves it. */
+    let remountSession: (() => void) | null = null;
     const timeInput = (host: HTMLElement, value: string, onSet: (v: string) => void) => {
       const input = host.createEl("input", {
         cls: "tj-add-input",
@@ -340,6 +330,8 @@ export class AddTradePanel {
     };
     timeInput(field("Entry time", tz), t.entryTime || "", (v) => {
       t.entryTime = v;
+      // The session follows the entry time unless the trader pinned one.
+      if (!(t as any).sessionOverride) remountSession?.();
     });
     timeInput(field("Exit time", tz), t.exitTime || "", (v) => {
       t.exitTime = v;
@@ -359,7 +351,7 @@ export class AddTradePanel {
     const vNet = cell("Net after fees");
 
     /** Risk $ lives in the fold; the strip repaints it too, from the same numbers. */
-    let vRisk: HTMLElement | null = null;
+    let vRisk: HTMLInputElement | null = null;
 
     const paint = () => {
       const qty = t.quantity || 1;
@@ -424,9 +416,37 @@ export class AddTradePanel {
       paint();
     });
 
-    // ---- Risk $ (read-only: derived from stop, size and the point value) ----
+    // ---- Risk $ (editable: it and the Stop price derive from each other) ----
     const fRisk = mField("Risk $");
-    vRisk = fRisk.createDiv({ cls: "tj-add-ro" });
+    const riskInput = freeNumeric(
+      fRisk.createEl("input", {
+        cls: "tj-add-input",
+        type: "number",
+      })
+    );
+    vRisk = riskInput;
+    // While the field is being typed in, paintExtra must not overwrite it with
+    // the value derived from the stop — that would fight the caret.
+    let editingRisk = false;
+    riskInput.addEventListener("focus", () => {
+      editingRisk = true;
+    });
+    riskInput.addEventListener("blur", () => {
+      editingRisk = false;
+    });
+    riskInput.addEventListener("input", () => {
+      const risk = parseFloat(riskInput.value);
+      const qty = t.quantity || 1;
+      if (Number.isFinite(risk) && risk > 0) {
+        const stop = priceFromRisk(t.entryPrice, t.direction, risk, pointValue, qty);
+        if (stop !== null) {
+          const rounded = Math.round(stop * 100) / 100;
+          t.stopLoss = rounded;
+          stopInput.value = String(rounded);
+        }
+      }
+      paint();
+    });
 
     // ---- Fees ----
     const fFees = mField("Fees");
@@ -469,23 +489,30 @@ export class AddTradePanel {
       { id: "off", label: "Off hours" },
       { id: "__auto__", label: "Auto-detect", note: "From the entry time" },
     ];
-    const sessVal = (t as any).sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
-    mountDropdown(
-      fSess.createDiv({ cls: "tj-add-ctl" }),
-      sessItems,
-      sessVal,
-      (id) => {
-        if (id === "__auto__") delete (t as any).sessionOverride;
-        else (t as any).sessionOverride = id;
-      },
-      { placeholder: "Session…" }
-    );
+    const sessHost = fSess.createDiv({ cls: "tj-add-ctl" });
+    remountSession = () => {
+      sessHost.empty();
+      const sessVal = (t as any).sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
+      mountDropdown(
+        sessHost,
+        sessItems,
+        sessVal,
+        (id) => {
+          if (id === "__auto__") delete (t as any).sessionOverride;
+          else (t as any).sessionOverride = id;
+        },
+        { placeholder: "Session…" }
+      );
+    };
+    remountSession();
 
     const paintExtra = () => {
       const qty = t.quantity || 1;
       const riskDollar =
         t.stopLoss && t.entryPrice ? Math.abs(t.entryPrice - t.stopLoss) * pointValue * qty : null;
-      vRisk?.setText(riskDollar !== null ? `$${riskDollar.toFixed(0)}` : "—");
+      if (vRisk && !editingRisk) {
+        vRisk.value = riskDollar !== null ? String(Math.round(riskDollar)) : "";
+      }
     };
 
     // ---- Rating ----
@@ -616,20 +643,6 @@ export class AddTradePanel {
       attachTip(save, { title: "No account yet", sub: "Create one first — every trade is recorded in an account." });
       return;
     }
-    // The form asks for a strategy (or an explicit "No strategy"); it never
-    // forces one on a trade that has no home. §0: report, do not impose.
-    if (this.needsStrategy()) {
-      save.setAttr("disabled", "true");
-      attachTip(save, {
-        title: "Pick a strategy",
-        sub: "Choose one, or choose “No strategy” to record it unfiled.",
-      });
-    }
-  }
-
-  /** True while any trade still has an unanswered strategy question. */
-  private needsStrategy(): boolean {
-    return this.manualTrades.some((t, i) => !(t.setup || "").trim() && !this.strategyResolved.has(i));
   }
 
   // ================================================================
@@ -638,10 +651,6 @@ export class AddTradePanel {
   async doSave(btn: HTMLElement): Promise<void> {
     if (!this.manualTrades.length) {
       new Notice("Nothing to save yet.");
-      return;
-    }
-    if (this.needsStrategy()) {
-      new Notice("Pick a strategy first — or choose “No strategy”.");
       return;
     }
     for (let i = 0; i < this.manualTrades.length; i++) {
