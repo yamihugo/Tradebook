@@ -335,8 +335,8 @@
   background: rgba(74, 222, 128, 0.12);
   border: 1px solid rgba(74, 222, 128, 0.35);
 }
-.tj-pos { color: var(--color-green-bright, #34d17a); font-weight: 600; }
-.tj-neg { color: var(--text-error, #ad3527); font-weight: 600; }
+.tj-pos { color: var(--tj-tone-good); font-weight: 600; }
+.tj-neg { color: var(--tj-tone-bad); font-weight: 600; }
 
 /* ---------------- Heatmap ---------------- */
 .tj-heatmap {
@@ -3615,8 +3615,8 @@
   line-height: 1.3;
   color: var(--text-normal);
 }
-.tj-metric-value.tj-pos { color: var(--color-green-bright, #34d17a); }
-.tj-metric-value.tj-neg { color: var(--color-red, #ad3527); }
+.tj-metric-value.tj-pos { color: var(--tj-tone-good); }
+.tj-metric-value.tj-neg { color: var(--tj-tone-bad); }
 
 /* Floating remove button for headerless widgets (chart + metrics) */
 .tj-card-del {
@@ -3723,8 +3723,8 @@
   white-space: nowrap;
   color: var(--text-normal);
 }
-.tj-eq-card-val.tj-pos { color: var(--color-green-bright, #34d17a); }
-.tj-eq-card-val.tj-neg { color: var(--color-red, #ad3527); }
+.tj-eq-card-val.tj-pos { color: var(--tj-tone-good); }
+.tj-eq-card-val.tj-neg { color: var(--tj-tone-bad); }
 
 /* Score fallback bars (used if the radar SVG cannot draw) */
 .tj-score-bars { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
@@ -3808,8 +3808,8 @@
   text-overflow: ellipsis;
 }
 .tj-nav-result-value { font-size: var(--tj-fs-body); font-weight: 600; flex-shrink: 0; }
-.tj-nav-result-value.tj-pos { color: var(--color-green-bright, #34d17a); }
-.tj-nav-result-value.tj-neg { color: var(--color-red, #ad3527); }
+.tj-nav-result-value.tj-pos { color: var(--tj-tone-good); }
+.tj-nav-result-value.tj-neg { color: var(--tj-tone-bad); }
 .tj-nav-results-empty { padding: 16px; text-align: center; color: var(--tj-fg-3); font-size: var(--tj-fs-strong); }
 
 .tj-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -4492,8 +4492,8 @@
 .tj-revieww { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
 .tj-revieww-head { display: flex; align-items: baseline; gap: 8px; }
 .tj-revieww-num { font-size: var(--tj-fs-hero); font-weight: 700; }
-.tj-revieww-num.tj-neg { color: var(--color-red, #ad3527); }
-.tj-revieww-num.tj-pos { color: var(--color-green-bright, #34d17a); }
+.tj-revieww-num.tj-neg { color: var(--tj-tone-bad); }
+.tj-revieww-num.tj-pos { color: var(--tj-tone-good); }
 .tj-revieww-cap { font-size: var(--tj-fs-strong); color: var(--text-muted); }
 .tj-revieww-bar { height: 6px; border-radius: 3px; background: var(--background-modifier-border); overflow: hidden; }
 .tj-revieww-fill { height: 100%; background: var(--interactive-accent); border-radius: 3px; }
@@ -4515,8 +4515,8 @@
 .tj-revieww-gauge-cap { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
 .tj-revieww-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
 .tj-revieww-num { font-size: var(--tj-fs-hero); font-weight: 700; }
-.tj-revieww-num.tj-neg { color: var(--color-red, #ad3527); }
-.tj-revieww-num.tj-pos { color: var(--color-green-bright, #34d17a); }
+.tj-revieww-num.tj-neg { color: var(--tj-tone-bad); }
+.tj-revieww-num.tj-pos { color: var(--tj-tone-good); }
 .tj-revieww-cap { font-size: var(--tj-fs-strong); color: var(--text-muted); }
 .tj-revieww-sub { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
 .tj-revieww-actions { display: flex; justify-content: flex-start; margin-top: 6px; }
@@ -4644,7 +4644,7 @@
   align-content: center;
   align-items: center;
   justify-items: center;
-  gap: 6px 18px;
+  gap: 4px 12px;
   width: 100%;
   height: 100%;
 }
@@ -5619,17 +5619,17 @@ textarea.tj-anno-textinput {
 
 /* Calendar day tints — soft, matching the equity chart palette */
 .tj-pcal-cell.is-pos {
-  background: color-mix(in srgb, var(--color-green-bright) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-green-bright) 18%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-good) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-tone-good) 18%, transparent);
 }
-.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--color-green-bright); }
+.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-tone-good); }
 .tj-pcal-cell.is-neg {
-  background: color-mix(in srgb, var(--color-red-bright) 8%, transparent);
-  border-color: color-mix(in srgb, var(--color-red-bright) 17%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-bad) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-tone-bad) 17%, transparent);
 }
-.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--color-red-bright); }
-.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--color-green-bright) 62%, var(--text-muted)); }
-.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--color-red-bright) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-tone-bad); }
+.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-good) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-bad) 62%, var(--text-muted)); }
 
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
@@ -5868,11 +5868,20 @@ textarea.tj-anno-textinput {
 .tj-status-square.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-status-square:hover { filter: brightness(1.2); }
 .tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Treemap tiles (lib/chartKit.ts) — colour from the tone tokens, intensity inline. */
+.tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
+.tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
+/* Card bodies are size containers so a widget can adapt to a short card. */
+.tj-gridcard-body { container-type: size; }
+@container (max-height: 150px) {
+  .tj-disc-gauge { display: none; }
+  .tj-revieww { grid-template-areas: "foot"; grid-template-columns: 1fr; }
+}
 /* Overflow policy: charts scale inside the card; tables/lists scroll. */
 .tj-gridcard-body.tj-scale { overflow: hidden; }
 .tj-gridcard-body.tj-scroll { overflow: auto; }
 /* Discipline — hero gauge + compact status squares */
-.tj-disc-gauge { width: 108px; }
+.tj-disc-gauge { width: clamp(64px, 40%, 108px); }
 .tj-disc-process { margin-top: 2px; }
 /* Dimension widgets (hour / session / weekday) — one continuous bar + a summary */
 .tj-dim { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 100%; min-height: 0; }
@@ -7700,10 +7709,10 @@ textarea.tj-anno-textinput {
   cursor: pointer;
 }
 .tj-tbl td.tj-pos {
-  color: var(--color-green-bright, #34d17a) !important;
+  color: var(--tj-tone-good) !important;
 }
 .tj-tbl td.tj-neg {
-  color: var(--color-red-bright, #ff5d48) !important;
+  color: var(--tj-tone-bad) !important;
 }
 .tj-tbl-sym {
   color: var(--text-normal);

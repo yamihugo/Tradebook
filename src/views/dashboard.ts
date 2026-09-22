@@ -139,9 +139,9 @@ const MIN_W: Record<string, number> = {
   discipline: 12, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
-  equity: 5, longpnl: 5, shortpnl: 5, calendar: 5, heatmap: 5,
-  hour: 3, session: 3, weekday: 3, symbols: 5, score: 6,
-  discipline: 4, trends: 4, payouts: 3,
+  equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
+  hour: 3, session: 3, weekday: 3, symbols: 4, score: 6,
+  discipline: 3, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
 const minOf = (id: string): { w: number; h: number } => ({ w: MIN_W[id] ?? 1, h: MIN_H[id] ?? 1 });

@@ -237,9 +237,9 @@ export function renderTreemap(host: HTMLElement, spec: TreemapSpec): HTMLElement
     tile.style.flex = `${Math.max(1, t.count)} 1 0`;
     const good = t.net >= 0;
     const strength = 0.14 + (Math.abs(t.net) / maxAbs) * 0.34;
-    tile.style.background = good
-      ? `linear-gradient(160deg, rgba(52,209,122,${strength.toFixed(2)}), rgba(34,122,74,${(strength * 0.5).toFixed(2)}))`
-      : `linear-gradient(160deg, rgba(255,93,72,${strength.toFixed(2)}), rgba(143,43,30,${(strength * 0.5).toFixed(2)}))`;
+    // Colour comes from CSS, built on the tone tokens; only the intensity travels inline.
+    tile.addClass(good ? "pos" : "neg");
+    tile.style.setProperty("--tj-tile-strength", strength.toFixed(2));
     tile.createDiv({ cls: "tj-treemap-t", text: t.label });
     tile.createDiv({ cls: "tj-treemap-v " + (good ? "tj-pos" : "tj-neg"), text: fmt(t.net) });
     tile.createDiv({ cls: "tj-treemap-w", text: `${t.count ? Math.round((t.wins / t.count) * 100) : 0}% win` });
