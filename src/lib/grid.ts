@@ -22,11 +22,25 @@ export interface GridItem {
  * Re-flow a layout into a smaller number of columns (responsive). Items keep
  * their order (top-left to bottom-right) and wrap onto new rows instead of
  * shrinking — the Journalit behaviour. Widths larger than `cols` are capped.
+ *
+ * `minOf` gives each item a minimum size; an item never re-flows smaller than
+ * its minimum, and a minimum wider than `cols` is capped to full width.
  */
-export function reflow(layout: GridItem[], cols: number): GridItem[] {
+export function reflow(
+  layout: GridItem[],
+  cols: number,
+  minOf?: (id: string) => { w: number; h: number } | undefined
+): GridItem[] {
   const sorted = [...layout]
     .sort((a, b) => a.y - b.y || a.x - b.x)
-    .map((it) => ({ ...it, w: Math.min(it.w, cols) }));
+    .map((it) => {
+      const m = minOf?.(it.i);
+      return {
+        ...it,
+        w: Math.min(Math.max(it.w, m?.w ?? 1), cols),
+        h: Math.max(it.h, m?.h ?? 1),
+      };
+    });
   const placed: GridItem[] = [];
   for (const it of sorted) {
     let y = 0;
@@ -48,8 +62,8 @@ export function reflow(layout: GridItem[], cols: number): GridItem[] {
 }
 
 export const GRID_COLS = 24;
-export const ROW_PX = 38;
-export const GAP = 8;
+export const ROW_PX = 44;
+export const GAP = 12;
 
 export const clamp = (v: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, v));
@@ -125,12 +139,19 @@ export function moveItem(layout: GridItem[], id: string, nx: number, ny: number)
 }
 
 /** Simulate resizing `id` to (nw, nh), keeping its top-left corner fixed. */
-export function resizeItem(layout: GridItem[], id: string, nw: number, nh: number): GridItem[] {
+export function resizeItem(
+  layout: GridItem[],
+  id: string,
+  nw: number,
+  nh: number,
+  min?: { w: number; h: number }
+): GridItem[] {
   const l = layout.map((it) => ({ ...it }));
   const it = l.find((x) => x.i === id);
   if (!it || it.static) return l;
-  it.w = clamp(nw, 1, GRID_COLS - it.x);
-  it.h = Math.max(1, nh);
+  const minW = Math.min(min?.w ?? 1, GRID_COLS - it.x);
+  it.w = clamp(nw, minW, GRID_COLS - it.x);
+  it.h = Math.max(min?.h ?? 1, nh);
   it.moved = true;
   return compactExcept(l, id);
 }

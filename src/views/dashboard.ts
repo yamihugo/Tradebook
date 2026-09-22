@@ -86,14 +86,14 @@ export const WIDGET_ID_ALIASES: Record<string, string> = {
   timing: "hour",
 };
 
-/** Home — the fixed narrative: the six blocks that fit one screen. */
+/** Home — the designed six-tile narrative: full-width calendar, then pairs. */
 export const HOME_DEFAULT: GridItem[] = [
-  { i: "calendar", x: 0, y: 0, w: 12, h: 6 },
-  { i: "heatmap", x: 12, y: 0, w: 12, h: 6 },
-  { i: "hour", x: 0, y: 6, w: 12, h: 5 },
-  { i: "score", x: 12, y: 6, w: 12, h: 6 },
-  { i: "discipline", x: 0, y: 12, w: 12, h: 4 },
-  { i: "payouts", x: 12, y: 12, w: 12, h: 4 },
+  { i: "calendar", x: 0, y: 0, w: 24, h: 6 },
+  { i: "heatmap", x: 0, y: 6, w: 12, h: 6 },
+  { i: "hour", x: 12, y: 6, w: 12, h: 5 },
+  { i: "score", x: 0, y: 12, w: 12, h: 7 },
+  { i: "discipline", x: 12, y: 12, w: 12, h: 5 },
+  { i: "payouts", x: 0, y: 19, w: 24, h: 3 },
 ];
 
 /** Metric widgets the archive seeds, in reading order. */
@@ -125,6 +125,27 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
 
 const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
 const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
+
+/**
+ * Minimum tile size per widget: the engine refuses to draw a smaller box, so
+ * fixed content can never be clipped by an undersized card.
+ * Canonical widths on the 24-col grid: w8 third · w12 half · w16 two-thirds · w24 full.
+ */
+const MIN_W: Record<string, number> = {
+  equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
+  hour: 8, session: 8, weekday: 8, symbols: 12, score: 8,
+  discipline: 12, trends: 8, payouts: 12,
+};
+const MIN_H: Record<string, number> = {
+  equity: 5, longpnl: 5, shortpnl: 5, calendar: 5, heatmap: 5,
+  hour: 4, session: 4, weekday: 4, symbols: 5, score: 6,
+  discipline: 4, trends: 4, payouts: 3,
+};
+/** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
+const minOf = (id: string): { w: number; h: number } => ({ w: MIN_W[id] ?? 1, h: MIN_H[id] ?? 1 });
+
+/** Widgets whose body scrolls (tables/lists); everything else scales. */
+const SCROLL_WIDGETS = new Set(["symbols"]);
 
 /** Parse a displayed metric value to a number, or null if it is not numeric
  *  (e.g. "9am", "3m", "—", "∞"). */
@@ -489,8 +510,8 @@ export class WidgetGridView extends ItemView {
     const valid = this.allowedIds();
     const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
-      it.w = gClamp(Math.round(it.w), 1, GRID_COLS);
-      it.h = gClamp(Math.round(it.h), 1, 60);
+      it.w = gClamp(Math.round(it.w), MIN_W[it.i] ?? 1, GRID_COLS);
+      it.h = gClamp(Math.round(it.h), MIN_H[it.i] ?? 1, 60);
       it.x = gClamp(Math.round(it.x || 0), 0, GRID_COLS - it.w);
       it.y = Math.max(0, Math.round(it.y || 0));
     }
@@ -700,9 +721,9 @@ export class WidgetGridView extends ItemView {
         this.edgeAutoScroll(ev.clientY);
         const dw = Math.round((ev.clientX - startX) / (this.colW + GAP));
         const dh = Math.round((ev.clientY - startY) / (ROW_PX + GAP));
-        curW = gClamp(baseW + dw, 1, this.activeCols - item.x);
-        curH = gClamp(baseH + dh, 2, 30);
-        const trial = gridResize(this.getLayout(), item.i, curW, curH);
+        curW = gClamp(baseW + dw, MIN_W[item.i] ?? 1, this.activeCols - item.x);
+        curH = gClamp(baseH + dh, MIN_H[item.i] ?? 2, 30);
+        const trial = gridResize(this.getLayout(), item.i, curW, curH, minOf(item.i));
         this.applyTrialPositions(trial);
         const me = this.findCardEl(this.gridEl as HTMLElement, item.i);
         if (me) {
@@ -712,7 +733,7 @@ export class WidgetGridView extends ItemView {
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
-        this.setLayout(compactVertical(gridResize(this.getLayout(), item.i, curW, curH)));
+        this.setLayout(compactVertical(gridResize(this.getLayout(), item.i, curW, curH, minOf(item.i))));
         this.saveLayout();
       };
       window.addEventListener("pointermove", onMove);
@@ -994,7 +1015,7 @@ export class WidgetGridView extends ItemView {
     this.activeCols = cols;
     this.colW = Math.max(24, (gridW - GAP * (cols - 1)) / cols);
     let layout = compactVertical(this.getLayout());
-    if (cols < GRID_COLS) layout = reflow(layout, cols);
+    if (cols < GRID_COLS) layout = reflow(layout, cols, minOf);
     const prevTrades = this.previousPeriodTrades();
 
     if (layout.length === 0) {
@@ -1060,7 +1081,7 @@ export class WidgetGridView extends ItemView {
         item.i === "equity" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar" || item.i.startsWith("m.");
       if (headerless) {
         const body = card.createDiv({
-          cls: "tj-gridcard-body" + (item.i.startsWith("m.") ? " tj-metric-body" : ""),
+          cls: "tj-gridcard-body tj-scale" + (item.i.startsWith("m.") ? " tj-metric-body" : ""),
         });
         const drawHeadless = () => {
           body.empty();
@@ -1104,7 +1125,7 @@ export class WidgetGridView extends ItemView {
         b.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.i); });
         this.bindResize(card, item);
       }
-      const body = card.createDiv({ cls: "tj-gridcard-body" });
+      const body = card.createDiv({ cls: "tj-gridcard-body " + (SCROLL_WIDGETS.has(item.i) ? "tj-scroll" : "tj-scale") });
       const drawBody = () => {
         body.empty();
         try {

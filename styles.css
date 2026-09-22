@@ -463,8 +463,10 @@
 }
 .tj-empty {
   color: var(--text-muted);
-  font-size: var(--tj-fs-head);
-  padding: 40px 0;
+  font-size: var(--tj-fs-body);
+  padding: 14px 6px;
+  margin: auto;
+  max-width: 92%;
   text-align: center;
 }
 
@@ -3703,10 +3705,10 @@
   font-weight: 700;
 }
 
-/* Rich hover card for the cumulative chart */
+/* Rich hover card for the cumulative chart (body-level, fixed — never clipped) */
 .tj-eq-card {
-  position: absolute;
-  z-index: 5;
+  position: fixed;
+  z-index: 1000;
   padding: 6px 10px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -4484,8 +4486,6 @@
 }
 
 /* Radar sizing safety + error surface */
-.tj-radar-box { min-height: 200px; }
-.tj-gridcard-body > .tj-chart-box.tj-radar-box { min-height: 220px; }
 .tj-score-error { font-size: var(--tj-fs-small); color: var(--color-red, #ad3527); margin-top: 6px; }
 
 /* Needs Review widget */
@@ -4595,11 +4595,11 @@
   color: var(--text-normal);
 }
 
-/* Radar: fill the space, readable labels, smaller score text */
+/* Radar: a fixed 5:4 budget so the shape never deforms to fill a short box */
 .tj-gridcard-body > .tj-chart-box.tj-radar-box {
-  flex: 1 1 auto;
-  min-height: 240px;
-  height: auto;
+  aspect-ratio: 5 / 4;
+  width: 100%;
+  min-height: 0;
 }
 .tj-radar { height: 100%; }
 .tj-radar-label { font-size: var(--tj-fs-big); }
@@ -4874,14 +4874,6 @@
 }
 .tj-nav-icon svg { width: 15px; height: 15px; }
 
-/* Radar box must scale INSIDE the widget (no fixed min-height overflow) */
-.tj-gridcard-body > .tj-chart-box.tj-radar-box,
-.tj-radar-box {
-  min-height: 0;
-  flex: 1 1 auto;
-  height: auto;
-  width: 100%;
-}
 /* Score inside the radar: legible over the shape */
 .tj-radar-score::before {
   content: "";
@@ -5855,8 +5847,8 @@ textarea.tj-anno-textinput {
 .tj-score-gauge { width: min(56%, 170px); }
 /* Bar-row primitive (lib/chartKit.ts) — timing buckets, discipline process. */
 .tj-barrow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
-.tj-barrow-track { display: flex; align-items: flex-end; gap: 2px; height: 100%; min-height: 24px; }
-.tj-barrow-col { flex: 1 1 0; display: flex; align-items: flex-end; justify-content: center; min-width: 0; height: 100%; position: relative; }
+.tj-barrow-track { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 100%; min-height: 24px; }
+.tj-barrow-col { flex: 0 1 48px; max-width: 48px; display: flex; align-items: flex-end; justify-content: center; min-width: 0; height: 100%; position: relative; }
 .tj-barrow-bar { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--tj-tone-mid); position: relative; overflow: hidden; }
 .tj-barrow-bar.pos { background: var(--tj-tone-good); }
 .tj-barrow-bar.neg { background: var(--tj-tone-bad); }
@@ -5864,8 +5856,11 @@ textarea.tj-anno-textinput {
 .tj-barrow-bar.neutral { background: color-mix(in srgb, var(--tj-fg-3) 30%, transparent); }
 .tj-barrow-bar.is-empty { background: color-mix(in srgb, var(--tj-fg-3) 10%, transparent); }
 .tj-barrow-overlay { position: absolute; left: 0; right: 0; bottom: 0; display: block; background: color-mix(in srgb, var(--text-normal) 55%, transparent); }
-.tj-barrow-axis { display: flex; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
-.tj-barrow-tick { flex: 1 1 0; text-align: center; white-space: nowrap; overflow: hidden; }
+.tj-barrow-axis { display: flex; justify-content: center; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
+.tj-barrow-tick { flex: 0 1 48px; max-width: 48px; text-align: center; white-space: nowrap; overflow: hidden; }
+/* Overflow policy: charts scale inside the card; tables/lists scroll. */
+.tj-gridcard-body.tj-scale { overflow: hidden; }
+.tj-gridcard-body.tj-scroll { overflow: auto; }
 /* Discipline — hero gauge + process bars */
 .tj-disc-gauge { width: 108px; }
 .tj-disc-process .tj-barrow-track { height: 42px; }

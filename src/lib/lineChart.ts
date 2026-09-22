@@ -82,6 +82,35 @@ function getGlobalChartTip(): HTMLElement {
   return globalChartTip;
 }
 
+interface EqCardRefs {
+  el: HTMLElement;
+  val: HTMLElement;
+  date: HTMLElement;
+  extra: HTMLElement;
+}
+let globalEqCard: EqCardRefs | null = null;
+/** Shared equity hover card. Lives on <body> with `position: fixed`, so a
+ *  widget's `overflow: hidden` can never clip it. */
+function getGlobalEqCard(): EqCardRefs {
+  if (!globalEqCard || !globalEqCard.el.isConnected) {
+    const el = document.createElement("div");
+    el.className = "tj-eq-card";
+    el.style.position = "fixed";
+    el.style.zIndex = "1000";
+    el.style.display = "none";
+    const val = document.createElement("div");
+    val.className = "tj-eq-card-val";
+    const date = document.createElement("div");
+    date.className = "tj-eq-card-date";
+    const extra = document.createElement("div");
+    extra.className = "tj-eq-extra";
+    el.append(val, date, extra);
+    document.body.appendChild(el);
+    globalEqCard = { el, val, date, extra };
+  }
+  return globalEqCard;
+}
+
 export function niceTicks(min: number, max: number, count: number): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [min];
   const span = max - min;
@@ -412,11 +441,11 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     chartTip.style.top = String(top);
   };
 
-  const card = container.createDiv({ cls: "tj-eq-card" });
-  card.style.display = "none";
-  const cardVal = card.createDiv({ cls: "tj-eq-card-val" });
-  const cardDate = card.createDiv({ cls: "tj-eq-card-date" });
-  const extra = card.createDiv({ cls: "tj-eq-extra" });
+  const cardRefs = getGlobalEqCard();
+  const card = cardRefs.el;
+  const cardVal = cardRefs.val;
+  const cardDate = cardRefs.date;
+  const extra = cardRefs.extra;
 
   svg.addEventListener("mousemove", (ev) => {
     const rect = svg.getBoundingClientRect();
@@ -447,10 +476,11 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     card.style.display = "block";
     const cw = card.offsetWidth || 132;
     const chh = card.offsetHeight || 92;
-    let left = cx + 14;
-    if (left + cw > w - 6) left = cx - cw - 14;
-    left = Math.max(4, Math.min(left, Math.max(4, w - cw - 4)));
-    const top = Math.max(4, Math.min(cyy - chh / 2, Math.max(4, h - chh - 4)));
+    // Viewport coords — the card is body-level and position: fixed.
+    let left = rect.left + cx + 14;
+    if (left + cw > window.innerWidth - 6) left = rect.left + cx - cw - 14;
+    left = Math.max(4, Math.min(left, Math.max(4, window.innerWidth - cw - 4)));
+    const top = Math.max(4, Math.min(rect.top + cyy - chh / 2, Math.max(4, window.innerHeight - chh - 4)));
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
   });
