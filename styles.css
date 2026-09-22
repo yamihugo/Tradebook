@@ -5639,14 +5639,6 @@ textarea.tj-anno-textinput {
 .tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--color-green-bright) 62%, var(--text-muted)); }
 .tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--color-red-bright) 62%, var(--text-muted)); }
 
-/* Best Hours — segmented 30-min bar */
-.tj-bh { display: flex; flex-direction: column; justify-content: center; gap: 9px; height: 100%; padding: 2px; }
-.tj-bh-hero { text-align: center; }
-.tj-bh-range { font-size: var(--tj-fs-head); font-weight: 700; color: var(--text-normal); letter-spacing: -0.01em; }
-.tj-bh-value { font-size: var(--tj-fs-big); font-weight: 700; margin-top: 1px; }
-.tj-bh-value.tj-pos { color: var(--color-green-bright, #34d17a); }
-.tj-bh-value.tj-neg { color: #ad3527; }
-
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
   background-color: color-mix(in srgb, var(--background-secondary) 10%, transparent);
@@ -5725,9 +5717,6 @@ textarea.tj-anno-textinput {
 .tj-heat-cell.is-empty { background: transparent; }
 .tj-heat-legend { display: flex; align-items: center; gap: 5px; justify-content: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-heat-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-
-/* Timing — the 30-min bars and session split come from lib/chartKit.ts */
-.tj-bh-range { font-size: var(--tj-fs-display); }
 
 /* Date field that honours the Date format setting */
 .tj-datefield { position: relative; display: flex; align-items: center; gap: 6px; width: 100%; }
@@ -5881,13 +5870,14 @@ textarea.tj-anno-textinput {
 .tj-disc-gauge { width: 108px; }
 .tj-disc-process .tj-barrow-track { height: 42px; }
 .tj-disc-process { margin-top: 2px; }
-/* Timing — hero slots + session split */
-.tj-timing-hero { display: flex; justify-content: center; gap: 20px; text-align: center; }
-.tj-timing-slot { display: flex; flex-direction: column; gap: 1px; }
-.tj-timing-k { font-size: var(--tj-fs-label); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
-.tj-timing-bars .tj-barrow-track { height: 62px; }
-.tj-timing-sessions { margin-top: 2px; }
-.tj-timing-sessions .tj-barrow-track { height: 24px; }
+/* Dimension widgets (hour / session / weekday) — one bar row + a summary line */
+.tj-dim { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.tj-dim-summary { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-dim-k { text-transform: uppercase; letter-spacing: 0.05em; }
+.tj-dim-best { font-weight: 600; color: var(--text-normal); }
+.tj-dim-val { font-weight: 700; }
+.tj-dim-bars { flex: 1 1 auto; min-height: 0; }
+.tj-dim-bars .tj-barrow-track { height: 64px; }
 .tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
 .tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
 .tj-score-foot { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: center; gap: 9px; margin-top: 2px; }

@@ -1237,7 +1237,7 @@ export class AccountDashboardView extends ItemView {
       for (const t of scoped) {
         const k = keyFn(t) || "—";
         const b = map.get(k) ?? { net: 0, count: 0, wins: 0 };
-        b.net += t.pnl; b.count += 1; if (t.pnl > 0) b.wins += 1;
+        b.net += netPnl(t); b.count += 1; if (t.pnl > 0) b.wins += 1;
         map.set(k, b);
       }
       return [...map.entries()].sort((a, b) => Math.abs(b[1].net) - Math.abs(a[1].net));
@@ -1247,7 +1247,7 @@ export class AccountDashboardView extends ItemView {
       for (const t of scoped) {
         const k = keyFn(t) || "—";
         const b = map.get(k) ?? { net: 0, count: 0, wins: 0 };
-        b.net += t.pnl; b.count += 1; if (t.pnl > 0) b.wins += 1;
+        b.net += netPnl(t); b.count += 1; if (t.pnl > 0) b.wins += 1;
         map.set(k, b);
       }
       return [...map.entries()];

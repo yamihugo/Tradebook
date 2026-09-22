@@ -238,7 +238,7 @@ export interface TradebookSettings {
 }
 
 /** Current `data.json` schema version. Bump when adding a numbered migration. */
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 
 /** A strategy name reduced to a safe vault filename. The name itself is kept
  *  verbatim on the record; this is only the file it is filed under. */

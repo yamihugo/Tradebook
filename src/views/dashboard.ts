@@ -29,10 +29,11 @@ import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
 import { renderGauge, renderBarRow } from "../lib/chartKit";
+import { dimensionBars, type DimensionBarsOpts } from "../lib/breakdown";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
 import { computeProcessSignals } from "../lib/process";
-import { sessionOf, SESSION_BADGES } from "../lib/sessions";
+import { sessionOf, sessionRank, SESSION_BADGES } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
@@ -42,6 +43,17 @@ export const DASHBOARD_VIEW_TYPE = "tradebook-dashboard-view";
 
 /** Shared day/month abbreviations for the heat-map. */
 const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/** Weekday labels indexed by JS `getDay()` (0 = Sunday). */
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** Monday-first order for the weekday widget. */
+const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** "9am" / "2pm" from a 24-hour clock. */
+function fmtHourLabel(h: number): string {
+  const ampm = h < 12 ? "am" : "pm";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${ampm}`;
+}
 
 export type DashItem = GridItem;
 
@@ -51,7 +63,9 @@ export const CARD_TITLES: Record<string, string> = {
   shortpnl: "Short P&L",
   calendar: "Performance Calendar",
   heatmap: "Last 6 Months",
-  timing: "Timing",
+  hour: "By Hour",
+  session: "By Session",
+  weekday: "By Weekday",
   symbols: "Symbol Breakdown",
   score: "Trading Score & Radar",
   discipline: "Discipline",
@@ -63,24 +77,23 @@ export const CARD_TITLES: Record<string, string> = {
 
 /**
  * Deprecated widget ids → their canonical replacement. Rewritten on load so a
- * saved layout (or a Home seed) written before the rename keeps its tiles.
- * `review` → `discipline`, `besthours` → `timing`.
+ * saved layout (or a Home seed) written before a rename keeps its tiles.
+ * `review` → `discipline`; `besthours` / `timing` → `hour`.
  */
 export const WIDGET_ID_ALIASES: Record<string, string> = {
   review: "discipline",
-  besthours: "timing",
+  besthours: "hour",
+  timing: "hour",
 };
 
-/** Home — the fixed narrative: the eight blocks that fit one screen. */
+/** Home — the fixed narrative: the six blocks that fit one screen. */
 export const HOME_DEFAULT: GridItem[] = [
-  { i: "equity", x: 0, y: 0, w: 24, h: 3 },
-  { i: "m.netpnl", x: 0, y: 3, w: 8, h: 2 },
-  { i: "m.winrate", x: 8, y: 3, w: 8, h: 2 },
-  { i: "m.avgloss", x: 16, y: 3, w: 8, h: 2 },
-  { i: "calendar", x: 0, y: 5, w: 12, h: 5 },
-  { i: "trends", x: 12, y: 5, w: 12, h: 5 },
-  { i: "discipline", x: 0, y: 10, w: 12, h: 3 },
-  { i: "payouts", x: 12, y: 10, w: 12, h: 3 },
+  { i: "calendar", x: 0, y: 0, w: 12, h: 6 },
+  { i: "heatmap", x: 12, y: 0, w: 12, h: 6 },
+  { i: "hour", x: 0, y: 6, w: 12, h: 5 },
+  { i: "score", x: 12, y: 6, w: 12, h: 6 },
+  { i: "discipline", x: 0, y: 12, w: 12, h: 4 },
+  { i: "payouts", x: 12, y: 12, w: 12, h: 4 },
 ];
 
 /** Home's curated surface — also the allow-list for its Edit menu. */
@@ -100,19 +113,21 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "longpnl", x: 0, y: 0, w: 8, h: 6 },
     { i: "shortpnl", x: 8, y: 0, w: 8, h: 6 },
     { i: "score", x: 16, y: 0, w: 8, h: 6 },
-    { i: "timing", x: 0, y: 6, w: 12, h: 4 },
-    { i: "heatmap", x: 12, y: 6, w: 12, h: 4 },
-    { i: "symbols", x: 0, y: 10, w: 24, h: 6 },
+    { i: "hour", x: 0, y: 6, w: 8, h: 5 },
+    { i: "session", x: 8, y: 6, w: 8, h: 5 },
+    { i: "weekday", x: 16, y: 6, w: 8, h: 5 },
+    { i: "heatmap", x: 0, y: 11, w: 24, h: 4 },
+    { i: "symbols", x: 0, y: 15, w: 24, h: 6 },
   ];
   const perRow = 6;
   DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 16 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 21 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
   });
   return tiles;
 })();
 
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, timing: 10, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, timing: 4, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /** Parse a displayed metric value to a number, or null if it is not numeric
  *  (e.g. "9am", "3m", "—", "∞"). */
@@ -1027,7 +1042,9 @@ export class WidgetGridView extends ItemView {
         item.i === "equity" ||
         item.i === "longpnl" ||
         item.i === "shortpnl" ||
-        item.i === "timing" ||
+        item.i === "hour" ||
+        item.i === "session" ||
+        item.i === "weekday" ||
         item.i === "calendar"
       ) {
         card.addClass("tj-blend");
@@ -1098,7 +1115,9 @@ export class WidgetGridView extends ItemView {
             case "equity": this.renderEquityBody(body, trades); break;
             case "symbols": this.renderSymbolTable(body, trades, counted); break;
             case "score": this.renderScoreRadar(body, counted); break;
-            case "timing": this.renderTimingWidget(body, trades, counted); break;
+            case "hour": this.renderHourWidget(body, trades, counted); break;
+            case "session": this.renderSessionWidget(body, trades, counted); break;
+            case "weekday": this.renderWeekdayWidget(body, trades, counted); break;
             case "heatmap": this.renderHeatmap(body, trades, counted); break;
             case "discipline": this.renderDisciplineWidget(body, counted); break;
             case "trends": this.renderTrendsWidget(body, counted); break;
@@ -1699,141 +1718,84 @@ export class WidgetGridView extends ItemView {
   }
 
   /** Best Hours — segmented 30-min bar across the trading session. */
-  renderTimingWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
-    const zone = this.plugin.settings.timeZone;
-    const parseMin = (tt: string): number | null => {
-      const m = /^(\d{1,2}):(\d{2})/.exec(tt || "");
-      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
-    };
-    const rows = trades.filter((t) => parseMin(t.entryTime) !== null);
-    const crows = counted.filter((t) => parseMin(t.entryTime) !== null);
-    if (!rows.length || !crows.length) {
+  /** Shared shell for the "P&L + win% by X" widgets: one summary + one bar row. */
+  private renderDimension(
+    body: HTMLElement,
+    trades: Trade[],
+    counted: Trade[],
+    keyOf: (t: Trade) => string,
+    opts: DimensionBarsOpts,
+    bestLabel: string,
+    cls: string,
+    axisEvery?: number
+  ): void {
+    if (!trades.some((t) => keyOf(t))) {
       body.createDiv({ cls: "tj-empty", text: "No time data yet." });
       return;
     }
-    const B = 30;
-    interface Bucket { net: number; count: number; wins: number; days: Set<string>; }
-    const buckets = new Map<number, Bucket>();
-    const bucketOf = (k: number): Bucket => {
-      const b = buckets.get(k) ?? { net: 0, count: 0, wins: 0, days: new Set<string>() };
-      buckets.set(k, b);
-      return b;
-    };
-    // Money is net (every leg); the win rate is per logical trade (counted).
-    for (const t of rows) bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B).net += netPnl(t);
-    for (const t of crows) {
-      const b = bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B);
-      b.count += 1;
-      if (t.pnl > 0) b.wins += 1;
-      b.days.add(t.date);
-    }
-    const keys = [...buckets.keys()].sort((a, b) => a - b);
-    const slots: number[] = [];
-    for (let k = keys[0]; k <= keys[keys.length - 1]; k += B) slots.push(k);
-    const avg = (b: Bucket) => (b.count ? b.net / b.count : 0);
-    let best: { k: number; b: Bucket } | null = null;
-    let worst: { k: number; b: Bucket } | null = null;
-    for (const k of slots) {
-      const b = buckets.get(k);
-      if (!b || !(b.count >= 5 && b.days.size >= 3)) continue;
-      if (!best || avg(b) > avg(best.b)) best = { k, b };
-      if (!worst || avg(b) < avg(worst.b)) worst = { k, b };
-    }
-    if (!best) {
-      for (const k of slots) {
-        const b = buckets.get(k);
-        if (b && (!best || b.net > best.b.net)) best = { k, b };
-      }
-    }
-    if (!worst) {
-      for (const k of slots) {
-        const b = buckets.get(k);
-        if (b && (!worst || b.net < worst.b.net)) worst = { k, b };
-      }
-    }
-    const fmtT = (mins: number) => {
-      const h24 = Math.floor(mins / 60) % 24, mm = mins % 60;
-      const ampm = h24 < 12 ? "am" : "pm";
-      const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
-      return mm === 0 ? `${h12}${ampm}` : `${h12}:${String(mm).padStart(2, "0")}${ampm}`;
-    };
-    const maxAbs = Math.max(...slots.map((k) => Math.abs(buckets.get(k)?.net ?? 0)), 1);
-
-    const wrap = body.createDiv({ cls: "tj-bh" });
-    const hero = wrap.createDiv({ cls: "tj-bh-hero tj-timing-hero" });
-    const slot = (label: string, pick: { k: number; b: Bucket } | null) => {
-      if (!pick) return;
-      const box = hero.createDiv({ cls: "tj-timing-slot" });
-      box.createDiv({ cls: "tj-timing-k", text: label });
-      box.createDiv({ cls: "tj-bh-range", text: `${fmtT(pick.k)}-${fmtT(pick.k + B)}` });
-      box.createDiv({
-        cls: "tj-bh-value " + (avg(pick.b) >= 0 ? "tj-pos" : "tj-neg"),
-        text: fmtMoney2(avg(pick.b)),
+    const { items, max, best } = dimensionBars(trades, counted, keyOf, opts);
+    const wrap = body.createDiv({ cls: "tj-dim " + cls });
+    if (best) {
+      const line = wrap.createDiv({ cls: "tj-dim-summary" });
+      line.createSpan({ cls: "tj-dim-k", text: bestLabel });
+      line.createSpan({ cls: "tj-dim-best", text: best.label });
+      line.createSpan({
+        cls: "tj-dim-val " + (best.value >= 0 ? "tj-pos" : "tj-neg"),
+        text: fmtMoney2(best.value),
       });
-    };
-    slot("Best", best);
-    slot("Worst", worst);
-
-    renderBarRow(wrap, {
-      max: maxAbs,
-      className: "tj-timing-bars",
-      axisEvery: Math.max(1, Math.ceil(slots.length / 5)),
-      items: slots.map((k) => {
-        const b = buckets.get(k);
-        return {
-          key: String(k),
-          label: fmtT(k),
-          value: b?.net ?? 0,
-          overlay: b && b.count ? b.wins / b.count : undefined,
-          tone: !b ? "neutral" : b.net >= 0 ? "pos" : "neg",
-          empty: !b,
-          tip: b
-            ? { title: `${fmtT(k)}–${fmtT(k + B)}`, value: fmtMoney2(b.net), sub: `${b.count} trades · ${Math.round((b.wins / b.count) * 100)}% win` }
-            : undefined,
-        };
-      }),
-    });
-
-    // Session split — where in the market day the money is made.
-    const sessionKeys: Array<"newyork" | "london" | "asia" | "off"> = ["newyork", "london", "asia", "off"];
-    interface Agg { net: number; count: number; wins: number; }
-    const agg = new Map<string, Agg>();
-    const aggOf = (s: string): Agg => {
-      const a = agg.get(s) ?? { net: 0, count: 0, wins: 0 };
-      agg.set(s, a);
-      return a;
-    };
-    for (const t of trades) {
-      const s = sessionOf(t, zone);
-      if (s) aggOf(s).net += netPnl(t);
     }
-    for (const t of counted) {
-      const s = sessionOf(t, zone);
-      if (!s) continue;
-      const a = aggOf(s);
-      a.count += 1;
-      if (t.pnl > 0) a.wins += 1;
-    }
-    const sMax = Math.max(...sessionKeys.map((s) => Math.abs(agg.get(s)?.net ?? 0)), 1);
-    renderBarRow(wrap, {
-      max: sMax,
-      className: "tj-timing-sessions",
-      axisEvery: 1,
-      items: sessionKeys.map((s) => {
-        const a = agg.get(s);
-        return {
-          key: s,
-          label: SESSION_BADGES[s] ?? s,
-          value: a?.net ?? 0,
-          overlay: a && a.count ? a.wins / a.count : undefined,
-          tone: !a ? "neutral" : a.net >= 0 ? "pos" : "neg",
-          empty: !a,
-          tip: a
-            ? { title: SESSION_BADGES[s] ?? s, value: fmtMoney2(a.net), sub: `${a.count} trades · ${Math.round((a.wins / a.count) * 100)}% win` }
-            : undefined,
-        };
-      }),
-    });
+    renderBarRow(wrap, { items, max, className: "tj-dim-bars", axisEvery });
+  }
+
+  /** P&L + win% by entry hour (active hours only, chronological). */
+  renderHourWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const keyOf = (t: Trade): string => {
+      const m = /^(\d{1,2}):/.exec(t.entryTime || "");
+      return m ? String(parseInt(m[1], 10)) : "";
+    };
+    this.renderDimension(
+      body, trades, counted, keyOf,
+      { labelOf: (k) => fmtHourLabel(Number(k)), orderOf: (k) => Number(k), formatMoney: fmtMoney2 },
+      "Best hour", "tj-hour"
+    );
+  }
+
+  /** P&L + win% by market session (NY/London/Asia/Off). */
+  renderSessionWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const zone = this.plugin.settings.timeZone;
+    this.renderDimension(
+      body, trades, counted,
+      (t) => sessionOf(t, zone),
+      {
+        slots: ["newyork", "london", "asia", "off"],
+        labelOf: (k) => SESSION_BADGES[k] ?? k,
+        orderOf: sessionRank,
+        formatMoney: fmtMoney2,
+      },
+      "Best session", "tj-session", 1
+    );
+  }
+
+  /** P&L + win% by weekday (Mon–Sun, timezone-aware). */
+  renderWeekdayWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const zone = this.plugin.settings.timeZone;
+    const keyOf = (t: Trade): string => {
+      const d = toZoneDate(t.date, t.entryTime, zone);
+      const [y, m, day] = d.split("-").map(Number);
+      return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "";
+    };
+    this.renderDimension(
+      body, trades, counted, keyOf,
+      {
+        slots: WEEKDAY_ORDER,
+        orderOf: (k) => {
+          const i = WEEKDAY_ORDER.indexOf(k);
+          return i < 0 ? 99 : i;
+        },
+        formatMoney: fmtMoney2,
+      },
+      "Best day", "tj-weekday", 1
+    );
   }
 
   /**
