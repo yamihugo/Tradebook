@@ -100,6 +100,8 @@ export interface TradebookSettings {
   /** Trade Log view preferences (persisted so they survive reloads). */
   /** Which breakdown tab the account page last used. */
   accountBreakdownTab?: string;
+  /** Which tab the Home/Dashboard "Breakdown" widget last used (symbol/setup/order-type). */
+  dashboardBreakdownTab?: string;
   /** Which widgets the account page shows, in order (the Hero is always fixed). */
   accountWidgets?: string[];
   /** Copy-trading groups (base account + its copiers). */

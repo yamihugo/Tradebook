@@ -5801,6 +5801,14 @@ textarea.tj-anno-textinput {
 .tj-status-square.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-status-square:hover { filter: brightness(1.2); }
 .tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Breakdown widget — internal tabs over one treemap. */
+.tj-bd { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.tj-bd-tabs { display: flex; gap: 4px; flex-wrap: wrap; flex: 0 0 auto; }
+.tj-bd-tab { font-size: var(--tj-fs-small); color: var(--text-muted); background: transparent; border: none; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.tj-bd-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.tj-bd-tab.on { color: var(--text-normal); font-weight: 600; background: rgba(255, 255, 255, 0.07); }
+.tj-bd-body { flex: 1 1 auto; min-height: 0; }
+.tj-bd-treemap { height: 100%; }
 /* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
 .tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
 .tj-treemap-tile {
@@ -5814,12 +5822,17 @@ textarea.tj-anno-textinput {
   justify-content: center;
   gap: 2px;
   overflow: hidden;
+  container-type: inline-size;
   transition: filter 120ms ease;
 }
 .tj-treemap-tile:hover { filter: brightness(1.15); }
 .tj-treemap-t { font-size: var(--tj-fs-small); font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-treemap-v { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-treemap-w { font-size: var(--tj-fs-small); color: var(--text-muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Auto-fit: drop the win% then the label as the tile narrows, so the compact
+   value never ellipsises into a meaningless fragment. */
+@container (max-width: 92px) { .tj-treemap-w { display: none; } }
+@container (max-width: 64px) { .tj-treemap-t { display: none; } .tj-treemap-tile { padding: 4px; } }
 .tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 .tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 /* Discipline compact mode: the widget measures its body and adds .is-compact. */

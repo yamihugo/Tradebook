@@ -3,7 +3,7 @@ import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { accountFilters, attachTooltip, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
-import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
+import { fmtMoney2, fmtMoneyCompact, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 import { netPnl } from "../lib/fees";
@@ -67,9 +67,7 @@ export const CARD_TITLES: Record<string, string> = {
   hour: "By Hour",
   session: "By Session",
   weekday: "By Weekday",
-  symbols: "Symbol Breakdown",
-  setup: "By Setup",
-  "order-type": "By Order Type",
+  breakdown: "Breakdown",
   score: "Trading Score & Radar",
   discipline: "Discipline",
   trends: "Trends",
@@ -81,12 +79,16 @@ export const CARD_TITLES: Record<string, string> = {
 /**
  * Deprecated widget ids → their canonical replacement. Rewritten on load so a
  * saved layout (or a Home seed) written before a rename keeps its tiles.
- * `review` → `discipline`; `besthours` / `timing` → `hour`.
+ * `review` → `discipline`; `besthours` / `timing` → `hour`; the three
+ * breakdowns → `breakdown`.
  */
 export const WIDGET_ID_ALIASES: Record<string, string> = {
   review: "discipline",
   besthours: "hour",
   timing: "hour",
+  symbols: "breakdown",
+  setup: "breakdown",
+  "order-type": "breakdown",
 };
 
 /** Home — the designed eight-tile narrative. */
@@ -96,7 +98,7 @@ export const HOME_DEFAULT: GridItem[] = [
   { i: "score", x: 12, y: 6, w: 12, h: 7 },
   { i: "hour", x: 0, y: 13, w: 12, h: 3 },
   { i: "weekday", x: 12, y: 13, w: 12, h: 3 },
-  { i: "symbols", x: 0, y: 16, w: 12, h: 6 },
+  { i: "breakdown", x: 0, y: 16, w: 12, h: 6 },
   { i: "discipline", x: 12, y: 16, w: 12, h: 5 },
   { i: "payouts", x: 0, y: 22, w: 24, h: 4 },
 ];
@@ -119,19 +121,17 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "session", x: 8, y: 6, w: 8, h: 3 },
     { i: "weekday", x: 16, y: 6, w: 8, h: 3 },
     { i: "heatmap", x: 0, y: 9, w: 24, h: 4 },
-    { i: "symbols", x: 0, y: 13, w: 12, h: 6 },
-    { i: "setup", x: 12, y: 13, w: 12, h: 6 },
-    { i: "order-type", x: 0, y: 19, w: 24, h: 4 },
+    { i: "breakdown", x: 0, y: 13, w: 24, h: 6 },
   ];
   const perRow = 6;
   DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 23 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 19 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
   });
   return tiles;
 })();
 
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, setup: 12, "order-type": 24, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, setup: 6, "order-type": 4, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, breakdown: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, breakdown: 6, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /**
  * Minimum tile size per widget: the engine refuses to draw a smaller box, so
@@ -140,12 +140,12 @@ const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, cale
  */
 const MIN_W: Record<string, number> = {
   equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
-  hour: 8, session: 8, weekday: 8, symbols: 12, setup: 12, "order-type": 8, score: 8,
+  hour: 8, session: 8, weekday: 8, breakdown: 8, score: 8,
   discipline: 12, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
   equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
-  hour: 3, session: 3, weekday: 3, symbols: 4, setup: 4, "order-type": 3, score: 6,
+  hour: 3, session: 3, weekday: 3, breakdown: 4, score: 6,
   discipline: 3, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
@@ -1138,9 +1138,7 @@ export class WidgetGridView extends ItemView {
         try {
           switch (item.i) {
             case "equity": this.renderEquityBody(body, trades); break;
-            case "symbols": this.renderSymbolWidget(body, trades, counted); break;
-            case "setup": this.renderSetupWidget(body, trades, counted); break;
-            case "order-type": this.renderOrderTypeWidget(body, trades, counted); break;
+            case "breakdown": this.renderBreakdownWidget(body, trades, counted); break;
             case "score": this.renderScoreRadar(body, counted); break;
             case "hour": this.renderHourWidget(body, trades, counted); break;
             case "session": this.renderSessionWidget(body, trades, counted); break;
@@ -1968,43 +1966,55 @@ export class WidgetGridView extends ItemView {
     meta.createSpan({ cls: "tj-score-weeks", text: `· ${weeksActive}w` });
   }
 
-  /** One treemap adapter for every "P&L + win% by X" breakdown. */
-  private renderBreakdown(
-    body: HTMLElement,
-    trades: Trade[],
-    counted: Trade[],
-    keyOf: (t: Trade) => string,
-    labelOf: (key: string) => string,
-    cls: string
-  ): void {
-    const tiles = dimensionTiles(trades, counted, keyOf, { labelOf, formatMoney: fmtMoney2 });
-    if (!tiles.length) {
-      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
-      return;
+  /**
+   * Breakdown — one treemap with internal tabs (Symbol · Setup · Order Type).
+   * The selected tab is persisted in settings, like the account page's tabs.
+   */
+  renderBreakdownWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const dims: Array<[string, string, (t: Trade) => string, (k: string) => string]> = [
+      ["symbol", "Symbol", (t) => t.symbol || "—", (k) => k],
+      ["setup", "Setup", (t) => t.setup || "No strategy", (k) => k],
+      ["order-type", "Order Type", (t) => normalizeOrderType(t.orderType) || "—", (k) => k],
+    ];
+    let current = this.plugin.settings.dashboardBreakdownTab ?? "symbol";
+    if (!dims.some((d) => d[0] === current)) current = "symbol";
+
+    const wrap = body.createDiv({ cls: "tj-bd" });
+    const tabs = wrap.createDiv({ cls: "tj-bd-tabs" });
+    const panel = wrap.createDiv({ cls: "tj-bd-body" });
+    const buttons = new Map<string, HTMLElement>();
+
+    const draw = () => {
+      panel.empty();
+      const dim = dims.find((d) => d[0] === current) ?? dims[0];
+      const tiles = dimensionTiles(trades, counted, dim[2], { labelOf: dim[3], formatMoney: fmtMoney2 });
+      if (!tiles.length) {
+        panel.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+        return;
+      }
+      // Tile value is compact so it never ellipsises to a meaningless fragment;
+      // the full figure and win% live in the tooltip.
+      renderTreemap(panel, { tiles, className: "tj-bd-treemap", formatMoney: fmtMoneyCompact });
+    };
+
+    for (const [id, label] of dims) {
+      const b = tabs.createEl("button", {
+        cls: "tj-bd-tab" + (current === id ? " on" : ""),
+        text: label,
+        attr: { type: "button" },
+      });
+      buttons.set(id, b);
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (current === id) return;
+        current = id;
+        this.plugin.settings.dashboardBreakdownTab = id;
+        void this.plugin.saveSettings();
+        for (const [key, btn] of buttons) btn.toggleClass("on", key === id);
+        draw();
+      });
     }
-    renderTreemap(body, { tiles, className: cls, formatMoney: fmtMoney2 });
-  }
-
-  /** Symbol Breakdown — treemap by symbol. */
-  renderSymbolWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
-    this.renderBreakdown(body, trades, counted, (t) => t.symbol || "—", (k) => k, "tj-bd-symbols");
-  }
-
-  /** Setup Breakdown — treemap by strategy. */
-  renderSetupWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
-    this.renderBreakdown(body, trades, counted, (t) => t.setup || "No strategy", (k) => k, "tj-bd-setup");
-  }
-
-  /** Order-type Breakdown — treemap by entry order type. */
-  renderOrderTypeWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
-    this.renderBreakdown(
-      body,
-      trades,
-      counted,
-      (t) => normalizeOrderType(t.orderType) || "—",
-      (k) => k,
-      "tj-bd-ordertype"
-    );
+    draw();
   }
 
 
