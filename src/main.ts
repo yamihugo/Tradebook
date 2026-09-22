@@ -2318,14 +2318,24 @@ export default class TradebookPlugin extends Plugin {
    * written by an older build.
    */
   private async migrateWidgetIds(): Promise<void> {
-    const rewrite = (list?: DashItem[]): void => {
-      if (!Array.isArray(list)) return;
+    const rewrite = (list?: DashItem[]): DashItem[] | undefined => {
+      if (!Array.isArray(list)) return list;
       for (const it of list) {
         if (it && WIDGET_ID_ALIASES[it.i]) it.i = WIDGET_ID_ALIASES[it.i];
       }
+      // Aliases can collapse several old ids onto one; keep the largest tile
+      // (the one the user likely resized), else the first seen.
+      const byId = new Map<string, DashItem>();
+      const areaOf = (it: DashItem): number => (it.w || 0) * (it.h || 0);
+      for (const it of list) {
+        if (!it || !it.i) continue;
+        const prev = byId.get(it.i);
+        if (!prev || areaOf(it) > areaOf(prev)) byId.set(it.i, it);
+      }
+      return [...byId.values()];
     };
-    rewrite(this.settings.dashboardLayout);
-    rewrite(this.settings.homeLayout);
+    this.settings.dashboardLayout = rewrite(this.settings.dashboardLayout) ?? this.settings.dashboardLayout;
+    this.settings.homeLayout = rewrite(this.settings.homeLayout);
   }
 
   /**

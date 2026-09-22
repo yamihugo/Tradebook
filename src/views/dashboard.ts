@@ -147,7 +147,7 @@ const MIN_W: Record<string, number> = {
 };
 const MIN_H: Record<string, number> = {
   equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
-  hour: 3, session: 3, weekday: 3, breakdown: 4, streaks: 3, score: 6,
+  hour: 3, session: 3, weekday: 3, breakdown: 4, streaks: 2, score: 6,
   discipline: 3, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
@@ -516,8 +516,17 @@ export class WidgetGridView extends ItemView {
     layout.forEach((it) => {
       if (it && WIDGET_ID_ALIASES[it.i]) it.i = WIDGET_ID_ALIASES[it.i];
     });
+    // Aliases can collapse several old ids onto one, so dedupe by id — keeping
+    // the largest tile (the one the user likely resized), else the first seen.
+    const byId = new Map<string, GridItem>();
+    const areaOf = (it: GridItem): number => (it.w || 0) * (it.h || 0);
+    for (const it of layout) {
+      if (!it || !it.i) continue;
+      const prev = byId.get(it.i);
+      if (!prev || areaOf(it) > areaOf(prev)) byId.set(it.i, it);
+    }
     const valid = this.allowedIds();
-    const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
+    const filtered = [...byId.values()].filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
       it.w = gClamp(Math.round(it.w), MIN_W[it.i] ?? 1, GRID_COLS);
       it.h = gClamp(Math.round(it.h), MIN_H[it.i] ?? 1, 60);
@@ -1141,7 +1150,7 @@ export class WidgetGridView extends ItemView {
           switch (item.i) {
             case "equity": this.renderEquityBody(body, trades); break;
             case "breakdown": this.renderBreakdownWidget(body, trades, counted); break;
-            case "streaks": this.renderStreaksWidget(body, counted); break;
+            case "streaks": this.renderStreaksWidget(body, counted, item.h); break;
             case "score": this.renderScoreRadar(body, counted); break;
             case "hour": this.renderHourWidget(body, trades, counted); break;
             case "session": this.renderSessionWidget(body, trades, counted); break;
@@ -1970,10 +1979,10 @@ export class WidgetGridView extends ItemView {
   }
 
   /**
-   * Streaks — hero (current run) + context (best · avg) + state phrase, with a
-   * W/L ribbon of the recent sequence. One decision per counted trade.
+   * Streaks — three calm lines (hero, context, state) with a W/L ribbon of the
+   * recent sequence. One decision per counted trade.
    */
-  renderStreaksWidget(body: HTMLElement, trades: Trade[]): void {
+  renderStreaksWidget(body: HTMLElement, trades: Trade[], h?: number): void {
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
@@ -2010,6 +2019,16 @@ export class WidgetGridView extends ItemView {
               : { icon: "minus", text: "steady" };
 
     const wrap = body.createDiv({ cls: "tj-streaks" });
+    // Compact when the card is short: measured height, else the grid row count
+    // (keeps the behaviour testable in jsdom). Hides the ribbon, then the state.
+    const measured = body.clientHeight || 0;
+    const rows = h ?? 6;
+    const compact = measured > 0 ? measured < 110 : rows <= 3;
+    const tiny = measured > 0 ? measured < 80 : rows <= 2;
+    wrap.toggleClass("is-compact", compact || tiny);
+    wrap.toggleClass("is-tiny", tiny);
+
+    // Line 1 — the run.
     const hero = wrap.createDiv({
       cls: "tj-streaks-hero " + (current > 0 ? "is-pos" : current < 0 ? "is-neg" : "is-flat"),
     });
@@ -2022,29 +2041,32 @@ export class WidgetGridView extends ItemView {
           : current < 0 ? `${Math.abs(current)} loss${current === -1 ? "" : "es"} in a row`
             : "No active streak",
     });
-    hero.createSpan({ cls: "tj-streaks-state", text: state.text });
 
+    // Line 2 — context.
     const ctx = wrap.createDiv({ cls: "tj-streaks-ctx" });
     ctx.createSpan({ text: `best ${bestWin} · avg ${avg.toFixed(1)}` });
-    const chev = ctx.createSpan({ cls: "tj-streaks-chev" });
-    setIcon(chev, "chevron-right");
     attachTip(ctx, {
       title: "Streaks",
       sub: `Best win run ${bestWin} · worst loss run ${worstLoss} · ${runs} win run${runs === 1 ? "" : "s"}`,
     });
 
-    // Recent W/L sequence, oldest → newest.
-    renderRibbon(wrap, {
-      className: "tj-streaks-ribbon",
-      items: ordered.slice(-40).map((t, i) => ({
-        key: t.id || String(i),
-        result: t.pnl,
-        tip: {
-          title: `${t.symbol}${t.direction ? " " + t.direction.toUpperCase() : ""}`,
-          sub: `${t.date} · ${fmtMoney2(t.pnl)}`,
-        },
-      })),
-    });
+    // Line 3 — state (hidden when the card is tiny).
+    if (!tiny) wrap.createDiv({ cls: "tj-streaks-state", text: state.text });
+
+    // Recent W/L sequence, oldest → newest (hidden when compact).
+    if (!compact) {
+      renderRibbon(wrap, {
+        className: "tj-streaks-ribbon",
+        items: ordered.slice(-40).map((t, i) => ({
+          key: t.id || String(i),
+          result: t.pnl,
+          tip: {
+            title: `${t.symbol}${t.direction ? " " + t.direction.toUpperCase() : ""}`,
+            sub: `${t.date} · ${fmtMoney2(t.pnl)}`,
+          },
+        })),
+      });
+    }
   }
 
   /**

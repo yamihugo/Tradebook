@@ -5818,15 +5818,16 @@ textarea.tj-anno-textinput {
 .tj-streaks-hero.is-pos .tj-streaks-count { color: var(--tj-tone-good); }
 .tj-streaks-hero.is-neg .tj-streaks-count { color: var(--tj-tone-bad); }
 .tj-streaks-state { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
-.tj-streaks-ctx { display: flex; align-items: center; gap: 4px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); cursor: help; }
-.tj-streaks-chev { display: inline-flex; align-items: center; }
-.tj-streaks-chev svg { width: 13px; height: 13px; }
+.tj-streaks-ctx { font-size: var(--tj-fs-small); color: var(--tj-fg-3); cursor: help; }
 .tj-ribbon { display: flex; gap: 2px; flex-wrap: wrap; }
 .tj-ribbon-mark { width: 8px; height: 8px; border-radius: 2px; background: var(--tj-fg-3); }
 .tj-ribbon-mark.pos { background: var(--tj-chart-good); }
 .tj-ribbon-mark.neg { background: var(--tj-chart-bad); }
 .tj-ribbon-mark.flat { background: color-mix(in srgb, var(--tj-fg-3) 40%, transparent); }
 .tj-streaks-ribbon { margin-top: 2px; }
+/* Compact: drop the ribbon, then the state line, as the card narrows in height. */
+.tj-streaks.is-compact .tj-ribbon { display: none; }
+.tj-streaks.is-tiny .tj-streaks-state { display: none; }
 /* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
 .tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
 .tj-treemap-tile {
