@@ -27,8 +27,6 @@ export interface DimensionBarsOpts {
 
 export interface DimensionBarsResult {
   items: ContinuousSegment[];
-  /** Largest |net|, so every segment shares one scale. */
-  max: number;
   /** The bucket with the highest net, for a one-line summary. */
   best: ContinuousSegment | null;
 }
@@ -82,7 +80,6 @@ export function dimensionBars(
       key: k,
       label: label(k),
       value: b.net,
-      overlay: b.count ? b.wins / b.count : undefined,
       tone: b.net >= 0 ? "pos" : "neg",
       tip: {
         title: label(k),
@@ -94,8 +91,7 @@ export function dimensionBars(
     return item;
   });
 
-  const max = Math.max(...items.map((i) => Math.abs(i.value)), 1);
-  return { items, max, best };
+  return { items, best };
 }
 
 // Test hook, same pattern as the other pure modules.

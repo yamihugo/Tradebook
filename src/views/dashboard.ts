@@ -28,7 +28,7 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderContinuousBar } from "../lib/chartKit";
+import { renderGauge, renderContinuousBar, renderStatusRow } from "../lib/chartKit";
 import { dimensionBars, type DimensionBarsOpts } from "../lib/breakdown";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
@@ -86,14 +86,16 @@ export const WIDGET_ID_ALIASES: Record<string, string> = {
   timing: "hour",
 };
 
-/** Home — the designed six-tile narrative: full-width calendar, then pairs. */
+/** Home — the designed eight-tile narrative. */
 export const HOME_DEFAULT: GridItem[] = [
   { i: "calendar", x: 0, y: 0, w: 24, h: 6 },
   { i: "heatmap", x: 0, y: 6, w: 12, h: 6 },
-  { i: "hour", x: 12, y: 6, w: 12, h: 5 },
-  { i: "score", x: 0, y: 12, w: 12, h: 7 },
-  { i: "discipline", x: 12, y: 12, w: 12, h: 5 },
-  { i: "payouts", x: 0, y: 19, w: 24, h: 3 },
+  { i: "score", x: 12, y: 6, w: 12, h: 7 },
+  { i: "hour", x: 0, y: 13, w: 12, h: 3 },
+  { i: "weekday", x: 12, y: 13, w: 12, h: 3 },
+  { i: "symbols", x: 0, y: 16, w: 12, h: 6 },
+  { i: "discipline", x: 12, y: 16, w: 12, h: 5 },
+  { i: "payouts", x: 0, y: 22, w: 24, h: 4 },
 ];
 
 /** Metric widgets the archive seeds, in reading order. */
@@ -110,15 +112,15 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "longpnl", x: 0, y: 0, w: 8, h: 6 },
     { i: "shortpnl", x: 8, y: 0, w: 8, h: 6 },
     { i: "score", x: 16, y: 0, w: 8, h: 6 },
-    { i: "hour", x: 0, y: 6, w: 8, h: 5 },
-    { i: "session", x: 8, y: 6, w: 8, h: 5 },
-    { i: "weekday", x: 16, y: 6, w: 8, h: 5 },
-    { i: "heatmap", x: 0, y: 11, w: 24, h: 4 },
-    { i: "symbols", x: 0, y: 15, w: 24, h: 6 },
+    { i: "hour", x: 0, y: 6, w: 8, h: 3 },
+    { i: "session", x: 8, y: 6, w: 8, h: 3 },
+    { i: "weekday", x: 16, y: 6, w: 8, h: 3 },
+    { i: "heatmap", x: 0, y: 9, w: 24, h: 4 },
+    { i: "symbols", x: 0, y: 13, w: 24, h: 6 },
   ];
   const perRow = 6;
   DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 21 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 19 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
   });
   return tiles;
 })();
@@ -138,7 +140,7 @@ const MIN_W: Record<string, number> = {
 };
 const MIN_H: Record<string, number> = {
   equity: 5, longpnl: 5, shortpnl: 5, calendar: 5, heatmap: 5,
-  hour: 4, session: 4, weekday: 4, symbols: 5, score: 6,
+  hour: 3, session: 3, weekday: 3, symbols: 5, score: 6,
   discipline: 4, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
@@ -1576,23 +1578,22 @@ export class WidgetGridView extends ItemView {
     });
 
     // Good signals read green when high; bad signals read green when low.
-    const pctTone = (v: number, good: boolean): "pos" | "mid" | "neg" =>
-      good ? (v >= 70 ? "pos" : v >= 40 ? "mid" : "neg") : v <= 10 ? "pos" : v <= 25 ? "mid" : "neg";
-    renderContinuousBar(foot, {
+    const state = (v: number, good: boolean): "ok" | "warn" | "bad" =>
+      good ? (v >= 70 ? "ok" : v >= 40 ? "warn" : "bad") : v <= 10 ? "ok" : v <= 25 ? "warn" : "bad";
+    renderStatusRow(foot, {
       className: "tj-disc-process",
-      showLabels: true,
-      segments: [
-        { key: "review", label: "Review", value: rev.pct, tone: pctTone(rev.pct, true),
+      items: [
+        { key: "review", label: "Review", state: state(rev.pct, true),
           tip: { title: "Reviewed", value: `${rev.pct}%`, sub: `${rev.complete} of ${rev.total} complete` } },
-        { key: "journal", label: "Journal", value: journalPct, tone: pctTone(journalPct, true),
+        { key: "journal", label: "Journal", state: state(journalPct, true),
           tip: { title: "Journaling coverage", value: `${journalPct.toFixed(0)}%`, sub: "Psychology or mistakes logged or acknowledged." } },
-        { key: "stops", label: "Stops", value: process.stopDefinedPct, tone: pctTone(process.stopDefinedPct, true),
+        { key: "stops", label: "Stops", state: state(process.stopDefinedPct, true),
           tip: { title: "Stop defined", value: `${process.stopDefinedPct.toFixed(0)}%`, sub: "Trades with a protective stop." } },
-        { key: "revenge", label: "Revenge", value: process.revengeRate, tone: pctTone(process.revengeRate, false),
+        { key: "revenge", label: "Revenge", state: state(process.revengeRate, false),
           tip: { title: "Revenge trades", value: `${process.revengeRate.toFixed(0)}%`, sub: `${process.revengeCount} re-entries after a loss.` } },
-        { key: "tilt", label: "Tilt", value: tiltPct, tone: pctTone(tiltPct, false),
+        { key: "tilt", label: "Tilt", state: state(tiltPct, false),
           tip: { title: "After two losses", value: `${process.afterTwoLosses}`, sub: "Trades opened right after two consecutive losses." } },
-        { key: "fast", label: "Fast", value: process.fastTradesPct, tone: pctTone(process.fastTradesPct, false),
+        { key: "fast", label: "Fast", state: state(process.fastTradesPct, false),
           tip: { title: "Impulsive", value: `${process.fastTradesPct.toFixed(0)}%`, sub: "Opened and closed inside a minute." } },
       ],
     });

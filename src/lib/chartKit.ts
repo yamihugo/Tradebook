@@ -116,8 +116,6 @@ export interface ContinuousSegment {
   /** Signed value; drives the colour, and the width when no `weightOf`. */
   value: number;
   tone?: "pos" | "mid" | "neg" | "neutral";
-  /** Optional stacked overlay as a 0..1 fraction of the segment. */
-  overlay?: number;
   tip?: { title: string; value?: string; sub?: string };
 }
 
@@ -143,10 +141,6 @@ export function renderContinuousBar(host: HTMLElement, spec: ContinuousBarSpec):
     const tone = s.tone ?? (s.value >= 0 ? "pos" : "neg");
     const seg = track.createDiv({ cls: "tj-cbar-seg " + tone });
     seg.style.flex = `${weightOf(s)} 1 0`;
-    if (s.overlay !== undefined) {
-      const ov = seg.createEl("b", { cls: "tj-cbar-overlay" });
-      ov.style.width = `${Math.max(0, Math.min(1, s.overlay)) * 100}%`;
-    }
     if (s.tip) attachTip(seg, s.tip);
   }
 
@@ -156,6 +150,40 @@ export function renderContinuousBar(host: HTMLElement, spec: ContinuousBarSpec):
       const l = labels.createSpan({ cls: "tj-cbar-label", text: s.label });
       l.style.flex = `${weightOf(s)} 1 0`;
     }
+  }
+  return wrap;
+}
+
+// --------------------------------------------------------------- status row
+
+export type StatusState = "ok" | "warn" | "bad" | "neutral";
+
+export interface StatusItem {
+  key: string;
+  label: string;
+  state: StatusState;
+  tip?: { title: string; value?: string; sub?: string };
+}
+
+export interface StatusRowSpec {
+  items: StatusItem[];
+  className?: string;
+  /** Render a label row under the squares. Default true. */
+  showLabels?: boolean;
+}
+
+/**
+ * Small separate squares, one colour each, by task state (ok / warn / bad /
+ * neutral), with labels below. A pass/fail checklist — not a bar. Returns the
+ * root element.
+ */
+export function renderStatusRow(host: HTMLElement, spec: StatusRowSpec): HTMLElement {
+  const wrap = host.createDiv({ cls: "tj-statusrow" + (spec.className ? " " + spec.className : "") });
+  for (const it of spec.items) {
+    const item = wrap.createDiv({ cls: "tj-status-item" });
+    const sq = item.createDiv({ cls: "tj-status-square " + it.state });
+    if (it.tip) attachTip(sq, it.tip);
+    if (spec.showLabels !== false) item.createDiv({ cls: "tj-status-label", text: it.label });
   }
   return wrap;
 }
@@ -328,5 +356,5 @@ export function renderRibbon(host: HTMLElement, spec: RibbonSpec): HTMLElement {
 
 // Test hook, same pattern as the other pure-ish modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjChartKit = { renderGauge, renderContinuousBar, renderTreemap, renderDumbbell, renderRibbon };
+  (window as any).__tjChartKit = { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap, renderDumbbell, renderRibbon };
 }

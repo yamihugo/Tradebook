@@ -5854,18 +5854,28 @@ textarea.tj-anno-textinput {
 .tj-cbar-seg.mid { background: var(--tj-tone-mid); }
 .tj-cbar-seg.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-cbar-seg:hover { filter: brightness(1.2); }
-.tj-cbar-overlay { position: absolute; left: 0; top: 0; bottom: 0; display: block; background: color-mix(in srgb, var(--text-normal) 45%, transparent); }
 .tj-cbar-labels { display: flex; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
 .tj-cbar-label { text-align: center; white-space: nowrap; overflow: hidden; }
+/* Generic: centre a card's content vertically when the card is taller than needed. */
+.tj-center { justify-content: center; }
+/* Status-row primitive (lib/chartKit.ts) — separate squares, one colour each. */
+.tj-statusrow { display: flex; gap: 10px; width: 100%; }
+.tj-status-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.tj-status-square { width: 14px; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--tj-fg-3) 24%, transparent); transition: filter 120ms ease; }
+.tj-status-square.ok { background: var(--tj-tone-good); }
+.tj-status-square.warn { background: var(--tj-tone-mid); }
+.tj-status-square.bad { background: var(--tj-tone-bad); }
+.tj-status-square.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
+.tj-status-square:hover { filter: brightness(1.2); }
+.tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Overflow policy: charts scale inside the card; tables/lists scroll. */
 .tj-gridcard-body.tj-scale { overflow: hidden; }
 .tj-gridcard-body.tj-scroll { overflow: auto; }
-/* Discipline — hero gauge + process continuous bar */
+/* Discipline — hero gauge + compact status squares */
 .tj-disc-gauge { width: 108px; }
 .tj-disc-process { margin-top: 2px; }
-.tj-disc-process .tj-cbar-track { height: 22px; }
 /* Dimension widgets (hour / session / weekday) — one continuous bar + a summary */
-.tj-dim { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.tj-dim { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 100%; min-height: 0; }
 .tj-dim-summary { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-dim-k { text-transform: uppercase; letter-spacing: 0.05em; }
 .tj-dim-best { font-weight: 600; color: var(--text-normal); }
@@ -8591,6 +8601,7 @@ textarea.tj-anno-textinput {
 .tj-pay {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: var(--tj-sp-3);
 }
 .tj-pay-top {
