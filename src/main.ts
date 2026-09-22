@@ -1790,6 +1790,10 @@ export default class TradebookPlugin extends Plugin {
       out.push(t);
       const baseAccount = this.mappedAccount(t.account);
       for (const id of accountIds) {
+        // The account the trade was entered in is the trade itself, never a
+        // mirror of it. Guarded here so no caller — whatever id resolver it
+        // used — can write the same trade twice into one account.
+        if (baseAccount && id === baseAccount.id) continue;
         const acc = this.settings.propAccounts.find((a) => a.id === id);
         if (!acc) continue;
         // A copier only mirrors a trade it was actually following that day. An
