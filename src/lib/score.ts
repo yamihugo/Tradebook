@@ -92,7 +92,7 @@ function avgLossR(trades: Trade[]): number {
 export function computeScore(trades: Trade[], dayKey: (t: Trade) => string): ScoreResult {
   const count = trades.length;
   const process = computeProcessSignals(trades, dayKey);
-  const money = moneyStats(trades);
+  const money = moneyStats(trades, dayKey);
   // Build 1 preserves the current gross profitability factor; Build 2 flips it.
   const pf = money.grossLoss > 0 ? money.grossWin / money.grossLoss : money.grossWin > 0 ? 5 : 0;
 

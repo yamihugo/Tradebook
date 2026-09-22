@@ -17,6 +17,10 @@
 import type { Trade } from "../types";
 import { netPnl } from "./fees";
 
+/** What "a day" is. Injected so the timezone logic stays with the caller. */
+export type DayKey = (t: Trade) => string;
+const dateKey: DayKey = (t) => t.date;
+
 /** Trades with a finite result and a date — the same scope every metric uses. */
 function scoped(trades: Trade[]): Trade[] {
   return trades.filter((t) => Number.isFinite(t.pnl) && !!t.date);
@@ -100,17 +104,17 @@ export function largestLoss(trades: Trade[]): number {
   return v < 0 ? v : 0;
 }
 
-/** Net P&L of the best day (grouped by the trade's own date). */
-export function bestDay(trades: Trade[]): number {
+/** Net P&L of the best day (grouped by the injected day key). */
+export function bestDay(trades: Trade[], dayKey: DayKey = dateKey): number {
   const days = new Map<string, number>();
-  for (const t of scoped(trades)) days.set(t.date, (days.get(t.date) ?? 0) + netPnl(t));
+  for (const t of scoped(trades)) days.set(dayKey(t), (days.get(dayKey(t)) ?? 0) + netPnl(t));
   return days.size ? Math.max(...days.values()) : 0;
 }
 
-/** Net P&L of the worst day (grouped by the trade's own date). */
-export function worstDay(trades: Trade[]): number {
+/** Net P&L of the worst day (grouped by the injected day key). */
+export function worstDay(trades: Trade[], dayKey: DayKey = dateKey): number {
   const days = new Map<string, number>();
-  for (const t of scoped(trades)) days.set(t.date, (days.get(t.date) ?? 0) + netPnl(t));
+  for (const t of scoped(trades)) days.set(dayKey(t), (days.get(dayKey(t)) ?? 0) + netPnl(t));
   return days.size ? Math.min(...days.values()) : 0;
 }
 
@@ -132,7 +136,7 @@ export interface MoneyStats {
   worstDay: number;
 }
 
-export function moneyStats(trades: Trade[]): MoneyStats {
+export function moneyStats(trades: Trade[], dayKey: DayKey = dateKey): MoneyStats {
   return {
     net: netTotal(trades),
     gross: grossTotal(trades),
@@ -146,8 +150,8 @@ export function moneyStats(trades: Trade[]): MoneyStats {
     avgLoss: avgLoss(trades),
     largestWin: largestWin(trades),
     largestLoss: largestLoss(trades),
-    bestDay: bestDay(trades),
-    worstDay: worstDay(trades),
+    bestDay: bestDay(trades, dayKey),
+    worstDay: worstDay(trades, dayKey),
   };
 }
 

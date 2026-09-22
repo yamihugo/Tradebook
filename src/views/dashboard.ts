@@ -1180,11 +1180,12 @@ export class WidgetGridView extends ItemView {
   /** One metric per widget. */
   renderMetricBody(body: HTMLElement, trades: Trade[], id: string, prevTrades: Trade[] = []): void {
     const def = metricById(id);
+    const dayKey = (t: Trade): string => toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
     const wrap = body.createDiv({ cls: "tj-metric" });
     const labelText = def?.label ?? CARD_TITLES[id] ?? id;
     const labelEl = wrap.createDiv({ cls: "tj-metric-label", text: labelText });
     const val = wrap.createDiv({ cls: "tj-metric-value" });
-    const res = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(trades) : trades) : { value: "—", tone: "neutral" as const };
+    const res = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(trades) : trades, dayKey) : { value: "—", tone: "neutral" as const };
     // Restrained colour: only metrics where colour carries real meaning.
     const tone = COLORED_METRICS.has(id) ? res.tone : "neutral";
     if (tone === "pos") val.addClass("tj-pos");
@@ -1206,7 +1207,7 @@ export class WidgetGridView extends ItemView {
 
     // Sub-stat: delta vs the previous period (neutral — direction via arrow).
     if (COMPARE_METRICS.has(id) && prevTrades.length && parsed !== null) {
-      const prevRes = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(prevTrades) : prevTrades) : null;
+      const prevRes = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(prevTrades) : prevTrades, dayKey) : null;
       const prevNum = prevRes ? parseMetricNumber(prevRes.value) : null;
       if (prevNum !== null) {
         const d = parsed - prevNum;

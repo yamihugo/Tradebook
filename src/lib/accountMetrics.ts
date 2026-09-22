@@ -13,7 +13,18 @@
 import { Trade } from "../types";
 import { futuresSpec } from "../futures";
 import { computeProcessSignals } from "./process";
-import { grossWin as grossWinSum, grossLoss as grossLossSum } from "./money";
+import {
+  grossWin,
+  grossLoss,
+  profitFactor,
+  expectancy,
+  avgWin,
+  avgLoss,
+  bestDay,
+  worstDay,
+  largestWin,
+  largestLoss,
+} from "./money";
 import { netPnl } from "./fees";
 
 export interface AccountMetricsInput {
@@ -322,9 +333,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // ---- wins / losses ----
   const wins = scoped.filter((t) => t.pnl > 0);
   const losses = scoped.filter((t) => t.pnl < 0);
-  const grossWin = grossWinSum(scoped);
-  const grossLoss = grossLossSum(scoped);
-  const grossTotal = scoped.reduce((a, t) => a + t.pnl, 0);
   const tradeCount = scoped.length;
 
   // ---- target / consistency ----
@@ -333,8 +341,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const avgDayNet = cashflowDays.length ? cashflowDays.reduce((a, v) => a + v, 0) / cashflowDays.length : 0;
   const daysToTarget = target > 0 && avgDayNet > 0 ? Math.ceil(toTarget / avgDayNet) : null;
   // Day quality is gross; the consistency rule and the daily-loss line are net.
-  const bestDay = dayGrosses.length ? dayGrosses.reduce((a, v) => (v > a ? v : a), -Infinity) : 0;
-  const worstDay = dayGrosses.length ? dayGrosses.reduce((a, v) => (v < a ? v : a), Infinity) : 0;
   const bestNetDay = dayNets.length ? dayNets.reduce((a, v) => (v > a ? v : a), -Infinity) : 0;
   const worstNetDay = dayNets.length ? dayNets.reduce((a, v) => (v < a ? v : a), Infinity) : 0;
   const consBasis =
@@ -395,9 +401,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // funded / payout: money taken out, kept apart from performance.
   const withdrawn = input.withdrawn ?? 0;
 
-  const largestWin = wins.length ? Math.max(...wins.map((t) => t.pnl)) : 0;
-  const largestLoss = losses.length ? Math.min(...losses.map((t) => t.pnl)) : 0;
-
   return {
     net,
     tradeCount,
@@ -405,24 +408,24 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     lossCount: losses.length,
     // Win rate excludes break-even trades from the denominator (industry standard).
     winRate: wins.length + losses.length > 0 ? (wins.length / (wins.length + losses.length)) * 100 : 0,
-    grossWin,
-    grossLoss,
+    grossWin: grossWin(scoped),
+    grossLoss: grossLoss(scoped),
     totalCommission: scoped.reduce((a, t) => a + (t.commission || 0), 0),
     totalFees: scoped.reduce((a, t) => a + (t.fees || 0), 0),
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
-    expectancy: wins.length + losses.length > 0 ? grossTotal / (wins.length + losses.length) : 0,
-    avgWin: wins.length ? grossWin / wins.length : 0,
-    avgLoss: losses.length ? grossLoss / losses.length : 0,
+    profitFactor: profitFactor(scoped),
+    expectancy: expectancy(scoped),
+    avgWin: avgWin(scoped),
+    avgLoss: avgLoss(scoped),
     dayWinRate:
       dayGrosses.filter((v) => v !== 0).length > 0
         ? (dayGrosses.filter((v) => v > 0).length / dayGrosses.filter((v) => v !== 0).length) * 100
         : 0,
     dayCount: dayKeys.length,
     winDays: dayGrosses.filter((v) => v > 0).length,
-    bestDay,
-    worstDay,
-    largestWin,
-    largestLoss,
+    bestDay: bestDay(scoped, input.dayKey),
+    worstDay: worstDay(scoped, input.dayKey),
+    largestWin: largestWin(scoped),
+    largestLoss: largestLoss(scoped),
     maxDrawdown,
     peak,
     ddCurrent,
