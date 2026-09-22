@@ -378,14 +378,14 @@
 }
 .tj-hm-cell.empty { background: var(--background-modifier-border); opacity: 0.35; }
 .tj-hm-cell.zero { background: var(--background-modifier-border); }
-.tj-hm-cell.pos1 { background: color-mix(in srgb, var(--tj-chart-good) 25%, transparent); }
-.tj-hm-cell.pos2 { background: color-mix(in srgb, var(--tj-chart-good) 45%, transparent); }
-.tj-hm-cell.pos3 { background: color-mix(in srgb, var(--tj-chart-good) 70%, transparent); }
-.tj-hm-cell.pos4 { background: var(--tj-chart-good); }
-.tj-hm-cell.neg1 { background: color-mix(in srgb, var(--tj-chart-bad) 25%, transparent); }
-.tj-hm-cell.neg2 { background: color-mix(in srgb, var(--tj-chart-bad) 45%, transparent); }
-.tj-hm-cell.neg3 { background: color-mix(in srgb, var(--tj-chart-bad) 70%, transparent); }
-.tj-hm-cell.neg4 { background: var(--tj-chart-bad); }
+.tj-hm-cell.pos1 { background: color-mix(in srgb, var(--tj-tone-good) 25%, transparent); }
+.tj-hm-cell.pos2 { background: color-mix(in srgb, var(--tj-tone-good) 45%, transparent); }
+.tj-hm-cell.pos3 { background: color-mix(in srgb, var(--tj-tone-good) 70%, transparent); }
+.tj-hm-cell.pos4 { background: var(--tj-tone-good); }
+.tj-hm-cell.neg1 { background: color-mix(in srgb, var(--tj-tone-bad) 25%, transparent); }
+.tj-hm-cell.neg2 { background: color-mix(in srgb, var(--tj-tone-bad) 45%, transparent); }
+.tj-hm-cell.neg3 { background: color-mix(in srgb, var(--tj-tone-bad) 70%, transparent); }
+.tj-hm-cell.neg4 { background: var(--tj-tone-bad); }
 
 /* ---------------- Import ---------------- */
 .tj-import-info {
@@ -5625,17 +5625,17 @@ textarea.tj-anno-textinput {
 
 /* Calendar day tints — soft, matching the equity chart palette */
 .tj-pcal-cell.is-pos {
-  background: color-mix(in srgb, var(--tj-chart-good) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-chart-good) 18%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-good) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-tone-good) 18%, transparent);
 }
-.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-chart-good); }
+.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-tone-good); }
 .tj-pcal-cell.is-neg {
-  background: color-mix(in srgb, var(--tj-chart-bad) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-chart-bad) 17%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-bad) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-tone-bad) 17%, transparent);
 }
-.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-chart-bad); }
-.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-chart-good) 62%, var(--text-muted)); }
-.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-chart-bad) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-tone-bad); }
+.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-good) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-bad) 62%, var(--text-muted)); }
 
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
