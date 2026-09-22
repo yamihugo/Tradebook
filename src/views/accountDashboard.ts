@@ -1103,7 +1103,7 @@ export class AccountDashboardView extends ItemView {
       }
       track.addClass("tj-tip-anchor");
       track.addEventListener("mouseenter", () => {
-        const ddPct = size.maxLoss ? Math.round((Math.max(0, -net) / size.maxLoss) * 100) : 0;
+        const ddPct = size.maxLoss ? Math.round((M.ddToLimit / size.maxLoss) * 100) : 0;
         showTip(
           {
             title: "Key metrics",
@@ -1193,7 +1193,7 @@ export class AccountDashboardView extends ItemView {
         }`,
       );
     }
-    if (size.maxLoss) mRow(limitsCol, "Max drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Deepest peak-to-trough drawdown.");
+    if (size.maxLoss) mRow(limitsCol, "Max trading drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Deepest peak-to-trough drawdown.");
     if (M.avgRiskMoney) mRow(limitsCol, "Avg risk / trade", `${fmtMoney(M.avgRiskMoney)} · ${M.avgRiskR.toFixed(2)}R`, "", "Average risk per trade.");
 
     perfCol.createDiv({ cls: "tj-acc-mgroup", text: "Performance" });

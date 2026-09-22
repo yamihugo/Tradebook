@@ -28,6 +28,37 @@ function compactDateLabel(iso: string): string {
 }
 
 /**
+ * Read an order type out of any of the dialects the plugin has written and
+ * return the one canonical form: "Limit", "Market", "Stop", "Stop Limit".
+ * Unknown non-empty values come back trimmed and untouched — the journal
+ * reports what the broker said, it never invents a type or drops one it
+ * cannot place.
+ */
+export function normalizeOrderType(raw?: string): string | undefined {
+  const original = (raw ?? "").trim();
+  if (!original) return undefined;
+  const key = original.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  switch (key) {
+    case "limit":
+    case "lmt":
+      return "Limit";
+    case "market":
+    case "mkt":
+      return "Market";
+    case "stop":
+    case "stp":
+      return "Stop";
+    // "stoplimit" catches StopLimit/STOPLIMIT; the collapsed form catches
+    // "stop-limit", "stop_limit" and "Stop Limit".
+    case "stop limit":
+    case "stoplimit":
+      return "Stop Limit";
+    default:
+      return original;
+  }
+}
+
+/**
  * How long a trade was held: `15s`, `1m 30s`, `1h 5m`, `2h 4m 9s`. Times are
  * read as wall clock; an exit earlier than the entry wrapped past midnight.
  * Empty times (older notes have none) read as an em dash, never as midnight.

@@ -448,10 +448,10 @@ export class AddTradePanel {
     mountDropdown(
       fOt.createDiv({ cls: "tj-add-ctl" }),
       [
-        { id: "limit", label: "Limit" },
-        { id: "market", label: "Market" },
-        { id: "stop", label: "Stop" },
-        { id: "stop-limit", label: "Stop limit" },
+        { id: "Limit", label: "Limit" },
+        { id: "Market", label: "Market" },
+        { id: "Stop", label: "Stop" },
+        { id: "Stop Limit", label: "Stop Limit" },
       ],
       t.orderType || "",
       (id) => {

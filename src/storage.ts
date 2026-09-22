@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath } from "obsidian";
 import { PrintEntry, Trade, TradeFill } from "./types";
 import { formatDateFile } from "./lib/dates";
+import { normalizeOrderType } from "./lib/tradeTable";
 import { fmtPrice } from "./tz";
 
 /**
@@ -402,7 +403,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     mistake,
     thesis: get("thesis") || bodySection(body, "Thesis"),
     review: get("review") || bodySection(body, "Review"),
-    orderType: get("order_type"),
+    orderType: normalizeOrderType(get("order_type")),
     fillId: get("fill_id"),
     notes: get("notes"),
     timezone: get("timezone"),

@@ -80,8 +80,6 @@ interface AccStats {
   target: number;
   maxLoss: number;
   dailyLoss: number;
-  /** Peak-to-trough drawdown on the daily net series. */
-  dd: number;
   /** Distinct symbols traded, for the demo card's mini row. */
   symbols: number;
   /** The full account metric set — one engine, so the card can never drift. */
@@ -145,33 +143,14 @@ export class AccountsListView extends ItemView {
     let losses = 0;
     let first = "";
     let last = "";
-    const byDay = new Map<string, number>();
     for (const t of list) {
       // Money the card reports is net of costs; win/loss counts stay gross.
       net += netPnl(t);
       if (t.pnl > 0) wins += 1;
       else if (t.pnl < 0) losses += 1;
-      byDay.set(t.date, (byDay.get(t.date) ?? 0) + netPnl(t));
       if (!first || t.date < first) first = t.date;
       if (!last || t.date > last) last = t.date;
     }
-    // Distance to the loss limit, on the balance the account really has: daily
-    // net plus every payout that left and every deposit that came in. A payout
-    // lowers the balance while the peak stays put, so it eats the buffer — the
-    // firm's view, and the whole reason a payout is recorded.
-    const flowByDay = new Map<string, number>();
-    for (const p of this.plugin.payoutsFor(acc.id)) flowByDay.set(p.date, (flowByDay.get(p.date) ?? 0) - Math.abs(p.amount));
-    for (const d of this.plugin.depositsFor(acc.id)) flowByDay.set(d.date, (flowByDay.get(d.date) ?? 0) + Math.abs(d.amount));
-    // A balance correction moves the account exactly like a payout does; the
-    // card's distance to the limit has to see it.
-    for (const a of this.plugin.feeAdjustmentsFor(acc.id)) flowByDay.set(a.date, (flowByDay.get(a.date) ?? 0) + a.amount);
-    let cum = 0;
-    let peak = 0;
-    for (const d of [...new Set([...byDay.keys(), ...flowByDay.keys()])].sort()) {
-      cum += (byDay.get(d) ?? 0) + (flowByDay.get(d) ?? 0);
-      if (cum > peak) peak = cum;
-    }
-    const dd = Math.max(0, peak - cum);
     const size = resolveAccountView(acc).rules;
     const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
     const deposited = this.plugin.accountDepositsTotal(acc.id);
@@ -213,7 +192,6 @@ export class AccountsListView extends ItemView {
       target: size?.target ?? 0,
       maxLoss: size?.maxLoss ?? 0,
       dailyLoss: size?.dailyLoss ?? 0,
-      dd,
       symbols,
       m,
     };
@@ -749,7 +727,7 @@ export class AccountsListView extends ItemView {
         if (!st) return 0;
         if (mode === "balance") return st.value;
         if (mode === "net") return st.net;
-        return st.maxLoss > 0 ? st.dd / st.maxLoss : -1;
+        return st.maxLoss > 0 ? st.m.ddToLimit / st.maxLoss : -1;
       };
       const dv = key(b) - key(a);
       if (Math.abs(dv) > 1e-9) return dv;
@@ -996,7 +974,7 @@ export class AccountsListView extends ItemView {
     const m = st.m;
 
     const edge = tile.createDiv({ cls: "tj-acct-tile-edge" });
-    const ddUsed = st.maxLoss > 0 ? st.dd / st.maxLoss : 0;
+    const ddUsed = st.maxLoss > 0 ? st.m.ddToLimit / st.maxLoss : 0;
     edge.style.background = ddUsed > 0.75 ? "var(--color-red, #ff5d48)" : ddUsed > 0.4 ? "#d9a441" : "var(--color-green-bright, #34d17a)";
 
     // ---- firm logo, tucked in the corner so it identifies without shouting ----
@@ -1135,13 +1113,13 @@ export class AccountsListView extends ItemView {
   private alertFor(acc: PropAccount, st: AccStats): { kind: string; label: string; why: string } | null {
     // Near limit: drawdown at 80% of the account's limit.
     if (st.maxLoss > 0) {
-      const pct = (st.dd / st.maxLoss) * 100;
+      const pct = (st.m.ddToLimit / st.maxLoss) * 100;
       if (pct >= 80) {
-        const room = Math.max(0, st.maxLoss - st.dd);
+        const room = Math.max(0, st.maxLoss - st.m.ddToLimit);
         return {
           kind: "limit",
           label: `${pct.toFixed(0)}% of limit used`,
-          why: `${fmtMoney(st.dd)} of ${fmtMoney(st.maxLoss)} used · ${fmtMoney(room)} room left. Nothing is blocked here — the platform is the one that enforces the limit.`,
+          why: `${fmtMoney(st.m.ddToLimit)} of ${fmtMoney(st.maxLoss)} used · ${fmtMoney(room)} room left. Nothing is blocked here — the platform is the one that enforces the limit.`,
         };
       }
     }
@@ -1180,15 +1158,15 @@ export class AccountsListView extends ItemView {
       drawdown:
         st.maxLoss > 0
           ? (() => {
-              const pct = clamp((st.dd / st.maxLoss) * 100, 0, 100);
+              const pct = clamp((st.m.ddToLimit / st.maxLoss) * 100, 0, 100);
               const band = pct > 75 ? "crit" : pct > 40 ? "warn" : "safe";
               return {
                 label: "Drawdown level",
-                value: `${pct.toFixed(0)}% · ${fmtMoney(Math.max(0, st.maxLoss - st.dd))} room`,
+                value: `${pct.toFixed(0)}% · ${fmtMoney(Math.max(0, st.m.ddRemaining))} room`,
                 pct,
                 fill: `dd ${band}`,
                 tone: band === "safe" ? undefined : band,
-                title: `${fmtMoney(st.dd)} used of -$${st.maxLoss.toLocaleString()} · ${fmtMoney(Math.max(0, st.maxLoss - st.dd))} room left`,
+                title: `${fmtMoney(st.m.ddToLimit)} used of -$${st.maxLoss.toLocaleString()} · ${fmtMoney(Math.max(0, st.m.ddRemaining))} room left`,
               };
             })()
           : {
@@ -1222,12 +1200,12 @@ export class AccountsListView extends ItemView {
         title: `${m.dayCount} trading day${m.dayCount === 1 ? "" : "s"} · ${fmtMoney(m.bestDay)} best · ${fmtMoney(m.worstDay)} worst`,
       },
       ddFromPeak: {
-        label: "Drawdown from peak",
-        value: `${st.value > 0 ? ((m.ddCurrent / st.value) * 100).toFixed(1) : "0.0"}%`,
-        pct: st.value > 0 ? (m.ddCurrent / st.value) * 100 : 0,
+        label: "Trade drawdown from peak",
+        value: `${((m.ddCurrent / (m.peak || 1)) * 100).toFixed(1)}%`,
+        pct: (m.ddCurrent / (m.peak || 1)) * 100,
         fill: "dd warn",
         tone: m.ddCurrent > 0 ? "warn" : undefined,
-        title: `${fmtMoney(m.ddCurrent)} below the ${fmtMoney(m.peak)} peak · deepest was ${fmtMoney(m.maxDrawdown)}`,
+        title: `${fmtMoney(m.ddCurrent)} below the ${fmtMoney(m.peak)} trading peak · deepest was ${fmtMoney(m.maxDrawdown)}`,
       },
     };
 
