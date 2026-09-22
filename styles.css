@@ -5925,10 +5925,15 @@ textarea.tj-anno-textinput {
 .tj-score2 { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .tj-score2 .tj-radar { flex: 1 1 auto; min-height: 0; }
 .tj-score-lock { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; position: relative; }
-.tj-score-ring { width: min(56%, 170px); height: auto; }
-.tj-score-ring-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.tj-score-ring-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-score-color, var(--text-normal)); }
-.tj-score-ring-small { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
+/* Arc gauge primitive (lib/chartKit.ts) — score unlock ring + review gauge. */
+.tj-arc { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.tj-arc-svg { width: 100%; height: auto; display: block; }
+.tj-arc-track { stroke: rgba(255, 255, 255, 0.08); }
+.tj-arc-fill { stroke: var(--tj-arc-color, var(--interactive-accent)); }
+.tj-arc-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.tj-arc-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-arc-color, var(--text-normal)); }
+.tj-arc-small { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
+.tj-score-gauge { width: min(56%, 170px); }
 .tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
 .tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
 .tj-score-foot { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: center; gap: 9px; margin-top: 2px; }

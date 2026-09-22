@@ -27,7 +27,8 @@ import { PerformanceCalendarWidget } from "../widgets/performanceCalendarWidget"
 import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
-import { computeScore } from "../lib/score";
+import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
+import { renderGauge } from "../lib/chartKit";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
 import { openDayLogModal } from "./dayLogModal";
@@ -41,15 +42,6 @@ export const DASHBOARD_VIEW_TYPE = "tradebook-dashboard-view";
 const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export type DashItem = GridItem;
-
-/** Score band → tone token. `low` shares `bad`; `top` shares `good`. */
-const BAND_TOKEN: Record<string, string> = {
-  bad: "var(--tj-tone-bad)",
-  low: "var(--tj-tone-bad)",
-  mid: "var(--tj-tone-mid)",
-  good: "var(--tj-tone-good)",
-  top: "var(--tj-tone-good)",
-};
 
 export const CARD_TITLES: Record<string, string> = {
   equity: "Cumulative P&L",
@@ -1812,7 +1804,7 @@ export class WidgetGridView extends ItemView {
     const phase = result.phase;
     const weeksActive = result.progress.weeksActive;
     const count = result.progress.tradeCount;
-    const band = BAND_TOKEN[result.band];
+    const band = SCORE_BAND_TOKEN[result.band];
 
     const NS = "http://www.w3.org/2000/svg";
     const el = (tag: string, attrs: Record<string, string>): SVGElement => {
@@ -1836,20 +1828,13 @@ export class WidgetGridView extends ItemView {
               : `${4 - done} weeks to unlock`
           : `${Math.max(0, 5 - count)} trades to unlock`;
       const wrap = box.createDiv({ cls: "tj-score-lock" });
-      const svg = el("svg", { viewBox: "0 0 130 130", class: "tj-score-ring" });
-      svg.appendChild(el("circle", { cx: "65", cy: "65", r: "52", fill: "none", stroke: "rgba(255,255,255,.08)", "stroke-width": "9" }));
-      const arc = el("circle", {
-        cx: "65", cy: "65", r: "52", fill: "none", "stroke-width": "9",
-        "stroke-linecap": "round", pathLength: "100",
-        "stroke-dasharray": `${pct} 100`, transform: "rotate(-90 65 65)",
+      renderGauge(wrap, {
+        pct,
+        color: band,
+        label: String(done),
+        sublabel: "of 4",
+        className: "tj-score-gauge",
       });
-      // A tone token only resolves as an inline style, not as an attribute.
-      arc.style.stroke = band;
-      svg.appendChild(arc);
-      wrap.appendChild(svg as unknown as Node);
-      const num = wrap.createDiv({ cls: "tj-score-ring-num" });
-      num.createSpan({ cls: "tj-score-ring-big", text: String(done) });
-      num.createSpan({ cls: "tj-score-ring-small", text: "of 4" });
       box.createDiv({ cls: "tj-score-msg", text: msg });
       box.createDiv({ cls: "tj-score-trades", text: `${count} trades logged` });
       return;

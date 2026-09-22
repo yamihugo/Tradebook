@@ -25,6 +25,18 @@ export interface ScoreAxis {
 
 export type ScoreBand = "bad" | "low" | "mid" | "good" | "top";
 
+/**
+ * Band → tone token. Five semantic levels collapse onto the three tokens the
+ * design system ships: bad/low → bad, mid → mid, good/top → good.
+ */
+export const SCORE_BAND_TOKEN: Record<ScoreBand, string> = {
+  bad: "var(--tj-tone-bad)",
+  low: "var(--tj-tone-bad)",
+  mid: "var(--tj-tone-mid)",
+  good: "var(--tj-tone-good)",
+  top: "var(--tj-tone-good)",
+};
+
 export interface ScoreResult {
   axes: ScoreAxis[];
   /** Weighted composite, 0..100. */
