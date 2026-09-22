@@ -34,7 +34,7 @@ import { normalizeOrderType } from "../lib/tradeTable";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
 import { computeProcessSignals, streakStats, streakState } from "../lib/process";
-import { sessionOf, sessionRank, SESSION_BADGES } from "../lib/sessions";
+import { sessionLabel, sessionRank } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
@@ -54,6 +54,18 @@ function fmtHourLabel(h: number): string {
   const ampm = h < 12 ? "am" : "pm";
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}${ampm}`;
+}
+
+/** Entry-time hour bucket (raw wall clock, "9".."23"), or "" when there is no time. */
+function hourBlockOf(t: Trade): string {
+  const m = /^(\d{1,2}):/.exec(t.entryTime || "");
+  return m ? String(parseInt(m[1], 10)) : "";
+}
+
+/** Chronological order for raw hour keys. */
+function hourOrder(label: string): number {
+  const h = Number(label);
+  return Number.isFinite(h) ? h : 99;
 }
 
 export type DashItem = GridItem;
@@ -2000,10 +2012,6 @@ export class WidgetGridView extends ItemView {
       const [y, m, day] = d.split("-").map(Number);
       return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "";
     };
-    const hourOf = (t: Trade): string => {
-      const m = /^(\d{1,2}):/.exec(t.entryTime || "");
-      return m ? String(parseInt(m[1], 10)) : "";
-    };
     interface Dim {
       id: string;
       label: string;
@@ -2029,15 +2037,14 @@ export class WidgetGridView extends ItemView {
         best: "Best day", cls: "tj-bd-weekday",
       },
       {
-        id: "hour", label: "Hour", kind: "continuous", key: hourOf,
+        id: "hour", label: "Hour", kind: "continuous", key: hourBlockOf,
         labelOf: (k) => fmtHourLabel(Number(k)),
-        orderOf: (k) => Number(k),
+        orderOf: hourOrder,
         best: "Best hour", cls: "tj-bd-hour",
       },
       {
-        id: "session", label: "Session", kind: "continuous", key: (t) => sessionOf(t, zone),
-        slots: ["newyork", "london", "asia", "off"],
-        labelOf: (k) => SESSION_BADGES[k] ?? k,
+        id: "session", label: "Session", kind: "continuous", key: (t) => sessionLabel(t, zone),
+        slots: ["New York", "London", "Asia", "Off Hours"],
         orderOf: sessionRank,
         best: "Best session", cls: "tj-bd-session",
       },
