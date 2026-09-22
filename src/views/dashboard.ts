@@ -28,12 +28,12 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap } from "../lib/chartKit";
+import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap, renderRibbon } from "../lib/chartKit";
 import { dimensionBars, dimensionTiles, type DimensionBarsOpts } from "../lib/breakdown";
 import { normalizeOrderType } from "../lib/tradeTable";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
-import { computeProcessSignals } from "../lib/process";
+import { computeProcessSignals, streakStats } from "../lib/process";
 import { sessionOf, sessionRank, SESSION_BADGES } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
@@ -68,6 +68,7 @@ export const CARD_TITLES: Record<string, string> = {
   session: "By Session",
   weekday: "By Weekday",
   breakdown: "Breakdown",
+  streaks: "Streaks",
   score: "Trading Score & Radar",
   discipline: "Discipline",
   trends: "Trends",
@@ -122,16 +123,17 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "weekday", x: 16, y: 6, w: 8, h: 3 },
     { i: "heatmap", x: 0, y: 9, w: 24, h: 4 },
     { i: "breakdown", x: 0, y: 13, w: 24, h: 6 },
+    { i: "streaks", x: 0, y: 19, w: 24, h: 4 },
   ];
   const perRow = 6;
   DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 19 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 23 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
   });
   return tiles;
 })();
 
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, breakdown: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, breakdown: 6, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, breakdown: 12, streaks: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, breakdown: 6, streaks: 4, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /**
  * Minimum tile size per widget: the engine refuses to draw a smaller box, so
@@ -140,12 +142,12 @@ const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, cale
  */
 const MIN_W: Record<string, number> = {
   equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
-  hour: 8, session: 8, weekday: 8, breakdown: 8, score: 8,
+  hour: 8, session: 8, weekday: 8, breakdown: 8, streaks: 8, score: 8,
   discipline: 12, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
   equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
-  hour: 3, session: 3, weekday: 3, breakdown: 4, score: 6,
+  hour: 3, session: 3, weekday: 3, breakdown: 4, streaks: 3, score: 6,
   discipline: 3, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
@@ -1139,6 +1141,7 @@ export class WidgetGridView extends ItemView {
           switch (item.i) {
             case "equity": this.renderEquityBody(body, trades); break;
             case "breakdown": this.renderBreakdownWidget(body, trades, counted); break;
+            case "streaks": this.renderStreaksWidget(body, counted); break;
             case "score": this.renderScoreRadar(body, counted); break;
             case "hour": this.renderHourWidget(body, trades, counted); break;
             case "session": this.renderSessionWidget(body, trades, counted); break;
@@ -1964,6 +1967,84 @@ export class WidgetGridView extends ItemView {
     const meta = foot.createDiv({ cls: "tj-score-meta" });
     meta.createSpan({ cls: "tj-score-phase", text: phase });
     meta.createSpan({ cls: "tj-score-weeks", text: `· ${weeksActive}w` });
+  }
+
+  /**
+   * Streaks — hero (current run) + context (best · avg) + state phrase, with a
+   * W/L ribbon of the recent sequence. One decision per counted trade.
+   */
+  renderStreaksWidget(body: HTMLElement, trades: Trade[]): void {
+    if (!trades.length) {
+      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+      return;
+    }
+    const ordered = [...trades].sort((a, b) =>
+      (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || ""))
+    );
+    const { current, bestWin, worstLoss } = streakStats(trades);
+
+    // Average win-run length across the whole history.
+    let runs = 0;
+    let winsTotal = 0;
+    let run = 0;
+    for (const t of ordered) {
+      if (t.pnl > 0) run += 1;
+      else if (t.pnl < 0 && run) {
+        runs += 1;
+        winsTotal += run;
+        run = 0;
+      }
+    }
+    if (run) {
+      runs += 1;
+      winsTotal += run;
+    }
+    const avg = runs ? winsTotal / runs : 0;
+
+    // State machine on the current signed run.
+    const state =
+      current >= 3 ? { icon: "flame", text: "on fire" }
+        : current > 0 ? (current === 1 ? { icon: "trending-up", text: "good start" } : { icon: "trending-up", text: "building" })
+          : current <= -3 ? { icon: "refresh-ccw", text: "reset" }
+            : current < 0 ? { icon: "alert-triangle", text: "careful" }
+              : { icon: "minus", text: "steady" };
+
+    const wrap = body.createDiv({ cls: "tj-streaks" });
+    const hero = wrap.createDiv({
+      cls: "tj-streaks-hero " + (current > 0 ? "is-pos" : current < 0 ? "is-neg" : "is-flat"),
+    });
+    const ic = hero.createSpan({ cls: "tj-streaks-icon" });
+    setIcon(ic, state.icon);
+    hero.createSpan({
+      cls: "tj-streaks-count",
+      text:
+        current > 0 ? `${current} win${current === 1 ? "" : "s"} in a row`
+          : current < 0 ? `${Math.abs(current)} loss${current === -1 ? "" : "es"} in a row`
+            : "No active streak",
+    });
+    hero.createSpan({ cls: "tj-streaks-state", text: state.text });
+
+    const ctx = wrap.createDiv({ cls: "tj-streaks-ctx" });
+    ctx.createSpan({ text: `best ${bestWin} · avg ${avg.toFixed(1)}` });
+    const chev = ctx.createSpan({ cls: "tj-streaks-chev" });
+    setIcon(chev, "chevron-right");
+    attachTip(ctx, {
+      title: "Streaks",
+      sub: `Best win run ${bestWin} · worst loss run ${worstLoss} · ${runs} win run${runs === 1 ? "" : "s"}`,
+    });
+
+    // Recent W/L sequence, oldest → newest.
+    renderRibbon(wrap, {
+      className: "tj-streaks-ribbon",
+      items: ordered.slice(-40).map((t, i) => ({
+        key: t.id || String(i),
+        result: t.pnl,
+        tip: {
+          title: `${t.symbol}${t.direction ? " " + t.direction.toUpperCase() : ""}`,
+          sub: `${t.date} · ${fmtMoney2(t.pnl)}`,
+        },
+      })),
+    });
   }
 
   /**

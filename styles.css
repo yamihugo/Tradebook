@@ -5809,6 +5809,24 @@ textarea.tj-anno-textinput {
 .tj-bd-tab.on { color: var(--text-normal); font-weight: 600; background: rgba(255, 255, 255, 0.07); }
 .tj-bd-body { flex: 1 1 auto; min-height: 0; }
 .tj-bd-treemap { height: 100%; }
+/* Streaks — hero + context + W/L ribbon. */
+.tj-streaks { display: flex; flex-direction: column; justify-content: center; gap: 8px; height: 100%; min-height: 0; }
+.tj-streaks-hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.tj-streaks-icon { display: inline-flex; align-items: center; }
+.tj-streaks-icon svg { width: 16px; height: 16px; }
+.tj-streaks-count { font-size: var(--tj-fs-head); font-weight: 700; }
+.tj-streaks-hero.is-pos .tj-streaks-count { color: var(--tj-tone-good); }
+.tj-streaks-hero.is-neg .tj-streaks-count { color: var(--tj-tone-bad); }
+.tj-streaks-state { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
+.tj-streaks-ctx { display: flex; align-items: center; gap: 4px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); cursor: help; }
+.tj-streaks-chev { display: inline-flex; align-items: center; }
+.tj-streaks-chev svg { width: 13px; height: 13px; }
+.tj-ribbon { display: flex; gap: 2px; flex-wrap: wrap; }
+.tj-ribbon-mark { width: 8px; height: 8px; border-radius: 2px; background: var(--tj-fg-3); }
+.tj-ribbon-mark.pos { background: var(--tj-chart-good); }
+.tj-ribbon-mark.neg { background: var(--tj-chart-bad); }
+.tj-ribbon-mark.flat { background: color-mix(in srgb, var(--tj-fg-3) 40%, transparent); }
+.tj-streaks-ribbon { margin-top: 2px; }
 /* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
 .tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
 .tj-treemap-tile {
