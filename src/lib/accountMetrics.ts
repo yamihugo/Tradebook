@@ -479,7 +479,9 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     balance,
     ddToLimit,
     ddRemaining,
-    buffer: maxLoss > 0 ? net - floor : 0,
+    // Alias of ddRemaining: the old trade-only buffer was the last hybrid of
+    // trade net and balance-derived floor. Kept as a field for compatibility.
+    buffer: maxLoss > 0 ? Math.max(0, balance - floor) : 0,
     todayNet: input.todayKey ? (byDay.get(input.todayKey)?.net ?? 0) : 0,
     dailyLossRemaining: dailyLoss > 0 ? Math.max(0, Math.min(dailyLoss, dailyLoss + (input.todayKey ? byDay.get(input.todayKey)?.net ?? 0 : 0))) : 0,
     worstDayPctOfLimit: dailyLoss > 0 ? (Math.abs(Math.min(0, worstNetDay)) / dailyLoss) * 100 : 0,

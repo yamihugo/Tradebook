@@ -3,7 +3,7 @@ import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
 import { renderAppShell } from "../ui";
-import { reviewStatus, hasPrint } from "../lib/review";
+import { reviewStatus, hasPrint, hasText } from "../lib/review";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
@@ -60,9 +60,9 @@ const NO_ACCOUNT = "__none__";
 /** Is this trade missing one of the things a finished journal entry has? */
 function missingFlag(t: Trade, kind: string): boolean {
   if (kind === "noprint") return !hasPrint(t);
-  if (kind === "nosetup") return !(t.setup || "").trim();
+  if (kind === "nosetup") return !hasText(t.setup);
   if (kind === "nostop") return !(typeof t.stopLoss === "number" && t.stopLoss > 0);
-  return !(typeof t.rating === "number" && t.rating > 0);
+  return !((t.rating ?? 0) > 0);
 }
 
 /**

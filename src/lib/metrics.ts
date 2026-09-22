@@ -5,6 +5,7 @@
 
 import type { Trade } from "../types";
 import { fmtMoney2 } from "../tz";
+import { netPnl } from "./fees";
 
 export interface MetricResult {
   value: string;
@@ -38,10 +39,13 @@ function grossLoss(trades: Trade[]): number {
 function byDate(trades: Trade[]): Trade[] {
   return [...trades].sort((a, b) => a.date.localeCompare(b.date) || (a.entryTime || "").localeCompare(b.entryTime || ""));
 }
+// Home-only, per-trade max drawdown: walks the trades in order and sums the
+// NET of each (after fees). It is NOT the account-level, daily, balance-based
+// drawdown in lib/accountMetrics.ts — see the "Max Trade Drawdown" widget.
 function maxDrawdown(trades: Trade[]): number {
   let cum = 0, peak = 0, dd = 0;
   for (const t of byDate(trades)) {
-    cum += t.pnl;
+    cum += netPnl(t);
     peak = Math.max(peak, cum);
     dd = Math.max(dd, peak - cum);
   }
@@ -140,7 +144,7 @@ export const METRICS: MetricDef[] = [
     return { value: pct(v), tone: v >= 50 ? "pos" : "neg" };
   }},
   { id: "m.trades", label: "Total Trades", compute: (t) => ({ value: `${t.length}`, tone: "neutral" }) },
-  { id: "m.maxdd", label: "Max Drawdown", compute: (t) => {
+  { id: "m.maxdd", label: "Max Trade Drawdown", compute: (t) => {
     const v = maxDrawdown(t);
     return { value: v > 0 ? `-${moneyAbs(v)}` : "—", tone: v > 0 ? "neg" : "neutral" };
   }},
