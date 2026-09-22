@@ -25,6 +25,10 @@
   --tj-tone-good: var(--color-green-bright, #34d17a);
   --tj-tone-mid: #d9a441;
   --tj-tone-bad: var(--color-red-bright, #ff5d48);
+  /* Chart tones — the dark, muted pair the calendar and the P&L area use.
+     Charts only; text keeps the bright --tj-tone-* pair. */
+  --tj-chart-good: #227a4a;
+  --tj-chart-bad: #8f2b1e;
   /* Space (§3) — 4px base */
   --tj-sp-1: 4px;
   --tj-sp-2: 8px;
@@ -273,13 +277,13 @@
   stroke-linecap: round;
 }
 .tj-chart-line.pos {
-  stroke: var(--tj-tone-good);
+  stroke: var(--tj-chart-good);
 }
 .tj-chart-line.neg {
-  stroke: var(--tj-tone-bad);
+  stroke: var(--tj-chart-bad);
 }
 .tj-chart-area-grad {
-  fill: color-mix(in srgb, var(--tj-tone-good) 20%, transparent);
+  fill: color-mix(in srgb, var(--tj-chart-good) 20%, transparent);
 }
 
 /* ---------------- Chart box ---------------- */
@@ -374,14 +378,14 @@
 }
 .tj-hm-cell.empty { background: var(--background-modifier-border); opacity: 0.35; }
 .tj-hm-cell.zero { background: var(--background-modifier-border); }
-.tj-hm-cell.pos1 { background: color-mix(in srgb, var(--tj-tone-good) 25%, transparent); }
-.tj-hm-cell.pos2 { background: color-mix(in srgb, var(--tj-tone-good) 45%, transparent); }
-.tj-hm-cell.pos3 { background: color-mix(in srgb, var(--tj-tone-good) 70%, transparent); }
-.tj-hm-cell.pos4 { background: var(--tj-tone-good); }
-.tj-hm-cell.neg1 { background: color-mix(in srgb, var(--tj-tone-bad) 25%, transparent); }
-.tj-hm-cell.neg2 { background: color-mix(in srgb, var(--tj-tone-bad) 45%, transparent); }
-.tj-hm-cell.neg3 { background: color-mix(in srgb, var(--tj-tone-bad) 70%, transparent); }
-.tj-hm-cell.neg4 { background: var(--tj-tone-bad); }
+.tj-hm-cell.pos1 { background: color-mix(in srgb, var(--tj-chart-good) 25%, transparent); }
+.tj-hm-cell.pos2 { background: color-mix(in srgb, var(--tj-chart-good) 45%, transparent); }
+.tj-hm-cell.pos3 { background: color-mix(in srgb, var(--tj-chart-good) 70%, transparent); }
+.tj-hm-cell.pos4 { background: var(--tj-chart-good); }
+.tj-hm-cell.neg1 { background: color-mix(in srgb, var(--tj-chart-bad) 25%, transparent); }
+.tj-hm-cell.neg2 { background: color-mix(in srgb, var(--tj-chart-bad) 45%, transparent); }
+.tj-hm-cell.neg3 { background: color-mix(in srgb, var(--tj-chart-bad) 70%, transparent); }
+.tj-hm-cell.neg4 { background: var(--tj-chart-bad); }
 
 /* ---------------- Import ---------------- */
 .tj-import-info {
@@ -629,8 +633,8 @@
 
 /* Long/Short P&L bars */
 .tj-bar { cursor: pointer; }
-.tj-bar.pos { fill: var(--tj-tone-good); }
-.tj-bar.neg { fill: var(--tj-tone-bad); }
+.tj-bar.pos { fill: var(--tj-chart-good); }
+.tj-bar.neg { fill: var(--tj-chart-bad); }
 .tj-bar:hover { opacity: 0.8; }
 
 /* Recent trades table — Journalit header look */
@@ -1248,8 +1252,8 @@
   border-radius: 999px;
   transition: width 0.4s ease;
 }
-.tj-gauge-fill.pos { background: var(--tj-tone-good); }
-.tj-gauge-fill.neg { background: var(--tj-tone-bad); }
+.tj-gauge-fill.pos { background: var(--tj-chart-good); }
+.tj-gauge-fill.neg { background: var(--tj-chart-bad); }
 .tj-gauge-fill.warn { background: var(--tj-tone-mid); }
 .tj-gauge-fill.neutral { background: var(--interactive-accent); }
 .tj-tooltip {
@@ -3543,8 +3547,8 @@
 .tj-eq-area {
   stroke: none;
 }
-.tj-eq-grad-up { stop-color: var(--tj-tone-good); }
-.tj-eq-grad-dn { stop-color: var(--tj-tone-bad); }
+.tj-eq-grad-up { stop-color: var(--tj-chart-good); }
+.tj-eq-grad-dn { stop-color: var(--tj-chart-bad); }
 .tj-eq-zero {
   stroke: var(--tj-fg-3);
   stroke-width: 1;
@@ -4680,8 +4684,8 @@
   min-width: 40px;
 }
 .tj-symw-bar { height: 100%; border-radius: 6px; }
-.tj-symw-bar.pos { background: var(--tj-tone-good); }
-.tj-symw-bar.neg { background: var(--tj-tone-bad); }
+.tj-symw-bar.pos { background: var(--tj-chart-good); }
+.tj-symw-bar.neg { background: var(--tj-chart-bad); }
 .tj-symw-val {
   width: 92px;
   text-align: right;
@@ -5621,17 +5625,17 @@ textarea.tj-anno-textinput {
 
 /* Calendar day tints — soft, matching the equity chart palette */
 .tj-pcal-cell.is-pos {
-  background: color-mix(in srgb, var(--tj-tone-good) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-tone-good) 18%, transparent);
+  background: color-mix(in srgb, var(--tj-chart-good) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-chart-good) 18%, transparent);
 }
-.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-tone-good); }
+.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-chart-good); }
 .tj-pcal-cell.is-neg {
-  background: color-mix(in srgb, var(--tj-tone-bad) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-tone-bad) 17%, transparent);
+  background: color-mix(in srgb, var(--tj-chart-bad) 8%, transparent);
+  border-color: color-mix(in srgb, var(--tj-chart-bad) 17%, transparent);
 }
-.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-tone-bad); }
-.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-good) 62%, var(--text-muted)); }
-.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-bad) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-chart-bad); }
+.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-chart-good) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-chart-bad) 62%, var(--text-muted)); }
 
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
@@ -5851,8 +5855,8 @@ textarea.tj-anno-textinput {
 .tj-cbar { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .tj-cbar-track { display: flex; gap: 2px; height: 26px; border-radius: 6px; overflow: hidden; }
 .tj-cbar-seg { position: relative; border-radius: 3px; min-width: 3px; background: color-mix(in srgb, var(--tj-fg-3) 24%, transparent); transition: filter 120ms ease; }
-.tj-cbar-seg.pos { background: var(--tj-tone-good); }
-.tj-cbar-seg.neg { background: var(--tj-tone-bad); }
+.tj-cbar-seg.pos { background: var(--tj-chart-good); }
+.tj-cbar-seg.neg { background: var(--tj-chart-bad); }
 .tj-cbar-seg.mid { background: var(--tj-tone-mid); }
 .tj-cbar-seg.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-cbar-seg:hover { filter: brightness(1.2); }
@@ -5871,8 +5875,8 @@ textarea.tj-anno-textinput {
 .tj-status-square:hover { filter: brightness(1.2); }
 .tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Treemap tiles (lib/chartKit.ts) — colour from the tone tokens, intensity inline. */
-.tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
-.tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
+.tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
+.tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 /* Discipline compact mode: the widget measures its body and adds .is-compact. */
 .tj-revieww.is-compact { grid-template-areas: "foot"; grid-template-columns: 1fr; }
 .tj-revieww.is-compact .tj-disc-gauge { display: none; }

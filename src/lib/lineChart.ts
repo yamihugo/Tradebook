@@ -413,7 +413,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
       d.setAttribute("cx", x(i).toFixed(1));
       d.setAttribute("cy", y(values[i]).toFixed(1));
       // A cash day keeps its own colour from the stylesheet: the colour is the point.
-      if (!cash) d.setAttribute("fill", (opts.dayDeltas[i] ?? 0) >= 0 ? "var(--tj-tone-good)" : "var(--tj-tone-bad)");
+      if (!cash) d.setAttribute("fill", (opts.dayDeltas[i] ?? 0) >= 0 ? "var(--tj-chart-good)" : "var(--tj-chart-bad)");
       svg.appendChild(d);
     }
   }

@@ -1294,7 +1294,7 @@ export class AccountDashboardView extends ItemView {
         const win = winOf(b);
         const good = b.net >= 0;
         const strength = 0.14 + (Math.abs(b.net) / maxAbs) * 0.34;
-        const tone = good ? "var(--tj-tone-good)" : "var(--tj-tone-bad)";
+        const tone = good ? "var(--tj-chart-good)" : "var(--tj-chart-bad)";
         tile.style.background = `linear-gradient(160deg, color-mix(in srgb, ${tone} ${Math.round(strength * 100)}%, transparent), color-mix(in srgb, ${tone} ${Math.round(strength * 50)}%, transparent))`;
         tile.createDiv({ cls: "tj-acc-tile-t", text: name });
         tile.createDiv({ cls: `tj-acc-tile-v ${good ? "tj-pos" : "tj-neg"}`, text: moneyShort(b.net) });
