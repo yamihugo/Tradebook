@@ -1,7 +1,7 @@
 import { ItemView, setIcon, TFile } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
-import { accountFilters, attachTooltip, clamp, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
+import { accountFilters, attachTooltip, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
@@ -24,12 +24,12 @@ import {
   ROW_PX,
 } from "../lib/grid";
 import { PerformanceCalendarWidget } from "../widgets/performanceCalendarWidget";
-import { futuresSpec } from "../futures";
 import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
+import { computeScore } from "../lib/score";
 import { mountDateField } from "../lib/dates";
-import { reviewStatus, reviewSummary } from "../lib/review";
+import { reviewSummary } from "../lib/review";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
@@ -41,6 +41,15 @@ export const DASHBOARD_VIEW_TYPE = "tradebook-dashboard-view";
 const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 export type DashItem = GridItem;
+
+/** Score band → tone token. `low` shares `bad`; `top` shares `good`. */
+const BAND_TOKEN: Record<string, string> = {
+  bad: "var(--tj-tone-bad)",
+  low: "var(--tj-tone-bad)",
+  mid: "var(--tj-tone-mid)",
+  good: "var(--tj-tone-good)",
+  top: "var(--tj-tone-good)",
+};
 
 export const CARD_TITLES: Record<string, string> = {
   equity: "Cumulative P&L",
@@ -1796,70 +1805,13 @@ export class WidgetGridView extends ItemView {
       body.createDiv({ cls: "tj-empty", text: "No trades to compute score." });
       return;
     }
-    const sorted = [...trades].sort((a, b) => a.date.localeCompare(b.date));
-    const wins = sorted.filter((t) => t.pnl > 0);
-    const losses = sorted.filter((t) => t.pnl < 0);
-    const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
-    const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-    const pf = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? 5 : 0;
-
-    const weekKey = (iso: string) => {
-      const [y, m, d] = (iso || "").split("-").map(Number);
-      const date = new Date(Date.UTC(y || 2020, (m || 1) - 1, d || 1));
-      const day = date.getUTCDay() || 7;
-      date.setUTCDate(date.getUTCDate() + 4 - day);
-      const ys = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-      const wn = Math.ceil(((date.getTime() - ys.getTime()) / 86400000 + 1) / 7);
-      return `${date.getUTCFullYear()}-W${wn}`;
-    };
-    const weeksActive = new Set(sorted.map((t) => weekKey(t.date))).size;
-    const count = sorted.length;
-
-    const dayMap = new Map<string, number>();
-    for (const t of sorted) dayMap.set(t.date, (dayMap.get(t.date) ?? 0) + t.pnl);
-    const dayValues = [...dayMap.values()];
-
-    const stopDefined = sorted.filter((t) => (t.stopLoss ?? 0) > 0).length / count;
-    let lossR = 0;
-    let lossRn = 0;
-    for (const t of losses) {
-      if ((t.stopLoss ?? 0) > 0 && t.entryPrice) {
-        const spec = futuresSpec(t.symbol || "NQ");
-        const riskMoney = Math.abs(t.entryPrice - (t.stopLoss as number)) * spec.pointValue * (t.quantity || 1);
-        if (riskMoney > 0) {
-          lossR += Math.abs(t.pnl) / riskMoney;
-          lossRn++;
-        }
-      }
-    }
-    const avgLossR = lossRn ? lossR / lossRn : 0;
-    const mistakeRate = sorted.filter((t) => (t.mistake || "").trim()).length / count;
-    const reviewedRate = sorted.filter((t) => reviewStatus(t).complete).length / count;
-    const posDays = dayValues.filter((v) => v > 0).length;
-    const mean = dayValues.reduce((s, v) => s + v, 0) / (dayValues.length || 1);
-    const sd = Math.sqrt(dayValues.reduce((s, v) => s + (v - mean) ** 2, 0) / (dayValues.length || 1));
-    const cv = Math.abs(mean) > 1e-9 ? sd / Math.abs(mean) : 2;
-
-    const axes = [
-      {
-        label: "Risk Management",
-        weight: 0.25,
-        value: clamp(100 * (0.5 * stopDefined + 0.5 * (1 - Math.min(1, avgLossR / 2.5))), 0, 100),
-      },
-      { label: "Profitability", weight: 0.2, value: clamp(((pf - 1) / 2) * 100, 0, 100) },
-      {
-        label: "Execution",
-        weight: 0.15,
-        value: clamp(100 * (0.6 * (1 - mistakeRate) + 0.4 * reviewedRate), 0, 100),
-      },
-      { label: "Return Consistency", weight: 0.1, value: clamp(100 - cv * 100, 0, 100) },
-      { label: "Consistency", weight: 0.15, value: clamp((posDays / (dayMap.size || 1)) * 100, 0, 100) },
-      { label: "Experience", weight: 0.15, value: clamp(weeksActive * 8 + count * 0.4, 0, 100) },
-    ];
-    const score = axes.reduce((s, a) => s + a.value * a.weight, 0);
-    const band =
-      score < 30 ? "#ef4444" : score < 50 ? "#f97316" : score < 70 ? "#eab308" : score < 90 ? "#22c55e" : "#06b6d4";
-    const phase = weeksActive < 8 ? "Developing" : "Established";
+    const result = computeScore(trades, (t) => t.date);
+    const axes = result.axes;
+    const score = result.score;
+    const phase = result.phase;
+    const weeksActive = result.progress.weeksActive;
+    const count = result.progress.tradeCount;
+    const band = BAND_TOKEN[result.band];
 
     const NS = "http://www.w3.org/2000/svg";
     const el = (tag: string, attrs: Record<string, string>): SVGElement => {
@@ -1871,7 +1823,7 @@ export class WidgetGridView extends ItemView {
     box.style.setProperty("--tj-score-color", band);
 
     // ------------------ locked: progress ring ------------------
-    if (weeksActive < 4 || count < 5) {
+    if (!result.unlocked) {
       const done = Math.min(4, weeksActive);
       const pct = (done / 4) * 100;
       const msg =
@@ -1885,13 +1837,14 @@ export class WidgetGridView extends ItemView {
       const wrap = box.createDiv({ cls: "tj-score-lock" });
       const svg = el("svg", { viewBox: "0 0 130 130", class: "tj-score-ring" });
       svg.appendChild(el("circle", { cx: "65", cy: "65", r: "52", fill: "none", stroke: "rgba(255,255,255,.08)", "stroke-width": "9" }));
-      svg.appendChild(
-        el("circle", {
-          cx: "65", cy: "65", r: "52", fill: "none", stroke: band, "stroke-width": "9",
-          "stroke-linecap": "round", pathLength: "100",
-          "stroke-dasharray": `${pct} 100`, transform: "rotate(-90 65 65)",
-        })
-      );
+      const arc = el("circle", {
+        cx: "65", cy: "65", r: "52", fill: "none", "stroke-width": "9",
+        "stroke-linecap": "round", pathLength: "100",
+        "stroke-dasharray": `${pct} 100`, transform: "rotate(-90 65 65)",
+      });
+      // A tone token only resolves as an inline style, not as an attribute.
+      arc.style.stroke = band;
+      svg.appendChild(arc);
       wrap.appendChild(svg as unknown as Node);
       const num = wrap.createDiv({ cls: "tj-score-ring-num" });
       num.createSpan({ cls: "tj-score-ring-big", text: String(done) });

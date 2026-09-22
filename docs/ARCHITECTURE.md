@@ -71,6 +71,20 @@ lido pelo **header**, nunca pelo nome: `csvKind()` (`csv.ts`) devolve `cash` · 
 | `lib/backup.ts` | formato + build/apply de backup |
 | `lib/diagnostics.ts` | snapshot de bug report em texto |
 | `lib/tradeTable.ts` | tabela-ledger partilhada (Trade Log + widgets de conta) |
+| `lib/money.ts` | base monetária única (`netTotal`, `grossWin`/`grossLoss`, `profitFactor`, `expectancy`, `avgWin`/`avgLoss`, `largestWin`/`largestLoss`, `bestDay`/`worstDay`, `moneyStats`) |
+| `lib/process.ts` | sinais de processo transversais (`computeProcessSignals`, `revengeStats`, `streakStats`) — só trades + `dayKey`, sem regras de conta |
+| `lib/score.ts` | Trading Score puro (`computeScore`) — radar de 6 eixos que consome `process`/`money` em vez de re-derivar |
+
+### Base monetária (contrato)
+
+**money = net; classification = gross sign.** Todo o valor em dólares que responde a
+"quanto ganhei?" lê `netPnl` (gross − comissão − fees): totais, médias, extremos, fatores.
+A **classificação** win/loss/streak continua a usar o **sinal do gross** (`t.pnl`), porque
+um trade é ganho ou perda pelo resultado da negociação, não pelos custos. `grossWin`/
+`grossLoss` em `lib/money.ts` guardam essas somas de classificação. A win-rate canónica
+exclui break-even do denominador (`wins / (wins + losses)`), igual a `accountMetrics`.
+Qualquer widget novo que mostre dinheiro deve delegar em `lib/money.ts`, nunca somar
+`t.pnl` à mão.
 
 ## Data attributes como contrato
 

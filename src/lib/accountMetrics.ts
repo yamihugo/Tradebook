@@ -12,7 +12,8 @@
 
 import { Trade } from "../types";
 import { futuresSpec } from "../futures";
-import { reviewStatus } from "./review";
+import { computeProcessSignals } from "./process";
+import { grossWin as grossWinSum, grossLoss as grossLossSum } from "./money";
 import { netPnl } from "./fees";
 
 export interface AccountMetricsInput {
@@ -321,8 +322,8 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // ---- wins / losses ----
   const wins = scoped.filter((t) => t.pnl > 0);
   const losses = scoped.filter((t) => t.pnl < 0);
-  const grossWin = wins.reduce((a, t) => a + t.pnl, 0);
-  const grossLoss = Math.abs(losses.reduce((a, t) => a + t.pnl, 0));
+  const grossWin = grossWinSum(scoped);
+  const grossLoss = grossLossSum(scoped);
   const grossTotal = scoped.reduce((a, t) => a + t.pnl, 0);
   const tradeCount = scoped.length;
 
@@ -358,14 +359,23 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const avgRiskR = rMultiples.length ? rMultiples.reduce((a, v) => a + v, 0) / rMultiples.length : 0;
   const pctGE1R = rMultiples.length ? (rMultiples.filter((r) => r >= 1).length / rMultiples.length) * 100 : 0;
 
-  // ---- process ----
-  const withMistake = scoped.filter((t) => (t.mistake || "").trim().length > 0).length;
-  const mistakeRate = tradeCount ? (withMistake / tradeCount) * 100 : 0;
-  const rated = scoped.filter((t) => (t.rating ?? 0) > 0);
-  const avgRating = rated.length ? rated.reduce((a, t) => a + (t.rating ?? 0), 0) / rated.length : 0;
-  const reviewCompletePct = tradeCount ? (scoped.filter((t) => reviewStatus(t).complete).length / tradeCount) * 100 : 0;
-  const stopDefinedPct = tradeCount ? (scoped.filter((t) => (t.stopLoss ?? 0) > 0).length / tradeCount) * 100 : 0;
-  const untaggedPct = tradeCount ? (scoped.filter((t) => !(t.setup || "").trim()).length / tradeCount) * 100 : 0;
+  // ---- process (shared, cross-account — see lib/process.ts) ----
+  const {
+    mistakeRate,
+    avgRating,
+    reviewCompletePct,
+    stopDefinedPct,
+    untaggedPct,
+    fastTradesPct,
+    afterTwoLosses,
+    tradesPerDay,
+    maxTradesInDay,
+    revengeCount,
+    revengeRate,
+    streakCurrent,
+    streakWinBest,
+    streakLossWorst,
+  } = computeProcessSignals(scoped, input.dayKey);
 
   const heldMinutes = (t: Trade): number | null => {
     const a = minutesOf(t.entryTime);
@@ -381,66 +391,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
       .filter((v): v is number => v !== null);
     return mins.length ? mins.reduce((a, v) => a + v, 0) / mins.length : 0;
   };
-
-  const daysWithTrades = dayKeys.filter((k) => byDay.get(k)!.count > 0).length;
-  const maxTradesInDay = dayKeys.length ? Math.max(...dayKeys.map((k) => byDay.get(k)!.count)) : 0;
-
-  // revenge: re-entry within 15 min of a loss on the SAME symbol, or any trade
-  // the trader explicitly flagged as a mistake right after a loss.
-  const ordered = [...scoped].sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")));
-  let revengeCount = 0;
-  for (let i = 1; i < ordered.length; i++) {
-    const prev = ordered[i - 1];
-    const cur = ordered[i];
-    if (prev.pnl >= 0 || prev.date !== cur.date) continue;
-    const out = minutesOf(prev.exitTime);
-    const inn = minutesOf(cur.entryTime);
-    const quick = out !== null && inn !== null && inn >= out && inn - out <= 15;
-    const sameSymbol = (prev.symbol || "") === (cur.symbol || "");
-    const flagged = (cur.mistake || "").trim().length > 0;
-    if ((quick && sameSymbol) || flagged) revengeCount += 1;
-  }
-  const revengeRate = tradeCount ? (revengeCount / tradeCount) * 100 : 0;
-
-  // impulsive: finished within 1 minute
-  const fastCount = scoped.filter((t) => {
-    const a = minutesOf(t.entryTime);
-    const b = minutesOf(t.exitTime);
-    return a !== null && b !== null && b - a >= 0 && b - a < 1;
-  }).length;
-  const fastTradesPct = tradeCount ? (fastCount / tradeCount) * 100 : 0;
-
-  // tilt: opened right after two consecutive losses
-  let afterTwoLosses = 0;
-  let runLosses = 0;
-  for (const t of ordered) {
-    if (runLosses >= 2) afterTwoLosses += 1;
-    runLosses = t.pnl < 0 ? runLosses + 1 : 0;
-  }
-
-  // streaks
-  let streakCurrent = 0;
-  let bestWin = 0;
-  let worstLoss = 0;
-  let curWin = 0;
-  let curLoss = 0;
-  for (const t of [...scoped].sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")))) {
-    if (t.pnl > 0) {
-      curWin += 1;
-      curLoss = 0;
-      bestWin = Math.max(bestWin, curWin);
-    } else if (t.pnl < 0) {
-      curLoss += 1;
-      curWin = 0;
-      worstLoss = Math.max(worstLoss, curLoss);
-    }
-    // break-even: pause the run (do not reset) — matches common journal behaviour
-  }
-  const lastNonFlat = [...scoped]
-    .sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")))
-    .filter((t) => t.pnl !== 0)
-    .pop();
-  streakCurrent = lastNonFlat ? (lastNonFlat.pnl > 0 ? curWin : -curLoss) : 0;
 
   // funded / payout: money taken out, kept apart from performance.
   const withdrawn = input.withdrawn ?? 0;
@@ -502,13 +452,13 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     afterTwoLosses,
     avgHoldWinMin: hold(wins),
     avgHoldLossMin: hold(losses),
-    tradesPerDay: daysWithTrades ? tradeCount / daysWithTrades : 0,
+    tradesPerDay,
     maxTradesInDay,
     revengeCount,
     revengeRate,
     streakCurrent,
-    streakWinBest: bestWin,
-    streakLossWorst: worstLoss,
+    streakWinBest,
+    streakLossWorst,
     withdrawn,
   };
 }
