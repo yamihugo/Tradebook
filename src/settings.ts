@@ -458,12 +458,12 @@ export class SettingsTab extends PluginSettingTab {
       );
     containerEl.createEl("h3", { text: "Journal folder" });
     containerEl.createEl("p", {
-      text: "Where trade notes live in your vault. Changing this does not move existing notes.",
+      text: "Your journal's root folder. Trades are saved under <year>/<month>/trades inside it; screenshots under <year>/attachments. Changing this does not move existing notes.",
       cls: "setting-item-description",
     });
     new Setting(containerEl)
-      .setName("Trades folder")
-      .setDesc("Folder (relative to vault) where trade notes are saved.")
+      .setName("Journal folder")
+      .setDesc("Root folder (relative to vault) for trade notes and screenshots.")
       .addText((text) =>
         text.setValue(this.plugin.settings.tradesFolder).onChange(async (v) => {
           this.plugin.settings.tradesFolder = v.trim();

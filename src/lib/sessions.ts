@@ -93,6 +93,9 @@ function minutesOf(time: string): number {
  * Asia wraps around midnight (19:00–03:00), so we check both sides of 00:00.
  */
 export function sessionOf(trade: Trade, zone: string): SessionKey | "" {
+  // A manual classification wins until it is cleared back to Auto-detect.
+  const override = String(trade.sessionOverride ?? "").trim();
+  if (override) return override as SessionKey;
   if (!/^\d{1,2}:\d{2}/.test(String(trade.entryTime ?? "").trim())) return "";
   const ny = toZoneTime(trade.date, trade.entryTime ?? "", zone);
   const mins = minutesOf(ny);

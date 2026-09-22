@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Detail v3.3 — Preview</title>
+<style>
+:root {
+  --bg-page:#16171a; --bg-primary:#1e1f22; --bg-secondary:#24262a;
+  --bg-secondary-alt:#2a2c31; --bg-card:rgba(255,255,255,0.02);
+  --border:#3a3d42; --border-soft:rgba(58,61,66,0.5); --border-hover:#4a4d52;
+  --hover:rgba(255,255,255,0.05); --form-field:#26282c;
+  --text:#dcddde; --text-muted:#a8aeb4; --text-faint:#8a9099;
+  --accent:#7c5cff; --green:#34d17a; --red:#ff5d48; --amber:#d9a441;
+  --tj-fs-label:9.5px; --tj-fs-small:11px; --tj-fs-body:12.5px;
+  --tj-fs-strong:13.5px; --tj-fs-big:15px; --tj-fs-head:19px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:var(--bg-page);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  font-size:14px;line-height:1.5;}
+body{padding:20px;}
+
+.controls{position:sticky;top:0;z-index:100;background:#1a1b1e;
+  border:1px solid var(--bg-secondary-alt);border-radius:12px;
+  padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;
+  gap:14px;flex-wrap:wrap;}
+.controls h1{font-size:15px;font-weight:700;margin:0;}
+.controls label{display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;color:var(--text-muted);}
+.controls select,.controls button{font-family:inherit;font-size:12px;
+  background:var(--form-field);border:1px solid var(--border);
+  color:var(--text);border-radius:7px;padding:5px 10px;cursor:pointer;}
+.controls button.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+.controls .sep{width:1px;height:24px;background:var(--bg-secondary-alt);}
+.controls .spacer{flex:1;}
+
+.sim-wrap{background:#16171a;border:1px solid var(--bg-secondary-alt);
+  border-radius:12px;padding:0;
+  max-width:var(--sim-w,100%);margin:0 auto;transition:max-width .2s ease;}
+.sim-wide{--sim-w:100%;}
+.sim-mid{--sim-w:900px;}
+.sim-narrow{--sim-w:620px;}
+
+.tj-app{display:flex;flex-direction:column;background:var(--bg-primary);
+  border-radius:12px;}
+.tj-app-main{padding:10px 16px 16px;display:flex;flex-direction:column;}
+
+/* header */
+.tj-td-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;}
+.tj-td-nav{display:inline-flex;align-items:center;background:var(--bg-secondary);
+  border:1px solid var(--border);border-radius:8px;padding:2px;gap:2px;flex-shrink:0;}
+.tj-td-nav .tj-seg-btn{display:inline-flex;align-items:center;justify-content:center;
+  background:transparent;border:none;color:var(--text-muted);padding:5px 9px;
+  border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;line-height:1;}
+.tj-td-nav .tj-seg-btn:hover{background:var(--hover);color:var(--text);}
+.tj-td-nav .tj-seg-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;}
+.tj-td-counter{font-size:11px;color:var(--text-muted);padding:0 6px;
+  font-variant-numeric:tabular-nums;}
+.tj-td-review-dots{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;}
+.tj-td-review-dot{width:9px;height:9px;border-radius:50%;
+  border:2px solid var(--text-muted);background:transparent;}
+.tj-td-review-dot.done{background:var(--green);border-color:var(--green);}
+.tj-td-head-actions{display:flex;gap:6px;flex-shrink:0;margin-left:auto;}
+.tj-iconbtn{display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;padding:0;border:1px solid var(--border);
+  border-radius:7px;background:transparent;color:var(--text-muted);cursor:pointer;}
+.tj-iconbtn:hover{color:var(--text);background:var(--hover);}
+.tj-iconbtn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;}
+
+/* badge de contas */
+.tj-td-accbadge-wrap{position:relative;display:inline-block;flex-shrink:0;}
+.tj-td-accbadge{display:inline-flex;align-items:center;gap:6px;
+  min-height:24px;padding:2px 10px;border:1px solid var(--border);
+  border-radius:6px;background:transparent;color:var(--text-muted);
+  font-size:var(--tj-fs-small);font-weight:600;cursor:pointer;}
+.tj-td-accbadge:hover{color:var(--text);background:var(--hover);}
+.tj-td-accbadge svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.tj-td-accpop{position:absolute;top:calc(100% + 6px);left:0;z-index:10;
+  min-width:300px;padding:10px 12px;background:#1a1b1e;
+  border:1px solid var(--border);border-radius:10px;
+  box-shadow:0 8px 22px rgba(0,0,0,0.5);display:none;}
+.tj-td-accpop.open{display:block;}
+.tj-td-accpop-t{font-size:var(--tj-fs-label);font-weight:700;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);
+  margin-bottom:8px;}
+.tj-td-acctable{display:flex;flex-direction:column;}
+.tj-td-acctable-row{display:grid;grid-template-columns:1fr 48px 90px 90px;
+  align-items:baseline;gap:8px;padding:5px 0;
+  border-bottom:1px solid var(--border-soft);font-size:var(--tj-fs-small);
+  font-variant-numeric:tabular-nums;}
+.tj-td-acctable-row.is-head{border-bottom:1px solid var(--border);
+  color:var(--text-faint);font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;font-size:var(--tj-fs-label);}
+.tj-td-acctable-row:last-child{border-bottom:none;}
+.tj-td-acctable-name{color:var(--text);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;}
+.tj-td-acctable-num{text-align:right;color:var(--text-muted);}
+
+/* ═══ HERO v3.3 — UMA linha, badges à esquerda, métricas à direita ═══ */
+.tj-td-hero{display:flex;align-items:center;gap:16px;
+  background:var(--bg-card);border:1px solid var(--border-soft);
+  border-radius:12px;padding:10px 14px;margin-bottom:12px;flex-wrap:wrap;}
+.tj-td-hero-title-group{display:flex;align-items:center;gap:10px;
+  flex-wrap:wrap;min-width:0;flex:0 1 auto;}
+.tj-td-hero-title{font-size:var(--tj-fs-big);font-weight:700;
+  color:var(--text);line-height:1.2;letter-spacing:-.01em;white-space:nowrap;}
+.tj-td-hero-when{font-size:var(--tj-fs-small);color:var(--text-faint);
+  font-variant-numeric:tabular-nums;white-space:nowrap;}
+.tj-td-hero-badge{display:inline-flex;align-items:center;
+  font-size:var(--tj-fs-label);font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;padding:3px 8px;border-radius:5px;
+  border:1px solid var(--border);background:rgba(255,255,255,0.04);
+  color:var(--text-faint);white-space:nowrap;}
+.tj-td-hero-badge.is-long{color:var(--green);
+  border-color:color-mix(in srgb,var(--green) 35%,transparent);
+  background:color-mix(in srgb,var(--green) 10%,transparent);}
+.tj-td-hero-badge.is-short{color:var(--red);
+  border-color:color-mix(in srgb,var(--red) 35%,transparent);
+  background:color-mix(in srgb,var(--red) 10%,transparent);}
+.tj-td-hero-badge.is-status.is-reviewed{color:var(--green);
+  border-color:color-mix(in srgb,var(--green) 35%,transparent);
+  background:color-mix(in srgb,var(--green) 10%,transparent);}
+.tj-td-hero-badge.is-status.is-needs-review{color:var(--amber);
+  border-color:color-mix(in srgb,var(--amber) 40%,transparent);
+  background:color-mix(in srgb,var(--amber) 12%,transparent);}
+
+/* Métricas à direita — mesma linha */
+.tj-td-hero-metrics{margin-left:auto;display:flex;align-items:baseline;
+  gap:20px;flex-shrink:0;flex-wrap:wrap;}
+.tj-td-hero-metric{display:flex;flex-direction:column;align-items:flex-end;
+  gap:0;min-width:0;}
+.tj-td-hero-k{font-size:var(--tj-fs-label);font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);
+  line-height:1.2;}
+.tj-td-hero-v{font-size:var(--tj-fs-big);font-weight:700;color:var(--text);
+  font-variant-numeric:tabular-nums;line-height:1.2;}
+.tj-td-hero-v.pos{color:var(--green);}
+.tj-td-hero-v.neg{color:var(--red);}
+
+/* fallback para ecrã estreito: quebra em baixo */
+@media (max-width:720px){
+  .tj-td-hero{flex-direction:column;align-items:flex-start;}
+  .tj-td-hero-metrics{margin-left:0;width:100%;justify-content:space-between;
+    padding-top:8px;border-top:1px solid var(--border-soft);}
+  .tj-td-hero-metric{align-items:flex-start;}
+}
+
+/* grid */
+.tj-td-cols{display:grid;grid-template-columns:400px minmax(0,1fr);
+  gap:12px;align-items:start;}
+@media(max-width:1399px){.tj-td-cols{grid-template-columns:340px minmax(0,1fr);}}
+@media(max-width:900px){.tj-td-cols{grid-template-columns:1fr;}}
+.tj-td-left,.tj-td-right{min-width:0;display:flex;flex-direction:column;gap:10px;}
+
+.tj-td-panel{display:flex;flex-direction:column;background:var(--bg-card);
+  border:1px solid var(--border-soft);border-radius:12px;padding:12px 14px;}
+.tj-td-panel-head{display:flex;align-items:center;justify-content:space-between;
+  gap:8px;margin-bottom:6px;}
+.tj-td-panel-title{font-size:var(--tj-fs-label);font-weight:700;
+  text-transform:uppercase;letter-spacing:.1em;color:var(--text-muted);}
+.tj-td-panel-actions{display:flex;gap:6px;}
+.tj-td-panel-actions button{font-family:inherit;font-size:var(--tj-fs-small);
+  background:transparent;border:1px solid var(--border);color:var(--text-faint);
+  border-radius:6px;padding:3px 9px;cursor:pointer;}
+.tj-td-panel-actions button:hover{color:var(--text);}
+
+.tj-td-flip-row{display:flex;align-items:baseline;justify-content:space-between;
+  gap:8px;padding:4px 0;border-bottom:1px solid var(--border-soft);
+  font-size:var(--tj-fs-body);}
+.tj-td-flip-row:last-child{border-bottom:none;}
+.tj-td-flip-key{font-size:var(--tj-fs-label);font-weight:600;
+  text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);
+  flex-shrink:0;}
+.tj-td-flip-val{font-size:var(--tj-fs-body);font-weight:600;color:var(--text);
+  font-variant-numeric:tabular-nums;text-align:right;}
+.tj-td-flip-val.pos{color:var(--green);}
+.tj-td-flip-val.neg{color:var(--red);}
+.tj-td-flip-val.is-hero{font-size:var(--tj-fs-strong);font-weight:700;}
+
+.tj-td-more{margin-top:8px;border-top:1px solid var(--border-soft);padding-top:8px;}
+.tj-td-more summary{font-size:var(--tj-fs-small);color:var(--text-faint);
+  cursor:pointer;list-style:none;display:flex;align-items:center;gap:4px;}
+.tj-td-more summary::-webkit-details-marker{display:none;}
+.tj-td-more summary::before{content:"+";font-weight:700;}
+.tj-td-more[open] summary::before{content:"−";}
+.tj-td-more summary:hover{color:var(--text);}
+.tj-td-more[open] .tj-td-flip-row:first-of-type{margin-top:6px;}
+
+.tj-td-two-col{display:grid;grid-template-columns:1fr auto;gap:14px;
+  align-items:start;margin-bottom:12px;}
+.tj-td-two-col > .tj-td-field{margin-top:0;}
+
+.tj-td-stars{display:inline-flex;gap:3px;align-items:center;}
+.tj-td-star{background:transparent;border:none;padding:0;font-size:20px;
+  line-height:1;color:rgba(255,255,255,0.15);cursor:pointer;
+  transition:color 120ms ease,transform 120ms ease;font-family:inherit;}
+.tj-td-star:hover,.tj-td-star.hover-on{color:#d9a441;transform:scale(1.08);}
+.tj-td-star.on{color:#f5b301;}
+
+.tj-td-tagchips{display:flex;flex-wrap:wrap;gap:5px;align-items:center;min-height:24px;}
+.tj-td-tagchip{display:inline-flex;align-items:center;gap:3px;
+  font-size:var(--tj-fs-small);font-weight:600;padding:3px 9px;
+  border-radius:6px;border:1px solid var(--border);
+  background:rgba(255,255,255,0.02);color:var(--text-faint);
+  cursor:pointer;transition:color 120ms ease,border-color 120ms ease,
+  background 120ms ease;}
+.tj-td-tagchip:hover{color:var(--text);}
+.tj-td-tagchip.on{color:var(--accent);
+  border-color:color-mix(in srgb,var(--accent) 40%,transparent);
+  background:color-mix(in srgb,var(--accent) 10%,transparent);}
+.tj-td-tagchip.on.is-mistake{color:var(--red);
+  border-color:color-mix(in srgb,var(--red) 40%,transparent);
+  background:color-mix(in srgb,var(--red) 10%,transparent);}
+.tj-td-ack{display:inline-flex;align-items:center;gap:4px;
+  font-size:var(--tj-fs-small);font-weight:600;padding:3px 10px;
+  border-radius:6px;border:1px dashed var(--border);background:transparent;
+  color:var(--text-faint);cursor:pointer;margin-top:6px;}
+.tj-td-ack::before{content:"✓";opacity:.5;}
+.tj-td-ack:hover{color:var(--text);}
+.tj-td-ack.on{color:var(--green);border-style:solid;
+  border-color:color-mix(in srgb,var(--green) 40%,transparent);
+  background:color-mix(in srgb,var(--green) 8%,transparent);}
+.tj-td-ack.on::before{opacity:1;}
+
+.tj-td-field{margin-top:10px;}
+.tj-td-field:first-child{margin-top:0;}
+.tj-td-field-label{display:flex;align-items:center;justify-content:space-between;
+  font-size:var(--tj-fs-label);font-weight:600;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--text-muted);margin-bottom:5px;}
+.tj-td-textarea{width:100%;background:var(--bg-secondary-alt);
+  border:1px solid var(--border);border-radius:7px;padding:7px 9px;
+  color:var(--text);font-family:inherit;font-size:var(--tj-fs-body);
+  min-height:60px;resize:vertical;outline:none;}
+.tj-td-textarea:focus{border-color:var(--accent);}
+.tj-td-textarea::placeholder{color:var(--text-muted);opacity:.6;}
+
+.tj-td-shot-main{position:relative;display:flex;align-items:center;
+  justify-content:center;height:clamp(180px,28vh,280px);background:#0d0d0e;
+  border:1px solid var(--border);border-radius:8px;overflow:hidden;
+  margin-bottom:10px;color:var(--text-muted);font-size:var(--tj-fs-body);}
+.tj-td-shot-badge{position:absolute;top:10px;left:10px;
+  background:rgba(0,0,0,0.72);border:1px solid var(--border);
+  border-radius:5px;padding:3px 8px;font-size:var(--tj-fs-label);
+  font-weight:700;color:var(--text);backdrop-filter:blur(3px);}
+.tj-td-shot-grid{display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;}
+.tj-td-shot-thumb{height:68px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:4px;
+  background:rgba(255,255,255,0.03);border:1px solid var(--border);
+  border-radius:6px;cursor:pointer;color:var(--text-muted);
+  font-size:var(--tj-fs-label);}
+.tj-td-shot-thumb:hover{border-color:var(--border-hover);}
+.tj-td-shot-thumb.on{border:2px solid var(--green);
+  background:color-mix(in srgb,var(--green) 6%,transparent);color:var(--text);}
+.tj-td-shot-add{border-style:dashed;background:transparent;}
+.tj-td-shot-add:hover{border-color:var(--text-muted);color:var(--text);}
+
+.tj-exec-panel{margin-top:12px;background:var(--bg-card);
+  border:1px solid var(--border-soft);border-radius:12px;padding:12px 14px;}
+.tj-exec-table{width:100%;border-collapse:collapse;
+  font-size:var(--tj-fs-body);font-variant-numeric:tabular-nums;}
+.tj-exec-table th{text-align:left;font-size:var(--tj-fs-label);
+  text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);
+  padding:6px 8px;border-bottom:1px solid var(--border);font-weight:700;}
+.tj-exec-table td{padding:7px 8px;border-bottom:1px solid var(--border-soft);
+  color:var(--text);}
+.tj-exec-table td.r{text-align:right;}
+.tj-fill-badge{display:inline-block;font-size:var(--tj-fs-label);
+  font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  padding:2px 7px;border-radius:5px;}
+.tj-fill-badge.entry{color:var(--green);
+  background:color-mix(in srgb,var(--green) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--green) 35%,transparent);}
+.tj-fill-badge.exit{color:var(--red);
+  background:color-mix(in srgb,var(--red) 12%,transparent);
+  border:1px solid color-mix(in srgb,var(--red) 35%,transparent);}
+.tj-exec-note{margin-top:8px;font-size:var(--tj-fs-small);color:var(--text-faint);}
+
+body.show-outlines .tj-td-hero,
+body.show-outlines .tj-td-panel,
+body.show-outlines .tj-exec-panel,
+body.show-outlines .tj-td-star,
+body.show-outlines .tj-td-tagchip,
+body.show-outlines .tj-td-shot-thumb,
+body.show-outlines .tj-td-accbadge,
+body.show-outlines .tj-td-two-col{
+  outline:1.5px dashed rgba(255,93,72,0.7);outline-offset:2px;}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <h1>Trade Detail v3.3</h1>
+  <div class="sep"></div>
+  <label>Breakpoint:
+    <select id="bp">
+      <option value="wide">Largo (≥1400)</option>
+      <option value="mid">Médio (900–1400)</option>
+      <option value="narrow">Estreito (&lt;900)</option>
+    </select>
+  </label>
+  <div class="sep"></div>
+  <button id="toggleOutlines">Outlines de debug</button>
+  <div class="spacer"></div>
+  <span style="font-size:11px;color:#8a9099">Clica nas estrelas, chips, badge "3 accounts" e "More details".</span>
+</div>
+
+<div class="sim-wrap sim-wide" id="simWrap">
+<div class="tj-app">
+<div class="tj-app-main">
+
+  <!-- HEADER -->
+  <div class="tj-td-head">
+    <div class="tj-td-nav">
+      <button class="tj-seg-btn"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <button class="tj-seg-btn"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+      <span class="tj-td-counter">2 / 50</span>
+    </div>
+    <div class="tj-td-review-dots">
+      <span class="tj-td-review-dot done"></span>
+      <span class="tj-td-review-dot done"></span>
+      <span class="tj-td-review-dot done"></span>
+      <span class="tj-td-review-dot done"></span>
+    </div>
+    <div class="tj-td-accbadge-wrap">
+      <button class="tj-td-accbadge" id="accBadge">
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2"/><path d="M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.87"/></svg>
+        <span>3 accounts</span>
+      </button>
+      <div class="tj-td-accpop" id="accPop">
+        <div class="tj-td-accpop-t">This trade in each account</div>
+        <div class="tj-td-acctable">
+          <div class="tj-td-acctable-row is-head">
+            <span>Account</span><span>Qty</span><span>Avg Entry</span><span>Net P&L</span>
+          </div>
+          <div class="tj-td-acctable-row">
+            <span class="tj-td-acctable-name">Tradeify Eval $50K</span>
+            <span class="tj-td-acctable-num">1</span>
+            <span class="tj-td-acctable-num">28,997.75</span>
+            <span class="tj-td-acctable-num" style="color:#34d17a">+$400.00</span>
+          </div>
+          <div class="tj-td-acctable-row">
+            <span class="tj-td-acctable-name">Tradovate Personal $100K</span>
+            <span class="tj-td-acctable-num">1</span>
+            <span class="tj-td-acctable-num">28,997.75</span>
+            <span class="tj-td-acctable-num" style="color:#34d17a">+$400.00</span>
+          </div>
+          <div class="tj-td-acctable-row">
+            <span class="tj-td-acctable-name">Topstep Funded $50K</span>
+            <span class="tj-td-acctable-num">1</span>
+            <span class="tj-td-acctable-num">28,997.75</span>
+            <span class="tj-td-acctable-num" style="color:#34d17a">+$400.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tj-td-head-actions">
+      <button class="tj-iconbtn"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>
+      <button class="tj-iconbtn"><svg viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg></button>
+      <button class="tj-iconbtn"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg></button>
+    </div>
+  </div>
+
+  <!-- HERO v3.3 — UMA linha -->
+  <div class="tj-td-hero">
+    <div class="tj-td-hero-title-group">
+      <span class="tj-td-hero-title">NQ · Long</span>
+      <span class="tj-td-hero-when">2026-09-14, 09:57:15</span>
+      <span class="tj-td-hero-badge is-long">LONG</span>
+      <span class="tj-td-hero-badge">CONTINUATION</span>
+      <span class="tj-td-hero-badge is-status is-reviewed">REVIEWED</span>
+    </div>
+    <div class="tj-td-hero-metrics">
+      <div class="tj-td-hero-metric">
+        <span class="tj-td-hero-k">Net P&L</span>
+        <span class="tj-td-hero-v pos">+$400.00</span>
+      </div>
+      <div class="tj-td-hero-metric">
+        <span class="tj-td-hero-k">Points</span>
+        <span class="tj-td-hero-v">+20.00 pts</span>
+      </div>
+      <div class="tj-td-hero-metric">
+        <span class="tj-td-hero-k">Hold Time</span>
+        <span class="tj-td-hero-v">1m 21s</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- GRID -->
+  <div class="tj-td-cols">
+
+    <div class="tj-td-left">
+
+      <div class="tj-td-panel">
+        <div class="tj-td-panel-head">
+          <div class="tj-td-panel-title">Execution & Risk</div>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">R-Multiple</span>
+          <span class="tj-td-flip-val pos is-hero">+1.95R</span>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">Entry → Exit</span>
+          <span class="tj-td-flip-val">28,997.75 → 29,017.75</span>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">Contracts</span>
+          <span class="tj-td-flip-val">1 NQ</span>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">Stop / Risk</span>
+          <span class="tj-td-flip-val">— / —</span>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">Session</span>
+          <span class="tj-td-flip-val">New York (RTH Open)</span>
+        </div>
+        <div class="tj-td-flip-row">
+          <span class="tj-td-flip-key">Fees</span>
+          <span class="tj-td-flip-val">$0.37</span>
+        </div>
+
+        <details class="tj-td-more">
+          <summary>More details</summary>
+          <div class="tj-td-flip-row">
+            <span class="tj-td-flip-key">Target</span>
+            <span class="tj-td-flip-val">—</span>
+          </div>
+          <div class="tj-td-flip-row">
+            <span class="tj-td-flip-key">Planned R:R</span>
+            <span class="tj-td-flip-val">—</span>
+          </div>
+          <div class="tj-td-flip-row">
+            <span class="tj-td-flip-key">Order Type</span>
+            <span class="tj-td-flip-val">Limit</span>
+          </div>
+          <div class="tj-td-flip-row">
+            <span class="tj-td-flip-key">Max position</span>
+            <span class="tj-td-flip-val">1</span>
+          </div>
+          <div class="tj-td-flip-row">
+            <span class="tj-td-flip-key">Fill count</span>
+            <span class="tj-td-flip-val">2</span>
+          </div>
+        </details>
+      </div>
+
+      <div class="tj-td-panel">
+        <div class="tj-td-panel-head">
+          <div class="tj-td-panel-title">Critical Review & Psychology</div>
+        </div>
+
+        <div class="tj-td-two-col">
+          <div class="tj-td-field">
+            <div class="tj-td-field-label"><span>Strategy</span></div>
+            <div class="tj-td-flip-val" style="text-align:left;font-size:var(--tj-fs-body)">Continuation ▾</div>
+          </div>
+          <div class="tj-td-field">
+            <div class="tj-td-field-label"><span>Rating</span></div>
+            <div class="tj-td-stars" id="stars">
+              <button class="tj-td-star on">★</button>
+              <button class="tj-td-star on">★</button>
+              <button class="tj-td-star on">★</button>
+              <button class="tj-td-star on">★</button>
+              <button class="tj-td-star on">★</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tj-td-field">
+          <div class="tj-td-field-label"><span>Psychology State</span></div>
+          <div class="tj-td-tagchips" id="psychChips">
+            <button class="tj-td-tagchip on">Confident</button>
+            <button class="tj-td-tagchip">Anxious</button>
+            <button class="tj-td-tagchip">Impatient</button>
+            <button class="tj-td-tagchip on">Revenge</button>
+            <button class="tj-td-tagchip on">Disciplined</button>
+            <button class="tj-td-tagchip">+ Add tag</button>
+          </div>
+          <button class="tj-td-ack" id="ackPsych">No psychology state to log</button>
+        </div>
+
+        <div class="tj-td-field">
+          <div class="tj-td-field-label"><span>Execution Mistakes</span></div>
+          <div class="tj-td-tagchips" id="mistChips">
+            <button class="tj-td-tagchip on is-mistake">Hesitation Entry</button>
+            <button class="tj-td-tagchip">Early Exit</button>
+            <button class="tj-td-tagchip on is-mistake">FOMO</button>
+            <button class="tj-td-tagchip">Moved Stop</button>
+            <button class="tj-td-tagchip">Overleveraged</button>
+            <button class="tj-td-tagchip">+ Add tag</button>
+          </div>
+          <button class="tj-td-ack" id="ackMist">No mistakes this trade</button>
+        </div>
+
+        <div class="tj-td-field">
+          <div class="tj-td-field-label">
+            <span>Notes</span>
+            <span style="font-size:9.5px;text-transform:none;letter-spacing:0">0 chars</span>
+          </div>
+          <textarea class="tj-td-textarea" placeholder="What did you see? What went well or poorly?"></textarea>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="tj-td-right">
+      <div class="tj-td-panel">
+        <div class="tj-td-panel-head">
+          <div class="tj-td-panel-title">Screenshots & Visual Analysis (1)</div>
+          <div class="tj-td-panel-actions">
+            <button>Annotate</button>
+            <button>Enlarge</button>
+          </div>
+        </div>
+        <div class="tj-td-shot-main">
+          <span class="tj-td-shot-badge">1m Execution Chart (Entry/Exit)</span>
+          <span>[ Visualizador do Print Ativo ]</span>
+        </div>
+        <div class="tj-td-shot-grid">
+          <div class="tj-td-shot-thumb on">
+            <span style="font-size:18px">📊</span>
+            <span>1m Execution</span>
+          </div>
+          <div class="tj-td-shot-thumb">
+            <span style="font-size:18px">🖥️</span>
+            <span>15m Context</span>
+          </div>
+          <div class="tj-td-shot-thumb">
+            <span style="font-size:18px">📅</span>
+            <span>Daily HTF</span>
+          </div>
+          <div class="tj-td-shot-thumb tj-td-shot-add">
+            <span style="font-size:18px">+</span>
+            <span>Add Print</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tj-exec-panel">
+    <div class="tj-td-panel-title" style="margin-bottom:6px">Executions</div>
+    <table class="tj-exec-table">
+      <thead>
+        <tr>
+          <th>Time</th><th>Side</th><th>Qty</th><th>Price</th>
+          <th>Points</th><th>P&L</th><th>Fees</th><th>Fill</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>09:57:15</td>
+          <td style="color:#34d17a;font-weight:600">buy</td>
+          <td>1</td><td>28,997.75</td><td>—</td><td>—</td><td>—</td>
+          <td><span class="tj-fill-badge entry">Entry</span></td>
+        </tr>
+        <tr>
+          <td>09:58:36</td>
+          <td style="color:#ff5d48;font-weight:600">sell</td>
+          <td>1</td><td>29,017.75</td><td>+20.00</td>
+          <td style="color:#34d17a">+$400.00</td><td>$0.37</td>
+          <td><span class="tj-fill-badge exit">Exit</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="tj-exec-note">Single fill from entry to exit. Add fills to your trade note for a detailed breakdown.</div>
+  </div>
+
+</div>
+</div>
+</div>
+
+<script>
+document.getElementById('bp').addEventListener('change', e => {
+  document.getElementById('simWrap').className = 'sim-wrap sim-' + e.target.value;
+});
+document.getElementById('toggleOutlines').addEventListener('click', function() {
+  document.body.classList.toggle('show-outlines');
+  this.classList.toggle('on');
+});
+const stars = document.querySelectorAll('#stars .tj-td-star');
+stars.forEach((star, i) => {
+  star.addEventListener('mouseenter', () => stars.forEach((s, j) => s.classList.toggle('hover-on', j <= i)));
+  star.addEventListener('mouseleave', () => stars.forEach(s => s.classList.remove('hover-on')));
+  star.addEventListener('click', () => stars.forEach((s, j) => s.classList.toggle('on', j <= i)));
+});
+document.querySelectorAll('.tj-td-tagchip').forEach(chip => {
+  if (chip.textContent.trim() === '+ Add tag') return;
+  chip.addEventListener('click', () => chip.classList.toggle('on'));
+});
+document.getElementById('ackPsych').addEventListener('click', function() {
+  this.classList.toggle('on');
+});
+document.getElementById('ackMist').addEventListener('click', function() {
+  this.classList.toggle('on');
+  if (!this.classList.contains('on')) return;
+  document.querySelectorAll('#mistChips .tj-td-tagchip.on').forEach(c => {
+    if (c.textContent.trim() !== '+ Add tag') c.classList.remove('on');
+  });
+});
+document.getElementById('accBadge').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('accPop').classList.toggle('open');
+});
+document.addEventListener('click', () => document.getElementById('accPop').classList.remove('open'));
+document.getElementById('accPop').addEventListener('click', e => e.stopPropagation());
+</script>
+
+</body>
+</html>

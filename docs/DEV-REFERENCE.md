@@ -143,7 +143,7 @@ repro-vault.js · nan-sweep.js · rules-check.js · sim-check.js · session-chec
 pass-check.js · cards-check.js · manage-check.js · wizard-check.js · numbers-check.js
 accmodal-check.js · datefmt-check.js · trends-check.js · tip-check.js · tradelog-check.js
 fills-check.js · filters-check.js · backup-check.js · onboarding-check.js · payouts-check.js
-rename-plan.js · rename-apply.js
+rename-plan.js · rename-apply.js · folder-check.js · tradelog-perf.js
 ```
 
 Screenshots/artefactos: `layout-shot.js <out>` · `modal-shot.js` · `tradelog-shot.js`.

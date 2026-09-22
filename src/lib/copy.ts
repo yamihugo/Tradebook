@@ -15,7 +15,7 @@ import type TradebookPlugin from "../main";
 import { CopyConfigEntry, PropAccount, Trade, TradeFill } from "../types";
 import { futuresSpec } from "../futures";
 import { deleteTradeFile, saveTrade, setTradeFields, tradeKey } from "../storage";
-import { fillSet } from "./fills";
+import { fillSet, tradePoints } from "./fills";
 
 /** mini ↔ micro mapping used by "cross order". */
 const MICRO_OF: Record<string, string> = {
@@ -345,26 +345,18 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
   let qty = mode === "nearest" ? Math.round(rawQty) : mode === "up" ? Math.ceil(rawQty) : Math.floor(rawQty);
   if (cfg.minQty && qty < cfg.minQty) qty = cfg.minQty;
 
+  // Points come from the base's own fills/scalars under the shared rule (the
+  // stored value may predate it); the branch itself still follows the note.
+  const basePoints = tradePoints(base);
   const hasPoints = Number.isFinite(base.pnlPoints) && !(base.pnlPoints === 0 && (base.pnl ?? 0) !== 0);
-  let grossPnl: number;
-  let commission: number;
-  let fees: number;
-  let pnl: number;
-  if (hasPoints) {
-    grossPnl = round2((base.pnlPoints as number) * spec.pointValue * qty);
-    // A leg never invents a cost: only the platform that charged it can say
-    // what it was, and a copy is a different account's trade.
-    commission = 0;
-    fees = 0;
-    pnl = round2(grossPnl - commission - fees);
-  } else {
-    // No point data (e.g. imported fills): scale the base NET P&L and skip
-    // double-charging commission (the base net already had it).
-    grossPnl = round2((base.pnl ?? 0) * ratio);
-    commission = 0;
-    fees = 0;
-    pnl = grossPnl;
-  }
+  // A leg never invents a cost: only the platform that charged it can say what
+  // it was, and a copy is a different account's trade. Its P&L is gross, like
+  // the leader's — points priced at the leg's contract, or the base scaled.
+  const commission = 0;
+  const fees = 0;
+  const pnl = hasPoints
+    ? round2(basePoints * spec.pointValue * qty)
+    : round2((base.pnl ?? 0) * ratio);
 
   return {
     id: "",
@@ -385,9 +377,8 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     target: base.target ?? 0,
     commission,
     fees,
-    grossPnl,
     pnl,
-    pnlPoints: hasPoints ? (base.pnlPoints as number) : 0,
+    pnlPoints: hasPoints ? round2(basePoints) : 0,
     setup: base.setup,
     mistake: base.mistake,
     thesis: base.thesis,
@@ -397,6 +388,8 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     rating: 0,
     reviewed: false,
     tags: base.tags ? [...base.tags] : [],
+    psychology_tags: base.psychology_tags ? [...base.psychology_tags] : [],
+    mistake_tags: base.mistake_tags ? [...base.mistake_tags] : [],
     fills: legFills(base, symbol, qty, commission + fees),
     isCopiedTrade: true,
     copiedFromAccount: base.account,

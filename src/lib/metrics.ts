@@ -130,7 +130,7 @@ function fmtHour(h: number): string {
 }
 
 export const METRICS: MetricDef[] = [
-  { id: "m.netpnl", label: "Net P&L", compute: (t) => {
+  { id: "m.netpnl", label: "P&L", compute: (t) => {
     const v = t.reduce((s, x) => s + x.pnl, 0);
     return { value: money(v), tone: v >= 0 ? "pos" : "neg" };
   }},

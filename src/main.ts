@@ -1,7 +1,8 @@
 import { App, Notice, Plugin, PluginManifest, TFile, addIcon, normalizePath } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
-import { PropAccount, AccountGroup, Trade, Payout, Deposit, FeeAdjustment, AccountType } from "./types";
-import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, setTradeAccount, setTradeFields, updateTradeFields } from "./storage";
+import { PropAccount, AccountGroup, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
+import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields } from "./storage";
+import { tradePoints } from "./lib/fills";
 import { computeAccountMetrics, computeDrawdownEpisodes } from "./lib/accountMetrics";
 import { PROP_FIRMS, makeAccount, uniqueAccountName } from "./props";
 import { resolveAccountView } from "./lib/accountRules";
@@ -51,7 +52,8 @@ import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE, QueuedPrint } from "./views/prin
 import { openTradeModal } from "./views/tradeModal";
 import { openGettingStarted } from "./views/gettingStarted";
 import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
-import { allocatedKeys } from "./lib/fees";
+import { allocatedKeys, netPnl } from "./lib/fees";
+import { reviewStatus } from "./lib/review";
 import { BRAND_ICON_ID, BRAND_ICON_SVG } from "./lib/brand";
 
 export interface ThemeSettings {
@@ -81,6 +83,8 @@ export interface ThemeSettings {
 
 export interface TradebookSettings {
   tradesFolder: string;
+  /** Schema version of `data.json`, for numbered idempotent migrations. */
+  settingsVersion?: number;
   journalName: string;
   dashboardTitle: string;
   dashboardLayout: DashItem[];
@@ -91,8 +95,6 @@ export interface TradebookSettings {
   /** Show the date axis under the P&L charts. */
   chartDates?: boolean;
   /** Trade Log view preferences (persisted so they survive reloads). */
-  /** Breakdown metric: show P&L or win rate in the treemap. */
-  accountBreakdownMetric?: "pnl" | "winrate";
   /** Which breakdown tab the account page last used. */
   accountBreakdownTab?: string;
   /** Which widgets the account page shows, in order (the Hero is always fixed). */
@@ -117,16 +119,16 @@ export interface TradebookSettings {
       /** Older builds stored one account; read it once, then write the array. */
       account?: string;
       accounts?: string[];
+      /** Read the picked accounts as "leave these out" instead of "only these". */
+      accountExclude?: boolean;
       group?: string;
-      type?: string;
       direction?: string;
       result?: string;
-      /** Older builds stored one mistake/setup/tag; read it once, then write the arrays. */
+      /** Older builds stored one mistake/setup; read it once, then write the arrays. */
       mistake?: string;
       mistakes?: string[];
       review?: string;
       session?: string;
-      duration?: string;
       quality?: string | string[];
       period?: string;
       customFrom?: string;
@@ -134,9 +136,6 @@ export interface TradebookSettings {
       search?: string;
       setup?: string;
       setups?: string[];
-      tag?: string;
-      tags?: string[];
-      limit?: number;
     };
     /** How the Side column renders: arrows (▲/▼) or letters (LONG/SHORT). */
     sideDisplay?: "arrows" | "letters";
@@ -201,7 +200,11 @@ export interface TradebookSettings {
   /** Default stop distance in points, per instrument. */
   stops?: Record<string, number>;
   // ---- Editable lists ----
+  /** Legacy strategy registry (bare names). Read for compatibility; the
+   *  source of truth is now `strategies` (records with stable ids). */
   setups?: string[];
+  /** Registered strategies — a stable id plus the human name. */
+  strategies?: StrategyRecord[];
   mistakes?: string[];
   tags?: string[];
   /** Default period for the Trade Log. */
@@ -229,8 +232,20 @@ export interface TradebookSettings {
   theme: ThemeSettings;
 }
 
+/** Current `data.json` schema version. Bump when adding a numbered migration. */
+const SETTINGS_VERSION = 2;
+
+/** A strategy name reduced to a safe vault filename. The name itself is kept
+ *  verbatim on the record; this is only the file it is filed under. */
+function sanitizeFilename(name: string): string {
+  return (name || "")
+    .replace(/[\\/:*?"<>|#^[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim() || "strategy";
+}
+
 const DEFAULT_SETTINGS: TradebookSettings = {
-  tradesFolder: "Tradebook/trades",
+  tradesFolder: "Tradebook",
   journalName: "",
   dashboardTitle: "",
   dashboardLayout: [],
@@ -263,6 +278,7 @@ const DEFAULT_SETTINGS: TradebookSettings = {
   defaultRisk: 200,
   stops: { NQ: 10, ES: 4, MNQ: 4, MES: 4 },
   setups: [],
+  strategies: [],
   mistakes: [],
   tags: [],
   accountWidgets: ["trades", "payout"],
@@ -408,6 +424,11 @@ export default class TradebookPlugin extends Plugin {
     // Workspace APIs are optional — some mock/host environments may lack them.
     if (typeof (this.app.workspace as any).onLayoutReady === "function") {
       (this.app.workspace as any).onLayoutReady(async () => {
+        try {
+          await this.runMigrations();
+        } catch (err) {
+          console.error("[tradebook] settings migration failed:", err);
+        }
         try {
           await this.runAccountMaintenance();
         } catch (err) {
@@ -560,12 +581,36 @@ export default class TradebookPlugin extends Plugin {
 
   /** Opens the Trade Log pre-filtered to a single day (used by Calendar). */
   async openTradeLogForDay(dateKey: string) {
+    const view = await this.scopedTradeLogView();
+    if (view) view.filterByDay(dateKey);
+  }
+
+  /** Opens the Trade Log filtered to one account (used from an account page). */
+  async openTradeLogForAccount(accountId: string) {
+    const view = await this.scopedTradeLogView();
+    if (view) view.filterByAccount(accountId);
+  }
+
+  /** Opens the Trade Log holding exactly these trades (used after an import). */
+  async openTradeLogForIds(ids: string[]) {
+    const view = await this.scopedTradeLogView();
+    if (view) view.filterByTradeIds(ids);
+  }
+
+  /**
+   * The Trade Log view, once it is really there. Obsidian may hand back a
+   * DeferredView until the leaf is visible, and a scoped open against it fails
+   * silently — so reveal first, then wait for the real view.
+   */
+  private async scopedTradeLogView(): Promise<any | null> {
     await this.openTradeLog();
-    const leaves = this.app.workspace.getLeavesOfType(TRADE_LOG_VIEW_TYPE);
-    const view = leaves.length ? leaves[0].view : null;
-    if (view && typeof (view as any).filterByDay === "function") {
-      (view as any).filterByDay(dateKey);
+    for (let i = 0; i < 10; i++) {
+      const leaves = this.app.workspace.getLeavesOfType(TRADE_LOG_VIEW_TYPE);
+      const view = leaves.length ? leaves[0].view : null;
+      if (view && typeof (view as any).filterByTradeIds === "function") return view;
+      await new Promise((r) => window.setTimeout(r, 20));
     }
+    return null;
   }
 
   async openAccountDashboard(leaf: any, accountId: string) {
@@ -641,7 +686,12 @@ export default class TradebookPlugin extends Plugin {
     }
     const resolved = full ?? (trade as any);
     const target = this.getJournalLeaf();
-    await target.setViewState({ type: TRADE_DETAIL_VIEW_TYPE, state: { tradeId: resolved.id }, active: true });
+    await target.setViewState({
+      type: TRADE_DETAIL_VIEW_TYPE,
+      // The origin travels in the state so a reload keeps the review scoped.
+      state: { tradeId: resolved.id, from: this.tradeDetailOrigin },
+      active: true,
+    });
     await this.app.workspace.revealLeaf(target);
     const leaves = this.app.workspace.getLeavesOfType(TRADE_DETAIL_VIEW_TYPE);
     const view = leaves.length ? leaves[0].view : null;
@@ -651,86 +701,179 @@ export default class TradebookPlugin extends Plugin {
   }
 
   getTradesFolder(): string {
-    return normalizePath(this.settings.tradesFolder || "Tradebook/trades");
+    return normalizePath(this.settings.tradesFolder || "Tradebook");
+  }
+
+  /** `<root>/<year>/attachments` — where a trade's screenshots live. */
+  getAttachmentsFolder(date?: string): string {
+    const m = /^(\d{4})-/.exec(date || "");
+    const year = m ? m[1] : String(new Date().getFullYear());
+    return normalizePath(`${this.getTradesFolder()}/${year}/attachments`);
   }
 
   /**
-   * Every setup name in use — the registry (settings.setups) merged with the
-   * names the notes already carry. The registry lets a setup exist before its
-   * first trade; the notes make sure nothing in the vault is ever orphaned.
-   * Compared case-insensitively, first spelling wins.
+   * Candidate vault paths for an image linked from a trade note. New notes store
+   * a bare filename resolved against the trade's own year; the legacy shapes
+   * stay so screenshots attached before the folder change keep showing.
+   */
+  attachmentCandidates(target: string, date?: string): string[] {
+    const root = this.getTradesFolder();
+    const year = /^(\d{4})-/.exec(date || "")?.[1];
+    const out: string[] = [`${this.getAttachmentsFolder(date)}/${target}`, `${root}/${target}`];
+    if (year) out.push(`${root}/${year}/attachments/${target}`);
+    out.push(
+      `${root}/prints/${target}`,
+      `Tradebook/trades/prints/${target}`,
+      `Tradebook/trades/${target}`,
+      `Tradebook/prints/${target}`,
+      `Tradebook/${target}`
+    );
+    return out;
+  }
+
+  /** Create a folder and any missing parents (Obsidian's createFolder needs them). */
+  async ensureVaultFolder(path: string): Promise<void> {
+    const parts = normalizePath(path).split("/").filter(Boolean);
+    let cur = "";
+    for (const p of parts) {
+      cur = cur ? `${cur}/${p}` : p;
+      if (!this.app.vault.getAbstractFileByPath(cur)) {
+        try {
+          await this.app.vault.createFolder(cur);
+        } catch {
+          // Raced with another writer — the folder is there either way.
+        }
+      }
+    }
+  }
+
+  /**
+   * Every strategy name in use — the registry (settings.strategies, plus the
+   * legacy settings.setups names) merged with the names the notes already carry.
+   * The registry lets a strategy exist before its first trade; the notes make
+   * sure nothing in the vault is ever orphaned. Compared case-insensitively,
+   * first spelling wins.
    */
   async knownSetups(): Promise<string[]> {
     const seen = new Map<string, string>();
-    for (const s of this.settings.setups || []) {
-      const clean = (s || "").trim();
+    const push = (raw?: string) => {
+      const clean = (raw || "").trim();
       if (clean && !seen.has(clean.toLowerCase())) seen.set(clean.toLowerCase(), clean);
-    }
+    };
+    for (const s of this.settings.strategies || []) push(s.name);
+    for (const s of this.settings.setups || []) push(s);
     try {
       const trades = await this.loadTrades();
-      for (const t of trades) {
-        const clean = (t.setup || "").trim();
-        if (clean && !seen.has(clean.toLowerCase())) seen.set(clean.toLowerCase(), clean);
-      }
+      for (const t of trades) push(t.setup);
     } catch {
       /* notes unreadable mid-startup — the registry is still returned */
     }
     return [...seen.values()].sort((a, b) => a.localeCompare(b));
   }
 
-  /** Register a setup name so it shows in pickers even before its first trade. */
-  async addSetup(name: string): Promise<string> {
+  /** The registry record for a name, if one exists (case-insensitive). */
+  findStrategy(name: string): StrategyRecord | undefined {
+    const key = (name || "").trim().toLowerCase();
+    return (this.settings.strategies || []).find((s) => s.name.trim().toLowerCase() === key);
+  }
+
+  /**
+   * Register a strategy: a record with a stable id, and a note in the vault
+   * (`<root>/library/strategies/<name>.md`) so its future rules and docs live in
+   * a file the trader owns. Trade notes keep the plain name in `setup`.
+   */
+  async addStrategy(name: string): Promise<string> {
     const clean = (name || "").trim();
     if (!clean) return "";
-    const list = (this.settings.setups ??= []);
-    if (!list.some((s) => (s || "").trim().toLowerCase() === clean.toLowerCase())) {
-      list.push(clean);
-      list.sort((a, b) => a.localeCompare(b));
-      await this.saveSettings();
-    }
+    const list = (this.settings.strategies ??= []);
+    const existing = list.find((s) => s.name.trim().toLowerCase() === clean.toLowerCase());
+    if (existing) return existing.name;
+    const rec: StrategyRecord = {
+      id: "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: clean,
+      createdAt: new Date().toISOString(),
+    };
+    list.push(rec);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    await this.saveSettings();
+    await this.writeStrategyNote(rec);
     return clean;
   }
 
-  /**
-   * Remove a setup from the registry. Trade notes keep their `setup` value on
-   * purpose — the list is an index, not the history. Clearing the field from
-   * notes is a separate, explicit action so nobody loses data by tidying up.
-   */
-  async removeSetup(name: string): Promise<void> {
-    const key = (name || "").trim().toLowerCase();
-    const list = this.settings.setups || [];
-    const next = list.filter((s) => (s || "").trim().toLowerCase() !== key);
-    if (next.length !== list.length) {
-      this.settings.setups = next;
-      await this.saveSettings();
-    }
+  /** Back-compat alias — every registration point behaves the same. */
+  async addSetup(name: string): Promise<string> {
+    return this.addStrategy(name);
   }
 
   /**
-   * Rename a setup everywhere: the registry AND every trade note that carries
-   * the old name (copy legs included). This is the whole reason a rename has to
-   * be a first-class action instead of editing a label — the notes are the
-   * source of truth, so the name lives in many files at once.
+   * Remove a strategy from the registry. The vault note is deliberately kept —
+   * we never destroy content — and so is every trade's `setup` value. The UI
+   * advises a rename when the trades should follow; a name still carried by
+   * notes simply shows up as untracked.
+   */
+  async removeStrategy(name: string): Promise<void> {
+    const key = (name || "").trim().toLowerCase();
+    let dirty = false;
+    const list = this.settings.strategies || [];
+    const next = list.filter((s) => s.name.trim().toLowerCase() !== key);
+    if (next.length !== list.length) {
+      this.settings.strategies = next;
+      dirty = true;
+    }
+    const legacy = this.settings.setups || [];
+    const legacyNext = legacy.filter((s) => (s || "").trim().toLowerCase() !== key);
+    if (legacyNext.length !== legacy.length) {
+      this.settings.setups = legacyNext;
+      dirty = true;
+    }
+    if (dirty) await this.saveSettings();
+  }
+
+  /** Back-compat alias. */
+  async removeSetup(name: string): Promise<void> {
+    return this.removeStrategy(name);
+  }
+
+  /**
+   * Rename a strategy everywhere: the registry record (its id never changes),
+   * the legacy registry, the vault note, and every trade note that carries the
+   * old name (copy legs included). This is why a rename has to be a first-class
+   * action — the notes are the source of truth, so the name lives in many files.
    */
   async renameSetup(oldName: string, newName: string): Promise<number> {
     const from = (oldName || "").trim();
     const to = (newName || "").trim();
     if (!from || !to || from.toLowerCase() === to.toLowerCase()) return 0;
 
-    const list = (this.settings.setups ??= []);
-    let touchedRegistry = false;
-    for (let i = 0; i < list.length; i++) {
-      if ((list[i] || "").trim().toLowerCase() === from.toLowerCase()) {
-        list[i] = to;
-        touchedRegistry = true;
+    let touched = false;
+    const rec = this.findStrategy(from);
+    if (rec) {
+      rec.name = to;
+    } else {
+      // The name was never registered — register it under the new spelling.
+      (this.settings.strategies ??= []).push({
+        id: "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: to,
+        createdAt: new Date().toISOString(),
+      });
+    }
+    (this.settings.strategies ??= []).sort((a, b) => a.name.localeCompare(b.name));
+
+    const legacy = this.settings.setups || [];
+    for (let i = 0; i < legacy.length; i++) {
+      if ((legacy[i] || "").trim().toLowerCase() === from.toLowerCase()) {
+        legacy[i] = to;
+        touched = true;
       }
     }
-    if (!list.some((s) => (s || "").trim().toLowerCase() === to.toLowerCase())) {
-      list.push(to);
-      touchedRegistry = true;
+    if (!legacy.some((s) => (s || "").trim().toLowerCase() === to.toLowerCase())) {
+      legacy.push(to);
+      touched = true;
     }
-    list.sort((a, b) => a.localeCompare(b));
-    if (touchedRegistry) await this.saveSettings();
+    legacy.sort((a, b) => a.localeCompare(b));
+    if (touched) await this.saveSettings();
+
+    await this.renameStrategyNote(from, to);
 
     let changed = 0;
     try {
@@ -752,6 +895,49 @@ export default class TradebookPlugin extends Plugin {
     }
     if (changed) this.clearTradeCache();
     return changed;
+  }
+
+  // ------------------------------------------------------------- strategies --
+
+  private strategyNoteDir(): string {
+    return normalizePath(`${this.getTradesFolder()}/library/strategies`);
+  }
+
+  private strategyNotePath(name: string): string {
+    return normalizePath(`${this.strategyNoteDir()}/${sanitizeFilename(name)}.md`);
+  }
+
+  /** Write the vault note for a freshly registered strategy. Never overwrites. */
+  private async writeStrategyNote(rec: StrategyRecord): Promise<void> {
+    const dir = this.strategyNoteDir();
+    await this.ensureVaultFolder(dir);
+    const path = this.strategyNotePath(rec.name);
+    if (this.app.vault.getAbstractFileByPath(path)) return;
+    const body =
+      `---\ntype: strategy\nid: ${rec.id}\nname: "${rec.name.replace(/"/g, '\\"')}"\ncreatedAt: ${rec.createdAt}\n---\n\n` +
+      `# ${rec.name}\n\n` +
+      `> The rules, notes and readiness for this strategy live in this note. ` +
+      `Trades reference it by name; everything here is yours to fill in.\n`;
+    try {
+      await this.app.vault.create(path, body);
+    } catch (err) {
+      console.error("[tradebook] could not create the strategy note", path, err);
+    }
+  }
+
+  /** Follow a rename into the note's filename (Obsidian updates the links). */
+  private async renameStrategyNote(from: string, to: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(this.strategyNotePath(from));
+    if (!(file instanceof TFile)) return;
+    const target = this.strategyNotePath(to);
+    if (this.app.vault.getAbstractFileByPath(target)) return;
+    try {
+      const fm = this.app.fileManager;
+      if (fm && typeof fm.renameFile === "function") await fm.renameFile(file, target);
+      else await this.app.vault.rename(file, target);
+    } catch (err) {
+      console.error("[tradebook] strategy note rename failed", from, err);
+    }
   }
 
   getDashboardTitle(): string {
@@ -873,7 +1059,6 @@ export default class TradebookPlugin extends Plugin {
       .getFiles()
       .filter((f) => f.extension === "md" && f.path.startsWith(folder + "/"))
       .sort((a, b) => a.path.localeCompare(b.path));
-    const printsDir = normalizePath(folder + "/prints");
     const items: RenamePlanItem[] = [];
     const taken = new Set(this.app.vault.getFiles().map((f) => f.path));
     let skipped = 0;
@@ -911,6 +1096,7 @@ export default class TradebookPlugin extends Plugin {
         const finalBase = target.split("/").pop()!.replace(/\.md$/, "");
         const printMoves: Array<{ from: string; to: string }> = [];
         if (finalBase !== oldBase) {
+          const printsDir = this.getAttachmentsFolder(p.date);
           for (const pf of this.app.vault.getFiles().filter((x) => x.path.startsWith(printsDir + "/"))) {
             if (!pf.name.startsWith(`${oldBase} print`)) continue;
             const suffix = pf.name.slice(oldBase.length);
@@ -1223,7 +1409,7 @@ export default class TradebookPlugin extends Plugin {
       if (t.date) days.add(t.date);
       if (t.stopLoss && t.stopLoss > 0) stopN++;
       if (t.setup && String(t.setup).trim()) setupN++;
-      if (t.reviewed) reviewN++;
+      if (reviewStatus(t).complete) reviewN++;
       if (t.rating && t.rating > 0) ratingN++;
       const acc = this.mappedAccount(t.account);
       if (!acc) continue;
@@ -1243,7 +1429,7 @@ export default class TradebookPlugin extends Plugin {
         .slice()
         .sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")));
       for (const t of ordered) {
-        cum += t.pnl;
+        cum += netPnl(t);
         if (cum > peak) peak = cum;
         if (peak - cum > dd) dd = peak - cum;
       }
@@ -1390,20 +1576,32 @@ export default class TradebookPlugin extends Plugin {
   // vault and stay in the vault — the UI says so, the tutorial says to copy the
   // folder for those.
 
-  /** Where a backup lands by default: a `backups` folder beside the journal. */
+  /** Where a backup lands by default: the journal's own `_tradebook/backups`. */
   getBackupFolder(): string {
+    return normalizePath(`${this.getTradesFolder()}/_tradebook/backups`);
+  }
+
+  /** Every markdown file under the journal root, minus the reserved folders. */
+  private journalNoteFiles(): TFile[] {
     const folder = this.getTradesFolder();
-    const parent = folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";
-    return normalizePath(`${parent ? parent + "/" : ""}backups`);
+    return this.app.vault.getFiles().filter((f) => {
+      if (f.extension !== "md") return false;
+      if (!f.path.startsWith(folder + "/")) return false;
+      if (f.path.startsWith(`${folder}/_tradebook/`) || f.path.startsWith(`${folder}/library/`)) return false;
+      return true;
+    });
   }
 
   private async collectTradeNotes(): Promise<BackupNote[]> {
-    const folder = this.getTradesFolder();
-    const files = this.app.vault.getFiles().filter((f) => f.path.startsWith(folder + "/") && f.extension === "md");
+    const files = this.journalNoteFiles();
     const notes: BackupNote[] = [];
     for (const f of files) {
       try {
-        notes.push({ path: f.path, content: await this.app.vault.cachedRead(f) });
+        const content = await this.app.vault.cachedRead(f);
+        const p = parseTradeFromMarkdown(content);
+        if (!p.date || !p.symbol || typeof p.pnl !== "number") continue;
+        if (p.type !== "trade" && !f.path.includes("/trades/")) continue;
+        notes.push({ path: f.path, content });
       } catch (err) {
         console.error("[tradebook] could not read a trade note for backup:", f.path, err);
       }
@@ -1491,14 +1689,13 @@ export default class TradebookPlugin extends Plugin {
         const _m = this.mappedAccount(t.account);
         // Prefer the mapped account's real type; fall back to the keyword guess.
         t.accountType = _m ? _m.type : classifyAccount(t.account, this.getAccountRules());
+        t.pnlPoints = tradePoints(t);
         trades.push({ ...t, id: base.path });
       }
       return trades;
     }
 
-    const files = this.app.vault
-      .getFiles()
-      .filter((f) => f.path.startsWith(folder + "/") && f.extension === "md");
+    const files = this.journalNoteFiles();
 
     for (const f of files) {
       const mtime = f.stat ? f.stat.mtime : 0;
@@ -1510,7 +1707,14 @@ export default class TradebookPlugin extends Plugin {
       } else {
         const content = await this.app.vault.cachedRead(f);
         const partial = parseTradeFromMarkdown(content);
-        if (partial.date && partial.symbol && typeof partial.pnl === "number") {
+        // Discovery is by frontmatter `type`, not by folder. Notes written
+        // before the type key existed still count while they sit in a
+        // `trades/` folder (the migration moves them, this keeps them readable
+        // in the meantime).
+        const isTrade =
+          partial.type === "trade" ||
+          (!partial.type && f.path.includes("/trades/") && !!partial.date && !!partial.symbol && typeof partial.pnl === "number");
+        if (isTrade && partial.date && partial.symbol && typeof partial.pnl === "number") {
           t = { ...(partial as Trade), id: f.path } as Trade;
           this._tradeCache.set(f.path, { mtime, trade: { ...t } });
         } else {
@@ -1523,6 +1727,9 @@ export default class TradebookPlugin extends Plugin {
         const _m = this.mappedAccount(t.account);
         // Prefer the mapped account's real type; fall back to the keyword guess.
         t.accountType = _m ? _m.type : classifyAccount(t.account, this.getAccountRules());
+        // Old notes carry the pre-fix quantity-multiplied points; the value is
+        // recomputed for display — the note itself is only rewritten on edit.
+        t.pnlPoints = tradePoints(t);
         trades.push(t);
       }
     }
@@ -1854,7 +2061,7 @@ export default class TradebookPlugin extends Plugin {
       .sort((a, b) => (a.date + (a.entryTime ?? "")).localeCompare(b.date + (b.entryTime ?? "")));
     let cum = 0;
     for (const t of trades) {
-      cum += t.pnl;
+      cum += netPnl(t);
       if (cum >= target) return t.date;
     }
     return "";
@@ -2071,6 +2278,107 @@ export default class TradebookPlugin extends Plugin {
     for (const acc of this.settings.propAccounts || []) migrateAcc(acc);
     for (const acc of this.settings.archivedAccounts || []) migrateAcc(acc);
     delete (this.settings as any).primaryAccountId;
+  }
+
+  /**
+   * Numbered, idempotent migrations. Only a journal below the current version
+   * migrates, and running one twice is the same as running it once.
+   */
+  private async runMigrations(): Promise<void> {
+    const current = this.settings.settingsVersion ?? 0;
+    if (current >= SETTINGS_VERSION) return;
+    if (current < 1) await this.migrateFolderStructure();
+    if (current < 2) await this.migrateStrategies();
+    this.settings.settingsVersion = SETTINGS_VERSION;
+    await this.saveSettings();
+  }
+
+  /**
+   * 1 → 2. Seed the strategy registry (records with stable ids) from the legacy
+   * bare-name list and from the names already in the vault, then give every
+   * registered strategy its note. Idempotent: a name already present is kept,
+   * and a note that already exists is never overwritten.
+   */
+  private async migrateStrategies(): Promise<void> {
+    const list = (this.settings.strategies ??= []);
+    const seen = new Set(list.map((s) => s.name.trim().toLowerCase()));
+    const names: string[] = [];
+    for (const s of this.settings.setups || []) {
+      const clean = (s || "").trim();
+      if (clean) names.push(clean);
+    }
+    try {
+      for (const t of await this.loadTrades()) {
+        const clean = (t.setup || "").trim();
+        if (clean) names.push(clean);
+      }
+    } catch {
+      /* notes unreadable — the legacy list still seeds the registry */
+    }
+    let added = 0;
+    for (const name of names) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push({
+        id: "st_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name,
+        createdAt: new Date().toISOString(),
+      });
+      added++;
+    }
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    if (added) await this.saveSettings();
+    for (const rec of list) await this.writeStrategyNote(rec);
+    if (added) console.info(`[tradebook] strategy migration: ${added} strateg${added === 1 ? "y" : "ies"} registered.`);
+  }
+
+  /**
+   * 1.0 → year/month folders. `tradesFolder` becomes the journal ROOT; every
+   * trade note moves to `<root>/<year>/<month>/trades/` and gains `type: trade`.
+   * Moves go through fileManager.renameFile so links follow; nothing is ever
+   * overwritten or deleted, and a failure leaves the note (and its date) intact.
+   */
+  private async migrateFolderStructure(): Promise<void> {
+    let root = this.getTradesFolder();
+    // The old default was `<root>/trades`; the new root is its parent.
+    if (root.endsWith("/trades")) root = root.slice(0, -"/trades".length);
+    if (!root) root = "Tradebook";
+    this.settings.tradesFolder = root;
+
+    const fm = this.app.fileManager;
+    const move = async (file: TFile, to: string) => {
+      if (fm && typeof fm.renameFile === "function") await fm.renameFile(file, to);
+      else await this.app.vault.rename(file, to);
+    };
+
+    const files = this.app.vault.getFiles().filter((f) => {
+      if (f.extension !== "md") return false;
+      if (!f.path.startsWith(root + "/")) return false;
+      if (f.path.startsWith(`${root}/_tradebook/`) || f.path.startsWith(`${root}/library/`)) return false;
+      return true;
+    });
+
+    let moved = 0;
+    for (const f of files) {
+      try {
+        const content = await this.app.vault.cachedRead(f);
+        const p = parseTradeFromMarkdown(content);
+        if (!p.date || !p.symbol || typeof p.pnl !== "number") continue;
+        if (p.type !== "trade" && !f.path.includes("/trades/")) continue;
+        if (p.type !== "trade") await updateTradeFields(this.app, f, { type: "trade" });
+        const targetDir = tradeMonthPath(root, p.date);
+        if (f.parent && f.parent.path === targetDir) continue;
+        await this.ensureVaultFolder(targetDir);
+        const to = normalizePath(`${targetDir}/${f.name}`);
+        if (this.app.vault.getAbstractFileByPath(to)) continue; // never overwrite
+        await move(f, to);
+        moved++;
+      } catch (err) {
+        console.error("[tradebook] folder migration skipped a note:", f.path, err);
+      }
+    }
+    console.info(`[tradebook] folder migration: ${moved} note(s) moved; journal root is "${root}".`);
   }
 
   /** Keep lib/accountTypes in step with the saved preferences. */

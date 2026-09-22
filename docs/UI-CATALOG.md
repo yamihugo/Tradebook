@@ -28,10 +28,15 @@ Pesos: `--tj-w-regular` `400` · `--tj-w-medium` `600` · `--tj-w-bold` `700`.
 | `--tj-fg-1` | `#dcddde` | texto principal (12.1:1) |
 | `--tj-fg-2` | `#a8aeb4` | secundário (7.0:1) |
 | `--tj-fg-3` | `#8a9099` | mais discreto (5.1:1) |
+| `--tj-tone-good` | `var(--color-green-bright, #34d17a)` | bom (gauges, barras de estado) |
+| `--tj-tone-mid` | `#d9a441` | meio |
+| `--tj-tone-bad` | `var(--color-red-bright, #ff5d48)` | mau |
 
 Verde/vermelho (scope `.tj-app`): `--color-green #227a4a`, `--color-green-bright #34d17a`,
 `--color-red #ad3527`, `--color-red-bright #ff5d48`, mais `--color-green-rgb`/`--color-red-rgb`.
-**Nunca usar cor sozinha** para transmitir estado — acompanhar com texto/símbolo.
+Os tokens semânticos `--tj-tone-*` existem para que gauges e barras de estado leiam do tema
+em vez de hex hardcoded no JS. **Nunca usar cor sozinha** para transmitir estado — acompanhar com
+texto/símbolo.
 
 ## 3. Espaçamento — `--tj-sp-*`
 
@@ -59,6 +64,28 @@ Padrões: `none | dots | grid | scanlines | stars | aurora | gradient`. Fontes: 
 
 > "Card" = painel com moldura. Convenção: `createDiv({ cls })` na criação; classes de
 > estado via `addClass` **uma por chamada**.
+
+### 6.0 Receita canónica de superfície (normativa)
+
+A partir de 19 Set 2026 há **uma** forma de abrir uma página — a linguagem da página
+**Accounts**, que é a implementação de referência. Nenhuma superfície inventa a sua: a
+moldura vem das hairlines, o número vem primeiro, cada número explica-se e os cartões são
+translúcidos. As restantes páginas adotam-na à vez (ver BACKLOG).
+
+| Peça | Classes | Regra |
+|---|---|---|
+| Cabeçalho de página | `h1.tj-view-h1` + `p.tj-import-info`; ações `.tj-iconbtn` / `.tj-filterbtn` | Título à esquerda, ações à direita; uma ação primária, no máximo. |
+| Linha de números | `.tj-acct-strip` → `.tj-acct-strip-cell` → `.tj-acct-strip-k` (+`.tj-info-dot`) / `.tj-acct-strip-v` / `.tj-acct-strip-sub` | **Um** cartão segmentado: grelha com `gap:1px` sobre a cor da hairline, cada célula em `background-primary`. `-v` a `--tj-fs-head`/700/tabular. **Cada figura leva um `(i)`.** |
+| Lista / painel | `.tj-panel` (cartão: raio 14, `rgba(255,255,255,.022)`, hairline) → cabeçalho `.tj-acct-h1` (`-dot`/`-t`/`-c`/`-line`) + `.tj-panel-note`; a tabela/lista por baixo | Cabeçalho dentro do cartão: ponto, micro-label, contagem a 700, hairline e a nota à direita. Sem cartão cinzento e nunca um cartão dentro de outro. |
+| Fila de atenção | `.tj-attention` → `.tj-attn-chip` (+`.is-on`), `.tj-attn-none` | Chip em pill da casa (hairline + `rgba(255,255,255,.05)`), tinta do estado `--tj-tone-mid`, sempre com a palavra — nunca só cor. |
+| Gaveta | `.tj-tl-drawer` (cartão irmão: raio 14, `rgba(255,255,255,.022)`, hairline, 320px) | Uma coluna ao lado da lista, não uma gaveta overlaying. |
+| Cabeçalho de grupo | `.tj-acct-h1` (+`.is-sub`) | O mesmo padrão dentro de secções: ponto, label uppercase, pill de contagem, hairline, valor à direita. |
+
+Proibido nesta receita: `#d9a441` literal (usar `--tj-tone-mid`), `background-secondary`
+como fundo de cartão de página, `box-shadow` decorativo, e colorir o estado sem a palavra.
+Dívida conhecida: **o Trade Log adotou A**; **Home e a página da conta** ainda não (mantêm
+`.tj-card.tj-gridcard` com sombra e `.tj-acc-*`) e alinham numa passagem seguinte
+(`BACKLOG-AND-HISTORY.md` §7).
 
 ### 6.1 Primitivas
 
@@ -92,14 +119,16 @@ avgwin, avgloss, avgrr, holdtime, winhold, losshold, besthour, worsthour.
 
 | Superfície | Ficheiro | Classes-chave |
 |---|---|---|
-| Accounts list | `views/accountsListView.ts` | `.tj-acct-tile`, `-edge`, `-logo`, `-hd*`, `-bal*`, `-prog*`, `-mini*`, `-strip`, `-comp*`, `-sect`; `.tj-tag*`, `.tj-alert*`, `.tj-archived-*` |
-| Account dashboard | `views/accountDashboard.ts` | `.tj-acc-hero`, `-eqcard`, `-riskcard`(flip), `-riskbar*`, `-ddbox`/`-ddtrack`, `-mcols`/`-mcol`, `-disc-*`, `-dial`/`-donut`, `-perffacts`, `-btabs`/`-treemap`/`-tile`, `-widgets`/`-widget`, `-cashline`/`.tj-payout-*`, `-passed-banner`/`-band`/`-ring*`, `-copybar`/`-copychip`/`-copyrows` |
-| Management modal | `views/accountsManage.ts` | `.tj-mg-card`, `-head`, `-new`, `-step`/`-stepnum`/`-steptitle`/`-stepblock`(+`.is-locked`), `-leadgrid`/`-leadcard`(+`.on`)/`-leadcard-nm`/`-leadcard-sub`, `-lockedlead`(+`-nm`/`-sub`), `-copier`(+`.on`)/`-pick`/`-copier-body`/`-copier-nm`/`-copier-sub`, `-tree` (árvore líder→copiers com conectores CSS), `-typelist`/`-typerow` (pill: borda+radius 14), `-vis` (pill de olho `eye`/`eye-off`, 28px), `-row`/`-rowlabel`/`-rowval`, `-secthead`/`-infoico` (o `(i)` que substitui os banners), `-badge`(+`.is-copier`), `.tj-manage-empty`/`-emptytitle` (título calado + frase; sem diagrama), `-del` (lixo 24×24, `.is-armed`), `-confirmslot`/`-confirm`/`-confirm-txt` (disband com dois toques inline), `-act.is-danger`; dropdown em portal `.tj-mg-dd-list.is-portal` (`fixed`, `z-index` 1100). **duas superfícies sem separadores** — `openCopyGroups` · `openAccountsDisplay` abrem a mesma modal em dois modos, pelos três quadrados do header das Contas (`users` · `sliders-horizontal` · `plus`) — Cards saiu e Types vive dentro do Display |
+| Accounts list | `views/accountsListView.ts` | `.tj-acct-tile` (flex column; `-prog.is-first` com `margin-top:auto` encosta barras+mini ao fundo), `-edge`, `-logo`, `-hd*`, `-bal*`, `-prog*`, `-mini*`, `-strip`, `-comp*`, `-sect`; `.tj-tag*`, `-tag-ico` (coroa Lucide no líder), `.tj-alert*`, `.tj-archived-*` |
+| Account dashboard | `views/accountDashboard.ts` | `.tj-acc-hero`, `-eqcard`, `-riskcard`(flip), `-riskbar*`/`-marker-dd`, `-ddbox`/`-ddtype`, `-mcols`/`-mcol`, `-disc-*`, `-dial`/`-donut`, `-perffacts`, `-btabs`/`-treemap`/`-tile`, `-widgets`/`-widget`, `-cashline`/`.tj-payout-*`, `-passed-banner`/`-band`/`-ring*`, `-copybar`/`-copychip`/`-copychip-ico`; modal de settings da conta (`.tj-acc-settings`/`.tj-as-pane`/`.tj-as-row*`/`.tj-as-hint`) cujos separadores **General** e **Rules** reutilizam os campos do wizard (`.tj-wz-field`/`-label`/`-affix`(+`.is-hidden`)/`-input`/`-untoggle`/`-types`/`-type`/`-disclaimer`) sob `.tj-acc-settings`/`.tj-account-wizard.tj-as-pane`; a lista de trades é o **mesmo painel do Trade Log** (`.tj-panel` + cabeçalho `.tj-acct-h1` com contagem e o chip do filtro), nunca uma tabela nua |
+| Management modal | `views/accountsManage.ts` | `.tj-mg-card`, `-head`, `-new`, `-step`/`-stepnum`/`-steptitle`/`-stepblock`(+`.is-locked`), `-leadgrid`/`-leadcard`(+`.on`)/`-leadcard-nm`/`-leadcard-sub`, `-lockedlead`(+`-nm`/`-sub`), `-copier`(+`.on`)/`-pick`/`-copier-body`/`-copier-nm`/`-copier-sub`, `-tree` (árvore líder→copiers com conectores CSS), `-typelist`/`-typerow` (pill: borda+radius 14), `-vis` (pill de olho `eye`/`eye-off`, 28px), `-row`/`-rowlabel`/`-rowval`, `-secthead`/`-infoico` (o `(i)` que substitui os banners), `-badge`(+`.is-copier`), `.tj-manage-empty`/`-emptytitle` (título calado + frase; sem diagrama), `-del` (lixo 24×24, `.is-armed`), `-confirmslot`/`-confirm`/`-confirm-txt` (disband com dois toques inline), `-act.is-danger`, `-sect`/`-sectitle` (secções do grupo: Change leader junto do líder · Add a copier); dropdown em portal `.tj-mg-dd-list.is-portal` (`fixed`, `z-index` 1100; o botão **repinta** label/chip/`on` no clique). **duas superfícies sem separadores** — `openCopyGroups` · `openAccountsDisplay` abrem a mesma modal em dois modos, pelos três quadrados do header das Contas, agora ordenados **Copy groups (`users`) · Add account (`plus`) · Settings (`sliders-horizontal`, no canto direito)** — Cards saiu e Types vive dentro do Settings |
 | Wizard | `views/accountWizard.ts` | `.tj-wz-type*` (ativo: borda `--interactive-accent` + glow), `-review`, `-sumcard`, `-sumrows`/`-sumrow`/`-sumk`/`-sumv` (tabela chave-valor), `-copynote`, `-secthint`, `-rulegrid` (2 colunas), `-affixhead`/`-affix`/`-affix-pre`/`-affix-suf` (afixos `$`/`%`/`days`), `-untoggle`/`-unbtn` (toggle `$ | %`), `-disclaimer-ico`, `-logogrid`/`-logogroup`/`-logoglbl`/`-logotiles`/`-logotile`(+`.on`)/`-logotile-img`/`-logotile-init`/`-logotile-lbl`/`-logo-own`/`-logocustom`, `-step.off`, `-preset` |
-| Strategies | `views/setupsView.ts` | `.tj-strat-card`, `-item`, `-name`, `-pnl`, `-actions` |
+| Strategies | `views/setupsView.ts` | `.tj-strat-card`, `-item`, `-name`, `-pnl`, `-actions`, `-add`, `-input`, `-untracked`, `-empty`(+`-empty-sub`), `-note`/`-note-ico`/`-note-txt`/`-note-strong` (nota calada do martelo) |
+| Trade log | `views/tradeLogView.ts` | Cabeçalho `.tj-acct-header`/`-header-actions` + `h1.tj-view-h1` + `p.tj-import-info`; **receita canónica §6.0 (linguagem Accounts)**: faixa `.tj-acct-strip`/`-strip-cell`/`-strip-k`(+`.tj-info-dot`)/`-strip-v`/`-strip-sub` (um cartão segmentado em vez de mini-cards), `.tj-attention`/`.tj-attn-chip`(+`.is-on`)/`.tj-attn-none`, `.tj-panel` (cartão raio 14) com cabeçalho `.tj-acct-h1`(`-dot`/`-t`/`-c`/`-line`) + `.tj-panel-note`; `.tj-tl-sub`, `.tj-tl-search`/`-search-ico` (só hairline por baixo), `.tj-tl-periodbar` (**segmented control**), `.tj-tl-active`/`-activechip`/`-activechip-x`/`-activeclear` (filtros activos em texto sublinhado), `.tj-tl-shell`/`-col`/`-bulkhost` (sticky), `.tj-tl-more` (Load more ghost `.tj-actionbtn`), `.tj-tl-bulk`/`-bulkinline`/`-bulkinput`/`-bulkpick`/`-bulkbtn`/`-bulk-count` (barra flutuante: cartão translúcido com borda de acento, botões **só com palavras**), `.tj-tl-drawer`/`-drawerhead`/`-drawer-title`/`-drawer-x`/`-drawerbody`/`-drawerfoot`/`-drawer-clear`/`-drawer-show` (gaveta = cartão irmão; filtros em **linhas de pills**: `.tj-tl-dsec`/`-dsec-t` → `.tj-tl-opts` → `.tj-tl-opt`(+`.on`)/`.tj-tl-optnone`, par include/exclude em `.tj-tl-incl`), `.tj-tl-pop`/`-cols`/`-colrow`/`-colmove`/`-colmove-b` (setas, alternativa ao drag)/`-colside*`/`-colpresets`/`-presetbtn` (popover de colunas); picker de contas `.tj-tl-accpick`/`-accsearch`/`-acctop`/`-acclist`/`-accrow`/`-accname`/`-accinfo`/`-accn`/`-acctools`/`-accbtn`/`-accbox`/`-picknone`; `.tj-confirm-title`/`-confirm-body`/`.tj-confirm-actions` e `.tj-btn-del` (modal da casa no delete). Os dropdowns (bulk + gaveta) são o **dropdown da casa** `.tj-mg-dd-*`. |
+| Ledger partilhado (tabela) | `lib/tradeTable.ts` (usado pelo Trade Log e pela página da conta) | `.tj-tbl*` em linguagem A: células e linhas de execução em `--tj-fg-3`, hover `rgba(255,255,255,.035)`, cabeçalho do dia transparente com hairline e pill `.05`, header quadrado (sem `border-radius`) e os estados (estrelas, `.tj-tbl-review`, `.tj-tbl-pnl-partial`) em `--tj-tone-mid`. Nas **duas** superfícies vive dentro de `.tj-panel` com cabeçalho `.tj-acct-h1` (no Trade Log `Trades` + contagem; na conta o mesmo painel, com o chip do filtro à direita). |
 | Settings | `src/settings.ts` | `.tj-account-card`, `.tj-group-card`, `.tj-acct-chip.{type}`, `.tj-theme-gallery`, `.tj-theme-card`(+`.active`) |
-| Trade detail | `views/tradeDetailView.ts` | `.tj-td-execs`/`-execcard`, `.tj-td-flip-card`/`-flip-face`/`-ffront`/`-fback`, `.tj-td-dropzone-card`/`-shot-mosaic` |
-| Import CSV | `views/importUi.ts` | `.tj-import-pick` (o bloco **Where these trades go**, primeiro da página; `.is-set` quando já há resposta), `-pickhead`/`-pickico` (crosshair)/`-picktitle`/`-pickstate`(`.is-empty` âmbar / `.is-set` verde)/`-pickhint`(`.is-warn`), `-maprow`/`-mapdot`(`.is-on`)/`-mapname`(+`.is-plain` quando o ficheiro traz um só nome, sem `-maplabel`)/`-maplabel` (`Account 1`, só com vários nomes)/`-mapcount` (`3 trades · 19 Aug → 14 Sep 2026`; o número de conta do broker **nunca** é escrito), `-mapdd` (dropdown da casa a largura toda); `.tj-import-group`/`-grouphead`/`-groupico`/`-groupsub` (**This Trading Group**, só depois de haver conta), `.tj-import-accs`/`-acc`/`-accdot`/`-accname`/`-accwho` (o *Also record these trades in*), `.tj-role`(+`.is-leader` âmbar/`.is-copier` acento), `.tj-ratio`, `.tj-import-window`(+`.is-warn`); `.tj-import-costs` (3 factos: platform · glued · in account), `.tj-import-balance`(+`.is-ok`/`.is-warn`)/`-balanceico` (saldo journal vs platform), `.tj-import-helper` (porque o CTA está desativado; também o aviso de trades sem conta), `.tj-file-badge`, `.tj-dropzone` |
+| Trade detail | `views/tradeDetailView.ts` | `.tj-td-hero`/`-hero-title`/`-hero-sym`/`-hero-when`/`-hero-badge`(+`.tj-td-hero-dir.is-long`/`.is-short`, `.tj-td-hero-status.is-status.is-needs-review`/`.is-reviewed`)/`-hero-metrics`/`-hero-metric`/`-hero-k`/`-hero-v`(+`.pos`/`.neg`); grid `.tj-td-cols` + `.tj-td-left`/`-right`; cartões `.tj-td-panel`/`-panel-head`/`-panel-title`/`-panel-body`; linhas `.tj-td-flip-row`/`-flip-key`/`-flip-val`(+`.pos`/`.neg`)/`-flip-input`/`-tz`, `.tj-td-flip-row-strat`/`-strat-wrap`, `-flip-row-rating` + `.tj-td-stars-inline`/`.tj-td-star`/`-star-glyph`; chips `.tj-td-tags`(+`.tj-td-tags--mistakes`)/`-tagchips`/`-tagchip`(+`.is-on`)/`-tagadd`/`-tagaddbtn`/`-taginput`; prints `.tj-td-shot-carousel`/`-shot-main`/`-shot-img`/`-shot-badge`/`-shot-annotate`/`-shot-labels`/`-shot-labelinput`/`-shot-thumbs`/`-shot-thumb`(+`.is-active`)/`-shot-thumb-label`/`-shot-thumb-missing`/`-shot-remove`/`-shot-add`/`-shot-add-plus`/`-shot-add-label`, `.tj-td-dropzone` (vazio), lightbox `.tj-td-lightbox`/`-lightbox-img`; execuções `.tj-td-execs`/`-execs-head`/`-execs-table`/`-execrow`(+`.is-entry`/`.is-exit`/`.is-total`)/`-execs-tag`/`-execs-note`; badge de contas `.tj-td-accbadge`/`-accpop`/`-acctable-row`/`-acctable-name`/`-acctable-num`/`-acctag` |
+| Import CSV | `views/importUi.ts` | `.tj-import-pick` (o bloco **Where these trades go**, primeiro da página; `.is-set` quando já há resposta), `-pickhead`/`-pickico` (crosshair)/`-picktitle`/`-pickstate`(`.is-empty` âmbar / `.is-set` verde)/`-pickhint`(`.is-warn`), `-maprow`/`-mapdot`(`.is-on`)/`-mapname`(+`.is-plain` quando o ficheiro traz um só nome, sem `-maplabel`)/`-maplabel` (`Account 1`, só com vários nomes)/`-mapcount` (`3 trades · 19 Aug → 14 Sep 2026`; o número de conta do broker **nunca** é escrito), `-mapdd` (dropdown da casa a largura toda); `.tj-import-group`/`-grouphead`/`-groupico`/`-groupsub` (**This Trading Group**, só depois de haver conta), `.tj-import-accs`/`-acc`/`-accdot`/`-accname`/`-accwho` (o *Also record these trades in*), `.tj-role`(+`.is-leader` âmbar/`.is-copier` acento), `.tj-ratio`, `.tj-import-window`(+`.is-warn`); `.tj-import-costs` (3 factos: platform · glued · in account), `.tj-import-balance`(+`.is-ok`/`.is-warn`)/`-balanceico` (saldo journal vs platform), `.tj-import-helper` (porque o CTA está desativado; também o aviso de trades sem conta), `.tj-file-badge`, `.tj-dropzone`, `.tj-import-setuprow`/`-setuplbl`/`-setupctl`/`-setupnote` (campo **Strategy** opcional, aplicado a todas), `.tj-import-nostrategy` (recibo `N without strategy` + *Assign strategies*) |
 | Dropdown da casa | `lib/dropdown.ts` | `.tj-mg-dd` (wrapper) / `-btn` (ghost) / `-val`(+`.is-placeholder`) / `-chev` / `-list`(+`.is-portal`: lista em `<body>`, `fixed`, `z-index` 1100, flip, reposiciona em scroll/resize) / `-item`(+`.on`/`.is-off`) / `-txt` (coluna do rótulo) / `-head` (cabeçalho de secção, não clicável, ex. Leaders · Copiers · Standalone) / `-tag`(+`.is-leader` âmbar / `.is-copier` acento, ex. `Copier ×0.5`) / `-lbl` / `-note` / `-empty` |
 | Delete account | `views/accountDashboard.ts` | `.tj-delete-confirm`, `-icon`, `-desc`, `-list`/`-fact` (o que morre), `-hint`, `.tj-del` (vermelho) |
 
@@ -157,6 +186,21 @@ Review (`tradeDetailView.ts`) mostra, na linha "Fees", `$total · $X corrected` 
 **model** (o número da plataforma e a fatia da correção nunca se fundem às escondidas). Se uma
 fatia guardada já não encontra o trade, o modal avisa em `.tj-fees-orphan` (continua a contar
 para o saldo). Nenhuma nota é reescrita.
+
+### 6.3.1 Breakpoints do Trade Detail
+
+| Largura   | Layout                                        |
+|-----------|-----------------------------------------------|
+| ≥1400px   | 2 colunas: rail 440px + painel elástico        |
+| 900–1399  | 2 colunas: rail 360px + painel elástico        |
+| <900px    | 1 coluna empilhada por prioridade:             |
+|           | hero → screenshots → review → execução → fills |
+
+### 6.3.2 Hero como cartão
+
+O hero vive no corpo (não no header sticky). O header fica só com
+navegação e ações. Assim em ecrãs pequenos o header não conta altura
+fixa, e o hero pode fazer scroll com o resto.
 
 ### 6.4 Estados vazios e erros
 
@@ -219,9 +263,12 @@ dashboard da conta e as secções do Management.
 
 `renderLineChart(container, opts)` (`lib/lineChart.ts`) é o único line/area chart: séries
 secundárias/tracejadas, marcadores (payout/deposit), `baseline`/`targetLine`/`ddLine`/`fadeFloor`,
-hover card `.tj-eq-card`. Primitivas SVG em `ui.ts`: `svgLine`, `svgPath`, `pathFromPoints`,
-`renderAreaChart` (clip verde acima/vermelho abaixo), `cumulativeEquitySeries`. Calendário:
-`PerformanceCalendarWidget`. Radar e treemap são SVG inline. Regras de chart em `UX-GUIDELINES.md`.
+hover card `.tj-eq-card`. `dayCash` é `{index, kind}` — `.tj-eq-daydot.is-cash.is-out` dourado
+(payout), `.is-in` verde (depósito), `.is-cost` neutro `--tj-fg-3` (correção de fees); o hover
+segue a mesma regra (`b.tj-cash` / `b.tj-pos` / `b.tj-cost`). Primitivas SVG em `ui.ts`: `svgLine`,
+`svgPath`, `pathFromPoints`, `renderAreaChart` (clip verde acima/vermelho abaixo),
+`cumulativeEquitySeries`. Calendário: `PerformanceCalendarWidget`. Radar e treemap são SVG inline.
+Regras de chart em `UX-GUIDELINES.md`.
 
 ### 8.4 Grid do dashboard
 

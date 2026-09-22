@@ -1,6 +1,7 @@
 import { AccountType, Trade } from "./types";
 import { isFiniteNumber, toZoneDate } from "./tz";
 import { typeLabel } from "./lib/accountTypes";
+import { netPnl } from "./lib/fees";
 
 export interface FilterOption {
   id: string;
@@ -122,7 +123,7 @@ export function cumulativeEquitySeries(trades: Trade[], zone = ""): { date: stri
   if (sorted.length === 0) return points;
   let cum = 0;
   for (const t of sorted) {
-    cum += t.pnl;
+    cum += netPnl(t);
     const d = zone ? toZoneDate(t.date, t.entryTime || "00:00", zone) : t.date;
     const last = points[points.length - 1];
     if (last && last.date !== "Start" && last.date === d) {

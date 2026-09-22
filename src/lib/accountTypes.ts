@@ -61,7 +61,38 @@ export const TYPE_COLOR_CHOICES = [
   "#5b8def",
 ];
 
-/** Section order — funded first by default, demo/other last. */
+/**
+ * The account sizes the pickers offer before "Custom…" — the same list at
+ * creation and in the account settings, so the two screens cannot drift.
+ */
+export const ACCOUNT_SIZES = [25000, 50000, 100000, 150000, 300000];
+
+/** One tile in the account-type picker: the wizard grid and the settings grid. */
+export interface TypeCard {
+  id: AccountType;
+  label: string;
+  desc: string;
+  icon: string;
+}
+
+/**
+ * Every type the journal can name, with the word and the Lucide glyph the
+ * pickers draw. `unknown` ("Other") is offered when editing an account but not
+ * when creating one — a new account is always one of the five real kinds.
+ */
+export const TYPE_CATALOG: TypeCard[] = [
+  { id: "eval", label: "Eval", desc: "Prop evaluation — pass the target before the max loss.", icon: "target" },
+  { id: "funded", label: "Funded", desc: "Funded prop account — track payouts and the drawdown buffer.", icon: "dollar-sign" },
+  { id: "live", label: "Live (prop)", desc: "Live account through a prop firm / broker.", icon: "shield-check" },
+  { id: "personal", label: "Personal", desc: "Your own money — no prop rules.", icon: "wallet" },
+  { id: "demo", label: "Demo", desc: "Simulated practice account.", icon: "flask-conical" },
+  { id: "unknown", label: "Other", desc: "Anything that does not fit the rest.", icon: "circle-help" },
+];
+
+/** The five real kinds a new account can be — the wizard never creates "Other". */
+export const CREATION_TYPES = TYPE_CATALOG.filter((t) => t.id !== "unknown");
+
+/** Section order — realised by {@link DEFAULT_ORDER}, demo/other last. */
 /**
  * Section order out of the box: the accounts you look at every day first —
  * personal, then live, then funded — with the challenges and sandboxes after
@@ -99,7 +130,8 @@ export function typeColor(t: string): string {
 /** The saved order, with any type the journal never touched appended at the end. */
 export function typeOrder(): AccountType[] {
   const saved = (prefs.order ?? []).filter((k) => (TYPE_KEYS as string[]).includes(k));
-  return [...saved, ...TYPE_KEYS.filter((k) => !saved.includes(k))];
+  const base = saved.length > 0 ? saved : DEFAULT_ORDER;
+  return [...base, ...TYPE_KEYS.filter((k) => !base.includes(k))];
 }
 
 export function typeRank(t: string): number {

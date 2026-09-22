@@ -258,10 +258,6 @@ export function getFirm(id: string): PropFirm | undefined {
   return PROP_FIRMS.find((f) => f.id === id);
 }
 
-export function getProgram(firm: PropFirm | undefined, programId: string): PropProgram | undefined {
-  return firm?.programs.find((p) => p.id === programId) ?? firm?.programs[0];
-}
-
 export function getSize(program: PropProgram | undefined, size: number): PropSize | undefined {
   return program?.sizes.find((s) => s.size === size) ?? program?.sizes[0];
 }
@@ -296,8 +292,9 @@ export function uniqueAccountName(base: string, taken: string[]): string {
 }
 
 export function makeAccount(firm: PropFirm, program: PropProgram, size: number, customName?: string, accountType: AccountType = "eval"): PropAccount {
-  const defaultName = `${firm.name} · ${program.label} · $${(size / 1000).toFixed(0)}K`;
   const type: AccountType = accountType || (program.id.includes("funded") || program.id === "lfa" || program.id === "elite-live" ? "funded" : "eval");
+  const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+  const defaultName = `${firm.name} · ${typeName} · $${(size / 1000).toFixed(0)}K`;
   return {
     id: "pa_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name: customName && customName.trim() ? customName.trim() : defaultName,

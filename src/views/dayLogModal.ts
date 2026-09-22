@@ -22,7 +22,7 @@ export function openDayLogModal(plugin: TradebookPlugin, allTrades: Trade[], dat
   const dayNet = allTradesForDay.reduce((s, t) => s + t.pnl, 0);
   const wins = allTradesForDay.filter((t) => t.pnl > 0).length;
   const summary = modal.createDiv({ cls: "tj-kpis tj-day-log-summary" });
-  kpiCard(summary, "Net P&L", `${dayNet >= 0 ? "+" : ""}$${dayNet.toFixed(2)}`, dayNet > 0 ? "pos" : dayNet < 0 ? "neg" : "neutral");
+  kpiCard(summary, "P&L", `${dayNet >= 0 ? "+" : ""}$${dayNet.toFixed(2)}`, dayNet > 0 ? "pos" : dayNet < 0 ? "neg" : "neutral");
   kpiCard(summary, "Trades", `${allTradesForDay.length}`, "neutral");
   kpiCard(summary, "Win Rate", allTradesForDay.length ? `${Math.round((wins / allTradesForDay.length) * 100)}%` : "—", "neutral");
   kpiCard(summary, "Result", allTradesForDay.length === 0 ? "No trades" : dayNet > 0 ? "Winning day" : dayNet < 0 ? "Losing day" : "Break-even", dayNet > 0 ? "pos" : dayNet < 0 ? "neg" : "neutral");

@@ -40,7 +40,7 @@ attachTip(closeBtn, { title: "Close" });
     for (const p of parts) {
       const trimmed = p.trim();
       if (!trimmed) continue;
-      const resolved = resolveImage(plugin, trimmed);
+      const resolved = resolveImage(plugin, trimmed, trade.date);
       if (resolved) {
         foundAny = true;
         const img = left.createEl("img", { attr: { src: resolved, alt: "trade screenshot" }, cls: "tj-trade-modal-img" });
@@ -64,7 +64,7 @@ attachTip(closeBtn, { title: "Close" });
     c.createDiv({ cls: "tj-kpi-label", text: label });
     c.createDiv({ cls: "tj-kpi-value", text: value });
   };
-  statKpi("Net P&L", fmtMoney2(trade.pnl), trade.pnl >= 0 ? "pos" : "neg");
+  statKpi("P&L", fmtMoney2(trade.pnl), trade.pnl >= 0 ? "pos" : "neg");
   statKpi("Points", `${trade.pnlPoints ?? "—"} pts`, (trade.pnlPoints ?? 0) >= 0 ? "pos" : "neg");
   statKpi("Qty", String(trade.quantity ?? 1));
   statKpi("Entry", `${fmtPrice(trade.entryPrice)} ${trade.entryTime || ""}`);
@@ -144,21 +144,12 @@ function saveTradeField(plugin: TradebookPlugin, trade: Trade, key: string, valu
   });
 }
 
-function resolveImage(plugin: TradebookPlugin, link: string): string | null {
+function resolveImage(plugin: TradebookPlugin, link: string, date?: string): string | null {
   const raw = (link || "").trim();
   if (!raw) return null;
   const inner = raw.replace(/^\[\[/, "").replace(/\]\]$/, "");
   const target = inner.split("|")[0].split("#")[0].trim();
-  const tradesFolder = plugin?.getTradesFolder ? plugin.getTradesFolder() : "Tradebook/trades";
-  const candidates = [
-    raw,
-    target,
-    tradesFolder + "/prints/" + target,
-    "Tradebook/trades/prints/" + target,
-    "Tradebook/" + target,
-    "Tradebook/trades/" + target,
-    "Tradebook/prints/" + target,
-  ];
+  const candidates = [raw, target, ...plugin.attachmentCandidates(target, date)];
   for (const c of candidates) {
     try {
       const file = plugin.app.vault.getAbstractFileByPath(c);

@@ -70,6 +70,9 @@ export interface PrintEntry {
 
 export interface Trade {
   id: string;
+  /** Frontmatter `type` — `trade` for a normal trade (reserved: `missed`,
+   *  `backtest`). The plugin discovers notes by this key, not by folder. */
+  type?: string;
   date: string; // YYYY-MM-DD (entry date)
   entryTime: string;
   exitTime: string;
@@ -87,8 +90,9 @@ export interface Trade {
   target?: number;
   commission: number;
   fees: number;
-  grossPnl: number;
-  pnl: number; // net dollars
+  /** Gross result (points × pointValue × qty), before commission and fees.
+   *  The net is derived, never stored: `pnl - commission - fees` (see `netPnl`). */
+  pnl: number;
   pnlPoints: number;
   /** Order type at entry (Limit, Market, Stop, etc.). Informational — for discipline review. */
   orderType?: string;
@@ -99,6 +103,8 @@ export interface Trade {
   /** IANA zone the recorded times are wall-clock in (frozen at import/entry).
    *  Older notes have none and fall back to the journal's zone. */
   timezone?: string;
+  /** Manual session classification (newyork|london|asia|off). Absent/empty = auto-detect from entry time. */
+  sessionOverride?: string;
   setup: string;
   mistake: string;
   thesis: string;
@@ -112,9 +118,17 @@ export interface Trade {
   rating?: number;
   /** Manually marked as reviewed (batch action), independent of the checklist. */
   reviewed?: boolean;
-  /** Free-form labels. Per project decision these are for psychology/context
-   *  (e.g. "revenge trade", "FOMO", "news day") — NOT strategies/setups. */
+  /** Free-form labels. Legacy field: still written for backward compat, but the
+   *  review UI reads/writes `psychology_tags` and falls back to this when absent. */
   tags?: string[];
+  /** Psychology / emotional-state labels (e.g. "Anxious", "Patient"). */
+  psychology_tags?: string[];
+  /** Execution-mistake labels (e.g. "FOMO Entry", "Early Exit"). */
+  mistake_tags?: string[];
+  /** The trader confirmed there was nothing to log in Psychology State. */
+  psychologyAcknowledged?: boolean;
+  /** The trader confirmed there were no execution mistakes. */
+  mistakesAcknowledged?: boolean;
 
   /**
    * The executions behind this trade, present only when the position was scaled
@@ -182,6 +196,18 @@ export interface OrphanCost {
   amount: number;
   /** The contract the platform stamped on the line, for the note. */
   contract: string;
+}
+
+/**
+ * A registered strategy. The human-readable name lives in the trade notes
+ * (`setup`); this record gives it a stable id so rules, documentation and
+ * readiness can attach to it without ever depending on the spelling.
+ */
+export interface StrategyRecord {
+  id: string;
+  name: string;
+  /** ISO timestamp of registration. */
+  createdAt: string;
 }
 
 /** The rules an account answers to. Everything is optional: the account is the

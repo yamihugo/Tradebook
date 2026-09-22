@@ -11,7 +11,7 @@ import { openAccountWizard } from "./accountWizard";
  * asks for is also reachable elsewhere — the tour just puts it in order.
  */
 
-const STEPS = ["Welcome", "Folder", "Accounts", "First trade", "Done"];
+const STEPS = ["Welcome", "Folder", "Accounts", "Strategies", "First trade", "Done"];
 
 export function openGettingStarted(plugin: TradebookPlugin): void {
   new GettingStartedModal(plugin).open();
@@ -139,14 +139,14 @@ class GettingStartedModal extends Modal {
       step.createEl("h3", { text: "Where your trades live", cls: "tj-start-title" });
       step.createEl("p", {
         cls: "tj-start-text",
-        text: "Every trade becomes a note in one folder. Point it anywhere in your vault — a folder of its own keeps them easy to find later.",
+        text: "This is your journal's root folder. Trades are filed under <year>/<month>/trades, so a year is self-contained and easy to back up. Point it anywhere in your vault.",
       });
       const input = step.createEl("input", {
         cls: "tj-wz-input tj-start-input",
         attr: { type: "text", value: this.folder, spellcheck: "false" },
       });
       input.addEventListener("input", () => (this.folder = input.value));
-      step.createDiv({ cls: "tj-start-note", text: "Trade notes and a prints/ folder for screenshots are created here when you need them." });
+      step.createDiv({ cls: "tj-start-note", text: "Trade notes land in <year>/<month>/trades and screenshots in <year>/attachments, created only when you need them." });
       return;
     }
 
@@ -177,6 +177,39 @@ class GettingStartedModal extends Modal {
     }
 
     if (this.step === 3) {
+      const n = (this.plugin.settings.strategies ?? []).length;
+      step.createEl("h3", { text: "The strategies you trade", cls: "tj-start-title" });
+      step.createEl("p", {
+        cls: "tj-start-text",
+        text: "Name your strategies so every trade can be filed under one. It is a recommendation, not a rule — a trade can always be recorded without one, and nothing is ever blocked.",
+      });
+      if (n > 0) {
+        step.createDiv({ cls: "tj-start-ok", text: `${n} strateg${n === 1 ? "y" : "ies"} registered` });
+      }
+      const row = step.createDiv({ cls: "tj-start-row" });
+      const input = row.createEl("input", {
+        cls: "tj-wz-input tj-start-input",
+        attr: { type: "text", placeholder: "e.g. Reversal" },
+      });
+      const add = row.createEl("button", { cls: "tj-actionbtn is-primary", text: "Add", attr: { type: "button" } });
+      const submit = async () => {
+        const value = input.value.trim();
+        if (!value) return;
+        await this.plugin.addStrategy(value);
+        this.render();
+      };
+      add.addEventListener("click", () => void submit());
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") void submit();
+      });
+      step.createDiv({
+        cls: "tj-start-note",
+        text: "Add as many as you like, any time, on the Strategies page. Each one also gets a note of its own, ready for its rules.",
+      });
+      return;
+    }
+
+    if (this.step === 4) {
       step.createEl("h3", { text: "Your first trade", cls: "tj-start-title" });
       step.createEl("p", {
         cls: "tj-start-text",
@@ -204,6 +237,7 @@ class GettingStartedModal extends Modal {
       "Home — the read on your trading: P&L, streaks, best hours and what needs reviewing.",
       "Trade Log — the ledger, with filters, bulk edits and the review state of every trade.",
       "Accounts — a card per account, the rules, and Manage for copy groups and page settings.",
+      "Strategies — register the names you trade under; each one keeps its own note.",
       "Manual trade — record a trade by hand, or import a CSV from your broker.",
     ]) {
       list.createEl("li", { text: line });

@@ -8,6 +8,7 @@ import { attachTip } from "../lib/tip";
 import { fmtMoney, isFiniteNumber, todayKey, toZoneDate } from "../tz";
 import { renderLineChart } from "../lib/lineChart";
 import { computeAccountMetrics, AccountMetrics } from "../lib/accountMetrics";
+import { netPnl } from "../lib/fees";
 import { analyticsTrades } from "../lib/scope";
 import { mountDropdown } from "../lib/dropdown";
 import { BAR_SLOTS, MINI_SLOTS, layoutFor } from "../lib/cardSlots";
@@ -146,10 +147,11 @@ export class AccountsListView extends ItemView {
     let last = "";
     const byDay = new Map<string, number>();
     for (const t of list) {
-      net += t.pnl;
+      // Money the card reports is net of costs; win/loss counts stay gross.
+      net += netPnl(t);
       if (t.pnl > 0) wins += 1;
       else if (t.pnl < 0) losses += 1;
-      byDay.set(t.date, (byDay.get(t.date) ?? 0) + t.pnl);
+      byDay.set(t.date, (byDay.get(t.date) ?? 0) + netPnl(t));
       if (!first || t.date < first) first = t.date;
       if (!last || t.date > last) last = t.date;
     }
@@ -256,16 +258,17 @@ export class AccountsListView extends ItemView {
     });
     // The same outline square the rest of the app uses for header actions — one
     // recipe, no words. The explanation lives in our own tip (never the engine's
-    // black box), and the `aria-label` is the name a screen reader reads out.
+    // black box), and the accessible name travels in a `tj-sr-only` span.
     const actions = head.createDiv({ cls: "tj-acct-header-actions" });
 
     // Two accounts are the minimum for anything to copy anything, so the copy
     // groups square says why it is off instead of opening an empty room.
     const groupsBtn = actions.createEl("button", {
       cls: "tj-iconbtn",
-      attr: { type: "button", "aria-label": "Copy groups" },
+      attr: { type: "button" },
     });
     setIcon(groupsBtn, "users");
+    groupsBtn.createSpan({ cls: "tj-sr-only", text: "Copy groups" });
     if (all.length < 2) {
       groupsBtn.disabled = true;
       attachTip(groupsBtn, { title: "Copy groups", sub: "Add a second account to copy between." });
@@ -274,25 +277,27 @@ export class AccountsListView extends ItemView {
       groupsBtn.addEventListener("click", () => openCopyGroups(this.plugin));
     }
 
-    const displayBtn = actions.createEl("button", {
-      cls: "tj-iconbtn",
-      attr: { type: "button", "aria-label": "Display" },
-    });
-    setIcon(displayBtn, "sliders-horizontal");
-    attachTip(displayBtn, { title: "Display", sub: "How this page is grouped and how it reads." });
-    displayBtn.addEventListener("click", () => openAccountsDisplay(this.plugin));
-
     const addBtn = actions.createEl("button", {
       cls: "tj-iconbtn is-primary",
-      attr: { type: "button", "aria-label": "Add account", "data-tour": "add-account" },
+      attr: { type: "button", "data-tour": "add-account" },
     });
     setIcon(addBtn, "plus");
+    addBtn.createSpan({ cls: "tj-sr-only", text: "Add account" });
     attachTip(addBtn, { title: "Add account", sub: "One, or a whole batch at once." });
     addBtn.addEventListener("click", () => {
       openAccountWizard(this.plugin, {
         onDone: () => void this.refresh(),
       });
     });
+
+    const settingsBtn = actions.createEl("button", {
+      cls: "tj-iconbtn",
+      attr: { type: "button" },
+    });
+    setIcon(settingsBtn, "sliders-horizontal");
+    settingsBtn.createSpan({ cls: "tj-sr-only", text: "Settings" });
+    attachTip(settingsBtn, { title: "Settings", sub: "How this page is grouped and how it reads." });
+    settingsBtn.addEventListener("click", () => openAccountsDisplay(this.plugin));
 
     // ---------------- adaptive strip ----------------
     this.renderStrip(main, all, stats);
@@ -357,7 +362,7 @@ export class AccountsListView extends ItemView {
     // state (drawdown, target, eligibility) is always its whole life.
     const flat = portfolio.flatMap((a) => this.tradesFor(a));
     const windowTrades = w.from ? flat.filter((t) => t.date >= w.from) : flat;
-    const net = windowTrades.reduce((s, t) => s + t.pnl, 0);
+    const net = windowTrades.reduce((s, t) => s + netPnl(t), 0);
     const growth = capital > 0 ? (net / capital) * 100 : 0;
     // A copied trade lives in every account it reached. Count it once: gather
     // the real accounts' trades and dedupe by copyBaseKey. Money stays summed.
@@ -503,7 +508,7 @@ export class AccountsListView extends ItemView {
     // of trading days immediately before it.
     const allDays = new Map<string, number>();
     for (const { list } of perAccount) {
-      for (const t of list) allDays.set(t.date, (allDays.get(t.date) ?? 0) + t.pnl);
+      for (const t of list) allDays.set(t.date, (allDays.get(t.date) ?? 0) + netPnl(t));
     }
     if (!allDays.size) {
       card.createDiv({ cls: "tj-empty", text: "No trades yet — add trades to see the portfolio curve." });
@@ -1025,8 +1030,14 @@ export class AccountsListView extends ItemView {
     const tags = tile.createDiv({ cls: "tj-acct-tile-tags" });
     tags.createSpan({ cls: `tj-tag tj-tag-${acc.type}`, text: typeLabel(acc.type) });
     if (acc.copyRole) {
-      const label = acc.copyRole === "base" ? "Leader" : `Copier ${acc.copyMultiplier ?? 1}x`;
-      const tag = tags.createSpan({ cls: `tj-tag ${acc.copyRole === "base" ? "tj-tag-base" : "tj-tag-copy"}`, text: label });
+      const isLeader = acc.copyRole === "base";
+      const tag = tags.createSpan({ cls: `tj-tag ${isLeader ? "tj-tag-base" : "tj-tag-copy"}` });
+      // The leader wears the crown — a plain Lucide mark, never an emoji.
+      if (isLeader) {
+        const ico = tag.createSpan({ cls: "tj-tag-ico" });
+        setIcon(ico, "crown");
+      }
+      tag.createSpan({ text: isLeader ? "Leader" : `Copier ${acc.copyMultiplier ?? 1}x` });
       const tint = this.groupTint(acc);
       if (tint) {
         tag.style.borderColor = tint;
@@ -1053,8 +1064,8 @@ export class AccountsListView extends ItemView {
       attachTip(chip, { title: alert.label, sub: alert.why });
     }
 
-    for (const slot of this.slotsFor(acc, st)) {
-      const prog = tile.createDiv({ cls: "tj-acct-prog" });
+    this.slotsFor(acc, st).forEach((slot, i) => {
+      const prog = tile.createDiv({ cls: "tj-acct-prog" + (i === 0 ? " is-first" : "") });
       const lbl = prog.createDiv({ cls: "tj-acct-prog-lbl" });
       lbl.createSpan({ text: slot.label });
       const val = lbl.createEl("b", { text: slot.value });
@@ -1066,7 +1077,7 @@ export class AccountsListView extends ItemView {
       // through addClass — Obsidian rejects tokens that contain spaces.
       const fill = bar.createDiv({ cls: "tj-acct-prog-fill" + (slot.fill ? " " + slot.fill : "") });
       fill.style.width = `${Math.max(slot.pct > 0 ? 1 : 0, clamp(slot.pct, 0, 100))}%`;
-    }
+    });
 
     const mini = tile.createDiv({ cls: "tj-acct-mini" });
     for (const [label, value] of this.miniFor(acc, st)) {
@@ -1086,10 +1097,16 @@ export class AccountsListView extends ItemView {
     const parts = acc.name.split("·").map((s) => s.trim()).filter(Boolean);
     const first = parts[0] ?? acc.name;
     if (parts.length > 1) return [first, parts.slice(1).join(" · ")];
-    // A plain name (custom or single word): describe the account underneath.
-    const view = resolveAccountView(acc);
-    const segs = [firmLabel(acc.firmId), view.program?.label, `$${Math.round(acc.size / 1000)}K`].filter(Boolean) as string[];
-    const rest = segs.filter((s) => s.toLowerCase() !== first.toLowerCase()).join(" · ");
+    // A plain name (custom or single word): describe the account underneath from the
+    // firm and the type — never the legacy program label — and drop anything the title
+    // already says, so the card never repeats its own name on a second line.
+    const segs = [firmLabel(acc.firmId), typeLabel(acc.type), `$${Math.round(acc.size / 1000)}K`].filter(Boolean) as string[];
+    const words = new Set(first.toLowerCase().split(/[\s·]+/).filter(Boolean));
+    // A segment only repeats the title when *every* word of it is already there —
+    // so a two-word brand ("AMP Futures") drops out just like a single word does.
+    const rest = segs
+      .filter((s) => !s.toLowerCase().split(/[\s·]+/).filter(Boolean).every((w) => words.has(w)))
+      .join(" · ");
     return [first, rest];
   }
 

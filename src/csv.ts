@@ -1,6 +1,7 @@
 import { AccountType, Execution, ImportCosts, OrphanCost, ParsedResult, Trade, TradeFill } from "./types";
 import { AccountRule, classifyAccount, futuresSpec, rootSymbol } from "./futures";
 import { localToUtc, zoneWallParts } from "./tz";
+import { pointsOf } from "./lib/fills";
 
 function parseFloatSafe(v: string | undefined | null): number {
   if (v === undefined || v === null) return 0;
@@ -428,9 +429,10 @@ export function parseTradeovateCsv(
       }
       const total = found.commission + found.exchange + found.clearing + found.nfa;
       if (target) {
+        // pnl is gross, so a cost line only ever lands on commission/fees — it
+        // never rewrites the trade's result.
         target.commission = round2(target.commission + found.commission);
         target.fees = round2(target.fees + (found.exchange + found.clearing + found.nfa));
-        target.pnl = round2(target.grossPnl - target.commission - target.fees);
         costKeysUsed.add(key);
         recordedCost += total;
       } else {
@@ -559,16 +561,24 @@ function pairRoundTrips(
         const gross = round2(realizedGross);
         // Costs are only ever what the platform charged. An Orders or Fills
         // export on its own does not carry them all, and a modelled fee would
-        // put a number in the journal that no broker ever billed.
+        // put a number in the journal that no broker ever billed. They live in
+        // commission/fees; pnl stays the gross.
         const comm = round2(tradeCommission);
         const fee = round2(tradeFees);
-        const totalCost = round2(comm + fee);
-        const pnl = round2(gross - totalCost);
-        const points = spec.pointValue ? gross / spec.pointValue : 0;
+        const pnl = gross;
         // The scalars are the weighted averages of the fills, so a scaled trade
         // reads the same price the trader actually got, not one lucky execution.
         const avgEntry = averagePrice(entryFills) || pos.openPrice;
         const avgExit = averagePrice(exitFills) || fill.price;
+        // Points: the furthest an exit actually closed from the entry — no
+        // break-even counts, contracts never multiply. Same rule as tradePoints().
+        const points = pointsOf(
+          pos.dir,
+          avgEntry,
+          exitFills,
+          spec.pointValue,
+          entryFills.length > 1 || exitFills.length > 1,
+        );
         const chronological = [...entryFills, ...exitFills].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
         const tradeId = `${fill.account}_${fill.symbol}_${pos.openTime.getTime()}_${pos.openPrice}`;
 
@@ -586,9 +596,8 @@ function pairRoundTrips(
           exitPrice: round2(avgExit),
           commission: comm,
           fees: fee,
-          grossPnl: gross,
           pnl,
-          pnlPoints: round2(points),
+          pnlPoints: points,
           // Only stored when the position was actually scaled: one entry and one
           // exit is already fully described by the scalar fields above.
           fills: entryFills.length > 1 || exitFills.length > 1 ? chronological : undefined,

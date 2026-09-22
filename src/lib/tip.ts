@@ -79,8 +79,9 @@ export function moveTip(e: MouseEvent): void {
  * shows on focus too, so a keyboard user gets the same explanation as a mouse
  * user (WCAG 1.4.13 Content on Hover or Focus).
  *
- * The button keeps its `aria-label`: the tip is a nicety, the accessible name is
- * the contract.
+ * Never put `aria-label` on a tip anchor: Obsidian then draws its own tooltip on
+ * top of ours, and the reader gets two cards. The accessible name goes in a
+ * `tj-sr-only` span inside the control instead.
  */
 export function attachTip(el: Element, parts: TipParts, extraCls = ""): void {
   // The guard (`guardTips`) drops any tip whose pointer is not over a

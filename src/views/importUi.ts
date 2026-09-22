@@ -8,6 +8,7 @@ import { isActiveCopier } from "../lib/copy";
 import { formatDate } from "../lib/dates";
 import { mountDropdown } from "../lib/dropdown";
 import { attachTip } from "../lib/tip";
+import { netPnl } from "../lib/fees";
 import type { DropdownItem } from "../lib/dropdown";
 
 /**
@@ -80,6 +81,10 @@ class ImportCsvModal extends Modal {
   private headSubEl: HTMLElement | null = null;
   /** "Trades" is a heading while the box is empty, and noise once it holds a file. */
   private tradesTitleEl: HTMLElement | null = null;
+  /** Registered strategies, loaded once — the import's Setup field offers them. */
+  private knownSetups: string[] = [];
+  /** The strategy applied to every trade in the file ("" = leave them unfiled). */
+  private setupPick = "";
 
   constructor(plugin: TradebookPlugin, onChange?: () => void) {
     super(plugin.app);
@@ -90,6 +95,18 @@ class ImportCsvModal extends Modal {
   onOpen(): void {
     this.modalEl.addClass("tj-import-modal");
     this.render();
+    void this.loadSetups();
+  }
+
+  /** Load the registry; pre-fill when there is exactly one strategy to choose. */
+  private async loadSetups(): Promise<void> {
+    try {
+      this.knownSetups = await this.plugin.knownSetups();
+    } catch {
+      this.knownSetups = [];
+    }
+    if (!this.setupPick && this.knownSetups.length === 1) this.setupPick = this.knownSetups[0];
+    if (this.parsed && this.bodyEl) await this.renderReview();
   }
 
   onClose(): void {
@@ -869,7 +886,7 @@ class ImportCsvModal extends Modal {
     this.renderPick();
 
     const t = this.importable;
-    const net = t.reduce((s, x) => s + (Number.isFinite(x.pnl) ? x.pnl : 0), 0);
+    const net = t.reduce((s, x) => s + (Number.isFinite(x.pnl) ? netPnl(x) : 0), 0);
 
     const box = body.createDiv({ cls: "tj-import-review" });
     const top = box.createDiv({ cls: "tj-import-reviewtop" });
@@ -911,6 +928,40 @@ class ImportCsvModal extends Modal {
     }
 
     if (t.length) {
+      // A CSV cannot carry a strategy, so this is one answer for the whole file —
+      // and it can be left empty when the trades are not all the same. The ones
+      // left without a home are surfaced after the write, never guessed.
+      const setupRow = box.createDiv({ cls: "tj-import-setuprow" });
+      setupRow.createSpan({ cls: "tj-import-setuplbl", text: "Strategy" });
+      const setupItems: DropdownItem[] = [{ id: "__none__", label: "No strategy", note: "Leave them unfiled" }];
+      for (const s of this.knownSetups) setupItems.push({ id: s, label: s });
+      setupItems.push({ id: "__new__", label: "＋ New strategy…", note: "Saved to Strategies" });
+      mountDropdown(
+        setupRow.createDiv({ cls: "tj-import-setupctl" }),
+        setupItems,
+        this.setupPick || "__none__",
+        async (id) => {
+          if (id === "__new__") {
+            const name = window.prompt("Name your strategy");
+            if (!name || !name.trim()) return;
+            this.setupPick = await this.plugin.addStrategy(name);
+            this.knownSetups = await this.plugin.knownSetups();
+          } else {
+            this.setupPick = id === "__none__" ? "" : id;
+          }
+          await this.renderReview();
+        },
+        { title: "Applied to every trade in this file", align: "left" }
+      );
+      if (this.knownSetups.length !== 1) {
+        setupRow.createSpan({
+          cls: "tj-import-setupnote",
+          text: this.knownSetups.length
+            ? "Apply to all — leave empty if they are not all the same."
+            : "No strategy registered yet — add one, or import them unfiled.",
+        });
+      }
+
       const tbl = box.createEl("table", { cls: "tj-import-tbl" });
       const thead = tbl.createEl("thead");
       const hr = thead.createEl("tr");
@@ -995,10 +1046,10 @@ class ImportCsvModal extends Modal {
     let net = 0;
     for (const t of this.existing) {
       const mapped = this.plugin.mappedAccount(t.account || "");
-      if (mapped && mapped.id === id && Number.isFinite(t.pnl)) net += t.pnl;
+      if (mapped && mapped.id === id && Number.isFinite(t.pnl)) net += netPnl(t);
     }
     for (const t of this.importable) {
-      if (Number.isFinite(t.pnl)) net += t.pnl;
+      if (Number.isFinite(t.pnl)) net += netPnl(t);
     }
     const inAccount = this.round2(Math.max(0, costs.charged - costs.recorded));
     const journal =
@@ -1051,7 +1102,7 @@ class ImportCsvModal extends Modal {
       const id = this.mapping.get(t.account);
       const acc = id ? accounts.find((a) => a.id === id) : undefined;
       if (!acc) continue;
-      assigned.push({ ...t, account: acc.name, accountType: acc.type });
+      assigned.push({ ...t, account: acc.name, accountType: acc.type, setup: this.setupPick || t.setup || "" });
     }
     if (!assigned.length || this.activeTargets().size === 0) {
       new Notice("Select at least one target account before importing.");
@@ -1074,10 +1125,15 @@ class ImportCsvModal extends Modal {
       // it was asked to save; this proves the notes actually landed, so "Done"
       // can never report a file that never arrived.
       const expected = new Set(assigned.map((t) => this.noteKey(t)));
+      const byKey = new Map<string, string>();
       const after = await this.plugin.loadTradesExpanded();
       for (const t of after) {
         const mapped = this.plugin.mappedAccount(t.account || "");
-        if (mapped && this.activeTargets().has(mapped.id)) expected.delete(this.noteKey(t));
+        if (mapped && this.activeTargets().has(mapped.id)) {
+          const k = this.noteKey(t);
+          byKey.set(k, t.id);
+          expected.delete(k);
+        }
       }
       if (count === 0 || expected.size > 0) {
         new Notice(
@@ -1112,6 +1168,10 @@ class ImportCsvModal extends Modal {
       // and the button row becomes the confirmation, so the modal keeps looking
       // like itself between the before and the after.
       const legs = withLegs.length - assigned.length;
+      const noStrategyIds = assigned
+        .filter((t) => !(t.setup || "").trim())
+        .map((t) => byKey.get(this.noteKey(t)))
+        .filter((x): x is string => !!x);
       const foot = this.actionsEl;
       if (foot) {
         foot.empty();
@@ -1126,6 +1186,19 @@ class ImportCsvModal extends Modal {
             .filter(Boolean)
             .join(" · "),
         });
+        // The trades the file could not file: one click to give them a strategy,
+        // in the ledger itself, where the picker already lives.
+        if (noStrategyIds.length) {
+          const warn = foot.createDiv({ cls: "tj-import-nostrategy" });
+          warn.createSpan({
+            text: `${noStrategyIds.length} trade${noStrategyIds.length === 1 ? "" : "s"} without a strategy.`,
+          });
+          const assign = warn.createEl("button", { cls: "tj-actionbtn", text: "Assign strategies" });
+          assign.addEventListener("click", () => {
+            this.close();
+            void this.plugin.openTradeLogForIds(noStrategyIds);
+          });
+        }
         // One file, one import: the way out is forward, not back.
         const doneBtn = foot.createEl("button", { cls: "tj-actionbtn", text: "Done" });
         doneBtn.addEventListener("click", () => this.close());

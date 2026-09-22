@@ -42,7 +42,7 @@ export async function buildDiagnostics(plugin: TradebookPlugin): Promise<string>
   out.push(line("Obsidian", obsidian));
   out.push("");
   out.push("-- Journal --");
-  out.push(line("Trades folder", s.tradesFolder));
+  out.push(line("Journal folder", s.tradesFolder));
   out.push(line("Time zone", s.timeZone || "None (as recorded)"));
   out.push(line("Date format", s.dateFormat ?? "YYYY-MM-DD"));
   out.push(line("Currency", s.currency ?? "USD"));

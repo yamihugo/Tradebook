@@ -13,6 +13,7 @@
 import { Trade } from "../types";
 import { futuresSpec } from "../futures";
 import { reviewStatus } from "./review";
+import { netPnl } from "./fees";
 
 export interface AccountMetricsInput {
   trades: Trade[];
@@ -25,6 +26,9 @@ export interface AccountMetricsInput {
   /** True for a drawdown that trails the high and never locks ("eod-trailing-open"):
    *  the floor keeps rising with the peak for the life of the account. */
   ddNoLock?: boolean;
+  /** True for a fixed floor ("static"): the limit sits below the STARTING balance
+   *  and never moves with the peak. Used by live funded accounts. */
+  ddStatic?: boolean;
   dailyLoss?: number;
   consistency?: number;
   /** How the consistency rule is measured: best day ÷ total profit (default) or ÷ target. */
@@ -60,6 +64,8 @@ export interface AccountMetrics {
   avgLoss: number;
   dayWinRate: number;
   dayCount: number;
+  /** Days that closed positive — the "winning days" a firm counts for a payout. */
+  winDays: number;
   bestDay: number;
   worstDay: number;
   largestWin: number;
@@ -70,16 +76,14 @@ export interface AccountMetrics {
   ddCurrent: number;
   /** Real balance: size + realised P&L − payouts + deposits. */
   balance: number;
-  /** Highest end-of-day balance the account has reached. */
-  balancePeak: number;
   /** Dollars between the balance and the loss limit — what the firm sees. */
   ddToLimit: number;
+  /** Dollars between the real balance and the loss floor — the room left. */
+  ddRemaining: number;
   buffer: number;
-  bufferPct: number;
   todayNet: number;
   dailyLossRemaining: number;
   worstDayPctOfLimit: number;
-  largestLossPctOfLimit: number;
   targetPct: number;
   toTarget: number;
   daysToTarget: number | null;
@@ -91,7 +95,6 @@ export interface AccountMetrics {
   // ---- process / discipline ----
   mistakeRate: number;
   avgRating: number;
-  reviewedPct: number;
   reviewCompletePct: number;
   stopDefinedPct: number;
   untaggedPct: number;
@@ -99,8 +102,6 @@ export interface AccountMetrics {
   afterTwoLosses: number;
   avgHoldWinMin: number;
   avgHoldLossMin: number;
-  bestHour: number | null;
-  worstHour: number | null;
   tradesPerDay: number;
   maxTradesInDay: number;
   revengeCount: number;
@@ -130,11 +131,7 @@ export interface DrawdownAnalysis {
   episodes: DrawdownEpisode[];
   currentDD: DrawdownEpisode | null;
   totalEpisodes: number;
-  avgDepth: number;
-  avgDepthPct: number;
   avgRecoveryDays: number;
-  worstDD: DrawdownEpisode | null;
-  longestDD: DrawdownEpisode | null;
   pctTimeInDD: number;
 }
 
@@ -144,7 +141,7 @@ export function computeDrawdownEpisodes(
   initialBalance: number,
 ): DrawdownAnalysis {
   if (dailyBalances.length === 0) {
-    return { episodes: [], currentDD: null, totalEpisodes: 0, avgDepth: 0, avgDepthPct: 0, avgRecoveryDays: 0, worstDD: null, longestDD: null, pctTimeInDD: 0 };
+    return { episodes: [], currentDD: null, totalEpisodes: 0, avgRecoveryDays: 0, pctTimeInDD: 0 };
   }
 
   const episodes: DrawdownEpisode[] = [];
@@ -230,11 +227,7 @@ export function computeDrawdownEpisodes(
     episodes,
     currentDD,
     totalEpisodes: total,
-    avgDepth: total > 0 ? episodes.reduce((s, e) => s + e.depth, 0) / total : 0,
-    avgDepthPct: total > 0 ? episodes.reduce((s, e) => s + e.depthPct, 0) / total : 0,
     avgRecoveryDays: recovered.length > 0 ? recovered.reduce((s, e) => s + e.durationDays, 0) / recovered.length : 0,
-    worstDD: total > 0 ? episodes.reduce((w, e) => (e.depth > (w?.depth ?? 0) ? e : w), null as DrawdownEpisode | null) : null,
-    longestDD: total > 0 ? episodes.reduce((w, e) => (e.durationDays > (w?.durationDays ?? 0) ? e : w), null as DrawdownEpisode | null) : null,
     pctTimeInDD: totalDays > 0 ? Math.min(100, (ddDays / totalDays) * 100) : 0,
   };
 }
@@ -249,11 +242,16 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const scoped = trades.filter((t) => Number.isFinite(t.pnl) && !!t.date);
 
   // ---- per-day buckets ----
-  const byDay = new Map<string, { net: number; count: number; wins: number; losses: number }>();
+  // Two accumulators, because the money and the trade quality are different
+  // questions: balance, drawdown, target, consistency, today and the daily-loss
+  // line read the NET (gross minus costs); best/worst day and the day win rate
+  // read the GROSS.
+  const byDay = new Map<string, { net: number; gross: number; count: number; wins: number; losses: number }>();
   for (const t of scoped) {
     const k = input.dayKey(t);
-    const b = byDay.get(k) ?? { net: 0, count: 0, wins: 0, losses: 0 };
-    b.net += t.pnl;
+    const b = byDay.get(k) ?? { net: 0, gross: 0, count: 0, wins: 0, losses: 0 };
+    b.net += netPnl(t);
+    b.gross += t.pnl;
     b.count += 1;
     if (t.pnl > 0) b.wins += 1;
     if (t.pnl < 0) b.losses += 1;
@@ -261,6 +259,7 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   }
   const dayKeys = [...byDay.keys()].sort();
   const dayNets = dayKeys.map((k) => byDay.get(k)!.net);
+  const dayGrosses = dayKeys.map((k) => byDay.get(k)!.gross);
   const grossProfitDays = dayNets.filter((v) => v > 0).reduce((a, v) => a + v, 0);
   const cashflowDays = dayNets.filter((v) => Math.abs(v) > 1e-9);
 
@@ -301,13 +300,17 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const floorBase = peakBalance;
   const floor =
     maxLoss > 0
-      ? input.ddNoLock
-        ? floorBase - maxLoss
-        : Math.min(size + (input.ddLockOffset ?? 0), floorBase - maxLoss)
+      ? input.ddStatic
+        ? size - maxLoss
+        : input.ddNoLock
+          ? floorBase - maxLoss
+          : Math.min(size + (input.ddLockOffset ?? 0), floorBase - maxLoss)
       : 0;
   const ddCurrent = Math.max(0, peak - net);
   /** Dollars between the real balance and the loss limit — what the firm sees. */
   const ddToLimit = Math.max(0, peakBalance - balance);
+  /** Dollars between the real balance and the floor — the room left before failing. */
+  const ddRemaining = maxLoss > 0 ? Math.max(0, balance - floor) : 0;
   let maxDrawdown = 0;
   let runPeak = 0;
   for (const v of cumSeries) {
@@ -320,6 +323,7 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const losses = scoped.filter((t) => t.pnl < 0);
   const grossWin = wins.reduce((a, t) => a + t.pnl, 0);
   const grossLoss = Math.abs(losses.reduce((a, t) => a + t.pnl, 0));
+  const grossTotal = scoped.reduce((a, t) => a + t.pnl, 0);
   const tradeCount = scoped.length;
 
   // ---- target / consistency ----
@@ -327,14 +331,17 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const toTarget = target > 0 ? Math.max(0, target - net) : 0;
   const avgDayNet = cashflowDays.length ? cashflowDays.reduce((a, v) => a + v, 0) / cashflowDays.length : 0;
   const daysToTarget = target > 0 && avgDayNet > 0 ? Math.ceil(toTarget / avgDayNet) : null;
-  const bestDay = dayNets.length ? dayNets.reduce((a, v) => (v > a ? v : a), -Infinity) : 0;
-  const worstDay = dayNets.length ? dayNets.reduce((a, v) => (v < a ? v : a), Infinity) : 0;
+  // Day quality is gross; the consistency rule and the daily-loss line are net.
+  const bestDay = dayGrosses.length ? dayGrosses.reduce((a, v) => (v > a ? v : a), -Infinity) : 0;
+  const worstDay = dayGrosses.length ? dayGrosses.reduce((a, v) => (v < a ? v : a), Infinity) : 0;
+  const bestNetDay = dayNets.length ? dayNets.reduce((a, v) => (v > a ? v : a), -Infinity) : 0;
+  const worstNetDay = dayNets.length ? dayNets.reduce((a, v) => (v < a ? v : a), Infinity) : 0;
   const consBasis =
     consistency > 0 && (input.consistencyBasis ?? "profit") === "target" && target > 0
       ? target
       : grossProfitDays;
-  const consistencyPct = consBasis > 0 ? Math.max(0, (bestDay / consBasis) * 100) : 0;
-  const impliedTarget = consistency > 0 && bestDay > 0 ? Math.ceil(bestDay / (consistency / 100)) : 0;
+  const consistencyPct = consBasis > 0 ? Math.max(0, (bestNetDay / consBasis) * 100) : 0;
+  const impliedTarget = consistency > 0 && bestNetDay > 0 ? Math.ceil(bestNetDay / (consistency / 100)) : 0;
 
   // ---- risk per trade ----
   const rMultiples: number[] = [];
@@ -356,39 +363,30 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const mistakeRate = tradeCount ? (withMistake / tradeCount) * 100 : 0;
   const rated = scoped.filter((t) => (t.rating ?? 0) > 0);
   const avgRating = rated.length ? rated.reduce((a, t) => a + (t.rating ?? 0), 0) / rated.length : 0;
-  const reviewedPct = tradeCount ? (scoped.filter((t) => t.reviewed === true).length / tradeCount) * 100 : 0;
   const reviewCompletePct = tradeCount ? (scoped.filter((t) => reviewStatus(t).complete).length / tradeCount) * 100 : 0;
   const stopDefinedPct = tradeCount ? (scoped.filter((t) => (t.stopLoss ?? 0) > 0).length / tradeCount) * 100 : 0;
   const untaggedPct = tradeCount ? (scoped.filter((t) => !(t.setup || "").trim()).length / tradeCount) * 100 : 0;
 
+  const heldMinutes = (t: Trade): number | null => {
+    const a = minutesOf(t.entryTime);
+    const b = minutesOf(t.exitTime);
+    if (a === null || b === null) return null;
+    // Overnight trades wrap past midnight.
+    const d = b >= a ? b - a : b + 1440 - a;
+    return d >= 0 ? d : null;
+  };
   const hold = (list: Trade[]): number => {
     const mins = list
-      .map((t) => {
-        const a = minutesOf(t.entryTime);
-        const b = minutesOf(t.exitTime);
-        if (a === null || b === null) return null;
-        // Overnight trades wrap past midnight.
-        return b >= a ? b - a : b + 1440 - a;
-      })
-      .filter((v): v is number => v !== null && v >= 0);
+      .map((t) => heldMinutes(t))
+      .filter((v): v is number => v !== null);
     return mins.length ? mins.reduce((a, v) => a + v, 0) / mins.length : 0;
   };
-
-  const hourBuckets = new Map<number, number>();
-  for (const t of scoped) {
-    const m = minutesOf(t.entryTime);
-    if (m === null) continue;
-    const h = Math.floor(m / 60);
-    hourBuckets.set(h, (hourBuckets.get(h) ?? 0) + t.pnl);
-  }
-  const hours = [...hourBuckets.keys()];
-  const bestHour = hours.length ? hours.reduce((a, b) => (hourBuckets.get(b)! > hourBuckets.get(a)! ? b : a)) : null;
-  const worstHour = hours.length ? hours.reduce((a, b) => (hourBuckets.get(b)! < hourBuckets.get(a)! ? b : a)) : null;
 
   const daysWithTrades = dayKeys.filter((k) => byDay.get(k)!.count > 0).length;
   const maxTradesInDay = dayKeys.length ? Math.max(...dayKeys.map((k) => byDay.get(k)!.count)) : 0;
 
-  // revenge proxy: a trade opened within 15 min of a losing trade's exit
+  // revenge: re-entry within 15 min of a loss on the SAME symbol, or any trade
+  // the trader explicitly flagged as a mistake right after a loss.
   const ordered = [...scoped].sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")));
   let revengeCount = 0;
   for (let i = 1; i < ordered.length; i++) {
@@ -397,7 +395,10 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     if (prev.pnl >= 0 || prev.date !== cur.date) continue;
     const out = minutesOf(prev.exitTime);
     const inn = minutesOf(cur.entryTime);
-    if (out !== null && inn !== null && inn >= out && inn - out <= 15) revengeCount += 1;
+    const quick = out !== null && inn !== null && inn >= out && inn - out <= 15;
+    const sameSymbol = (prev.symbol || "") === (cur.symbol || "");
+    const flagged = (cur.mistake || "").trim().length > 0;
+    if ((quick && sameSymbol) || flagged) revengeCount += 1;
   }
   const revengeRate = tradeCount ? (revengeCount / tradeCount) * 100 : 0;
 
@@ -459,14 +460,15 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     totalCommission: scoped.reduce((a, t) => a + (t.commission || 0), 0),
     totalFees: scoped.reduce((a, t) => a + (t.fees || 0), 0),
     profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
-    expectancy: wins.length + losses.length > 0 ? net / (wins.length + losses.length) : 0,
+    expectancy: wins.length + losses.length > 0 ? grossTotal / (wins.length + losses.length) : 0,
     avgWin: wins.length ? grossWin / wins.length : 0,
     avgLoss: losses.length ? grossLoss / losses.length : 0,
     dayWinRate:
-      dayNets.filter((v) => v !== 0).length > 0
-        ? (dayNets.filter((v) => v > 0).length / dayNets.filter((v) => v !== 0).length) * 100
+      dayGrosses.filter((v) => v !== 0).length > 0
+        ? (dayGrosses.filter((v) => v > 0).length / dayGrosses.filter((v) => v !== 0).length) * 100
         : 0,
     dayCount: dayKeys.length,
+    winDays: dayGrosses.filter((v) => v > 0).length,
     bestDay,
     worstDay,
     largestWin,
@@ -475,14 +477,12 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     peak,
     ddCurrent,
     balance,
-    balancePeak: peakBalance,
     ddToLimit,
+    ddRemaining,
     buffer: maxLoss > 0 ? net - floor : 0,
-    bufferPct: maxLoss > 0 ? Math.max(0, Math.min(100, ((net - floor) / maxLoss) * 100)) : 0,
     todayNet: input.todayKey ? (byDay.get(input.todayKey)?.net ?? 0) : 0,
     dailyLossRemaining: dailyLoss > 0 ? Math.max(0, Math.min(dailyLoss, dailyLoss + (input.todayKey ? byDay.get(input.todayKey)?.net ?? 0 : 0))) : 0,
-    worstDayPctOfLimit: dailyLoss > 0 ? (Math.abs(Math.min(0, worstDay)) / dailyLoss) * 100 : 0,
-    largestLossPctOfLimit: dailyLoss > 0 ? (Math.abs(largestLoss ?? 0) / dailyLoss) * 100 : 0,
+    worstDayPctOfLimit: dailyLoss > 0 ? (Math.abs(Math.min(0, worstNetDay)) / dailyLoss) * 100 : 0,
     targetPct,
     toTarget,
     daysToTarget,
@@ -493,7 +493,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     pctGE1R,
     mistakeRate,
     avgRating,
-    reviewedPct,
     reviewCompletePct,
     stopDefinedPct,
     untaggedPct,
@@ -501,8 +500,6 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     afterTwoLosses,
     avgHoldWinMin: hold(wins),
     avgHoldLossMin: hold(losses),
-    bestHour,
-    worstHour,
     tradesPerDay: daysWithTrades ? tradeCount / daysWithTrades : 0,
     maxTradesInDay,
     revengeCount,

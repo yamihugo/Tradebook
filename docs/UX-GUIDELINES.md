@@ -218,6 +218,16 @@ Three kinds of small element exist, only one is a violation:
 
 The list lives in the script, not a comment, so drift shows up in the next audit.
 
+### 5.2 Prioridade de leitura
+
+Um ecrã que precisa de scroll empilha por prioridade, não por ordem
+arbitrária. O primeiro ecrã responde à pergunta do utilizador (que
+trade é esta, como a avalio?); o scroll responde ao detalhe.
+
+Alturas grandes usam `clamp(min, Nvh, max)` — nunca px fixos. Assim
+o layout encolhe em ecrãs pequenos em vez de forçar scroll, e o
+bloco mais importante continua visível.
+
 ---
 
 ## 6. Showing data
@@ -232,6 +242,30 @@ The list lives in the script, not a comment, so drift shows up in the next audit
   thinned to avoid collisions. Never label every point.
 - **Baselines are explicit**: the zero line and the account's starting balance are drawn.
 - **Right-align and tabulate numbers**; units in the header, not per row (NN/g).
+
+### 6.1 One surface language, for every page
+
+A journal that dresses every screen differently reads as a collection of tools, not as one
+place. So there is **one** recipe, defined once and adopted by every surface (the full class
+list lives in `UI-CATALOG.md` §6.0; the **Accounts page is the reference implementation**):
+
+- **A page opens with its numbers in one segmented strip**, a single card whose cells are
+  separated by hairlines — not a row of separate boxes. Every figure carries a `(i)` that says
+  what it counts. (ISO 9241-112 consistency; Few, *Information Dashboard Design*, 2006 — one
+  reading order per screen.)
+- **Lists live in a card** — translucent fill (`.022` white over the page), a 14px radius and
+  a hairline, with the group header inside it (dot + uppercase label + count + hairline).
+  Not a grey block on top of the page, and never a card inside a card.
+- **A queue is a row of chips** — words first, the state carried by the tint and the word,
+  never by colour alone (WCAG 2.2 SC 1.4.1).
+- **A hairline must be perceptible**: dividers and card borders use
+  `var(--background-modifier-border)` on the page background, never a decorative shadow
+  (SC 1.4.11).
+- **Maximum ghost, still**: the header holds one primary action and words are the button.
+
+**Jakob's Law + Nielsen #4 (consistency and standards).** Where a habit differs between two
+of our own screens, that is a defect, not a style. When we choose a look here, it is the look
+for everything.
 
 ---
 
@@ -251,6 +285,8 @@ cd ~/trading-journal-smoke && cp "<source>/main.js" . && cp "<source>/styles.css
 - [ ] Any new control is ≥24×24 and reachable by keyboard.
 - [ ] Any new drag has a non-drag path (§5).
 - [ ] Colour is never the only signal (§2.2).
+- [ ] The page uses the canonical surface recipe — segmented strip, card, chips (§6.1,
+      `UI-CATALOG.md` §6.0). No page-specific card skin.
 
 ---
 

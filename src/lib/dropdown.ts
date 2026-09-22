@@ -103,14 +103,24 @@ export function mountDropdown(
 
   const wrap = host.createDiv({ cls: "tj-mg-dd" + (opts.align === "right" ? " is-right" : "") });
   const btn = wrap.createEl("button", { cls: "tj-mg-dd-btn", attr: { type: "button" } });
-  const current = items.find((i) => i.id === value);
+  let chosen = value;
   const label = btn.createSpan({ cls: "tj-mg-dd-val" });
-  label.setText(current?.label ?? opts.placeholder ?? "—");
-  if (!current) label.addClass("is-placeholder");
+  const chev = btn.createSpan({ cls: "tj-mg-dd-chev", text: "▾" });
+  let tagEl: HTMLElement | null = null;
   // The role travels with the name: once a leader is picked the button still
   // says so, and the reader never has to open the list to remember what it was.
-  if (current?.tag) btn.createSpan({ cls: tagCls(current), text: current.tag });
-  btn.createSpan({ cls: "tj-mg-dd-chev", text: "▾" });
+  // Repainted on every pick so the button never lies about the current choice.
+  const paint = (): void => {
+    const cur = items.find((i) => i.id === chosen);
+    label.setText(cur?.label ?? opts.placeholder ?? "—");
+    label.toggleClass("is-placeholder", !cur);
+    if (tagEl) {
+      tagEl.remove();
+      tagEl = null;
+    }
+    if (cur?.tag) tagEl = btn.insertBefore(btn.createSpan({ cls: tagCls(cur), text: cur.tag }), chev);
+  };
+  paint();
   if (opts.title) attachTip(btn, { title: opts.title });
 
   const list = wrap.createDiv({ cls: "tj-mg-dd-list" });
@@ -122,7 +132,7 @@ export function mountDropdown(
     // follows, so it carries no id and is never clickable.
     if (it.heading) list.createDiv({ cls: "tj-mg-dd-head", text: it.heading });
     const item = list.createDiv({
-      cls: "tj-mg-dd-item" + (it.id === value ? " on" : "") + (it.disabled ? " is-off" : ""),
+      cls: "tj-mg-dd-item" + (it.id === chosen ? " on" : "") + (it.disabled ? " is-off" : ""),
     });
     const txt = item.createDiv({ cls: "tj-mg-dd-txt" });
     txt.createDiv({ cls: "tj-mg-dd-lbl", text: it.label });
@@ -131,6 +141,10 @@ export function mountDropdown(
     if (it.disabled) continue;
     item.addEventListener("click", (e) => {
       e.stopPropagation();
+      chosen = it.id;
+      paint();
+      list.querySelectorAll<HTMLElement>(".tj-mg-dd-item.on").forEach((n) => n.removeClass("on"));
+      item.addClass("on");
       close();
       onChange(it.id);
     });

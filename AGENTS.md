@@ -44,7 +44,7 @@ it and the normative docs every chat. They are mandatory, not suggestions.
 - Keep `docs/QA-CHECKLIST.md` current — it is the living QA record.
 - Read `docs/RELEASE-AND-DISTRIBUTION.md` before touching versions, tags or the tutorial.
 - No dead code, no dead CSS.
-- Harness scripts (21) and artefacts (`/home/hugo/tj-out/`): see `docs/DEV-REFERENCE.md` §Harness.
+- Harness scripts (24) and artefacts (`/home/hugo/tj-out/`): see `docs/DEV-REFERENCE.md` §Harness.
 
 ## Definition of done (no task ends without this)
 

@@ -16,6 +16,17 @@ export function round2(n: number): number {
 }
 
 /**
+ * A trade's net result: its gross P&L minus the platform's commission and fees.
+ *
+ * `Trade.pnl` stores the GROSS (points × pointValue × qty); the net is always
+ * derived, never saved, so a note can never carry two numbers that disagree. A
+ * missing cost counts as zero — an older note simply had none.
+ */
+export function netPnl(t: Trade): number {
+  return round2(t.pnl - (t.commission || 0) - (t.fees || 0));
+}
+
+/**
  * Every key this trade answers to, most specific first.
  *
  * The fill id is the platform's own identity and never collides. A hand-entered

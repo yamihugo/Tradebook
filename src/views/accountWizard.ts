@@ -15,7 +15,7 @@ import { uniqueAccountName } from "../props";
 import { freeNumeric } from "../lib/numeric";
 import { isPropType } from "../lib/accountRules";
 import { FIRM_CATALOG, firmLabel, firmLogoUrl } from "../lib/firmLogos";
-import { typeLabel } from "../lib/accountTypes";
+import { ACCOUNT_SIZES, CREATION_TYPES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { formatDate, mountDateField } from "../lib/dates";
 
 export interface AccountWizardOptions {
@@ -40,14 +40,6 @@ interface Values {
   createdAt: string;
   rules: AccountRules;
 }
-
-const TYPE_CARDS: Array<{ id: AccountType; label: string; desc: string; icon: string }> = [
-  { id: "eval", label: "Eval", desc: "Prop evaluation — pass the target before the max loss.", icon: "target" },
-  { id: "funded", label: "Funded", desc: "Funded prop account — track payouts and the drawdown buffer.", icon: "dollar-sign" },
-  { id: "live", label: "Live (prop)", desc: "Live account through a prop firm / broker.", icon: "shield-check" },
-  { id: "personal", label: "Personal", desc: "Your own money — no prop rules.", icon: "wallet" },
-  { id: "demo", label: "Demo", desc: "Simulated practice account.", icon: "flask-conical" },
-];
 
 const STEPS = ["Type", "Brand", "Account", "Review"];
 const isProp = isPropType;
@@ -293,7 +285,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
 
   const renderType = () => {
     const grid = body.createDiv({ cls: "tj-wz-types", attr: { "data-tour": "wizard-type" } });
-    for (const t of TYPE_CARDS) {
+    for (const t of CREATION_TYPES) {
       const card = grid.createDiv({ cls: "tj-wz-type" + (values.type === t.id ? " on" : ""), attr: { "data-tour": `wizard-type-${t.id}` } });
       const ico = card.createDiv({ cls: "tj-wz-type-ico", attr: { "aria-hidden": "true" } });
       setIcon(ico, t.icon);
@@ -404,16 +396,26 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
    * 4% max loss, 2% daily loss). A starting point only — the trader's numbers
    * always win. The same percentages apply to a custom size.
    */
+  /** Seeds the rules for the chosen account TYPE. An eval has a target to reach;
+   *  a funded account chases payouts, not a target; a live account is real money
+   *  with a static floor. Personal and demo sit outside this entirely. */
   const applySizeRules = (size: number): void => {
-    values.rules.target = Math.round(size * 0.06);
-    values.rules.targetPct = undefined;
+    const type = values.type;
     values.rules.maxLoss = Math.round(size * 0.04);
     values.rules.maxLossPct = undefined;
     values.rules.dailyLoss = Math.round(size * 0.02);
+    values.rules.maxLossType = type === "live" ? "static" : "eod-trailing";
+    if (type === "eval") {
+      values.rules.target = Math.round(size * 0.06);
+      values.rules.targetPct = undefined;
+    } else {
+      values.rules.target = undefined;
+      values.rules.targetPct = undefined;
+    }
   };
 
   /** The plain sizes, plus a Custom… door for anything the list does not hold. */
-  const SIZE_OPTIONS = [25000, 50000, 100000, 150000, 300000].map((size) => ({
+  const SIZE_OPTIONS = ACCOUNT_SIZES.map((size) => ({
     id: String(size),
     label: `$${(size / 1000).toFixed(0)}K`,
   }));
@@ -510,7 +512,12 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     sect.createDiv({ cls: "tj-wz-sectitle", text: "Rules" });
     sect.createDiv({
       cls: "tj-wz-secthint",
-      text: "Type the numbers your firm publishes. Leave a field empty if the rule does not exist.",
+      text:
+        values.type === "eval"
+          ? "The numbers your firm needs to pass. Leave a field empty if the rule does not exist."
+          : values.type === "funded"
+            ? "The numbers your firm applies to payouts. Leave a field empty if the rule does not exist."
+            : "The limits your account runs under. Leave a field empty if the rule does not exist.",
     });
 
     const grid = sect.createDiv({ cls: "tj-wz-rulegrid" });
@@ -550,7 +557,13 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     });
     posInput.addEventListener("input", () => (values.rules.posSize = posInput.value.trim() || undefined));
 
-    affixField(grid, "Minimum trading days (optional)", { suffix: "days" }, values.rules.minDays ?? 0, (v) => (values.rules.minDays = v || undefined));
+    affixField(
+      grid,
+      values.type === "funded" ? "Payout winning days (optional)" : "Minimum trading days (optional)",
+      { suffix: "days" },
+      values.rules.minDays ?? 0,
+      (v) => (values.rules.minDays = v || undefined)
+    );
 
     const disc = sect.createDiv({ cls: "tj-wz-disclaimer" });
     const discIco = disc.createSpan({ cls: "tj-wz-disclaimer-ico", attr: { "aria-hidden": "true" } });
@@ -575,7 +588,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     };
 
     const size = values.size;
-    const accLine = card(TYPE_CARDS.find((t) => t.id === values.type)?.label ?? values.type);
+    const accLine = card(TYPE_CATALOG.find((t) => t.id === values.type)?.label ?? values.type);
     accLine("Logo", values.custom ? `Initials (${(values.initials || initialsFrom(values.name || baseName())).toUpperCase()})` : firmLabel(values.logoId) ?? values.logoId);
     accLine(isProp(values.type) ? "Initial balance" : "Starting balance", `$${size.toLocaleString()}`);
     if (isProp(values.type)) {

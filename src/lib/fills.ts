@@ -10,6 +10,7 @@
 // This module is pure: no DOM, no plugin. The table and the trade page render it.
 
 import type { Trade, TradeFill } from "../types";
+import { futuresSpec } from "../futures";
 
 /** Which side opens the position, given the trade's direction. */
 export function entrySide(t: Trade): "buy" | "sell" {
@@ -72,14 +73,31 @@ function positionSize(fills: TradeFill[], side: "buy" | "sell"): number {
   return peak;
 }
 
-/** A fill inferred from the trade's own scalars — the single-fill case. */
+/**
+ * A fill inferred from the trade's own scalars — the single-fill case. The
+ * closing side carries the trade's realised P&L and fees: a note with no fills
+ * has nowhere else to record them, and an empty P&L row for a closed trade
+ * would be the journal lying by omission.
+ */
 function inferred(t: Trade, side: "buy" | "sell", isEntry: boolean): TradeFill {
-  return {
+  const qty = num(t.quantity);
+  const price = num(isEntry ? t.entryPrice : t.exitPrice);
+  const fill: TradeFill = {
     side: isEntry ? side : side === "buy" ? "sell" : "buy",
     time: isEntry ? t.entryTime : t.exitTime,
-    qty: num(t.quantity),
-    price: num(isEntry ? t.entryPrice : t.exitPrice),
+    qty,
+    price,
   };
+  if (isEntry || !(price > 0)) return fill;
+  const entry = num(t.entryPrice);
+  const dist = t.direction === "long" ? price - entry : entry - price;
+  const fees = (t.commission || 0) + (t.fees || 0);
+  const pnl = dist * futuresSpec(t.symbol).pointValue * qty - fees;
+  if (Number.isFinite(pnl)) {
+    fill.pnl = round(pnl);
+    if (fees > 0) fill.fees = round(fees);
+  }
+  return fill;
 }
 
 export function fillSet(t: Trade): FillSet {
@@ -119,13 +137,71 @@ export function fillSet(t: Trade): FillSet {
 }
 
 /**
- * What a fill is, in the trader's words: `entry 1 of 2`, `T1`, `T2`. Every journal
- * surveyed names the exits in order; that is what makes a scale-out readable.
+ * What a fill is, in the trader's words: `entry 1 of 2`, `TP1`, `TP2`, `BE`.
+ * Every journal surveyed names the exits in order; that is what makes a
+ * scale-out readable. Every non-break-even exit takes a TP number in order —
+ * even a lone close, which is TP1 — so the tag says what happened, not how
+ * many exits existed. Only break-even exits dodge the number.
  */
-export function fillLabel(f: TradeFill, i: number, set: FillSet): string {
+export function fillLabel(f: TradeFill, i: number, set: FillSet, pointValue = 0): string {
   const isEntry = set.entries.includes(f);
   if (isEntry) return set.entries.length > 1 ? `entry ${i + 1}` : "entry";
-  return set.exits.length > 1 ? `T${i + 1}` : "exit";
+  const be = (e: TradeFill) => set.explicit && isBreakEven(e, set.avgEntry, pointValue);
+  if (be(f)) return "BE";
+  const nonBe = set.exits.filter((e) => !be(e));
+  return `TP${nonBe.indexOf(f) + 1}`;
+}
+
+/**
+ * An exit that closed at break-even: within half a point of the entry AND flat
+ * in dollars (flat to the dollars that half point is worth). There is no flag
+ * on the fill — the price and the realised P&L are the whole test. A trade with
+ * no stored fills (one entry, one exit) is never break-even: it really closed.
+ */
+export function isBreakEven(f: TradeFill, entry: number, pointValue: number): boolean {
+  const price = num(f.price);
+  if (!Number.isFinite(price) || !(Math.abs(price - entry) <= 0.5)) return false;
+  const pnl = f.pnl;
+  if (!Number.isFinite(pnl)) return false;
+  const qty = num(f.qty) > 0 ? num(f.qty) : 1;
+  return Math.abs(pnl as number) <= Math.max(0.01, 0.5 * pointValue * qty);
+}
+
+/**
+ * Points of a set of exits: the furthest an exit ACTUALLY closed from the
+ * entry, signed by direction. Break-even exits don't count; contracts never
+ * multiply — points are price distance, not money. No exits (or all of them
+ * break-even) means 0: only the fills that exist are allowed to speak.
+ */
+export function pointsOf(
+  direction: "long" | "short",
+  entry: number,
+  exits: TradeFill[],
+  pointValue: number,
+  explicit: boolean,
+): number {
+  if (!exits.length || !(entry > 0)) return 0;
+  // With no stored fills the single exit is the whole truth — never break-even.
+  const counting = explicit ? exits.filter((f) => !isBreakEven(f, entry, pointValue)) : exits;
+  if (!counting.length) return 0;
+  const best =
+    direction === "long"
+      ? Math.max(...counting.map((f) => num(f.price)))
+      : Math.min(...counting.map((f) => num(f.price)));
+  const pts = direction === "long" ? best - entry : entry - best;
+  return Number.isFinite(pts) ? round(pts) : 0;
+}
+
+/** `pointsOf` for a whole trade, from its fills (or its scalars when it has none). */
+export function tradePoints(t: Trade): number {
+  const set = fillSet(t);
+  return pointsOf(
+    t.direction,
+    set.avgEntry || num(t.entryPrice),
+    set.exits,
+    futuresSpec(t.symbol).pointValue,
+    set.explicit,
+  );
 }
 
 /**
@@ -160,9 +236,12 @@ export function applyFillsToTrade(t: Trade): void {
   if (set.firstEntryTime) t.entryTime = set.firstEntryTime;
   if (set.lastExitTime) t.exitTime = set.lastExitTime;
   if (set.exits.length && set.exits.every((f) => Number.isFinite(f.pnl))) {
+    // The fill P&L is gross; the trade's own P&L is gross too, so it is simply
+    // their sum. Costs live on commission/fees, never folded into the result.
     const gross = set.exits.reduce((s, f) => s + (f.pnl ?? 0), 0);
-    t.grossPnl = round(gross);
+    t.pnl = round(gross);
   }
+  t.pnlPoints = tradePoints(t);
 }
 
 function round(n: number): number {
@@ -172,5 +251,8 @@ function round(n: number): number {
 // Test hook, same pattern as the other pure modules (grid, review, trends):
 // the smoke harness has no bundler, so the maths is reachable from window.
 if (typeof window !== "undefined") {
-  (window as any).__tjFills = { fillSet, fillLabel, fillIndex, toneClass, applyFillsToTrade, entrySide };
+  (window as any).__tjFills = {
+    fillSet, fillLabel, fillIndex, toneClass, applyFillsToTrade, entrySide,
+    isBreakEven, pointsOf, tradePoints,
+  };
 }

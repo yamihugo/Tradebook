@@ -7,6 +7,7 @@ import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
 import { fmtMoney2, isDateStr, todayStr, zoneShortLabel } from "../tz";
 import { holdFmt } from "../lib/tradeTable";
+import { netPnl } from "../lib/fees";
 import { sessionOf } from "../lib/sessions";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { openAccountWizard } from "./accountWizard";
@@ -34,7 +35,6 @@ function createDefaultManualTrade(): Trade {
     exitPrice: 0,
     commission: 0,
     fees: 0,
-    grossPnl: 0,
     pnl: 0,
     pnlPoints: 0,
     setup: "",
@@ -67,6 +67,8 @@ export class AddTradePanel {
   pickedAccounts = new Set<string>();
   private prefilledBase = "";
   knownSetups: string[] = [];
+  /** Trade indexes whose strategy question has been answered (a name or "No strategy"). */
+  private strategyResolved = new Set<number>();
 
   constructor(plugin: TradebookPlugin, opts: AddTradePanelOptions = {}) {
     this.plugin = plugin;
@@ -82,11 +84,14 @@ export class AddTradePanel {
     this.bodyEl = this.sheet.createDiv({ cls: "tj-add-body" });
     this.renderBody();
     void this.plugin
-      .loadTrades()
-      .then((trades) => {
-        const set = new Set<string>();
-        for (const tr of trades) if (tr.setup) set.add(tr.setup);
-        this.knownSetups = [...set].sort((a, b) => a.localeCompare(b));
+      .knownSetups()
+      .then((names) => {
+        this.knownSetups = names;
+        // One registered strategy needs no decision — pre-fill it. Two or more
+        // is a real choice, so it is left to the trader.
+        if (this.knownSetups.length === 1) {
+          for (const t of this.manualTrades) if (!(t.setup || "").trim()) t.setup = this.knownSetups[0];
+        }
         if (this.bodyEl) this.renderBody();
       })
       .catch(() => {});
@@ -201,9 +206,12 @@ export class AddTradePanel {
       this.renderBody();
     });
 
-    // ---- Setup ----
-    const fSetup = field("Setup");
-    const setupItems: DropdownItem[] = this.knownSetups.map((s) => ({ id: s, label: s }));
+    // ---- Strategy (the form asks; the engine never imposes — §0) ----
+    const fSetup = field("Strategy");
+    const setupItems: DropdownItem[] = [
+      { id: "__none__", label: "No strategy", note: "Record it without filing it under one" },
+    ];
+    for (const s of this.knownSetups) setupItems.push({ id: s, label: s });
     setupItems.push({ id: "__new__", label: "＋ New strategy…", note: "Saved to Strategies" });
     const currentSetup = (t.setup || "").trim();
     if (currentSetup && !this.knownSetups.some((s) => s.toLowerCase() === currentSetup.toLowerCase())) {
@@ -212,20 +220,38 @@ export class AddTradePanel {
     mountDropdown(
       fSetup.createDiv({ cls: "tj-add-ctl" }),
       setupItems,
-      currentSetup,
+      currentSetup || (this.strategyResolved.has(i) ? "__none__" : ""),
       async (id) => {
         if (id === "__new__") {
           const name = window.prompt("Name your strategy");
           if (!name || !name.trim()) return;
           t.setup = await this.plugin.addSetup(name);
+          this.strategyResolved.add(i);
           this.knownSetups = await this.plugin.knownSetups();
           this.renderBody();
           return;
         }
+        if (id === "__none__") {
+          t.setup = "";
+          this.strategyResolved.add(i);
+          this.renderBody();
+          return;
+        }
         t.setup = id;
+        this.strategyResolved.add(i);
+        this.renderBody();
       },
-      { placeholder: "No strategy" }
+      { placeholder: "Choose a strategy" }
     );
+    if (!currentSetup && !this.strategyResolved.has(i) && this.knownSetups.length !== 1) {
+      fSetup
+        .createDiv({ cls: "tj-add-hint" })
+        .setText(
+          this.knownSetups.length === 0
+            ? "No strategy registered yet — add one, or record it as no strategy."
+            : "Pick the strategy this trade belongs to."
+        );
+    }
 
     // ---- Direction ----
     const fDir = field("Direction");
@@ -339,21 +365,22 @@ export class AddTradePanel {
       const qty = t.quantity || 1;
       if (t.entryPrice > 0 && t.exitPrice > 0) {
         const pts = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+        // pnl is the GROSS: points × pointValue × qty. Commission and fees stay
+        // in their own fields; the net is derived for the strip's last cell.
         t.pnl = Math.round(pts * pointValue * qty * 100) / 100;
-        t.grossPnl = t.pnl;
-        t.pnlPoints = Math.round(pts * qty * 100) / 100;
+        // Points are price distance — the quantity never multiplies them.
+        t.pnlPoints = Math.round(pts * 100) / 100;
       } else {
         t.pnl = 0;
-        t.grossPnl = 0;
         t.pnlPoints = 0;
       }
+      const net = netPnl(t);
       vPnl.setText(fmtMoney2(t.pnl));
       vPnl.className = "tj-add-strip-v " + (t.pnl >= 0 ? "pos" : "neg");
       vPts.setText(`${t.pnlPoints >= 0 ? "+" : ""}${t.pnlPoints.toFixed(2)}`);
       vPts.className = "tj-add-strip-v";
       vHold.setText(holdFmt(t.entryTime, t.exitTime));
       vHold.className = "tj-add-strip-v";
-      const net = Math.round((t.pnl - (t.commission || 0) - (t.fees || 0)) * 100) / 100;
       vNet.setText(fmtMoney2(net));
       vNet.className = "tj-add-strip-v " + (net >= 0 ? "pos" : "neg");
       paintExtra();
@@ -587,7 +614,22 @@ export class AddTradePanel {
     if (!(this.plugin.settings.propAccounts || []).some((a) => a.name)) {
       save.setAttr("disabled", "true");
       attachTip(save, { title: "No account yet", sub: "Create one first — every trade is recorded in an account." });
+      return;
     }
+    // The form asks for a strategy (or an explicit "No strategy"); it never
+    // forces one on a trade that has no home. §0: report, do not impose.
+    if (this.needsStrategy()) {
+      save.setAttr("disabled", "true");
+      attachTip(save, {
+        title: "Pick a strategy",
+        sub: "Choose one, or choose “No strategy” to record it unfiled.",
+      });
+    }
+  }
+
+  /** True while any trade still has an unanswered strategy question. */
+  private needsStrategy(): boolean {
+    return this.manualTrades.some((t, i) => !(t.setup || "").trim() && !this.strategyResolved.has(i));
   }
 
   // ================================================================
@@ -596,6 +638,10 @@ export class AddTradePanel {
   async doSave(btn: HTMLElement): Promise<void> {
     if (!this.manualTrades.length) {
       new Notice("Nothing to save yet.");
+      return;
+    }
+    if (this.needsStrategy()) {
+      new Notice("Pick a strategy first — or choose “No strategy”.");
       return;
     }
     for (let i = 0; i < this.manualTrades.length; i++) {
@@ -614,9 +660,10 @@ export class AddTradePanel {
       }
       const spec = futuresSpec(t.symbol);
       const points = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+      // pnl is the GROSS; commission and fees are recorded in their own fields.
       t.pnl = Math.round(points * spec.pointValue * t.quantity * 100) / 100;
-      t.grossPnl = t.pnl;
-      t.pnlPoints = Math.round(points * t.quantity * 100) / 100;
+      // Points are price distance — the quantity never multiplies them.
+      t.pnlPoints = Math.round(points * 100) / 100;
       t.accountType = this.plugin.resolveAccountType(t.account);
     }
     // Copies for the ticked accounts — the journal records every leg it was told about.

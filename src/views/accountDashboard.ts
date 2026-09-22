@@ -1,20 +1,23 @@
 import { ItemView, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
-import { CopyConfigEntry, CopyPeriod, PropAccount, Trade } from "../types";
+import { AccountRules, AccountType, PropAccount, Trade } from "../types";
 import { openPayoutsModal } from "./payoutModal";
 import { openFeeAdjustModal } from "./feeAdjustModal";
 import { uniqueAccountName } from "../props";
-import { resolveAccountView } from "../lib/accountRules";
+import { resolveAccountView, drawdownLabel, isPropType } from "../lib/accountRules";
 import { freeNumeric } from "../lib/numeric";
+import { mountDropdown } from "../lib/dropdown";
+import { ACCOUNT_SIZES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { firmLabel } from "../lib/firmLogos";
 import { attachTooltip, kpiCard, openPluginSettings as openSettings, renderAppShell } from "../ui";
 import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey, toZoneDate } from "../tz";
-import { closeCopyPeriods, openCopyPeriod, todayIso } from "../lib/copy";
 import { renderLineChart } from "../lib/lineChart";
 import { formatDate, mountDateField } from "../lib/dates";
 import { computeAccountMetrics, computeDrawdownEpisodes } from "../lib/accountMetrics";
+import { netPnl } from "../lib/fees";
 import { sessionLabel, sessionRank } from "../lib/sessions";
-import { renderTradeTable, resolveOrder } from "../lib/tradeTable";
+import { renderTradeTable, resolveOrder, DEFAULT_ACCOUNT_ORDER } from "../lib/tradeTable";
+import type { TradeSort } from "../lib/tradeTable";
 import { attachTip } from "../lib/tip";
 import { killTip, moveTip, showTip } from "../lib/tip";
 
@@ -22,9 +25,6 @@ export const ACCOUNT_DASH_VIEW_TYPE = "tradebook-account-dash-view";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-/** Columns an account's own ledger shows — the Trade Log adds account, prints and review. */
-const ACCOUNT_TABLE_COLUMNS = ["date", "symbol", "side", "qty", "entryexit", "hold", "r", "pnl", "setup"];
 
 export class AccountDashboardView extends ItemView {
   plugin: TradebookPlugin;
@@ -131,12 +131,11 @@ export class AccountDashboardView extends ItemView {
     }
   }
 
-  /** Open the account settings modal — tabbed (General / Rules / Copy / Danger). */
   /**
-   * The account's copy memory, on one line under the title: who it mirrors (or
-   * who mirrors it), at what ratio, and every stretch it went through. Periods
-   * are the reason changing a leader never rewrites older trades — so they are
-   * worth showing instead of hiding under a settings tab.
+   * The account's copy link, on one line under the title: who it mirrors (or
+   * who mirrors it) and at what ratio. The stretches it went through stay in
+   * the data (they are why changing a leader never rewrites older trades) but
+   * they are not worth a line on the page.
    */
   private renderCopyBar(host: HTMLElement, acc: PropAccount): void {
     const accounts = this.plugin.settings.propAccounts ?? [];
@@ -158,13 +157,17 @@ export class AccountDashboardView extends ItemView {
       // Short on purpose: the chip reads like the tag on the account cards. The
       // leader (and when it started) lives in the tooltip.
       chip.createSpan({ cls: "tj-acc-copychip-t", text: `Copier ×${mult}` });
-      chip.setAttr(
-        "title",
-        `Copies ${leader?.name ?? "an unknown account"}${from ? ` · since ${from === "0000-01-01" ? "the beginning" : formatDate(from)}` : ""}`,
-      );
+      attachTip(chip, {
+        title: "Copier",
+        sub: `Copies ${leader?.name ?? "an unknown account"}${
+          from ? ` · since ${from === "0000-01-01" ? "the beginning" : formatDate(from)}` : ""
+        }`,
+      });
     } else {
       chip.addClass("is-leader");
-      chip.createSpan({ cls: "tj-acc-copychip-t", text: "👑 Leader" });
+      const crown = chip.createSpan({ cls: "tj-acc-copychip-ico" });
+      setIcon(crown, "crown");
+      chip.createSpan({ cls: "tj-acc-copychip-t", text: "Leader" });
       if (copiers.length) {
         chip.createSpan({
           cls: "tj-acc-copychip-sub",
@@ -173,28 +176,12 @@ export class AccountDashboardView extends ItemView {
         attachTip(chip, { title: "Leader", sub: `mirrored by ${copiers.map((c) => c.name).join(", ")}` });
       }
     }
-
-    if (periods.length > 1 || (periods.length === 1 && periods[0].baseId)) {
-      const hist = host.createDiv({ cls: "tj-acc-copyhist" });
-      hist.createDiv({ cls: "tj-acc-k", text: "Copy history" });
-      const list = hist.createDiv({ cls: "tj-acc-copyrows" });
-      for (const p of periods.slice(-4)) {
-        const who = (p.baseId ? byId.get(p.baseId)?.name : undefined) ?? "—";
-        const from = p.start && p.start !== "0000-01-01" ? formatDate(p.start) : "all history";
-        list.createDiv({
-          cls: "tj-acc-copyrow",
-          text: `${who} · ${p.multiplier ?? acc.copyMultiplier ?? 1}x · ${from} → ${p.end ? formatDate(p.end) : "now"}`,
-        });
-      }
-    }
   }
 
   openEditAccountModal(acc: any, size: any, net: number): void {
     const view = resolveAccountView(acc);
     const firmName = firmLabel(acc.firmId) ?? "";
-    const programLabel = view.program?.label ?? "";
-    const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
-    const autoName = (sz: number) => `${firmName} · ${programLabel} · $${(sz / 1000).toFixed(0)}K`;
+    const autoName = (sz: number, t: string) => `${firmName} · ${typeLabel(t)} · $${(sz / 1000).toFixed(0)}K`;
     const initials = (n: string) =>
       (n || "?")
         .replace(/[^a-zA-Z0-9 ]/g, " ")
@@ -220,7 +207,7 @@ export class AccountDashboardView extends ItemView {
     }
     const headText = head.createDiv({ cls: "tj-as-headtext" });
     const headTitle = headText.createEl("h3", { text: acc.name });
-    headText.createDiv({ cls: "tj-as-meta", text: [firmName, programLabel, typeLabel(acc.type)].filter(Boolean).join(" · ") });
+    headText.createDiv({ cls: "tj-as-meta", text: [firmName, typeLabel(acc.type)].filter(Boolean).join(" · ") });
     const closeAs = head.createEl("button", { cls: "tj-as-close", text: "\u2715", attr: { type: "button", "aria-label": "Close" } });
     attachTip(closeAs, { title: "Close" });
     closeAs.addEventListener("click", () => overlay.remove());
@@ -231,7 +218,6 @@ export class AccountDashboardView extends ItemView {
     const tabDefs: Array<{ id: string; label: string; dng?: boolean }> = [
       { id: "general", label: "General" },
       { id: "rules", label: "Rules" },
-      { id: "copy", label: "Copy trading" },
       { id: "danger", label: "Deletion", dng: true },
     ];
     const paneEls: Record<string, HTMLElement> = {};
@@ -251,92 +237,17 @@ export class AccountDashboardView extends ItemView {
       tabBtns[t.id] = b;
       paneEls[t.id] = panes.createDiv({ cls: "tj-as-pane" });
     }
+    // The General and Rules panes reuse the wizard's fields — carry the wizard
+    // scope so inputs, affixes, toggles and type tiles read the same as on the
+    // creation screen.
+    paneEls.general.addClass("tj-account-wizard");
+    paneEls.rules.addClass("tj-account-wizard");
 
-    // ======== Rows + drawers (shared across all tabs) ========
+    // ======== Rows (shared across all tabs) ========
     const mkRow = (host: HTMLElement, label: string): HTMLElement => {
       const row = host.createDiv({ cls: "tj-as-row" });
       row.createSpan({ cls: "tj-as-rowlabel", text: label });
       return row.createSpan({ cls: "tj-as-rowval" });
-    };
-    type Drawer = { drawer: HTMLElement; btn: HTMLElement; setCurrent: (t: string) => void };
-    let drawers: Drawer[] = [];
-    const closeAllDrawers = () => {
-      drawers.forEach((d) => { d.drawer.removeClass("open"); d.btn.removeClass("open"); });
-      drawers = drawers.filter((d) => d.drawer.isConnected);
-    };
-    const makeDrawer = (
-      host: HTMLElement,
-      label: string,
-      opts: Array<{ text: string; title?: string; selected?: boolean }>,
-      onSelect: (idx: number) => void
-    ): Drawer => {
-      let currentIdx = Math.max(0, opts.findIndex((o) => o.selected));
-      const val = mkRow(host, label);
-      const drawer = val.createSpan({ cls: "tj-as-drawer" });
-      const btn = val.createEl("button", { cls: "tj-as-valbtn", attr: { type: "button" } });
-      btn.createSpan({ cls: "tj-as-chev", text: "\u2039" });
-      const cur = btn.createSpan({ cls: "tj-as-cur" });
-      const api: Drawer = { drawer, btn, setCurrent: (t) => cur.setText(t) };
-      const renderOpts = () => {
-        drawer.empty();
-        cur.setText(opts[currentIdx]?.text ?? "\u2014");
-        opts.forEach((o, i) => {
-          if (i === currentIdx) return; // the selected one is the anchor, not repeated
-          const el = drawer.createEl("button", { cls: "tj-as-opt", text: o.text, attr: { type: "button" } });
-          if (o.title) attachTip(el, { title: o.text, sub: o.title });
-          el.addEventListener("click", () => {
-            currentIdx = i;
-            renderOpts();
-            closeAllDrawers();
-            onSelect(i);
-          });
-        });
-      };
-      renderOpts();
-      btn.addEventListener("click", () => {
-        const wasOpen = drawer.hasClass("open");
-        closeAllDrawers();
-        if (!wasOpen) { drawer.addClass("open"); btn.addClass("open"); }
-      });
-      drawers.push(api);
-      return api;
-    };
-
-    /** Vertical list picker — scales to any number of options (e.g. 30 accounts). */
-    const makeListPicker = (
-      host: HTMLElement,
-      label: string,
-      opts: Array<{ text: string; selected?: boolean }>,
-      onSelect: (idx: number) => void
-    ) => {
-      let currentIdx = Math.max(0, opts.findIndex((o) => o.selected));
-      const val = mkRow(host, label);
-      const btn = val.createEl("button", { cls: "tj-as-valbtn", attr: { type: "button" } });
-      btn.createSpan({ cls: "tj-as-chev", text: "\u2039" });
-      const cur = btn.createSpan({ cls: "tj-as-cur" });
-      const panel = host.createDiv({ cls: "tj-as-listpanel" });
-      const renderList = () => {
-        cur.setText(opts[currentIdx]?.text ?? "\u2014");
-        panel.empty();
-        opts.forEach((o, i) => {
-          if (i === currentIdx) return;
-          const el = panel.createEl("button", { cls: "tj-as-lopt", text: o.text, attr: { type: "button" } });
-          el.addEventListener("click", () => {
-            currentIdx = i;
-            renderList();
-            panel.removeClass("open");
-            btn.removeClass("open");
-            onSelect(i);
-          });
-        });
-      };
-      renderList();
-      btn.addEventListener("click", () => {
-        const wasOpen = panel.hasClass("open");
-        panel.toggleClass("open", !wasOpen);
-        btn.toggleClass("open", !wasOpen);
-      });
-      return { refresh: renderList };
     };
 
     // ======== GENERAL ========
@@ -355,41 +266,83 @@ export class AccountDashboardView extends ItemView {
       onChange: (iso) => (startedValue = iso),
     });
 
+    // ---- Account size: the same five sizes the wizard offers, plus Custom… ----
     let selectedSize = acc.size;
-    const offered = (view.program?.sizes ?? []).map((s: any) => s.size);
-    const allSizes = Array.from(new Set([...offered, acc.size])).sort((a, b) => a - b);
-    makeDrawer(
-      gen,
-      "Account size",
-      allSizes.map((sz) => ({
-        text: `$${(sz / 1000).toFixed(0)}K`,
-        title: (view.program?.sizes ?? []).find((s: any) => s.size === sz)?.price ?? "",
-        selected: sz === acc.size,
-      })),
-      (i) => {
-        selectedSize = allSizes[i];
-        if (nameIsAuto) {
-          nameInput.value = autoName(selectedSize);
-          headTitle.setText(autoName(selectedSize));
+    let sizeCustom = !ACCOUNT_SIZES.includes(selectedSize);
+    let renderRules: () => void = () => {};
+    const sizeRow = mkRow(gen, "Account size");
+    let customWrap!: HTMLElement;
+    let customInput!: HTMLInputElement;
+    const syncAutoName = () => {
+      if (!nameIsAuto) return;
+      nameInput.value = autoName(selectedSize, selectedType);
+      headTitle.setText(autoName(selectedSize, selectedType));
+    };
+    mountDropdown(
+      sizeRow,
+      [
+        ...ACCOUNT_SIZES.map((sz) => ({ id: String(sz), label: `$${(sz / 1000).toFixed(0)}K` })),
+        { id: "custom", label: "Custom…" },
+      ],
+      sizeCustom ? "custom" : String(selectedSize),
+      (id) => {
+        if (id === "custom") {
+          sizeCustom = true;
+          customWrap.removeClass("is-hidden");
+          customInput.focus();
+          return;
         }
-      }
+        sizeCustom = false;
+        selectedSize = parseInt(id, 10);
+        customWrap.addClass("is-hidden");
+        syncAutoName();
+      },
+      { title: "The account's starting size." }
     );
+    customWrap = sizeRow.createDiv({ cls: "tj-wz-affix" + (sizeCustom ? "" : " is-hidden") });
+    customWrap.createSpan({ cls: "tj-wz-affix-pre", text: "$" });
+    customInput = freeNumeric(
+      customWrap.createEl("input", {
+        cls: "tj-wz-input",
+        attr: { type: "number", placeholder: "Account size", value: sizeCustom ? String(selectedSize) : "" },
+      })
+    );
+    customInput.addEventListener("input", () => {
+      selectedSize = parseFloat(customInput.value) || 0;
+      syncAutoName();
+    });
 
-    const ACCOUNT_TYPES = ["eval", "funded", "live", "personal", "demo"] as const;
+    // ---- Account type: the wizard's tiles, the chosen one in the accent ----
     let selectedType: string = acc.type;
-    makeDrawer(
-      gen,
-      "Account type",
-      ACCOUNT_TYPES.map((t) => ({ text: typeLabel(t), selected: t === acc.type })),
-      (i) => { selectedType = ACCOUNT_TYPES[i]; }
-    );
+    const typeField = gen.createDiv({ cls: "tj-wz-field" });
+    typeField.createEl("label", { text: "Account type", cls: "tj-wz-label" });
+    const typeGrid = typeField.createDiv({ cls: "tj-wz-types" });
+    const renderTypes = () => {
+      typeGrid.empty();
+      for (const t of TYPE_CATALOG) {
+        const card = typeGrid.createDiv({ cls: "tj-wz-type" + (selectedType === t.id ? " on" : "") });
+        const ico = card.createDiv({ cls: "tj-wz-type-ico", attr: { "aria-hidden": "true" } });
+        setIcon(ico, t.icon);
+        card.createDiv({ cls: "tj-wz-type-l", text: t.label });
+        card.createDiv({ cls: "tj-wz-type-d", text: t.desc });
+        card.addEventListener("click", () => {
+          selectedType = t.id;
+          renderTypes();
+          syncAutoName();
+          renderRules();
+        });
+      }
+    };
+    // Rebuilt when the type changes, so the rules pane always speaks the right
+    // language (an eval has a target, a live account does not).
+    renderTypes();
 
     const genHint = gen.createDiv({ cls: "tj-as-hint", text: "" });
     const setHint = () => genHint.setText(nameIsAuto ? "Name is auto-generated \u2014 edit it to set a custom name." : "Custom name \u2014 size changes won't overwrite it.");
 
     // Name auto-follow logic
-    const wasAuto = acc.name === autoName(acc.size) || !acc.name;
-    if (wasAuto) nameInput.value = autoName(acc.size);
+    const wasAuto = acc.name === autoName(acc.size, acc.type) || !acc.name;
+    if (wasAuto) nameInput.value = autoName(acc.size, acc.type);
     let nameIsAuto = wasAuto;
     setHint();
     nameInput.addEventListener("input", () => {
@@ -399,233 +352,144 @@ export class AccountDashboardView extends ItemView {
     });
 
     // ======== RULES ========
+    // Same fields, labels and per-type reading as the Add account wizard, so a
+    // rule set at creation is edited here in the same language.
     const rulesPane = paneEls.rules;
-    rulesPane.createDiv({ cls: "tj-as-section", text: "Rule overrides" });
-    rulesPane.createDiv({ cls: "tj-as-hint", text: "Leave off to use the firm's defaults. Turn on to override a specific account." });
-    // Firm defaults (without this account's overrides) for the Rules tab.
-    const firmDefault = view.firmDefault ?? null;
-    const ruleDefs: Array<{ key: string; label: string; hint: string; def: any; type: string }> = [
-      { key: "target", label: "Profit target ($)", hint: "Firm default", def: firmDefault?.target, type: "number" },
-      { key: "maxLoss", label: "Max loss ($)", hint: "Firm default", def: firmDefault?.maxLoss, type: "number" },
-      { key: "dailyLoss", label: "Daily loss ($)", hint: "Firm default", def: firmDefault?.dailyLoss, type: "number" },
-      { key: "consistency", label: "Consistency (%)", hint: "Firm default", def: firmDefault?.consistency, type: "number" },
-      { key: "posSize", label: "Position size", hint: "Firm default", def: firmDefault?.posSize, type: "text" },
+    const DD_TYPES: Array<{ id: string; label: string }> = [
+      { id: "eod-trailing", label: "End-of-day trailing" },
+      { id: "intraday-trailing", label: "Intraday trailing" },
+      { id: "eod-trailing-open", label: "End-of-day trailing, never locks" },
+      { id: "static", label: "Static" },
     ];
-    const ruleInputs: Record<string, HTMLInputElement> = {};
-    const ruleToggles: Record<string, boolean> = {};
-    for (const r of ruleDefs) {
-      const isOn = acc.rules?.[r.key] !== undefined;
-      ruleToggles[r.key] = isOn;
-      const row = rulesPane.createDiv({ cls: "tj-as-ov" });
-      const sw = row.createDiv({ cls: "tj-as-sw" + (isOn ? " on" : "") });
-      const meta = row.createDiv({ cls: "tj-as-ovmeta" });
-      meta.createDiv({ cls: "tj-as-ovlabel", text: r.label });
-      const sub = meta.createDiv({ cls: "tj-as-ovsub" });
-      const inp = document.createElement("input");
-      inp.type = r.type;
-      inp.className = "tj-as-ovinput";
-      inp.value = String(acc.rules?.[r.key] ?? r.def ?? "");
-      inp.disabled = !isOn;
-      if (r.type === "number") freeNumeric(inp);
-      ruleInputs[r.key] = inp;
-      const showDefault = () => {
-        sub.setText(inp.disabled ? `Using firm default: ${r.def ?? "—"}` : "Overriding the firm default");
-      };
-      showDefault();
-      const toggle = () => {
-        ruleToggles[r.key] = !ruleToggles[r.key];
-        sw.toggleClass("on", ruleToggles[r.key]);
-        inp.disabled = !ruleToggles[r.key];
-        if (ruleToggles[r.key] && !inp.value) inp.value = String(r.def ?? "");
-        showDefault();
-      };
-      sw.addEventListener("click", toggle);
-      row.appendChild(inp);
-    }
+    // Draft rules: every control writes here, so a type change can rebuild the
+    // pane without losing what was typed.
+    const ruleState: AccountRules = { ...(acc.rules ?? {}) };
+    if (ruleState.maxLossType === undefined) ruleState.maxLossType = "eod-trailing";
 
-    // How the limits move, in one line: the mechanism matters more than the number.
-    if (firmDefault && firmDefault.maxLoss > 0) {
-      const ddText =
-        firmDefault.maxLossType === "eod-trailing-open"
-          ? "Drawdown trails your highest end-of-day balance and never locks — it keeps rising with your best close."
-          : firmDefault.maxLossType === "static"
-            ? "Drawdown is fixed: it does not trail your balance."
-            : `Drawdown trails your highest end-of-day balance and locks ${
-                firmDefault.ddLockOffset ? `${fmtMoney(firmDefault.ddLockOffset)} above your starting balance` : "at your starting balance"
-              }.`;
-      rulesPane.createDiv({ cls: "tj-as-hint", text: ddText + (firmDefault.dailyLossNote ? ` ${firmDefault.dailyLossNote}` : "") });
-    }
-
-    // ======== COPY TRADING ========
-    const copyPane = paneEls.copy;
-    let role: "none" | "base" | "copier" = acc.copyRole === "base" ? "base" : acc.copyRole === "copier" ? "copier" : "none";
-    let selectedBaseId = acc.copyBaseId ?? "";
-    let selectedMultiplier = acc.copyMultiplier ?? 1;
-    const openPeriod = (acc.copyPeriods ?? []).find((p: CopyPeriod) => !p.end);
-    const openStart = openPeriod?.start ?? "";
-    let copyAllHistory = openStart === "0000-01-01";
-    let copyStart = openStart && openStart !== "0000-01-01" ? openStart : todayIso();
-
-    /** Trade counts per account, so the leader picker shows what each one holds. */
-    const accountCounts = new Map<string, number>();
-    const subText = (c: PropAccount): string => {
-      const n = accountCounts.get(c.id);
-      const head = `$${Math.round(c.size / 1000)}K · ${n === undefined ? "…" : `${n} trade${n === 1 ? "" : "s"}`}`;
-      return c.copyRole === "base" ? `${head} · 👑 Leader` : head;
+    const ruleAffix = (
+      label: string,
+      unit: { prefix?: string; suffix?: string },
+      value: number | undefined,
+      onChange: (v: number | undefined) => void
+    ) => {
+      const f = rulesPane.createDiv({ cls: "tj-wz-field" });
+      f.createEl("label", { text: label, cls: "tj-wz-label" });
+      const wrap = f.createDiv({ cls: "tj-wz-affix" });
+      if (unit.prefix) wrap.createSpan({ cls: "tj-wz-affix-pre", text: unit.prefix });
+      const input = freeNumeric(
+        wrap.createEl("input", { cls: "tj-wz-input", attr: { type: "number", value: value ? String(value) : "" } })
+      );
+      if (unit.suffix) wrap.createSpan({ cls: "tj-wz-affix-suf", text: unit.suffix });
+      input.addEventListener("input", () => onChange(parseFloat(input.value) || undefined));
     };
-    const ROLE_DEFS: Array<{ id: "none" | "base" | "copier"; t: string; d: string }> = [
-      { id: "none", t: "Not in a group", d: "No copy link" },
-      { id: "base", t: "👑 Leader", d: "Others copy me" },
-      { id: "copier", t: "Copier", d: "I copy a leader" },
-    ];
-    // Flat segment, exactly like the Add account wizard: one control language in
-    // both places, so the copy story reads the same wherever you meet it.
-    const rolesWrap = copyPane.createDiv({ cls: "tj-wz-seg" });
-    const roleEls: Record<string, HTMLElement> = {};
-    const syncRoles = () => ROLE_DEFS.forEach((r) => roleEls[r.id].toggleClass("on", r.id === role));
-    for (const r of ROLE_DEFS) {
-      const el = rolesWrap.createDiv({ cls: "tj-wz-seg-opt", text: r.t });
-      if (r.d) attachTip(el, { title: r.t, sub: r.d });
-      el.addEventListener("click", () => { role = r.id; syncRoles(); renderCopyDetail(); });
-      roleEls[r.id] = el;
-    }
-    const detailHost = copyPane.createDiv({ cls: "tj-as-copydetail" });
-    /** Fill every `[data-count]` span once the trade list is available. */
-    const refreshCounts = () => {
-      void this.plugin.loadTradesExpanded().then((trades) => {
-        if (!detailHost.isConnected) return;
-        accountCounts.clear();
-        for (const t of trades) {
-          const a = this.plugin.mappedAccount(t.account);
-          if (a) accountCounts.set(a.id, (accountCounts.get(a.id) ?? 0) + 1);
+
+    const ruleAmount = (label: string, key: "target" | "maxLoss") => {
+      const pctKey: "targetPct" | "maxLossPct" = key === "target" ? "targetPct" : "maxLossPct";
+      const f = rulesPane.createDiv({ cls: "tj-wz-field" });
+      const head = f.createDiv({ cls: "tj-wz-affixhead" });
+      head.createEl("label", { text: label, cls: "tj-wz-label" });
+      const toggle = head.createDiv({ cls: "tj-wz-untoggle" });
+      let mode: "$" | "%" = ruleState[pctKey] !== undefined ? "%" : "$";
+      const wrap = f.createDiv({ cls: "tj-wz-affix" });
+      const pre = wrap.createSpan({ cls: "tj-wz-affix-pre", text: mode });
+      const input = freeNumeric(
+        wrap.createEl("input", {
+          cls: "tj-wz-input",
+          attr: { type: "number", value: String((mode === "%" ? ruleState[pctKey] : ruleState[key]) ?? "") },
+        })
+      );
+      const push = () => {
+        const v = parseFloat(input.value) || 0;
+        if (mode === "%") {
+          ruleState[pctKey] = v || undefined;
+          delete ruleState[key];
+        } else {
+          ruleState[key] = v || undefined;
+          delete ruleState[pctKey];
         }
-        detailHost.querySelectorAll<HTMLElement>("[data-count]").forEach((el) => {
-          const c = (this.plugin.settings.propAccounts || []).find((x: PropAccount) => x.id === el.dataset.count);
-          if (c) el.setText(subText(c));
+      };
+      for (const m of ["$", "%"] as const) {
+        const b = toggle.createEl("button", {
+          cls: "tj-wz-unbtn" + (m === mode ? " on" : ""),
+          text: m,
+          attr: { type: "button", "aria-label": m === "$" ? "Amount in dollars" : "Amount in percent", "aria-pressed": String(m === mode) },
         });
+        b.addEventListener("click", () => {
+          if (mode === m) return;
+          mode = m;
+          pre.setText(mode);
+          toggle.querySelectorAll(".tj-wz-unbtn").forEach((n) => n.classList.remove("on"));
+          b.classList.add("on");
+          push();
+        });
+      }
+      input.addEventListener("input", push);
+    };
+
+    renderRules = () => {
+      rulesPane.empty();
+      const t = selectedType;
+      rulesPane.createDiv({ cls: "tj-as-section", text: "Rules" });
+      if (!isPropType(t as AccountType)) {
+        rulesPane.createDiv({
+          cls: "tj-as-hint",
+          text: "A personal or demo account has no prop rules. There is nothing to track here.",
+        });
+        return;
+      }
+      rulesPane.createDiv({
+        cls: "tj-as-hint",
+        text:
+          t === "eval"
+            ? "The numbers your firm needs to pass. Leave a field empty if the rule does not exist."
+            : t === "funded"
+              ? "The numbers your firm applies to payouts. Leave a field empty if the rule does not exist."
+              : "The limits your account runs under. Leave a field empty if the rule does not exist.",
+      });
+      ruleAmount("Profit target", "target");
+      ruleAmount("Max loss", "maxLoss");
+      ruleAffix("Daily loss limit (optional)", { prefix: "$" }, ruleState.dailyLoss, (v) => (ruleState.dailyLoss = v));
+      ruleAffix("Consistency % (optional)", { suffix: "%" }, ruleState.consistency, (v) => (ruleState.consistency = v));
+
+      const ddF = rulesPane.createDiv({ cls: "tj-wz-field" });
+      ddF.createEl("label", { text: "Drawdown type", cls: "tj-wz-label" });
+      mountDropdown(
+        ddF,
+        DD_TYPES.map((d) => ({ id: d.id, label: d.label })),
+        ruleState.maxLossType ?? "eod-trailing",
+        (id) => {
+          ruleState.maxLossType = id as AccountRules["maxLossType"];
+          renderRules();
+        }
+      );
+
+      if (ruleState.maxLossType !== "static" && ruleState.maxLossType !== "eod-trailing-open") {
+        ruleAffix("Locks above balance (optional)", { prefix: "$" }, ruleState.ddLockOffset, (v) => (ruleState.ddLockOffset = v));
+      }
+
+      const posF = rulesPane.createDiv({ cls: "tj-wz-field" });
+      posF.createEl("label", { text: "Position size (optional)", cls: "tj-wz-label" });
+      const posInput = posF.createEl("input", {
+        cls: "tj-wz-input",
+        attr: { type: "text", placeholder: "e.g. 5 mini / 50 micro", value: ruleState.posSize ?? "" },
+      });
+      posInput.addEventListener("input", () => (ruleState.posSize = posInput.value.trim() || undefined));
+
+      ruleAffix(
+        t === "funded" ? "Payout winning days (optional)" : "Minimum trading days (optional)",
+        { suffix: "days" },
+        ruleState.minDays,
+        (v) => (ruleState.minDays = v)
+      );
+
+      const disc = rulesPane.createDiv({ cls: "tj-wz-disclaimer" });
+      const discIco = disc.createSpan({ cls: "tj-wz-disclaimer-ico", attr: { "aria-hidden": "true" } });
+      setIcon(discIco, "alert-triangle");
+      disc.createSpan({
+        text: "Prop firms change their rules often — double-check the numbers before saving. Nothing here is enforced; the journal only reports against them.",
       });
     };
-
-    const renderCopyDetail = () => {
-      detailHost.empty();
-      const accounts: PropAccount[] = this.plugin.settings.propAccounts || [];
-
-      if (role === "copier") {
-        const others = accounts.filter((a) => a.id !== acc.id);
-        // Same reading order as the Add account wizard: leaders first, then the
-        // accounts that stand alone, then the ones already taken — shown greyed
-        // instead of hidden, so the whole picture stays on screen.
-        const leaders = others.filter((a) => a.copyRole === "base");
-        const standalone = others.filter((a) => a.copyRole !== "base" && a.copyRole !== "copier");
-        const taken = others.filter((a) => a.copyRole === "copier");
-        const nameOf = (id?: string) => accounts.find((a) => a.id === id)?.name ?? "another account";
-
-        detailHost.createDiv({ cls: "tj-as-section", text: "Leader account" });
-        if (!leaders.length && !standalone.length && !taken.length) {
-          detailHost.createDiv({ cls: "tj-as-hint", text: "No account can lead yet — create another account first." });
-        } else {
-          const list = detailHost.createDiv({ cls: "tj-wz-leader-list" });
-          const group = (title: string | null, rows: PropAccount[], isTaken: boolean) => {
-            if (!rows.length) return;
-            if (title) list.createDiv({ cls: "tj-wz-listsep", text: title });
-            for (const c of rows) {
-              const row = list.createDiv({
-                cls: "tj-wz-leader" + (isTaken ? " is-taken" : c.id === selectedBaseId ? " on" : ""),
-              });
-              row.createDiv({ cls: "tj-wz-leader-dot" });
-              const body = row.createDiv({ cls: "tj-wz-leader-body" });
-              body.createDiv({ cls: "tj-wz-leader-nm", text: c.name });
-              const sub = body.createDiv({
-                cls: "tj-wz-leader-sub",
-                text: isTaken ? `already copies ${nameOf(c.copyBaseId)}` : subText(c),
-              });
-              if (isTaken) {
-                attachTip(row, { title: "Already in a group", sub: "Unlink it there first — a copier cannot lead another group." });
-                continue;
-              }
-              sub.dataset.count = c.id;
-              row.addEventListener("click", () => {
-                selectedBaseId = c.id;
-                list.querySelectorAll(".tj-wz-leader").forEach((el) => el.removeClass("on"));
-                row.addClass("on");
-              });
-            }
-          };
-          group(leaders.length ? "Leaders" : null, leaders, false);
-          group(leaders.length && standalone.length ? "Not in a group" : null, standalone, false);
-          group("Already in a group", taken, true);
-        }
-
-        const mulVal = mkRow(detailHost, "Multiplier");
-        const mulInp = freeNumeric(mulVal.createEl("input", { type: "number", cls: "tj-as-nameinput" }));
-        mulInp.value = String(selectedMultiplier);
-        mulInp.addEventListener("input", () => { selectedMultiplier = Math.max(0.1, parseFloat(mulInp.value) || 1); });
-
-        const fromVal = mkRow(detailHost, "Copy from");
-        const seg = fromVal.createDiv({ cls: "tj-wz-seg" });
-        const optAll = seg.createDiv({ cls: "tj-wz-seg-opt" + (copyAllHistory ? " on" : ""), text: "All history" });
-        const optDate = seg.createDiv({ cls: "tj-wz-seg-opt" + (copyAllHistory ? "" : " on"), text: "From a date" });
-        optAll.addEventListener("click", () => { copyAllHistory = true; renderCopyDetail(); });
-        optDate.addEventListener("click", () => { copyAllHistory = false; renderCopyDetail(); });
-        if (!copyAllHistory) {
-          // The date lives on its own row: squeezed next to the segment it was
-          // clipped and it was hard to tell what it belonged to.
-          const dateVal = mkRow(detailHost, "Start date");
-          mountDateField(dateVal, {
-            value: copyStart,
-            format: this.plugin.settings.dateFormat,
-            onChange: (iso) => {
-              if (iso) copyStart = iso;
-            },
-          });
-        }
-
-        detailHost.createDiv({
-          cls: "tj-as-hint",
-          text: copyAllHistory
-            ? "The leader's whole past is mirrored into this account, plus every new trade from now on."
-            : `Only trades dated ${copyStart} or later are mirrored. Anything already in this account stays untouched.`,
-        });
-
-        const warn = detailHost.createDiv({ cls: "tj-as-copy-warn", text: "Checking what this account already holds…" });
-        void this.plugin.loadTradesExpanded().then((trades) => {
-          if (!warn.isConnected) return;
-          const mine = trades.filter((t) => this.plugin.mappedAccount(t.account)?.id === acc.id);
-          if (!mine.length) { warn.remove(); return; }
-          warn.setText(`${mine.length} trade${mine.length === 1 ? "" : "s"} already in this account stay exactly as they are — the link only adds trades from the leader.`);
-        });
-
-        const periods = (acc.copyPeriods ?? []).slice().sort((a: CopyPeriod, b: CopyPeriod) => (a.start ?? "").localeCompare(b.start ?? ""));
-        if (periods.length) {
-          detailHost.createDiv({ cls: "tj-as-section", text: "Copy history" });
-          const hist = detailHost.createDiv({ cls: "tj-as-periods" });
-          for (const p of periods) {
-            const lead = accounts.find((a) => a.id === p.baseId);
-            const who = p.baseId ? (lead?.name ?? "removed account") : "—";
-            const from = !p.start || p.start === "0000-01-01" ? "all history" : formatDate(p.start);
-            hist.createDiv({ cls: "tj-as-period", text: `${who} · ${p.multiplier ?? 1}x · ${from} → ${p.end ? formatDate(p.end) : "now"}` });
-          }
-          detailHost.createDiv({ cls: "tj-as-hint", text: "Each stretch keeps its own leader, so changing leaders never rewrites numbers you already have." });
-        }
-      } else if (role === "base") {
-        const copiers = accounts.filter((a) => a.copyBaseId === acc.id && a.copyRole === "copier");
-        detailHost.createDiv({ cls: "tj-as-section", text: "Copiers" });
-        if (copiers.length) {
-          for (const c of copiers) {
-            const stillOpen = (c.copyPeriods ?? []).some((p) => !p.end);
-            const val = mkRow(detailHost, c.name);
-            val.createSpan({ cls: "tj-as-cur", text: `${c.copyMultiplier ?? 1}x${stillOpen ? "" : " · paused"}` });
-          }
-        } else {
-          detailHost.createDiv({ cls: "tj-as-hint", text: "No accounts copy from this one yet." });
-        }
-      } else {
-        detailHost.createDiv({ cls: "tj-as-hint", text: "This account isn't linked to any copy group." });
-      }
-      refreshCounts();
-    };
-    syncRoles();
-    renderCopyDetail();
+    renderRules();
 
     // ======== DANGER ZONE ========
     const dng = paneEls.danger;
@@ -634,7 +498,9 @@ export class AccountDashboardView extends ItemView {
     const archInfo = archRow.createDiv();
     archInfo.createDiv({ cls: "tj-as-dngt", text: "Archive account" });
     archInfo.createDiv({ cls: "tj-as-dngd", text: "Hide from all views, metrics and dashboards. Data is preserved \u2014 restore anytime." });
-    const archBtn = archRow.createEl("button", { text: "\uD83D\uDCE6 Archive", cls: "tj-as-btn", attr: { type: "button" } });
+    const archBtn = archRow.createEl("button", { cls: "tj-as-btn", attr: { type: "button" } });
+    setIcon(archBtn.createSpan({ cls: "tj-as-btn-ico" }), "archive");
+    archBtn.createSpan({ text: "Archive" });
     archBtn.addEventListener("click", async () => {
       // An eval still in progress is not a finished thing: say so before hiding it.
       const inProgress =
@@ -652,7 +518,10 @@ export class AccountDashboardView extends ItemView {
     const delInfo = delRow.createDiv();
     delInfo.createDiv({ cls: "tj-as-dngt", text: "Delete account" });
     delInfo.createDiv({ cls: "tj-as-dngd", text: "Permanent \u2014 the account, its records and its trade notes leave the vault." });
-    delRow.createEl("button", { text: "\uD83D\uDDD1\uFE0F Delete", cls: "tj-as-btn tj-as-btn-del", attr: { type: "button" } }).addEventListener("click", () => {
+    const delBtn = delRow.createEl("button", { cls: "tj-as-btn tj-as-btn-del", attr: { type: "button" } });
+    setIcon(delBtn.createSpan({ cls: "tj-as-btn-ico" }), "trash-2");
+    delBtn.createSpan({ text: "Delete" });
+    delBtn.addEventListener("click", () => {
       const confOverlay = document.body.createDiv({ cls: "tj-modal-overlay" });
       void this.showDeleteConfirm(confOverlay, acc, 1, async () => {
         confOverlay.remove();
@@ -686,45 +555,25 @@ export class AccountDashboardView extends ItemView {
         const match = firmObj.programs.find((pr) => pr.phase === selectedType);
         if (match) acc.programId = match.id;
       }
-      // Rules
-      const rules: any = {};
-      for (const r of ruleDefs) {
-        if (ruleToggles[r.key]) {
-          const raw = ruleInputs[r.key].value;
-          rules[r.key] = r.type === "number" ? (parseFloat(raw) || 0) : raw;
-        }
-      }
-      acc.rules = Object.keys(rules).length ? rules : undefined;
-      // Copy role — every change closes the current stretch and opens a new one,
-      // so trades already generated are never recalculated or lost.
-      if (role === "copier") {
-        const mult = Math.max(0.1, selectedMultiplier || 1);
-        const start = copyAllHistory ? "0000-01-01" : copyStart || todayIso();
-        const stillOpen = (acc.copyPeriods ?? []).find((p: CopyPeriod) => !p.end);
-        const unchanged =
-          acc.copyRole === "copier" && acc.copyBaseId === selectedBaseId && (acc.copyMultiplier ?? 1) === mult && (stillOpen?.start ?? "") === start;
-        acc.copyRole = "copier";
-        if (selectedBaseId) acc.copyBaseId = selectedBaseId;
-        acc.copyMultiplier = mult;
-        if (!unchanged && selectedBaseId) {
-          openCopyPeriod(acc, selectedBaseId, mult, start);
-          const hist = (acc.copyConfigHistory ?? []).slice();
-          const last = hist.slice().sort((a: CopyConfigEntry, b: CopyConfigEntry) => a.from.localeCompare(b.from)).pop();
-          if (!last || last.ratio !== mult || last.from !== start) {
-            hist.push({ from: start, ratio: mult });
-            acc.copyConfigHistory = hist;
-          }
-        }
-      } else if (role === "base") {
-        closeCopyPeriods(acc);
-        acc.copyRole = "base";
-        delete acc.copyBaseId;
-        delete acc.copyMultiplier;
+      // Rules — the draft the pane edited. Only prop accounts carry them; a
+      // personal/demo account saves none, so switching type clears the old ones.
+      if (isPropType(selectedType as AccountType)) {
+        const rules: AccountRules = {};
+        if (ruleState.target) rules.target = ruleState.target;
+        if (ruleState.targetPct) rules.targetPct = ruleState.targetPct;
+        if (ruleState.maxLoss) rules.maxLoss = ruleState.maxLoss;
+        if (ruleState.maxLossPct) rules.maxLossPct = ruleState.maxLossPct;
+        if (ruleState.dailyLoss) rules.dailyLoss = ruleState.dailyLoss;
+        if (ruleState.consistency) rules.consistency = ruleState.consistency;
+        if (ruleState.consistencyBasis) rules.consistencyBasis = ruleState.consistencyBasis;
+        if (ruleState.maxLossType) rules.maxLossType = ruleState.maxLossType;
+        if (ruleState.ddLockOffset) rules.ddLockOffset = ruleState.ddLockOffset;
+        if (ruleState.posSize) rules.posSize = ruleState.posSize;
+        if (ruleState.minDays) rules.minDays = ruleState.minDays;
+        if (ruleState.dailyLossNote) rules.dailyLossNote = ruleState.dailyLossNote;
+        acc.rules = Object.keys(rules).length ? rules : undefined;
       } else {
-        closeCopyPeriods(acc);
-        delete acc.copyRole;
-        delete acc.copyBaseId;
-        delete acc.copyMultiplier;
+        acc.rules = undefined;
       }
       await this.plugin.saveSettings();
       await this.plugin.reloadAllViews();
@@ -737,15 +586,6 @@ export class AccountDashboardView extends ItemView {
   }
 
   render(): void {
-    const fmtDuration = (mins: number) => {
-      const totalSec = Math.round(mins * 60);
-      if (totalSec < 60) return `${totalSec}s`;
-      const h = Math.floor(totalSec / 3600);
-      const m = Math.floor((totalSec % 3600) / 60);
-      const s = totalSec % 60;
-      if (h > 0) return s ? `${h}h ${m}m ${s}s` : m ? `${h}h ${m}m` : `${h}h`;
-      return s ? `${m}m ${s}s` : `${m}m`;
-    };
     const root = this.contentEl;
     root.empty();
     root.addClass("tj-account-dash");
@@ -789,9 +629,10 @@ export class AccountDashboardView extends ItemView {
     if (acc.type === "funded" || acc.type === "live" || acc.type === "personal") {
       const payBtn = headerActions.createEl("button", {
         cls: "tj-iconbtn tj-iconbtn-payout",
-        attr: { type: "button", "aria-label": "Payouts" },
+        attr: { type: "button" },
       });
       setIcon(payBtn, "wallet");
+      payBtn.createSpan({ cls: "tj-sr-only", text: "Payouts" });
       attachTip(payBtn, {
         title: "Payouts",
         sub: "Log what you took out — the account value and its distance to the limit follow.",
@@ -806,9 +647,10 @@ export class AccountDashboardView extends ItemView {
     let balanceNow = 0;
     const feesBtn = headerActions.createEl("button", {
       cls: "tj-iconbtn",
-      attr: { type: "button", "aria-label": "Correct fees" },
+      attr: { type: "button" },
     });
     setIcon(feesBtn, "receipt");
+    feesBtn.createSpan({ cls: "tj-sr-only", text: "Correct fees" });
     attachTip(feesBtn, {
       title: "Correct fees",
       sub: "Log the gap between this balance and the one the account really holds, as a dated adjustment.",
@@ -817,25 +659,28 @@ export class AccountDashboardView extends ItemView {
 
     const gearBtn = headerActions.createEl("button", {
       cls: "tj-iconbtn",
-      attr: { type: "button", "aria-label": "Edit account settings" },
+      attr: { type: "button" },
     });
     setIcon(gearBtn, "sliders-horizontal");
-    attachTip(gearBtn, { title: "Account settings", sub: "Rules, name, dates, copy role." });
+    gearBtn.createSpan({ cls: "tj-sr-only", text: "Account settings" });
+    attachTip(gearBtn, { title: "Account settings", sub: "Rules, name, dates, size and type." });
     gearBtn.addEventListener("click", () => this.openEditAccountModal(acc, size, net));
 
     // The account's copy memory, on a line of its own under the title.
     this.renderCopyBar(main, acc);
 
     const scoped = this.scoped();
-    const byDay = new Map<string, { net: number; count: number; wins: number }>();
+    const byDay = new Map<string, { net: number; gross: number; count: number; wins: number }>();
     for (const t of scoped) {
       const key = this.dayKey(t);
       let bucket = byDay.get(key);
       if (!bucket) {
-        bucket = { net: 0, count: 0, wins: 0 };
+        bucket = { net: 0, gross: 0, count: 0, wins: 0 };
         byDay.set(key, bucket);
       }
-      bucket.net += t.pnl;
+      // net drives the balance/equity; gross drives the day-quality dots.
+      bucket.net += netPnl(t);
+      bucket.gross += t.pnl;
       bucket.count += 1;
       if (t.pnl > 0) bucket.wins += 1;
     }
@@ -871,23 +716,6 @@ export class AccountDashboardView extends ItemView {
     // The header's correction square reads this when it is pressed.
     balanceNow = balance;
     const peak = Math.max(0, ...series.map((s) => s.cum)) || 0;
-    const floor = Math.min(peak - size.maxLoss, 0);
-    const buffer = runningBalance - floor;
-    const ddToLimit = Math.max(0, acc.size + peak - balance);
-    // Day stats come from the trading days only: a payout on a day with no
-    // trades is cash, not a trading day, and must not be read as one (it used to
-    // crash here when that day had no entry in byDay).
-    const dayNets = [...byDay.values()].map((b) => b.net);
-    const grossProfit = dayNets.reduce((s, n) => s + Math.max(0, n), 0);
-    const bestDay = dayNets.reduce((s, n) => Math.max(s, n), 0);
-    const consBasis = size.consistencyBasis === "target" && size.target > 0 ? size.target : grossProfit;
-    const consistency = consBasis > 0 ? (bestDay / consBasis) * 100 : 0;
-    const consistencyNeed =
-      size.consistency > 0 && bestDay > 0
-        ? size.consistencyBasis === "target" && size.target > 0
-          ? 0
-          : bestDay / (size.consistency / 100) - grossProfit
-        : 0;
     const todayNet = byDay.get(this.todayKey())?.net ?? 0;
     const tradeCount = scoped.length;
     const winCount = scoped.filter((t) => t.pnl > 0).length;
@@ -1009,6 +837,7 @@ export class AccountDashboardView extends ItemView {
       maxLoss: size.maxLoss,
       ddLockOffset: size.ddLockOffset,
       ddNoLock: size.maxLossType === "eod-trailing-open",
+      ddStatic: size.maxLossType === "static",
       dailyLoss: size.dailyLoss,
       consistency: size.consistency,
       consistencyBasis: size.consistencyBasis,
@@ -1041,7 +870,7 @@ export class AccountDashboardView extends ItemView {
         a.setAttribute("fill", "none");
         const good = invert ? pct <= 10 : pct >= 80;
         const mid = invert ? pct <= 30 : pct >= 40;
-        a.setAttribute("stroke", good ? "var(--color-green-bright, #34d17a)" : mid ? "#d9a441" : "var(--color-red-bright, #ff5d48)");
+        a.setAttribute("stroke", good ? "var(--tj-tone-good)" : mid ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)");
         a.setAttribute("stroke-width", "7"); a.setAttribute("stroke-linecap", "round");
         a.setAttribute("pathLength", "100");
         a.setAttribute("stroke-dasharray", `${Math.max(1, Math.min(100, pct))} 100`);
@@ -1051,18 +880,19 @@ export class AccountDashboardView extends ItemView {
         box.createDiv({ cls: "tj-acc-disc-num", text: `${pct.toFixed(0)}%` });
         box.createDiv({ cls: "tj-acc-disc-lbl", text: label });
       };
-      gauge("Mistakes", M.mistakeRate, true);
-      gauge("Reviewed", M.reviewedPct, false);
+      gauge("Clean trades", Math.max(0, 100 - M.mistakeRate), false);
+      gauge("Reviewed", M.reviewCompletePct, false);
 
       // Discipline score: a bar with the same visual language as Risk ↔ Target.
+      // A model, not a verdict — it never blocks anything.
       const score = Math.round(
-        0.3 * Math.max(0, 100 - M.mistakeRate) +
-          0.25 * M.reviewedPct +
-          0.2 * M.stopDefinedPct +
-          0.15 * M.reviewCompletePct +
+        0.25 * Math.max(0, 100 - M.mistakeRate) +
+          0.35 * M.reviewCompletePct +
+          0.15 * M.stopDefinedPct +
+          0.15 * Math.max(0, 100 - M.untaggedPct) +
           0.1 * ((M.avgRating / 5) * 100)
       );
-      const band = score >= 70 ? "var(--color-green-bright, #34d17a)" : score >= 45 ? "#d9a441" : "var(--color-red-bright, #ff5d48)";
+      const band = score >= 70 ? "var(--tj-tone-good)" : score >= 45 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)";
       const scoreRow = top.createDiv({ cls: "tj-acc-dscore" });
       const scoreLeft = scoreRow.createDiv();
       scoreLeft.createDiv({ cls: "tj-acc-k", text: "Discipline score" });
@@ -1071,7 +901,7 @@ export class AccountDashboardView extends ItemView {
       scoreFill.style.width = `${Math.max(2, Math.min(100, score))}%`;
       scoreFill.style.background = band;
       scoreRow.createDiv({ cls: "tj-acc-dscore-num", text: String(score) });
-      attachTip(scoreTrack, { title: "Discipline score", sub: "Weighted from mistakes, reviews, stops, journal completeness and rating." });
+      attachTip(scoreTrack, { title: "Discipline score", sub: "A model of your process — mistakes, reviews, stops, journal completeness, strategy tags and rating. Nothing is enforced." });
       const cols = host.createDiv({ cls: "tj-acc-mcols" });
       const habits = cols.createDiv({ cls: "tj-acc-mcol" });
       const behaviour = cols.createDiv({ cls: "tj-acc-mcol" });
@@ -1087,7 +917,6 @@ export class AccountDashboardView extends ItemView {
         dot.addEventListener("mouseleave", () => killTip());
       };
       habits.createDiv({ cls: "tj-acc-mgroup", text: "Habits" });
-      dRow(habits, "Reviewed", `${M.reviewedPct.toFixed(0)}%`, M.reviewedPct >= 80 ? "tj-pos" : "tj-warn", "Trades you marked as reviewed (batch flag).");
       dRow(habits, "Journal complete", `${M.reviewCompletePct.toFixed(0)}%`, M.reviewCompletePct >= 80 ? "tj-pos" : "tj-warn", "Trades with the full checklist: print, strategy, review and rating.");
       dRow(habits, "Stop defined", `${M.stopDefinedPct.toFixed(0)}%`, M.stopDefinedPct >= 90 ? "tj-pos" : "tj-warn", "Trades where you recorded a stop loss (risk defined up front).");
       dRow(habits, "Strategy tagged", `${(100 - M.untaggedPct).toFixed(0)}%`, M.untaggedPct > 30 ? "tj-warn" : "tj-pos", "Trades with a strategy tag.");
@@ -1096,12 +925,11 @@ export class AccountDashboardView extends ItemView {
       behaviour.createDiv({ cls: "tj-acc-mgroup", text: "Behaviour" });
       dRow(behaviour, "Trades / day", M.tradesPerDay ? M.tradesPerDay.toFixed(1) : "—", "", "Average trades per active day.");
       dRow(behaviour, "Max / day", String(M.maxTradesInDay), "", "Most trades taken in a single day.");
-      dRow(behaviour, "Revenge trades", `${M.revengeCount} (${M.revengeRate.toFixed(0)}%)`, M.revengeCount > 0 ? "tj-warn" : "", "Trades opened within 15 minutes of a losing trade.");
-      dRow(behaviour, "After 2 losses", String(M.afterTwoLosses), M.afterTwoLosses > 0 ? "tj-warn" : "", "Trades opened right after two consecutive losses (tilt).");
+      dRow(behaviour, "Revenge trades", `${M.revengeCount} (${M.revengeRate.toFixed(0)}%)`, M.revengeCount > 0 ? "tj-warn" : "", "Re-entered within 15 minutes of a loss on the same symbol, or a trade you flagged as a mistake right after a loss.");
+      dRow(behaviour, "After two losses (tilt)", String(M.afterTwoLosses), M.afterTwoLosses > 0 ? "tj-warn" : "", "Trades opened right after two consecutive losses (tilt).");
       dRow(behaviour, "Trades < 1 min", `${M.fastTradesPct.toFixed(0)}%`, M.fastTradesPct > 20 ? "tj-warn" : "", "Trades closed in under a minute (impulsive entries).");
       dRow(behaviour, "Streak now", M.streakCurrent === 0 ? "—" : `${Math.abs(M.streakCurrent)} ${M.streakCurrent > 0 ? "wins" : "losses"}`, M.streakCurrent < 0 ? "tj-neg" : M.streakCurrent > 0 ? "tj-pos" : "", "Current win/loss streak.");
       dRow(behaviour, "Best / worst streak", `${M.streakWinBest}W / ${M.streakLossWorst}L`, "", "Longest winning and losing runs.");
-      dRow(behaviour, "Hold W / L", `${fmtDuration(M.avgHoldWinMin)} / ${fmtDuration(M.avgHoldLossMin)}`, "", "Average holding time for winners vs losers.");
     };
 
     const wFacts = (host: HTMLElement) => host.createDiv({ cls: "tj-acc-perffacts" });
@@ -1122,7 +950,7 @@ export class AccountDashboardView extends ItemView {
       const arc = document.createElementNS(NS, "circle");
       arc.setAttribute("cx", "52"); arc.setAttribute("cy", "52"); arc.setAttribute("r", "44");
       arc.setAttribute("fill", "none");
-      arc.setAttribute("stroke", pct >= 50 ? "var(--color-green-bright, #34d17a)" : pct >= 40 ? "#d9a441" : "var(--color-red-bright, #ff5d48)");
+      arc.setAttribute("stroke", pct >= 50 ? "var(--tj-tone-good)" : pct >= 40 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)");
       arc.setAttribute("stroke-width", "9"); arc.setAttribute("stroke-linecap", "round");
       arc.setAttribute("pathLength", "100");
       arc.setAttribute("stroke-dasharray", `${Math.max(0, Math.min(100, pct))} 100`);
@@ -1139,7 +967,7 @@ export class AccountDashboardView extends ItemView {
     const eqCard = heroLeft.createDiv({ cls: "tj-acc-eqcard" });
     const eqHead = eqCard.createDiv({ cls: "tj-acc-eqhead" });
     const eqTitleRow = eqHead.createDiv({ cls: "tj-acc-eqtitlerow" });
-    eqTitleRow.createDiv({ cls: "tj-acc-k", text: `Equity — ${firmLabel(acc.firmId) ?? ""} ${view.program?.label ?? ""} $${(acc.size / 1000).toFixed(0)}K ${acc.type.charAt(0).toUpperCase() + acc.type.slice(1)}` });
+    eqTitleRow.createDiv({ cls: "tj-acc-k", text: "Equity" });
     // Streak dots (last 20 trading days) — top right, same line as title
     if (days.length > 0) {
       const eqRight = eqTitleRow.createDiv({ cls: "tj-acc-eqright" });
@@ -1148,10 +976,10 @@ export class AccountDashboardView extends ItemView {
       for (const d of last20) {
         const b = byDay.get(d)!;
         const dot = streakRow.createDiv({
-          cls: "tj-acc-streakdot " + (b.net > 0 ? "tj-acc-streak-win" : b.net < 0 ? "tj-acc-streak-loss" : "tj-acc-streak-be"),
-          attr: { "aria-label": `${d}: ${fmtMoney(b.net)} (${b.count} trades)` },
+          cls: "tj-acc-streakdot " + (b.gross > 0 ? "tj-acc-streak-win" : b.gross < 0 ? "tj-acc-streak-loss" : "tj-acc-streak-be"),
+          attr: { "aria-label": `${d}: ${fmtMoney(b.gross)} (${b.count} trades)` },
         });
-        attachTip(dot, { title: d, value: fmtMoney(b.net), tone: b.net >= 0 ? "pos" : "neg", sub: `${b.count} trades` });
+        attachTip(dot, { title: d, value: fmtMoney(b.gross), tone: b.gross >= 0 ? "pos" : "neg", sub: `${b.count} trades` });
       }
     }
     const eqVal = eqHead.createDiv({ cls: "tj-acc-eqval" });
@@ -1176,8 +1004,13 @@ export class AccountDashboardView extends ItemView {
           // Trails the running peak, then locks at the firm's point (Tradeify
           // +$100 above the starting balance; TopStep locks at break-even).
           // A firm that never locks keeps the floor on the peak instead.
-          const locked = Math.min(acc.size + (size.ddLockOffset ?? 0), runPeak - size.maxLoss);
-          ddLevels.push(Math.round(size.maxLossType === "eod-trailing-open" ? runPeak - size.maxLoss : locked));
+          const level =
+            size.maxLossType === "static"
+              ? acc.size - size.maxLoss
+              : size.maxLossType === "eod-trailing-open"
+                ? runPeak - size.maxLoss
+                : Math.min(acc.size + (size.ddLockOffset ?? 0), runPeak - size.maxLoss);
+          ddLevels.push(Math.round(level));
         }
       }
       renderLineChart(eqChart, {
@@ -1189,20 +1022,25 @@ export class AccountDashboardView extends ItemView {
         targetLine: size.target ? acc.size + size.target : undefined,
         ddLine: ddLevels.length === balances.length ? ddLevels : undefined,
         dayDeltas: [0, ...series.map((s2) => s2.net)],
-        // A day this account paid out is marked in gold, not green or red:
-        // the money left, the trading did not lose it.
-        dayCash: [0, ...series.map((s2, k) => ((flowByDay.get(s2.date) ?? 0) < 0 ? k + 1 : -1)).filter((i) => i >= 0)],
+        // A cash day is marked by what it was: a payout (gold), a deposit (green)
+        // or a fee correction (a cost — never the payout gold).
+        dayCash: series.flatMap((s2, k) => {
+          const flow = (flowByDay.get(s2.date) ?? 0) - (adjustByDay.get(s2.date) ?? 0);
+          const adj = adjustByDay.get(s2.date) ?? 0;
+          const kind = flow < 0 ? ("out" as const) : flow > 0 ? ("in" as const) : adj !== 0 ? ("cost" as const) : null;
+          return kind ? [{ index: k + 1, kind }] : [];
+        }),
         hoverLines: (i) => {
           const s2 = i > 0 ? series[i - 1] : undefined;
           const rows2: Array<[string, string, string]> = [
             ["Trades", s2 ? String(byDay.get(s2.date)?.count ?? 0) : "0", ""],
-            ["Day P&L", s2 ? fmtMoney(s2.net) : "—", s2 && s2.net < 0 ? "tj-neg" : s2 && s2.net > 0 ? "tj-pos" : ""],
+            ["Day Net", s2 ? fmtMoney(s2.net) : "—", s2 && s2.net < 0 ? "tj-neg" : s2 && s2.net > 0 ? "tj-pos" : ""],
           ];
           const flow = (s2 ? flowByDay.get(s2.date) ?? 0 : 0) - (s2 ? adjustByDay.get(s2.date) ?? 0 : 0);
           if (flow < 0) rows2.push(["Payout", fmtMoney(Math.abs(flow)), "tj-cash"]);
           if (flow > 0) rows2.push(["Deposit", fmtMoney(flow), "tj-pos"]);
           const adj = s2 ? adjustByDay.get(s2.date) ?? 0 : 0;
-          if (adj !== 0) rows2.push(["Fees corrected", fmtMoney(adj), "tj-cash"]);
+          if (adj !== 0) rows2.push(["Fees corrected", fmtMoney(adj), "tj-cost"]);
           if (ddLevels.length) rows2.push(["Drawdown level", fmtMoney(ddLevels[i] ?? 0), ""]);
           if (size.target) rows2.push(["Target", fmtMoney(acc.size + size.target), "tj-pos"]);
           return rows2;
@@ -1219,7 +1057,9 @@ export class AccountDashboardView extends ItemView {
     const heroBreak = heroLeft.createDiv({ cls: "tj-acc-herobreak" });
     const riskCard = hero.createDiv({ cls: "tj-acc-riskcard tj-acc-flipcard" });
     let flipped = false;
-    const flipBtn = riskCard.createEl("button", { cls: "tj-acc-flipbtn", text: "⇋", attr: { type: "button", "aria-label": "Flip card" } });
+    const flipBtn = riskCard.createEl("button", { cls: "tj-acc-flipbtn", attr: { type: "button" } });
+    setIcon(flipBtn, "arrow-left-right");
+    flipBtn.createSpan({ cls: "tj-sr-only", text: "Flip card" });
     attachTip(flipBtn, { title: "Flip card", sub: "Limits on one side, discipline on the other." });
     const front = riskCard.createDiv({ cls: "tj-acc-flipface tj-acc-ffront" });
     const back = riskCard.createDiv({ cls: "tj-acc-flipface tj-acc-fback" });
@@ -1253,6 +1093,14 @@ export class AccountDashboardView extends ItemView {
       mid.style.left = `${zeroPct}%`;
       const mk = track.createDiv({ cls: "tj-acc-marker" });
       mk.style.left = `calc(${posPct}% - 1px)`;
+      // The firm's trailing drawdown floor as a thin tick on the same bar: once
+      // the peak carries it past the starting loss limit, only here does it show.
+      const floorLevel = balance - M.ddRemaining;
+      const floorPct = ((size.maxLoss + (floorLevel - acc.size)) / span) * 100;
+      if (size.maxLoss && floorPct > 1 && floorPct < 99) {
+        const ddTick = track.createDiv({ cls: "tj-acc-marker-dd" });
+        ddTick.style.left = `calc(${floorPct}% - 1px)`;
+      }
       track.addClass("tj-tip-anchor");
       track.addEventListener("mouseenter", () => {
         const ddPct = size.maxLoss ? Math.round((Math.max(0, -net) / size.maxLoss) * 100) : 0;
@@ -1276,9 +1124,9 @@ export class AccountDashboardView extends ItemView {
       axM.style.transform = "translateX(-50%)";
     }
 
-    // Drawdown limit used — progress bar (like Journalit)
+    // Drawdown — the firm's number: distance from the peak balance to the floor.
     if (size.maxLoss) {
-      const ddUsed = Math.max(0, M.ddCurrent);
+      const ddUsed = Math.max(0, M.ddToLimit);
       const ddPct = Math.min(100, (ddUsed / size.maxLoss) * 100);
       const ddStatus = ddPct >= 100 ? "breached" : ddPct >= 75 ? "critical" : ddPct >= 50 ? "warning" : "safe";
       const ddBox = front.createDiv({ cls: "tj-acc-ddbox" });
@@ -1286,13 +1134,12 @@ export class AccountDashboardView extends ItemView {
       ddHead.createSpan({ cls: "tj-acc-k", text: "Drawdown used" });
       const badge = ddHead.createSpan({ cls: `tj-acc-ddbadge tj-acc-ddbadge-${ddStatus}` });
       badge.setText(ddStatus === "breached" ? "BREACHED" : ddStatus === "critical" ? "CRITICAL" : ddStatus === "warning" ? "WARNING" : "OK");
-      const ddTrack = ddBox.createDiv({ cls: "tj-acc-ddtrack" });
-      const ddFill = ddTrack.createDiv({ cls: `tj-acc-ddfill tj-acc-ddfill-${ddStatus}` });
-      ddFill.style.width = `${ddPct}%`;
       const ddInfo = ddBox.createDiv({ cls: "tj-acc-ddinfo" });
       ddInfo.createSpan({ text: `${fmtMoney(ddUsed)} used` });
       ddInfo.createSpan({ text: `limit: -$${size.maxLoss.toLocaleString()}` });
-      ddInfo.createSpan({ text: `remaining: ${fmtMoney(Math.max(0, M.buffer))}` });
+      ddInfo.createSpan({ text: `remaining: ${fmtMoney(M.ddRemaining)}` });
+      const ddl = drawdownLabel(size);
+      ddBox.createDiv({ cls: "tj-acc-ddtype", text: `${ddl.label} · ${ddl.lock}` });
 
       // DD episodes summary line
       if (ddAnalysis.totalEpisodes > 0) {
@@ -1300,6 +1147,7 @@ export class AccountDashboardView extends ItemView {
         const parts: string[] = [];
         parts.push(`${ddAnalysis.totalEpisodes} episode${ddAnalysis.totalEpisodes === 1 ? "" : "s"}`);
         if (ddAnalysis.avgRecoveryDays > 0) parts.push(`avg recovery: ${Math.round(ddAnalysis.avgRecoveryDays)}d`);
+        if (ddAnalysis.pctTimeInDD > 0) parts.push(`time in DD: ${ddAnalysis.pctTimeInDD.toFixed(0)}%`);
         if (ddAnalysis.currentDD) parts.push(`current: -${ddAnalysis.currentDD.depthPct.toFixed(1)}%`);
         ddSummary.createSpan({ text: parts.join(" · ") });
       }
@@ -1324,15 +1172,27 @@ export class AccountDashboardView extends ItemView {
     limitsCol.createDiv({ cls: "tj-acc-mgroup", text: "Limits" });
     const todayTrades = scoped.filter((t) => this.dayKey(t) === this.todayKey()).length;
     mRow(limitsCol, "Today", todayTrades ? `${fmtMoney(M.todayNet)} · ${todayTrades}` : "—", M.todayNet < 0 ? "tj-neg" : M.todayNet > 0 ? "tj-pos" : "", "Today's net P&L and trades.");
-    if (size.maxLoss) mRow(limitsCol, "Risk room", fmtMoney(Math.max(0, M.buffer)), M.buffer > 0 ? "tj-warn" : "tj-neg", "Money you can still lose before hitting the max-loss floor.");
+    if (size.maxLoss) mRow(limitsCol, "Max-loss buffer", fmtMoney(M.ddRemaining), M.ddRemaining > 0 ? "tj-warn" : "tj-neg", "Room between the real balance and the loss floor. A payout lowers it.");
     if (size.target) mRow(limitsCol, "Target progress", `${targetPct.toFixed(0)}%`, "", "How close you are to the profit target.");
     if (size.target && M.daysToTarget !== null) mRow(limitsCol, "Days to target", `~${M.daysToTarget}`, "", "At your current daily pace.");
     if (size.dailyLoss) mRow(limitsCol, "Daily room", fmtMoney(M.dailyLossRemaining), M.dailyLossRemaining > 0 ? "" : "tj-neg", "How much you can still lose today before the daily loss limit.");
-    if (size.dailyLoss) mRow(limitsCol, "Worst day / limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Your worst day compared to the daily loss limit.");
+    if (size.dailyLoss) mRow(limitsCol, "Worst day vs limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Your worst day compared to the daily loss limit.");
     if (size.consistency > 0) {
       mRow(limitsCol, "Consistency", `${M.consistencyPct.toFixed(0)}% / ${size.consistency}%`, M.consistencyPct <= size.consistency ? "tj-pos" : "tj-neg", M.impliedTarget > size.target ? `Biggest day needs $${M.impliedTarget.toLocaleString()} total profit to satisfy the rule.` : "Best day stays within the limit.");
     }
-    if (size.maxLoss) mRow(limitsCol, "DD from peak", fmtMoney(-M.ddCurrent), M.ddCurrent > 0 ? "tj-warn" : "", "Distance from the highest account balance.");
+    const minDays = size.minDays ?? 0;
+    if (minDays > 0 && (acc.type === "eval" || acc.type === "funded")) {
+      const daysLeft = Math.max(0, minDays - M.winDays);
+      mRow(
+        limitsCol,
+        acc.type === "funded" ? "Payout winning days" : "Passing days",
+        `${M.winDays} of ${minDays} days`,
+        M.winDays >= minDays ? "tj-pos" : "",
+        `A model of the rule — days that closed positive. Some firms also ask for a minimum per day, which the journal does not impose. ${
+          daysLeft > 0 ? `${daysLeft} to go.` : "Requirement met."
+        }`,
+      );
+    }
     if (size.maxLoss) mRow(limitsCol, "Max drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Deepest peak-to-trough drawdown.");
     if (M.avgRiskMoney) mRow(limitsCol, "Avg risk / trade", `${fmtMoney(M.avgRiskMoney)} · ${M.avgRiskR.toFixed(2)}R`, "", "Average risk per trade.");
 
@@ -1340,11 +1200,11 @@ export class AccountDashboardView extends ItemView {
     mRow(perfCol, "Profit factor", Number.isFinite(M.profitFactor) ? M.profitFactor.toFixed(2) : M.profitFactor > 0 ? "∞" : "—", "", "Gross profit ÷ gross loss.");
     mRow(perfCol, "Expectancy", fmtMoney(M.expectancy), M.expectancy >= 0 ? "tj-pos" : "tj-neg", "Average P&L per trade.");
     mRow(perfCol, "Avg win / loss", M.avgLoss ? `${fmtMoney(M.avgWin)} / ${fmtMoney(-M.avgLoss)}` : fmtMoney(M.avgWin), "", "Average winning vs losing trade.");
-    mRow(perfCol, "Winning trades", `${M.winCount} (${M.winRate.toFixed(0)}%)`, "", "Winners and win rate.");
-    mRow(perfCol, "Trades ≥ 1R", M.pctGE1R ? `${M.pctGE1R.toFixed(0)}%` : "—", "", "How often a trade reached at least 1R.");
+    mRow(perfCol, "Reached 1R", M.pctGE1R ? `${M.pctGE1R.toFixed(0)}%` : "—", "", "How often a trade reached at least 1R.");
     mRow(perfCol, "Best day", fmtMoney(M.bestDay), "tj-pos", "Best single day.");
     mRow(perfCol, "Worst day", fmtMoney(M.worstDay), "tj-neg", "Worst single day.");
-    if (M.revengeCount) mRow(perfCol, "Revenge trades", `${M.revengeCount} (${M.revengeRate.toFixed(0)}%)`, "tj-warn", "Trades opened within 15 minutes of a losing trade.");
+    mRow(perfCol, "Biggest win", M.largestWin ? fmtMoney(M.largestWin) : "—", "tj-pos", "Largest single winning trade.");
+    mRow(perfCol, "Biggest loss", M.largestLoss ? fmtMoney(M.largestLoss) : "—", "tj-neg", "Largest single losing trade.");
 
     renderDisciplineCard(back);
     flipBtn.addEventListener("click", () => {
@@ -1354,11 +1214,10 @@ export class AccountDashboardView extends ItemView {
       const show = flipped ? back : front;
       show.addClass("tj-acc-flipin");
       window.setTimeout(() => show.removeClass("tj-acc-flipin"), 320);
-      flipBtn.setText(flipped ? "⇋" : "⇋");
     });
 
     // ---------- aggregates used by the widgets ----------
-    const dayWins = days.filter((d) => (byDay.get(d)?.net ?? 0) > 0).length;
+    const dayWins = days.filter((d) => (byDay.get(d)?.gross ?? 0) > 0).length;
     const dayWinRate = days.length ? (dayWins / days.length) * 100 : 0;
     const winRate = tradeCount ? (winCount / tradeCount) * 100 : 0;
     const grossWin = M.grossWin;
@@ -1535,9 +1394,17 @@ export class AccountDashboardView extends ItemView {
     // ---- header for the treemap (groups + total) ----
     const renderTradesWidget = (host: HTMLElement) => {
       const list = () => (bdFilter ? scoped.filter((t) => bdFilter!.test(t)) : scoped);
-      const head = host.createDiv({ cls: "tj-acc-tradeshead" });
+      // The ledger wears the same panel the Trade Log page uses: one card, the
+      // section header Accounts taught us (dot, label, count, hairline), then the
+      // table. The account page is the same surface, just scoped to one account.
+      const panel = host.createDiv({ cls: "tj-panel" });
+      const head = panel.createDiv({ cls: "tj-acct-h1" });
+      head.createSpan({ cls: "tj-acct-h1-dot" });
+      head.createSpan({ cls: "tj-acct-h1-t", text: "Trades" });
+      const count = head.createSpan({ cls: "tj-acct-h1-c" });
+      head.createSpan({ cls: "tj-acct-h1-line" });
       const chip = head.createDiv({ cls: "tj-acc-tchip" });
-      const body = host.createDiv({ cls: "tj-acc-tradesbody" });
+      const body = panel.createDiv({ cls: "tj-acc-tradesbody" });
       const drawChip = () => {
         chip.empty();
         if (!bdFilter) return;
@@ -1548,20 +1415,21 @@ export class AccountDashboardView extends ItemView {
             bdFilter = null;
             drawChip();
             paint();
-            host.querySelectorAll(".tj-acc-brow.is-active").forEach((n) => n.removeClass("is-active"));
           });
       };
       // The same ledger the Trade Log page uses (src/lib/tradeTable): same columns,
       // same saved order, same drag. This one shows only the columns that fit a
       // single account — account, review state and prints belong to the big page.
-      let sortState: { id: string; dir: "asc" | "desc" } | null = null;
+      let sortState: TradeSort | null = null;
       const paint = () => {
+        count.setText(String(list().length));
         renderTradeTable(body, {
           plugin: this.plugin,
           trades: list(),
           sort: sortState,
           onSort: (next) => { sortState = next; paint(); },
-          order: resolveOrder((this.plugin.settings as any).tradeLogColOrder, ACCOUNT_TABLE_COLUMNS),
+          stickyHeader: false,
+          order: resolveOrder((this.plugin.settings as any).tradeLogColOrder, DEFAULT_ACCOUNT_ORDER),
           onRowClick: (t) => void this.plugin.openTradeDetail({ id: t.id, from: { type: "account", accountId: acc.id } }),
           onReorder: (next) => {
             (this.plugin.settings as any).tradeLogColOrder = next;
@@ -1581,7 +1449,7 @@ export class AccountDashboardView extends ItemView {
     // ---------- widget registry ----------
     type Widget = { id: string; title: string; span: number; available?: () => boolean; render: (host: HTMLElement) => void };
     const WIDGETS: Widget[] = [
-      { id: "trades", title: `Trades in this account \u00b7 ${scoped.length}`, span: 12, render: (host) => renderTradesWidget(host) },
+      { id: "trades", title: "Trades in this account", span: 12, render: (host) => renderTradesWidget(host) },
     ];
 
 
@@ -1623,15 +1491,6 @@ export class AccountDashboardView extends ItemView {
       }
     };
     renderWidgets();
-
-    if (size.consistency > 0 && consistencyNeed > 0 && grossProfit > 0) {
-      main.createDiv({
-        cls: "tj-account-note tj-account-warn",
-        text: `Best day is ${consistency.toFixed(0)}% of profit — to satisfy the ${size.consistency}% consistency rule you need ${fmtMoney(consistencyNeed)} total profit.`,
-      });
-    }
-    if (size.note) main.createDiv({ cls: "tj-account-note", text: size.note });
-
 
     // Deposits — only for personal accounts (own money)
     if (acc.type === "personal") this.renderDepositTracker(main, acc);

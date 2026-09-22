@@ -40,7 +40,7 @@ export interface MaturityInput {
   // Process maturity — is the journal actually used?
   stopPct: number; // % of trades with a stop defined
   setupPct: number; // % with a setup tag
-  reviewPct: number; // % marked reviewed
+  reviewPct: number; // % with the review complete
   ratingPct: number; // % with an execution rating
   // Risk discipline.
   breachCount: number; // accounts that hit their max drawdown

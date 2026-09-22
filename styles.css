@@ -21,6 +21,10 @@
   --tj-fg-1: #dcddde; /* 12.1:1 — body text */
   --tj-fg-2: #a8aeb4; /*  7.0:1 — secondary */
   --tj-fg-3: #8a9099; /*  5.1:1 — quietest; replaces --text-faint at 3.3:1 */
+  /* Semantic tones — good/mid/bad used by gauges and dials */
+  --tj-tone-good: var(--color-green-bright, #34d17a);
+  --tj-tone-mid: #d9a441;
+  --tj-tone-bad: var(--color-red-bright, #ff5d48);
   /* Space (§3) — 4px base */
   --tj-sp-1: 4px;
   --tj-sp-2: 8px;
@@ -975,12 +979,6 @@
   color: var(--text-muted);
   margin-bottom: 16px;
 }
-.tj-account-note {
-  font-size: var(--tj-fs-body);
-  color: var(--text-muted);
-  margin-top: 8px;
-  max-width: 720px;
-}
 
 /* ---- Account list pages (config + auto dashboard) ---- */
 .tj-account-list {
@@ -1099,11 +1097,6 @@
   flex: 1 1 auto;
 }
 .tj-account-dash .tj-account-back { margin-bottom: 8px; }
-.tj-account-warn {
-  color: var(--text-warning);
-  border-left: 3px solid var(--text-warning);
-  padding-left: 8px;
-}
 .tj-chart-target {
   stroke: var(--text-success);
   stroke-width: 1.5;
@@ -1372,22 +1365,7 @@
 .tj-as-nameinput:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
 .tj-as-nameinput:focus { outline: none; background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
 
-/* Value button with chevron on the inner (left) side */
-.tj-as-valbtn { display: inline-flex; align-items: center; gap: 6px; background: transparent !important; border: none !important; box-shadow: none !important; color: var(--text-normal); font-size: var(--tj-fs-strong); font-family: inherit; cursor: pointer; padding: 3px 6px; border-radius: 7px; }
-.tj-as-valbtn:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
-.tj-as-valbtn.open { background: transparent !important; }
-.tj-as-valbtn.open .tj-as-chev { transform: rotate(180deg); }
-.tj-as-cur { color: var(--color-green-bright, #34d17a); font-weight: 600; }
-
-/* Drawer (opens leftward toward the label) */
-.tj-as-drawer { display: inline-flex; gap: 5px; align-items: center; max-width: 0; overflow: hidden; opacity: 0; pointer-events: none; transition: max-width .26s ease, opacity .18s ease; }
-.tj-as-drawer.open { max-width: 420px; opacity: 1; pointer-events: auto; }
-.tj-as-opt { border: none !important; background: transparent !important; color: var(--text-muted); font-size: var(--tj-fs-body); padding: 5px 9px; border-radius: 7px; cursor: pointer; font-family: inherit; white-space: nowrap; box-shadow: none !important; transition: background .12s ease, color .12s ease; }
-.tj-as-opt:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 7%, transparent) !important; }
-.tj-as-opt.on { color: var(--color-green-bright, #34d17a); font-weight: 600; }
-.tj-as-opt.on:hover { background: color-mix(in srgb, var(--color-green-bright, #34d17a) 10%, transparent) !important; }
-
-/* Account settings modal — tabbed (General / Rules / Copy / Danger) */
+/* Account settings modal — tabbed (General / Rules / Deletion) */
 .tj-acc-settings { max-width: 560px; width: 92%; padding: 0; overflow: hidden; }
 .tj-as-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--background-modifier-border); }
 .tj-as-avatar { width: 42px; height: 42px; border-radius: 11px; background: color-mix(in srgb, var(--color-green-bright, #34d17a) 12%, transparent); border: 1px solid color-mix(in srgb, var(--color-green-bright, #34d17a) 25%, transparent); display: flex; align-items: center; justify-content: center; font-size: var(--tj-fs-big); font-weight: 700; color: var(--color-green-bright, #34d17a); flex-shrink: 0; overflow: hidden; }
@@ -1409,36 +1387,24 @@
 .tj-as-panes { padding: 18px; max-height: 60vh; overflow-y: auto; }
 .tj-as-section { font-size: var(--tj-fs-small); letter-spacing: .12em; text-transform: uppercase; color: var(--tj-fg-3); font-weight: 700; margin-bottom: 10px; }
 .tj-as-hint { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 5px; line-height: 1.5; }
-.tj-as-field { margin-bottom: 14px; }
-.tj-as-field label { display: block; font-size: var(--tj-fs-small); color: var(--text-muted); margin-bottom: 5px; font-weight: 600; }
-.tj-as-field .tj-input, .tj-as-field .dropdown { width: 100%; }
-
-/* Rules override rows */
-.tj-as-ov { display: grid; grid-template-columns: 34px 1fr auto; gap: 11px; align-items: center; margin-bottom: 12px; }
-.tj-as-sw { width: 34px; height: 20px; border-radius: 20px; background: var(--background-modifier-border); position: relative; cursor: pointer; transition: background .15s ease; flex-shrink: 0; }
-.tj-as-sw.on { background: color-mix(in srgb, var(--color-green-bright, #34d17a) 40%, transparent); }
-.tj-as-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--tj-fg-3); transition: left .15s ease, background .15s ease; }
-.tj-as-sw.on::after { left: 16px; background: var(--color-green-bright, #34d17a); }
-.tj-as-ovmeta { min-width: 0; }
-.tj-as-ovlabel { font-size: var(--tj-fs-body); color: var(--text-normal); }
-.tj-as-ovsub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
-.tj-as-ovinput { width: 110px; background: var(--background-modifier-form-field, var(--background-secondary)); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 6px 9px; font-size: var(--tj-fs-body); color: var(--text-normal); font-family: inherit; }
-.tj-as-ovinput:disabled { opacity: .4; }
-
-/* Vertical list picker (scales to any number of options) */
-.tj-as-listpanel { display: none; max-height: 220px; overflow-y: auto; margin: 0 0 8px 130px; padding: 4px; border-radius: 10px; background: color-mix(in srgb, var(--text-normal) 4%, transparent); }
-.tj-as-listpanel.open { display: block; }
-.tj-as-lopt { display: block; width: 100%; text-align: left; background: transparent !important; border: none !important; box-shadow: none !important; color: var(--text-muted); font-size: var(--tj-fs-body); padding: 8px 10px; border-radius: 7px; cursor: pointer; font-family: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-as-lopt:hover { background: color-mix(in srgb, var(--text-normal) 7%, transparent) !important; color: var(--text-normal); }
-
-/* Copy tab detail */
-.tj-as-copydetail { margin-top: 2px; }
-
-/* Copy tab detail: the picker, the segments and the dates all reuse the wizard's
-   controls (see `.tj-wz-*`), so both places read the same. */
-.tj-as-copy-warn { font-size: var(--tj-fs-small); line-height: 1.45; color: #d9a441; background: rgba(217,164,65,.08); border: 1px solid rgba(217,164,65,.28); border-radius: 8px; padding: 7px 9px; margin: 8px 0; }
-.tj-as-periods { display: flex; flex-direction: column; gap: 3px; margin-bottom: 4px; }
-.tj-as-period { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
+/* The General tab reuses the wizard's type tiles and custom-size field, tuned
+   for the narrower account modal: the tiles are compact here, not the hero of a
+   creation flow. */
+.tj-acc-settings .tj-wz-types { grid-template-columns: repeat(auto-fit, minmax(146px, 1fr)); gap: 6px; }
+.tj-acc-settings .tj-wz-type { padding: 8px 10px; border-radius: 10px; }
+.tj-acc-settings .tj-wz-type-ico { margin-bottom: 5px; }
+.tj-acc-settings .tj-wz-type-ico svg { width: 15px; height: 15px; }
+.tj-acc-settings .tj-wz-type-l { font-size: var(--tj-fs-body); margin-bottom: 2px; }
+.tj-acc-settings .tj-wz-type-d { font-size: var(--tj-fs-small); }
+.tj-wz-affix.is-hidden { display: none; }
+/* Inside the account modal the wizard fields stack directly (they have no
+   .tj-wz-row grid around them), so give them the vertical air the grid used to
+   provide — otherwise a label sits on the hairline of the field above it. */
+.tj-acc-settings .tj-wz-field + .tj-wz-field { margin-top: 14px; }
+.tj-acc-settings .tj-as-row + .tj-wz-field { margin-top: 14px; }
+.tj-acc-settings .tj-as-hint + .tj-wz-field { margin-top: 12px; }
+/* The custom-size field needs room to type; the dropdown keeps its own width. */
+.tj-acc-settings .tj-as-rowval .tj-wz-affix { flex: 0 0 140px; }
 
 /* Danger zone */
 .tj-as-dngcard { border: 1px solid color-mix(in srgb, var(--color-red-bright, #ff5d48) 20%, transparent); border-radius: 11px; padding: 14px; margin-bottom: 12px; }
@@ -1453,6 +1419,8 @@
 .tj-as-btn-cta:hover { background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent) !important; }
 .tj-as-btn-del { color: var(--color-red-bright, #ff5d48); border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 30%, transparent) !important; }
 .tj-as-btn-del:hover { background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 12%, transparent) !important; }
+.tj-as-btn-ico { display: inline-flex; vertical-align: -2px; margin-right: 6px; }
+.tj-as-btn-ico svg { width: 13px; height: 13px; }
 .tj-as-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px; border-top: 1px solid var(--background-modifier-border); }
 
 /* Eval passed — glow card (V3: gradient ring + shine sweep) */
@@ -1729,16 +1697,6 @@
   100% { transform: translateY(280px) rotate(540deg); opacity: 0.2; }
 }
 
-/* Fase 6: compact filters — dropdowns grouped by firm */
-.tj-filterbar-compact {
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-  padding: 8px 0 12px 0;
-}
-.tj-filterbar-compact .dropdown {
-  max-width: 240px;
-}
 .tj-filt-account { min-width: 180px; }
 .tj-filt-period { min-width: 130px; }
 .tj-chips-inline { display: inline-flex; }
@@ -1789,7 +1747,6 @@
 }
 
 /* Fase 7: Trade Log view */
-.tj-tradelog .tj-filterbar-compact { padding-top: 4px; }
 .tj-tradelog .tj-input { min-width: 150px; }
 .tj-date-input { min-width: 140px !important; }
 .tj-filt-symbol { min-width: 110px; }
@@ -1898,8 +1855,8 @@
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 /* Segmented control: Back + Prev + Counter + Next */
@@ -1955,80 +1912,228 @@
   font-variant-numeric: tabular-nums;
   user-select: none;
 }
+.tj-td-scope {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  padding: 0 6px 0 2px;
+  user-select: none;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tj-td-head-actions { display: flex; gap: 6px; flex-shrink: 0; margin-left: auto; }
 
-/* KPI Cards — standardized */
-.tj-td-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 24px;
-}
-.tj-td-stat {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 14px 16px;
-  min-height: 88px;
-}
-.tj-td-stat-label {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-.tj-td-stat-value {
-  font-size: var(--tj-fs-head);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-normal);
-  line-height: 1.3;
-}
-.tj-td-stat-value.muted {
-  color: var(--text-muted);
-}
-.tj-td-stat-sub {
-  font-size: var(--tj-fs-small);
-  color: var(--text-muted);
-  margin-top: 4px;
-}
-
-/* Two-column layout — 35% stats / 65% screenshots */
+/* Two-column layout — fixed rail left, wide visual/analysis panel right */
 .tj-td-cols {
   display: grid;
-  grid-template-columns: minmax(260px, 0.35fr) minmax(0, 0.65fr);
-  gap: 16px;
+  grid-template-columns: 400px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
 }
-@media (max-width: 800px) { .tj-td-cols { grid-template-columns: 1fr; } }
+@media (max-width: 1399px) {
+  .tj-td-cols {
+    grid-template-columns: 340px minmax(0, 1fr);
+  }
+}
+@media (max-width: 900px) {
+  .tj-td-cols {
+    grid-template-columns: 1fr;
+  }
+  /* Single column: the card sizes to its content again. */
+  .tj-td-right { height: auto; }
+  .tj-td-right > .tj-td-panel { flex: 0 0 auto; }
+  .tj-td-shot-main {
+    flex: 0 0 auto;
+    height: clamp(180px, 28vh, 280px);
+    max-height: none;
+  }
+}
 .tj-td-left, .tj-td-right { min-width: 0; }
+.tj-td-left {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Right rail tracks the left column's height so the viewer can breathe. */
+.tj-td-right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+.tj-td-right > .tj-td-panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 
-/* Media Dropzone card */
-.tj-td-dropzone-card {
+/* Hero bar — title and badges left, headline figures right (v3.3) */
+.tj-td-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+.tj-td-hero-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.tj-td-hero-title {
+  font-size: var(--tj-fs-big);
+  font-weight: 700;
+  color: var(--text-normal);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.tj-td-hero-when {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tj-td-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--tj-fs-label);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--tj-fg-3);
+  white-space: nowrap;
+}
+.tj-td-hero-badge.is-long {
+  color: var(--color-green-bright, #34d17a);
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 35%, transparent);
+  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 10%, transparent);
+}
+.tj-td-hero-badge.is-short {
+  color: var(--color-red-bright, #ff5d48);
+  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 35%, transparent);
+  background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 10%, transparent);
+}
+.tj-td-hero-badge.is-status {
+  cursor: pointer;
+  font-family: inherit;
+}
+.tj-td-hero-badge.is-status.is-reviewed {
+  color: var(--color-green-bright, #34d17a);
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 35%, transparent);
+  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 10%, transparent);
+}
+.tj-td-hero-badge.is-status.is-needs-review {
+  color: var(--tj-tone-mid);
+  border-color: color-mix(in srgb, var(--tj-tone-mid) 40%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-mid) 12%, transparent);
+}
+.tj-td-hero-badge.is-status:hover {
+  border-color: var(--tj-tone-mid);
+}
+.tj-td-hero-metrics {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.tj-td-hero-metric {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  min-width: 0;
 }
-.tj-td-dropzone-header {
+.tj-td-hero-k {
+  font-size: var(--tj-fs-label);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+.tj-td-hero-v {
+  font-size: var(--tj-fs-big);
+  font-weight: 700;
+  color: var(--text-normal);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.tj-td-hero-v.pos { color: var(--color-green-bright, #34d17a); }
+.tj-td-hero-v.neg { color: var(--color-red-bright, #ff5d48); }
+@media (max-width: 720px) {
+  .tj-td-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .tj-td-hero-metrics {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+    padding-top: 8px;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+  .tj-td-hero-metric {
+    align-items: flex-start;
+  }
+}
+
+/* Panel card — the page's surface unit: one frame, a header and a body */
+.tj-td-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.tj-td-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.tj-td-dropzone-title {
-  font-size: var(--tj-fs-label);
+.tj-td-panel-title {
+  font-size: var(--tj-fs-small);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
 }
+.tj-td-panel-body {
+  min-width: 0;
+}
+
+/* Media dropzone actions + empty state */
 .tj-td-dropzone-actions {
   display: flex;
   gap: 6px;
+}
+/* Annotate / Enlarge — words, no box: the text brightens on hover. */
+.tj-td-dropzone-actions .tj-btn {
+  background: transparent;
+  border: none;
+  color: var(--tj-fg-3);
+}
+.tj-td-dropzone-actions .tj-btn:hover {
+  background: transparent;
+  color: var(--text-normal);
 }
 .tj-td-dropzone {
   flex: 1;
@@ -2098,33 +2203,39 @@
   font-size: var(--tj-fs-label);
 }
 
-/* Screenshot with image loaded */
-.tj-td-shots {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.tj-td-shot-wrap {
+/* Main viewer — grows with the card, the print scaled to fit (never cropped) */
+.tj-td-shot-main {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-height: 220px;
+  max-height: 420px;
+  height: auto;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 8px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 .tj-td-shot-img {
-  max-width: 100%;
-  max-height: 380px;
-  border-radius: 8px;
-  border: 1px solid var(--background-modifier-border);
   object-fit: contain;
-  cursor: pointer;
+  border: none;
+  border-radius: 0;
 }
-.tj-td-shot-note {
-  font-size: var(--tj-fs-small);
-  color: var(--text-muted);
-  padding: 6px 4px 2px;
-  line-height: 1.4;
+.tj-td-shot-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(2px);
+  color: var(--tj-fg-1);
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 .tj-td-shot-remove {
   position: absolute;
@@ -2152,116 +2263,173 @@
   stroke-width: 2;
   stroke-linecap: round;
 }
-.tj-td-shot-wrap:hover .tj-td-shot-remove { opacity: 1; }
+.tj-td-shot-main:hover .tj-td-shot-remove { opacity: 1; }
 .tj-td-shot-remove:hover {
   color: #fff;
   background: var(--color-red, #ad3527);
   border-color: var(--color-red, #ad3527);
 }
 
-/* Compact dropzone (when prints already exist) */
-.tj-td-dropzone.compact {
-  min-height: 44px;
-  border-style: dashed;
-  padding: 8px 16px;
-}
-.tj-td-dropzone-add-label {
-  font-size: var(--tj-fs-body);
-  color: var(--text-muted);
-  font-weight: var(--tj-w-medium);
-}
-.tj-td-dropzone.compact:hover .tj-td-dropzone-add-label {
-  color: var(--interactive-accent);
-}
-
-/* Review Panel card */
-.tj-td-review-card {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-}
-.tj-td-review-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-.tj-td-review-title {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-.tj-td-review-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--tj-fs-small);
-  color: var(--text-muted);
-}
-.tj-td-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-warning, #f59e0b);
-}
-.tj-td-status-dot.complete {
-  background: var(--color-green-bright, #34d17a);
-}
-
-/* Rating stars — Unicode ★☆ (warm amber accent) */
-.tj-td-rating-section {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.tj-td-rating-label {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
+/* Rating stars — 5 loose stars, no boxes (v3.3). `.active` stays for the
+   trade modal, which shares the control. */
 .tj-td-stars {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
 }
 .tj-td-star {
-  width: 32px;
-  height: 32px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  line-height: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
   font-size: var(--tj-fs-head);
-  color: var(--text-muted);
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: color 120ms ease, transform 120ms ease;
+  font-family: inherit;
+}
+.tj-td-star:hover,
+.tj-td-star.hover-on {
+  color: var(--tj-tone-mid);
+  transform: scale(1.08);
+}
+.tj-td-star.on,
+.tj-td-star.active {
+  color: var(--text-warning, #f59e0b);
+}
+.tj-td-star-glyph {
+  line-height: 1;
+}
+
+/* Acknowledgement — "nothing to log" for an optional step, dashed until used. */
+.tj-td-ack {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--tj-fs-small);
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--background-modifier-border) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+  cursor: pointer;
+  margin-top: 6px;
+  font-family: inherit;
+}
+.tj-td-ack::before {
+  content: "✓";
+  opacity: 0.5;
+}
+.tj-td-ack:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+.tj-td-ack.on {
+  color: var(--color-green-bright, #34d17a) !important;
+  border-style: solid !important;
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 40%, transparent) !important;
+  background: transparent !important;
+}
+.tj-td-ack.on::before {
+  opacity: 1;
+}
+/* Ghost link in the section header — the only way into the tag picker. */
+.tj-td-ghostbtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-left: auto;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3) !important;
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  cursor: pointer;
   padding: 0;
   font-family: inherit;
 }
-.tj-td-star:hover {
-  border-color: var(--text-warning, #f59e0b);
-  background: color-mix(in srgb, var(--text-warning, #f59e0b) 10%, var(--background-primary));
-  color: var(--text-warning, #f59e0b);
+.tj-td-ghostbtn:hover {
+  color: var(--text-normal);
+  background: none !important;
 }
-.tj-td-star.active {
-  background: color-mix(in srgb, var(--text-warning, #f59e0b) 15%, var(--background-primary));
-  border-color: var(--text-warning, #f59e0b);
-  color: var(--text-warning, #f59e0b);
+/* The tag picker — a portal panel pinned under the ghost link. */
+.tj-td-tagpop {
+  position: fixed;
+  z-index: 60;
+  min-width: 190px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.tj-td-tagpop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+}
+.tj-td-tagpop-row:hover {
+  background: var(--background-modifier-hover);
+}
+.tj-td-tagpop-check {
+  flex: 0 0 12px;
+  color: var(--tj-fg-3);
+  text-align: center;
+}
+.tj-td-tagpop-row.is-on .tj-td-tagpop-check {
+  color: var(--interactive-accent);
+}
+.tj-td-tagpop-lbl {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tj-td-tagpop-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 5px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--tj-fs-small);
+  outline: none;
+}
+.tj-td-tagpop-input:focus {
+  border-color: var(--interactive-accent);
+}
+.tj-td-tagpop-done {
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tj-fg-3);
+  font-family: inherit;
+  font-size: var(--tj-fs-small);
+  cursor: pointer;
+}
+.tj-td-tagpop-done:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
 }
 
 /* Form fields */
 .tj-td-field {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 .tj-td-field:last-child {
   margin-bottom: 0;
@@ -2278,7 +2446,7 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 .tj-td-field-label .tj-td-char-count {
   font-size: var(--tj-fs-label);
@@ -2292,7 +2460,7 @@
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 8px 10px;
   color: var(--text-normal);
   font-family: inherit;
   font-size: var(--tj-fs-body);
@@ -2308,153 +2476,27 @@
   opacity: 0.5;
 }
 .tj-td-textarea {
-  min-height: 80px;
+  min-height: 64px;
   resize: vertical;
   line-height: 1.6;
   flex: 1;
 }
-.tj-td-mic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 4px 0 2px 0;
-  width: 28px;
-  height: 24px;
-  font-size: var(--tj-fs-strong);
-  line-height: 1;
-  background: var(--background-modifier-border);
-  border: 1px solid var(--background-modifier-border-hover);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s ease, transform 0.08s ease;
-}
-.tj-td-mic:hover { background: var(--background-modifier-border-hover); transform: scale(1.05); }
-.tj-td-mic.recording {
-  background: rgba(173, 53, 39, 0.18);
-  border-color: rgba(173, 53, 39, 0.6);
-  box-shadow: 0 0 0 3px rgba(173, 53, 39, 0.2);
-  animation: tj-pulse 1.2s ease-in-out infinite;
-}
-@keyframes tj-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(173, 53, 39, 0.15); }
-  50% { box-shadow: 0 0 0 6px rgba(173, 53, 39, 0.35); }
-}
-.tj-td-note {
-  margin-top: 16px;
-  padding: 10px 12px;
-  border: 1px dashed var(--background-modifier-border);
-  border-radius: 8px;
-  font-size: var(--tj-fs-body);
-}
-.tj-td-note-text { margin: 4px 0 0 0; opacity: 0.8; }
-
-/* ---- v4 layout: KPI card, Setup card, Session badge ---- */
-
-/* KPI card — grid container inside left column (compact for sidebar) */
-.tj-td-kpi-card {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.tj-td-kpi-card .tj-td-stat {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  min-height: 60px;
-}
-.tj-td-kpi-card .tj-td-stat.wide {
-  grid-column: 1 / -1;
-}
-.tj-td-kpi-card .tj-td-stat-label {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.tj-td-kpi-card .tj-td-stat-value {
-  font-size: var(--tj-fs-strong);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-normal);
-  line-height: 1.3;
-}
-.tj-td-kpi-card .tj-td-stat-sub {
-  font-size: var(--tj-fs-small);
-  color: var(--text-muted);
-  margin-top: 3px;
-}
-
-/* Setup card (merged with Context) — compact sidebar card */
-.tj-td-setup-card {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  padding: 14px;
-}
-.tj-td-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.tj-td-card-title {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-}
-
-/* Context sub-section inside Setup card */
-.tj-td-setup-ctx {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--background-modifier-border);
-}
-.tj-td-ctx-label {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-.tj-td-ctx-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
-}
-.tj-td-ctx-item {
+/* ---- v5: Review dots in header ---- */
+.tj-td-review-state {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  align-items: flex-start;
+  flex-shrink: 0;
 }
-.tj-td-ctx-key {
-  font-size: var(--tj-fs-label);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
+.tj-td-hero-summary {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  white-space: nowrap;
 }
-.tj-td-ctx-val {
-  font-size: var(--tj-fs-body);
-  font-weight: 600;
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
+.tj-td-hero-summary.is-hidden {
+  display: none;
 }
-
-/* Session badge (header) */
-
-/* Partial review status dot (amber, between incomplete and complete) */
-.tj-td-status-dot.partial {
-  background: var(--text-warning, #f59e0b);
-}
-
-/* ---- v5: Review dots in header ---- */
 .tj-td-review-dots {
   display: inline-flex;
   align-items: center;
@@ -2480,71 +2522,12 @@
   border-color: var(--color-green-bright, #34d17a);
 }
 
-/* ---- v5: Flip card (left column, account-style) ---- */
-.tj-td-flip-card {
-  position: relative;
-  overflow: visible;
-}
-.tj-td-flipbtn {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 5;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: transparent !important;
-  color: var(--tj-fg-3);
-  cursor: pointer;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  font-size: var(--tj-fs-body);
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.tj-td-flipbtn:hover {
-  color: var(--text-normal);
-  background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important;
-}
-.tj-td-flip-face {
-  padding: 14px;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-}
-.tj-td-flip-card .tj-td-flip-face { padding: 14px; }
-.tj-td-ffront {
-  position: relative;
-  padding-top: 44px;
-  padding-right: 40px;
-}
-.tj-td-fback {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  padding-right: 44px;
-}
-.tj-td-flip-face.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-.tj-td-flip-face:not(.is-hidden) {
-  opacity: 1;
-  pointer-events: auto;
-}
-@keyframes tjFlipIn {
-  from { opacity: 0; transform: perspective(600px) rotateY(-12deg); }
-  to   { opacity: 1; transform: perspective(600px) rotateY(0deg); }
-}
-.tj-td-flipin { animation: tjFlipIn .3s ease; }
-
 /* Flip row — flat label: value */
 .tj-td-flip-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 7px 0;
+  padding: 6px 0;
   border-bottom: 1px solid var(--background-modifier-border);
   gap: 8px;
 }
@@ -2567,14 +2550,6 @@
   text-align: right;
   cursor: default;
 }
-.tj-td-tz {
-  flex: 0 0 auto;
-  margin-left: var(--tj-sp-1);
-  font-size: var(--tj-fs-label);
-  color: var(--tj-fg-3);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
 .tj-td-flip-val:hover {
   color: var(--interactive-accent);
 }
@@ -2583,6 +2558,20 @@
 }
 .tj-td-flip-val.neg {
   color: var(--color-red-bright, #ff5d48);
+}
+.tj-td-flip-val.is-hero {
+  font-size: var(--tj-fs-strong);
+  font-weight: 700;
+}
+/* Entry → Exit — each price is its own editable part. */
+.tj-td-ee-part {
+  border-radius: 4px;
+}
+.tj-td-ee-part:hover {
+  color: var(--interactive-accent);
+}
+.tj-td-ee-arrow {
+  color: var(--tj-fg-3);
 }
 /* Editable input (replaces value on click) */
 .tj-td-flip-input {
@@ -2598,22 +2587,6 @@
   outline: none;
   width: 100%;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 15%, transparent);
-}
-
-/* Hero row (Net P&L) */
-.tj-td-flip-row-hero {
-  background: var(--background-primary);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 4px;
-  border-bottom: none;
-}
-.tj-td-flip-row-hero .tj-td-flip-key {
-  font-size: var(--tj-fs-body);
-}
-.tj-td-flip-row-hero .tj-td-flip-val {
-  font-size: var(--tj-fs-big);
-  font-weight: 700;
 }
 
 /* Strategy/Session row (contains dropdown) */
@@ -2644,54 +2617,120 @@
   text-align: right;
 }
 
-/* Rating row (contains stars) */
-.tj-td-flip-row-rating {
-  gap: 12px;
-}
-.tj-td-stars-inline {
-  gap: 3px;
-}
-.tj-td-stars-inline .tj-td-star {
-  width: 26px;
-  height: 26px;
-  font-size: var(--tj-fs-big);
-}
-
-/* ---- v5: Screenshot mosaic ---- */
-.tj-td-shot-mosaic {
+/* Strategy + Rating side by side (v3.3) */
+.tj-td-two-col {
   display: grid;
-  grid-template-columns: 1fr 160px;
-  gap: 8px;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: start;
   margin-bottom: 12px;
 }
-/* Single print: no thumbnails column */
-.tj-td-shot-mosaic:has(.tj-td-shot-mosaic-thumbs:empty) {
-  grid-template-columns: 1fr;
+.tj-td-two-col > .tj-td-field {
+  margin-top: 0;
+  margin-bottom: 0;
 }
-.tj-td-shot-mosaic-main {
-  min-width: 0;
+.tj-td-two-col .tj-td-flip-strat-wrap {
+  justify-content: flex-start;
 }
-.tj-td-shot-mosaic-main .tj-td-shot-wrap {
-  height: 100%;
+.tj-td-two-col .tj-td-flip-strat-wrap .tj-mg-dd {
+  max-width: none;
 }
-.tj-td-shot-mosaic-main .tj-td-shot-img {
-  width: 100%;
-  height: 100%;
-  max-height: 420px;
-  object-fit: contain;
+.tj-td-two-col .tj-td-flip-strat-wrap .tj-mg-dd-btn {
+  justify-content: flex-start;
 }
-.tj-td-shot-mosaic-thumbs {
+
+/* ---- Screenshot carousel ---- */
+/* The carousel is the flex column that lets the stage absorb the spare height. */
+.tj-td-shot-carousel {
+  margin-bottom: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  min-height: 0;
 }
-.tj-td-shot-mosaic-thumbs .tj-td-shot-wrap {
-  flex-shrink: 0;
-}
-.tj-td-shot-mosaic-thumbs .tj-td-shot-img {
-  max-height: 120px;
+.tj-td-shot-main .tj-td-shot-img {
   width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: contain;
+}
+/* Thumbnails — one clean row; the add tile closes it */
+.tj-td-shot-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+  flex: 0 0 auto;
+}
+.tj-td-shot-thumb {
+  position: relative;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  padding: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+.tj-td-shot-thumb.is-active {
+  border: 2px solid var(--color-green-bright, #34d17a);
+}
+.tj-td-shot-thumb img {
+  width: 100%;
+  height: 62px;
   object-fit: cover;
+  border-radius: 5px;
+  display: block;
+}
+.tj-td-shot-thumb-missing {
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+}
+.tj-td-shot-thumb-label {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--tj-fs-label);
+  color: var(--tj-fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tj-td-shot-thumb .tj-td-shot-remove {
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+}
+/* Add Print — a thumbnail-shaped tile, dashed, at the end of the strip */
+.tj-td-shot-add {
+  min-height: 89px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--tj-fg-3);
+}
+.tj-td-shot-add:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+.tj-td-shot-add-plus svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+}
+.tj-td-shot-add-label {
+  font-size: var(--tj-fs-label);
+  white-space: nowrap;
 }
 
 /* Annotate overlay on hover */
@@ -2710,7 +2749,7 @@
   transition: opacity 0.15s ease;
   backdrop-filter: blur(2px);
 }
-.tj-td-shot-wrap:hover .tj-td-shot-annotate {
+.tj-td-shot-main:hover .tj-td-shot-annotate {
   opacity: 1;
 }
 .tj-td-shot-annotate:hover {
@@ -2718,9 +2757,25 @@
   color: var(--text-on-accent);
 }
 
-/* Trade detail soft tones */
-.tj-td-stat.pos { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.25); }
-.tj-td-stat.neg { background: rgba(173, 53, 39, 0.08); border-color: rgba(173, 53, 39, 0.25); }
+/* Enlarge — a full-window lightbox over the review (click or Escape closes) */
+.tj-td-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+}
+.tj-td-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
 
 /* ---------------- Native Obsidian-style App Shell ---------------- */
 /* No custom floating sidebar or header: the app follows Obsidian's native
@@ -3200,11 +3255,6 @@
 .tj-pop-label {
   font-size: var(--tj-fs-body);
   color: var(--text-muted);
-}
-.tj-pop-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 .tj-popover select,
 .tj-popover .tj-input {
@@ -4338,6 +4388,31 @@
   color: var(--tj-fg-2);
 }
 .tj-import-pill.is-warn { color: var(--color-orange, #d9a441); }
+.tj-import-setuprow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.tj-import-setuplbl {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+  font-weight: var(--tj-w-medium);
+}
+.tj-import-setupctl {
+  flex: 0 0 auto;
+  min-width: 190px;
+}
+.tj-import-setupnote {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .tj-import-tbl { width: 100%; border-collapse: collapse; }
 .tj-import-tbl th,
 .tj-import-tbl td { padding: 6px 10px; text-align: left; font-size: var(--tj-fs-small); }
@@ -4398,6 +4473,15 @@
 }
 .tj-import-doneico { display: inline-flex; }
 .tj-import-doneico svg { width: 15px; height: 15px; }
+.tj-import-nostrategy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
 
 /* Radar sizing safety + error surface */
 .tj-radar-box { min-height: 200px; }
@@ -4983,20 +5067,6 @@
 .tj-dir-long { color: var(--color-green-bright, #34d17a); font-weight: 600; }
 .tj-dir-short { color: var(--color-red, #ad3527); font-weight: 600; }
 .tj-tl-more { display: flex; justify-content: center; margin: 14px 0; }
-.tj-tl-more .tj-btn {
-  background: transparent;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  color: var(--text-muted);
-  padding: 6px 20px;
-  font-size: var(--tj-fs-body);
-  cursor: pointer;
-  transition: color .15s, border-color .15s;
-}
-.tj-tl-more .tj-btn:hover {
-  color: var(--text-normal);
-  border-color: var(--background-modifier-border-hover, rgba(255,255,255,.16));
-}
 
 /* ==========================================================================
    Print annotator
@@ -5005,15 +5075,18 @@
   position: fixed;
   inset: 0;
   z-index: 3500;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
 }
 .tj-anno-panel {
-  width: min(1200px, 96vw);
-  max-height: 94vh;
+  width: 90vw;
+  height: 85vh;
+  max-width: none;
+  max-height: none;
   display: flex;
   flex-direction: column;
   background: var(--background-primary);
@@ -5031,47 +5104,217 @@
   flex-wrap: wrap;
 }
 .tj-anno-tool {
-  width: 30px;
-  height: 30px;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  border-radius: 7px;
-  color: var(--text-muted);
-  cursor: pointer;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--tj-fs-big);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 6px;
+  color: var(--tj-fg-2) !important;
+  cursor: pointer;
 }
-.tj-anno-tool:hover { background: var(--background-modifier-hover) !important; color: var(--text-normal); }
-.tj-anno-tool.on {
-  background: color-mix(in srgb, var(--interactive-accent) 22%, transparent) !important;
-  color: var(--interactive-accent);
+.tj-anno-tool:hover {
+  background: var(--background-modifier-hover) !important;
+  color: var(--text-normal) !important;
+}
+.tj-anno-tool.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
+  color: var(--interactive-accent) !important;
+}
+.tj-anno-tool svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .tj-anno-sep { width: 1px; align-self: stretch; margin: 0 4px; background: var(--background-modifier-border); }
-.tj-anno-swatch { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; }
-.tj-anno-swatch.on { border-color: var(--text-normal); }
 .tj-anno-spacer { flex: 1 1 auto; }
-.tj-anno-btn {
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-normal);
-  border-radius: 8px;
-  padding: 6px 12px;
+.tj-anno-actions { display: flex; align-items: center; gap: 6px; }
+/* Ghost actions — the house recipe, no Obsidian native box. */
+.tj-anno-actions button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-medium);
   cursor: pointer;
-  font-size: var(--tj-fs-body);
-  font-weight: 600;
+  font-family: inherit;
+  transition: color 120ms ease;
 }
-.tj-anno-btn:hover { background: var(--background-modifier-hover); }
-.tj-anno-cta { background: var(--interactive-accent); border-color: var(--interactive-accent); color: var(--text-on-accent); font-weight: 600; }
-.tj-anno-canvaswrap { padding: 12px; display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
-.tj-anno-canvas { max-width: 100%; max-height: 74vh; display: block; margin: 0 auto; border-radius: 6px; cursor: crosshair; background: #101114; }
-.tj-anno-footer { color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-align: center; }
+.tj-anno-actions button:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+.tj-anno-actions button.is-primary {
+  color: var(--text-normal) !important;
+}
+.tj-anno-actions button.is-primary:hover {
+  color: var(--interactive-accent) !important;
+}
+.tj-anno-canvaswrap {
+  position: relative;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.tj-anno-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  cursor: crosshair;
+}
+/* Sidebar — style controls live here, not in the toolbar. */
+.tj-anno-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.tj-anno-sidebar {
+  flex: 0 0 200px;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tj-anno-canvasarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+.tj-anno-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tj-anno-sidebar-label {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.tj-anno-sidebar-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tj-anno-sidebar-swatch {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  box-shadow: none;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.tj-anno-sidebar-swatch:hover {
+  border-color: var(--text-normal);
+}
+.tj-anno-sidebar-swatch.is-active {
+  border: 2px solid var(--text-normal);
+}
+.tj-anno-sidebar-swatch.is-checker {
+  background-image: conic-gradient(#8a8a8a 0 25%, transparent 0 50%, #8a8a8a 0 75%, transparent 0);
+  background-size: 8px 8px;
+}
+.tj-anno-sidebar-btn {
+  min-width: 32px;
+  min-height: 24px;
+  padding: 2px 8px;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  border-radius: 6px;
+  color: var(--tj-fg-2) !important;
+  font-family: inherit;
+  font-size: var(--tj-fs-small);
+  line-height: 1.2;
+  cursor: pointer;
+}
+.tj-anno-sidebar-btn:hover {
+  border-color: var(--background-modifier-border) !important;
+  color: var(--text-normal) !important;
+}
+.tj-anno-sidebar-btn.is-active {
+  border-color: var(--interactive-accent) !important;
+  color: var(--interactive-accent) !important;
+}
+.tj-anno-sidebar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.tj-anno-sidebar-btn:disabled:hover {
+  border-color: transparent !important;
+  color: var(--tj-fg-2) !important;
+}
+.tj-anno-sidebar-iconbtn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+.tj-anno-sidebar-iconbtn svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tj-anno-sidebar-slider {
+  width: 100%;
+  accent-color: var(--interactive-accent);
+}
+/* Floating textarea — typed text is baked in on commit. */
+.tj-anno-textinput,
+textarea.tj-anno-textinput {
+  position: absolute !important;
+  z-index: 10 !important;
+  min-width: 80px !important;
+  min-height: 24px !important;
+  max-height: none !important;
+  padding: 2px 4px !important;
+  margin: 0 !important;
+  background: rgba(0, 0, 0, 0.6) !important;
+  border: 1px dashed currentColor !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-size: 16px !important;
+  font-family: inherit !important;
+  line-height: 1.2 !important;
+  resize: none !important;
+}
 
 /* Trade Detail print */
 .tj-td-shot-img { cursor: zoom-in; max-width: 100%; border-radius: 8px; }
-.tj-annotate-btn { margin-top: 8px; }
 
 /* Sidebar: a touch bigger */
 .tj-nav-item { font-size: var(--tj-fs-body); padding: 5px 8px; }
@@ -5084,79 +5327,41 @@
 .tj-revieww-gauge-num { font-size: var(--tj-fs-hero); }
 .tj-revieww-gauge-cap { font-size: var(--tj-fs-small); }
 
-/* Annotator toolbar — keep swatches perfectly round and aligned */
-.tj-anno-toolbar { align-items: center; }
-.tj-anno-swatch {
-  flex: 0 0 18px;
-  width: 18px;
-  height: 18px;
-  min-width: 18px;
-  min-height: 18px;
-  padding: 0 !important;
-  border-radius: 50%;
-  align-self: center;
-  box-sizing: border-box;
-  box-shadow: none !important;
-}
-.tj-anno-tool { flex: 0 0 auto; line-height: 1; }
 .tj-pill { font-size: var(--tj-fs-small); padding: 2px 8px; border-radius: 999px; background: var(--background-secondary); color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tj-stars { font-size: var(--tj-fs-small); color: var(--tj-fg-3); letter-spacing: 1px; }
 .tj-stars .on { color: #f5b301; }
 
-/* Bulk bar */
-.tj-tl-bulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.tj-tl-bulk-count { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); margin-right: 4px; }
-.tj-tl-bulkbtn {
-  border: 1px solid var(--background-modifier-border); background: transparent; color: var(--text-normal);
-  border-radius: 8px; padding: 5px 12px; font-size: var(--tj-fs-body); font-weight: 600; cursor: pointer;
-}
-.tj-tl-bulkbtn:hover { background: var(--background-modifier-hover); }
-.tj-tl-bulkbtn.tj-del { color: var(--color-red, #ad3527); border-color: color-mix(in srgb, var(--color-red, #ad3527) 40%, transparent); }
-.tj-tl-bulkbtn.tj-ghost { color: var(--text-muted); }
-.tj-tl-pop .tj-input, .tj-tl-pop .dropdown { width: 100%; margin-bottom: 8px; }
-.tj-tl-colrow { display: flex; align-items: center; gap: 8px; padding: 5px 2px; font-size: var(--tj-fs-body); color: var(--text-normal); }
-
-.tj-tl-editor {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 10px;
-  padding: 12px 14px 14px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-top: none;
-  border-radius: 0 0 11px 11px;
-}
-@media (max-width: 900px) { .tj-tl-editor { grid-template-columns: 1fr; } }
-.tj-tl-edfield { display: flex; flex-direction: column; gap: 4px; }
-.tj-tl-edtext {
-  width: 100%;
-  resize: vertical;
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
+/* Bulk bar — ghost controls (the house header recipe); it floats over the list. */
+.tj-tl-bulk-count {
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-bold);
   color: var(--text-normal);
-  font-size: var(--tj-fs-body);
-  padding: 6px 8px;
+  margin-right: 4px;
+  white-space: nowrap;
 }
-.tj-tl-edfoot { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.tj-tl-edrating { display: flex; align-items: center; gap: 8px; }
-.tj-stars-edit { font-size: var(--tj-fs-big); cursor: pointer; }
-.tj-tl-edcheck { display: flex; align-items: center; gap: 6px; font-size: var(--tj-fs-body); color: var(--text-muted); }
+.tj-tl-bulkbtn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-tl-bulkbtn:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-normal); }
+.tj-tl-bulkbtn.tj-del { color: var(--color-red, #ad3527); }
+.tj-tl-bulkbtn.tj-del:hover {
+  background: color-mix(in srgb, var(--color-red, #ad3527) 12%, transparent);
+  color: var(--color-red-bright, #ff5d48);
+}
+.tj-tl-bulkbtn.is-disabled { opacity: 0.45; cursor: default; }
+
 .tj-pop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tj-pop-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.tj-pop-field .dropdown { width: 100%; height: 30px; border-radius: 7px; font-size: var(--tj-fs-body); }
-.tj-pop-clear { margin-top: 8px; width: 100%; }
-
-/* List — info hierarchy */
-.tj-tl-dirbadge { font-size: var(--tj-fs-small); font-weight: 700; letter-spacing: 0.05em; padding: 2px 8px; border-radius: 999px; }
-.tj-tl-dirbadge.l { color: #6ee7a0; background: color-mix(in srgb, var(--color-green-bright, #34d17a) 18%, transparent); }
-.tj-tl-dirbadge.s { color: #fca5a5; background: color-mix(in srgb, var(--color-red, #ad3527) 18%, transparent); }
-
-/* Bulk toolbar — with icons, tidy and consistent */
-.tj-tl-bulk { align-items: center; }
-.tj-tl-bulkbtn { display: inline-flex; align-items: center; gap: 6px; }
-.tj-tl-bulkbtn .tj-btn-icon svg { width: 14px; height: 14px; }
-.tj-tl-bulkbtn.is-disabled { opacity: 0.45; cursor: default; }
 
 /* Active filter chips + count badge on the funnel */
 .tj-filterbtn-count {
@@ -5178,33 +5383,6 @@
 .tj-filterbtn { position: relative; }
 .tj-tl-activechip-x:hover { color: var(--text-normal); }
 .tj-tl-activeclear:hover { color: var(--text-normal); }
-.tj-tl-sizeseg { margin-left: 2px; }
-
-/* Inline editor: same colours as the row, connected (no separate box) */
-.tj-tl-editor {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-top: none;
-  border-radius: 0 0 11px 11px;
-  margin-top: -8px;
-  padding-top: 14px;
-}
-.tj-tl-edtext {
-  background: var(--background-modifier-form-field);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
-  font-size: var(--tj-fs-body);
-}
-.tj-tl-edtext:focus { border-color: var(--interactive-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 22%, transparent); outline: none; }
-
-/* Right side: WIN/LOSS + P&L + points{
-  align-items: flex-end;
-  gap: 3px;
-  border-left: 1px solid var(--background-modifier-border);
-  padding-left: 14px;
-}
-
-.tj-tl-dir-arrow { font-size: var(--tj-fs-strong); font-weight: 700; color: var(--text-muted); width: 14px; text-align: center; }
 
 /* Settings — editable string lists */
 .tj-settings-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 16px; }
@@ -5221,13 +5399,11 @@
 /* Privacy mode — blur money, reveal on hover */
 .tj-privacy .tj-metric-value,
 .tj-privacy .tj-symw-val,
-.tj-privacy .tj-td-stat-value,
 .tj-privacy .tj-eq-value,
 .tj-privacy .tj-score-num,
 .tj-privacy .tj-kpi-value { filter: blur(7px); transition: filter 140ms ease; }
 .tj-privacy .tj-metric-value:hover,
 .tj-privacy .tj-symw-val:hover,
-.tj-privacy .tj-td-stat-value:hover,
 .tj-privacy .tj-eq-value:hover,
 .tj-privacy .tj-kpi-value:hover { filter: blur(0); }
 
@@ -5345,7 +5521,7 @@
 .tj-app .tj-set-row,
 .tj-app .tj-set-basics,
 .tj-app .tj-nav-sidebar,
-.tj-app .tj-td-cols > * { background-color: var(--tj-surface, var(--background-secondary)); }
+.tj-app .tj-td-panel { background-color: var(--tj-surface, var(--background-secondary)); }
 .tj-app .tj-gridcard,
 .tj-app .tj-set-row,
 .tj-app .tj-set-basics{ border-color: var(--tj-border, var(--background-modifier-border)); }
@@ -5450,7 +5626,7 @@
 .tj-app .tj-gridcard,
 .tj-app .tj-set-row,
 .tj-app .tj-set-basics,
-.tj-app .tj-td-cols > * {
+.tj-app .tj-td-panel {
   background-color: color-mix(in srgb, var(--tj-surface, var(--background-secondary)) 58%, transparent);
   backdrop-filter: blur(2px);
 }
@@ -5494,7 +5670,7 @@
 .tj-app .tj-gridcard,
 .tj-app .tj-set-row,
 .tj-app .tj-set-basics,
-.tj-app .tj-td-cols > * {
+.tj-app .tj-td-panel {
   /* Very light tint so the theme pattern (dots/grid/...) shows through. */
   background-color: color-mix(in srgb, var(--background-secondary) 12%, transparent);
   backdrop-filter: none;
@@ -5769,7 +5945,7 @@
 @media (max-width: 900px) { .tj-acct-hero { grid-template-columns: repeat(2, 1fr); } }
 
 /* ===== Accounts tab (portfolio) ===== */
-.tj-acct-header { display: flex; align-items: flex-start; gap: 16px; }
+.tj-acct-header { position: relative; display: flex; align-items: flex-start; gap: 16px; }
 .tj-acct-header .tj-view-h1 { margin: 0 0 2px; }
 .tj-acct-header .tj-import-info { margin: 0; }
 .tj-acct-header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -5824,7 +6000,7 @@
    the right. The colour is the same one the account-type tags use on the cards,
    so a Funded section is recognisable before you read a single card. */
 .tj-acct-h1 { display: flex; align-items: center; gap: 9px; margin: 0 0 11px; }
-.tj-acct-h1-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.tj-acct-h1-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--tj-fg-3); }
 .tj-acct-h1-t { font-size: var(--tj-fs-small); letter-spacing: .13em; text-transform: uppercase; font-weight: 700; }
 .tj-acct-h1-c {
   font-size: var(--tj-fs-small); font-weight: 700; padding: 1px 6px; border-radius: 999px;
@@ -5901,6 +6077,7 @@
   position: relative; border: 1px solid var(--background-modifier-border); border-radius: 14px;
   padding: 15px 16px 14px; background: rgba(255,255,255,.022); overflow: hidden; cursor: pointer;
   transition: border-color .15s ease, background .15s ease;
+  display: flex; flex-direction: column;
 }
 .tj-acct-tile:hover { border-color: var(--background-modifier-border-hover, rgba(255,255,255,.16)); background: rgba(255,255,255,.035); }
 .tj-acct-tile-edge { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
@@ -5930,6 +6107,8 @@
 .tj-tag-demo { color: var(--text-muted); background: rgba(255,255,255,.07); }
 .tj-tag-base { color: #fff; background: rgba(255,255,255,.13); }
 .tj-tag-passed { color: var(--color-green-bright, #34d17a); background: color-mix(in srgb, var(--color-green-bright, #34d17a) 12%, transparent); }
+.tj-tag-ico { display: inline-flex; vertical-align: -2px; margin-right: 4px; }
+.tj-tag-ico svg { width: 11px; height: 11px; }
 
 /* Relink picker: choose which funded an eval points at — nothing is created. */
 .tj-relink-list {
@@ -5947,6 +6126,7 @@
 .tj-relink-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-tag-copy { color: #d9a441; background: color-mix(in srgb, #d9a441 16%, transparent); }
 .tj-acct-prog { margin-bottom: 10px; }
+.tj-acct-prog.is-first { margin-top: auto; }
 .tj-acct-prog-lbl { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--tj-fs-small); color: var(--text-muted); margin-bottom: 5px; }
 .tj-acct-prog-lbl b { color: var(--text-normal); font-variant-numeric: tabular-nums; font-weight: 700; }
 .tj-acct-prog-bar { height: 6px; border-radius: 4px; background: rgba(255,255,255,.07); overflow: hidden; }
@@ -6062,6 +6242,9 @@
 
 /* ===== Add-account wizard ===== */
 .tj-account-wizard { width: min(720px, 94vw); }
+/* The Rules pane reuses the wizard's field styles inside the account modal —
+   it must not inherit the wizard's own width. */
+.tj-account-wizard.tj-as-pane { width: auto; }
 .tj-wz-steps { display: flex; gap: 18px; padding: 4px 2px 16px; border-bottom: 1px solid var(--background-modifier-border); margin-bottom: 16px; }
 .tj-wz-step { display: flex; align-items: center; gap: 8px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
 .tj-wz-step-n {
@@ -6360,20 +6543,17 @@
 .tj-wz-sumk { color: var(--text-muted); }
 .tj-wz-sumv { color: var(--text-normal); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Flat text options, no boxes — one control, used everywhere in the wizard.
-   Scoped under the modal because Obsidian styles `button` with a filled box. */
+/* Flat text options, no boxes — one control, used everywhere in the wizard and
+   the columns popover. `!important` beats Obsidian's filled `button` box. */
 .tj-wz-seg { display: flex; align-items: center; gap: 2px; }
-.tj-account-wizard .tj-wz-seg-opt,
-.tj-acc-settings .tj-wz-seg-opt {
+.tj-wz-seg-opt {
   font: inherit; font-size: var(--tj-fs-body); font-weight: 600; color: var(--tj-fg-3);
   background: transparent !important; border: 1px solid transparent !important;
   border-bottom: 2px solid transparent !important; border-radius: 0 !important;
   padding: 4px 10px 3px; cursor: pointer; box-shadow: none !important;
 }
-.tj-account-wizard .tj-wz-seg-opt:hover,
-.tj-acc-settings .tj-wz-seg-opt:hover { color: var(--text-normal); background: transparent !important; border-bottom-color: rgba(255, 255, 255, .16) !important; }
-.tj-account-wizard .tj-wz-seg-opt.on,
-.tj-acc-settings .tj-wz-seg-opt.on {
+.tj-wz-seg-opt:hover { color: var(--text-normal); background: transparent !important; border-bottom-color: rgba(255, 255, 255, .16) !important; }
+.tj-wz-seg-opt.on {
   color: var(--text-normal); background: transparent !important;
   border-bottom-color: var(--text-normal) !important;
 }
@@ -6541,8 +6721,7 @@
 
 /* Account page: the copy memory, right under the title. */
 .tj-acc-copybar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
-.tj-acc-copybar .tj-acc-k,
-.tj-acc-copyhist .tj-acc-k { margin-bottom: 0; }
+.tj-acc-copybar .tj-acc-k { margin-bottom: 0; }
 .tj-acc-copychip {
   display: inline-flex; align-items: baseline; gap: 8px;
   padding: 3px 10px; border-radius: 999px;
@@ -6555,14 +6734,13 @@
 }
 .tj-acc-copychip-t { font-size: var(--tj-fs-small); font-weight: 700; }
 .tj-acc-copychip-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
-.tj-acc-copyhist { display: flex; align-items: baseline; gap: 10px; margin: -4px 0 14px; }
-.tj-acc-copyrows { display: flex; flex-direction: column; gap: 2px; }
-.tj-acc-copyrow { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
+.tj-acc-copychip-ico { display: inline-flex; vertical-align: -2px; margin-right: 5px; }
+.tj-acc-copychip-ico svg { width: 12px; height: 12px; }
 
 .tj-acc-hero { display: grid; grid-template-columns: 1.5fr 1fr; gap: 13px; margin: 6px 0 13px; align-items: stretch; }
 @media (max-width: 900px) { .tj-acc-hero { grid-template-columns: 1fr; } }
 
-.tj-acc-eqcard, .tj-acc-riskcard, .tj-acc-perfcard, .tj-acc-tradescard, .tj-acc-bcard {
+.tj-acc-eqcard, .tj-acc-riskcard {
   border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 15px 17px;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.012)); min-width: 0;
 }
@@ -6580,6 +6758,10 @@
 .tj-acc-zone-gain { right: 0; background: linear-gradient(90deg, rgba(34,122,74,.12), rgba(34,122,74,.5)); }
 .tj-acc-zone-mid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.25); }
 .tj-acc-marker { position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
+/* Trailing drawdown floor — a thin dashed tick on the same bar, so the loss
+   limit and the target keep one message instead of two competing bars. */
+.tj-acc-marker-dd { position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: repeating-linear-gradient(to bottom, var(--tj-fg-2) 0 3px, transparent 3px 6px); }
 .tj-acc-riskright { text-align: right; min-width: 84px; }
 .tj-acc-risknet { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tj-acc-risksub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
@@ -6592,7 +6774,6 @@
 .tj-acc-factv { font-size: var(--tj-fs-big); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* performance dials */
-.tj-acc-perfcard { margin-bottom: 13px; }
 .tj-acc-perfrow { display: flex; gap: 26px; align-items: center; flex-wrap: wrap; }
 .tj-acc-dial { position: relative; width: 108px; text-align: center; }
 .tj-acc-donut { width: 108px; height: 108px; }
@@ -6602,29 +6783,11 @@
 .tj-acc-perffacts { flex: 1 1 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px 24px; }
 .tj-acc-pfact { min-width: 110px; }
 
-/* breakdowns */
-.tj-acc-breakdowns { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 13px; margin-bottom: 13px; }
-@media (max-width: 900px) { .tj-acc-breakdowns { grid-template-columns: 1fr; } }
-.tj-acc-brow { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
-.tj-acc-bname { width: 54px; font-size: var(--tj-fs-body); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-acc-btrack { flex: 1 1 auto; height: 8px; border-radius: 5px; background: rgba(255,255,255,.055); overflow: hidden; }
-.tj-acc-bfill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #227a4a, var(--color-green-bright, #34d17a)); }
-.tj-acc-bfill.neg { background: linear-gradient(90deg, #8f2b1e, #ff5d48); }
-.tj-acc-bval { width: 74px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; font-size: var(--tj-fs-body); }
-
 /* trades */
-.tj-acc-tradeshead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.tj-acc-seg { display: inline-flex; border: 1px solid var(--background-modifier-border); border-radius: 999px; padding: 2px; }
-.tj-acc-seg button {
-  font: inherit; font-size: var(--tj-fs-small); font-weight: 600; color: var(--tj-fg-3);
-  padding: 4px 11px; border-radius: 999px; border: none !important; background: transparent !important; cursor: pointer;
-}
-.tj-acc-seg button.on { color: var(--text-normal); background: rgba(255,255,255,.08); }
-.tj-acc-tradesbody { margin-top: 6px; }
+.tj-acc-tradesbody { margin-top: 0; }
 
 /* Account page — widget area (locked hero + editable widgets) */
 .tj-acc-widgets { margin-top: 4px; }
-.tj-acc-wtools { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .tj-acc-wgrid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 13px; }
 .tj-acc-widget {
   border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 15px 17px;
@@ -6632,16 +6795,6 @@
 }
 .tj-acc-wh { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tj-acc-wh .tj-acc-k { margin-bottom: 9px; }
-.tj-acc-wx {
-  border: none !important; background: transparent !important; box-shadow: none !important;
-  color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-body); padding: 0 2px;
-}
-.tj-acc-wx:hover { color: var(--color-red-bright, #ff5d48); }
-.tj-acc-wadd {
-  border: 1px dashed var(--background-modifier-border); border-radius: 14px; padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 8px; align-items: flex-start; min-width: 0;
-}
-.tj-acc-wadd .tj-btn { justify-content: flex-start; }
 .tj-acc-widgets.is-editing .tj-acc-widget { outline: 1px dashed color-mix(in srgb, #d9a441 45%, transparent); outline-offset: 3px; }
 @media (max-width: 900px) {
   .tj-acc-wgrid { grid-template-columns: 1fr; }
@@ -6768,15 +6921,6 @@
 
 /* Breakdown widgets — diverging bars + stats */
 .tj-acc-bhead { display: flex; justify-content: space-between; font-size: var(--tj-fs-small); letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3); padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent); }
-.tj-acc-brow { display: grid; grid-template-columns: 48px 1fr 84px; gap: 10px; align-items: center; margin: 9px 0; }
-.tj-acc-btrack2 { position: relative; height: 10px; border-radius: 5px; background: rgba(255,255,255,.05); }
-.tj-acc-bmid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: rgba(255,255,255,.18); }
-.tj-acc-bfill2 { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
-.tj-acc-bfill2.pos { background: linear-gradient(90deg, color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent), var(--color-green-bright, #34d17a)); }
-.tj-acc-bfill2.neg { background: linear-gradient(270deg, color-mix(in srgb, var(--color-red-bright, #ff5d48) 45%, transparent), var(--color-red-bright, #ff5d48)); }
-.tj-acc-bstat { text-align: right; font-variant-numeric: tabular-nums; display: flex; flex-direction: column; }
-.tj-acc-bstat b { font-size: var(--tj-fs-body); font-weight: 700; }
-.tj-acc-bstat span { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 
 /* Discipline — gauges + rating + streak dots */
 .tj-acc-disc-top { display: flex; gap: 20px; align-items: center; }
@@ -6785,25 +6929,13 @@
 .tj-acc-disc-gauge svg { width: 72px; height: 72px; }
 .tj-acc-disc-num { position: absolute; top: 28px; left: 0; right: 0; font-size: var(--tj-fs-big); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tj-acc-disc-lbl { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
-.tj-acc-disc-rating { margin-left: 6px; }
-.tj-acc-disc-stars { font-size: var(--tj-fs-head); color: #d9a441; letter-spacing: 2px; }
-.tj-acc-disc-dots { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin: 14px 0 4px; }
-.tj-acc-disc-dotslbl { font-size: var(--tj-fs-label); letter-spacing: .12em; text-transform: uppercase; color: var(--tj-fg-3); margin-right: 6px; }
-.tj-acc-dot { width: 9px; height: 9px; border-radius: 3px; }
-.tj-acc-dot.w { background: var(--color-green-bright, #34d17a); }
-.tj-acc-dot.l { background: var(--color-red-bright, #ff5d48); }
-.tj-acc-dot.f { background: color-mix(in srgb, var(--text-muted) 40%, transparent); }
-.tj-acc-disc-facts { grid-template-columns: repeat(3, 1fr); margin-top: 14px; }
+
 
 /* Account page — denser widgets (less scroll) */
 .tj-acc-wgrid { gap: 10px; }
 .tj-acc-widget { padding: 12px 14px; }
 .tj-acc-widget .tj-acc-k { margin-bottom: 6px; }
-.tj-acc-brow { margin: 5px 0; }
-.tj-acc-btrack2 { height: 8px; }
 .tj-acc-bhead { padding-bottom: 6px; margin-bottom: 2px; }
-.tj-acc-bstat b { font-size: var(--tj-fs-body); }
-.tj-acc-bstat span { font-size: var(--tj-fs-label); }
 .tj-acc-btabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
 .tj-acc-btab {
   font: inherit; font-size: var(--tj-fs-small); font-weight: 600; color: var(--tj-fg-3);
@@ -6811,8 +6943,6 @@
   background: transparent !important; cursor: pointer;
 }
 .tj-acc-btab.on { color: var(--text-normal); background: rgba(255,255,255,.07) !important; }
-.tj-acc-disc-dots { margin: 10px 0 2px; }
-.tj-acc-disc-facts { margin-top: 10px; }
 .tj-acc-disc-gauge { width: 64px; }
 .tj-acc-disc-gauge svg { width: 64px; height: 64px; }
 .tj-acc-disc-num { top: 24px; font-size: var(--tj-fs-strong); }
@@ -6822,9 +6952,10 @@
 .tj-acc-flipbtn {
   position: absolute; top: 10px; right: 12px; z-index: 5;
   border: 1px solid var(--background-modifier-border) !important; background: transparent !important;
-  color: var(--tj-fg-3); cursor: pointer; width: 24px; height: 24px; border-radius: 7px;
+  color: var(--tj-fg-3); cursor: pointer; width: 24px; height: 24px; border-radius: 7px; padding: 0;
   font-size: var(--tj-fs-body); line-height: 1; display: inline-flex; align-items: center; justify-content: center;
 }
+.tj-acc-flipbtn svg { width: 15px; height: 15px; }
 .tj-acc-flipbtn:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important; }
 .tj-acc-flipcard .tj-acc-riskhead { padding-right: 30px; }
 .tj-acc-ffront { position: relative; }
@@ -6838,9 +6969,6 @@
 .tj-acc-flipin { animation: tjFlipIn .3s ease; }
 
 /* Interactive breakdowns → filter the trades below */
-.tj-acc-brow-click { cursor: pointer; border-radius: 7px; padding: 2px 6px; margin: 4px -6px; transition: background .12s ease; }
-.tj-acc-brow-click:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent); }
-.tj-acc-brow.is-active { background: color-mix(in srgb, var(--interactive-accent) 14%, transparent); }
 .tj-acc-tchip { display: flex; align-items: center; gap: 6px; font-size: var(--tj-fs-small); color: var(--text-normal); }
 .tj-acc-tchip > span {
   background: color-mix(in srgb, var(--interactive-accent) 16%, transparent);
@@ -6849,24 +6977,6 @@
 }
 .tj-acc-tchipx { border: none !important; background: transparent !important; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-small); }
 .tj-acc-tchipx:hover { color: var(--text-normal); }
-.tj-acc-tradeshead { flex-wrap: wrap; }
-
-/* Breakdowns — stacked activity bar + clickable legend */
-.tj-acc-bstack { display: flex; gap: 2px; height: 12px; margin: 4px 0 12px; border-radius: 6px; overflow: hidden; }
-.tj-acc-bseg { border-radius: 3px; transition: filter .12s ease; }
-.tj-acc-bseg:hover { filter: brightness(1.25); }
-.tj-acc-blegend { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 2px 18px; }
-.tj-acc-bitem {
-  display: grid; grid-template-columns: 10px 1fr auto auto; gap: 8px; align-items: center;
-  padding: 5px 6px; border-radius: 7px; cursor: default;
-}
-.tj-acc-bitem-click { cursor: pointer; }
-.tj-acc-bitem-click:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent); }
-.tj-acc-bitem.is-active { background: color-mix(in srgb, var(--interactive-accent) 14%, transparent); }
-.tj-acc-bdot { width: 8px; height: 8px; border-radius: 50%; }
-.tj-acc-bname2 { font-size: var(--tj-fs-body); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-acc-bval2 { font-size: var(--tj-fs-body); font-weight: 700; font-variant-numeric: tabular-nums; }
-.tj-acc-bsub2 { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; min-width: 58px; text-align: right; }
 
 /* Risk bar — labels/values above (centered), bar full width */
 .tj-acc-barhead { display: grid; grid-template-columns: 1fr 1fr; align-items: end; margin-bottom: 7px; }
@@ -6884,14 +6994,9 @@
 .tj-acc-ddbadge-warning { background: rgba(217,164,65,.2); color: #d9a441; }
 .tj-acc-ddbadge-critical { background: rgba(255,93,72,.2); color: var(--color-red-bright, #ff5d48); }
 .tj-acc-ddbadge-breached { background: rgba(143,43,30,.3); color: var(--color-red-bright, #ff5d48); }
-.tj-acc-ddtrack { height: 6px; border-radius: 3px; background: rgba(255,255,255,.06); overflow: hidden; }
-.tj-acc-ddfill { height: 100%; border-radius: 3px; transition: width .3s ease; }
-.tj-acc-ddfill-safe { background: var(--color-green-bright, #34d17a); }
-.tj-acc-ddfill-warning { background: #d9a441; }
-.tj-acc-ddfill-critical { background: var(--color-red-bright, #ff5d48); }
-.tj-acc-ddfill-breached { background: var(--color-red-bright, #ff5d48); }
 .tj-acc-ddinfo { display: flex; justify-content: space-between; margin-top: 3px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-acc-ddsummary { margin-top: 4px; font-size: var(--tj-fs-small); color: var(--text-muted); }
+.tj-acc-ddtype { margin-top: 3px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-acc-eqright { margin-left: auto; text-align: right; flex-shrink: 0; }
 .tj-acc-eqtitlerow { display: flex; align-items: center; justify-content: space-between; }
 .tj-acc-eqtitlerow .tj-acc-k { font-size: var(--tj-fs-label); letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3); }
@@ -6908,20 +7013,6 @@
 .tj-acc-dscore .tj-acc-k { margin-bottom: 0; }
 .tj-acc-dscore-fill { height: 100%; border-radius: 7px; transition: width .4s ease; }
 .tj-acc-dscore-num { font-size: var(--tj-fs-head); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
-
-/* Breakdowns — one row per group (bar ∝ activity, colour ∝ result) */
-.tj-acc-brow2 {
-  display: grid; grid-template-columns: 52px 1fr 82px 62px; gap: 12px; align-items: center;
-  padding: 5px 8px; margin: 2px -8px; border-radius: 8px; transition: background .12s ease;
-}
-.tj-acc-brow2 .tj-acc-bname2 { font-size: var(--tj-fs-body); }
-.tj-acc-brow2 .tj-acc-bval2 { text-align: right; }
-.tj-acc-brow2 .tj-acc-bsub2 { text-align: right; }
-.tj-acc-brow2.tj-acc-bitem-click { cursor: pointer; }
-.tj-acc-brow2.tj-acc-bitem-click:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent); }
-.tj-acc-brow2.is-active { background: color-mix(in srgb, var(--interactive-accent) 14%, transparent); }
-.tj-acc-btrack3 { height: 10px; border-radius: 5px; background: rgba(255,255,255,.05); overflow: hidden; }
-.tj-acc-bfill3 { height: 100%; border-radius: 5px; transition: width .35s ease; }
 
 /* Hero left column: equity + breakdowns (fills the space under the chart) */
 .tj-acc-heroleft { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
@@ -6947,7 +7038,6 @@
   transition: filter .12s ease;
 }
 .tj-acc-tile-t { font-size: var(--tj-fs-small); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-.tj-acc-tile-vals { display: flex; flex-direction: column; align-items: center; gap: 1px; }
 .tj-acc-tile-v { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
 .tj-acc-tile-w { font-size: var(--tj-fs-small); color: var(--text-muted); text-align: center; }
 .tj-acc-tile-click { cursor: pointer; }
@@ -6961,15 +7051,7 @@
 .tj-acc-tile.is-tiny .tj-acc-tile-v { font-size: var(--tj-fs-small); }
 .tj-acc-tile.is-tiny .tj-acc-tile-t { font-size: var(--tj-fs-small); }
 
-/* Breakdown metric switch */
-.tj-acc-bmetric { display: inline-flex; border: 1px solid var(--background-modifier-border); border-radius: 999px; padding: 2px; margin-left: 8px; }
-.tj-acc-bmetric-btn {
-  font: inherit; font-size: var(--tj-fs-small); font-weight: 600; color: var(--tj-fg-3);
-  padding: 3px 9px; border-radius: 999px; border: none !important; background: transparent !important; cursor: pointer;
-}
-.tj-acc-bmetric-btn.on { color: var(--text-normal); background: rgba(255,255,255,.08) !important; }
 /* Treemap value fits the tile */
-.tj-acc-tile-v { font-size: var(--tj-fs-strong); }
 .tj-acc-tile.is-compact .tj-acc-tile-v { font-size: var(--tj-fs-body); }
 .tj-acc-tile.is-narrow .tj-acc-tile-v { font-size: var(--tj-fs-small); }
 .tj-acc-tile.is-tiny .tj-acc-tile-v { font-size: var(--tj-fs-small); }
@@ -7001,13 +7083,19 @@
 .tj-eq-tip-value { font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); font-variant-numeric: tabular-nums; }
 .tj-eq-tip-dd { color: var(--color-red-bright, #ff5d48); }
 .tj-eq-daydot { opacity: .9; }
-/* A day the account paid out: gold, because the money left — it was not lost. */
-.tj-eq-daydot.is-cash { fill: #e8c547; opacity: 1; }
+/* Cash days carry their own meaning: a payout left on purpose (gold), a deposit
+   came in (green), a fee correction is a cost (muted — never the payout gold). */
+.tj-eq-daydot.is-cash { opacity: 1; }
+.tj-eq-daydot.is-cash.is-out { fill: #e8c547; }
+.tj-eq-daydot.is-cash.is-in { fill: var(--color-green-bright, #34d17a); }
+.tj-eq-daydot.is-cash.is-cost { fill: var(--tj-fg-3); }
 .tj-eq-extra { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
 .tj-eq-extra-row { display: flex; justify-content: space-between; gap: 14px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-eq-extra-row b { font-weight: 700; color: var(--text-normal); font-variant-numeric: tabular-nums; }
 /* Cash in the hover card reads gold too, so the dot and the number agree. */
 .tj-eq-extra-row b.tj-cash { color: #e8c547; }
+/* A fee correction is a cost, not cash you chose to take out. */
+.tj-eq-extra-row b.tj-cost { color: var(--tj-fg-3); }
 
 /* Key metrics — boxed cells (Journalit style) */
 .tj-acc-mcells { display: grid; grid-template-columns: repeat(auto-fit, minmax(124px, 1fr)); gap: 8px; }
@@ -7051,6 +7139,9 @@
 /* The modal takes the width the window can give, and nothing inside it may
    scroll sideways — that is what cut the Display tab in half. */
 .modal-container:has(.tj-manage) .modal { width: min(780px, 94vw); }
+/* Only the body scrolls. Obsidian's own `.modal-content` would otherwise add a
+   second, empty scrollbar around a panel that already fits. */
+.modal-container:has(.tj-manage) .modal-content { overflow: hidden; }
 .tj-manage { width: 100%; overflow-x: hidden; }
 .tj-manage-head h2 { margin: 0 0 4px; }
 .tj-manage-title {
@@ -7152,11 +7243,14 @@
   border-radius: 0 !important; box-shadow: none !important; color: var(--text-normal);
 }
 .tj-mg-x { flex: 0 0 auto; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
-.tj-mg-add, .tj-mg-swap {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin-top: 8px;
-  padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .05);
+.tj-mg-sect { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .05); }
+.tj-mg-sectitle {
+  font-size: var(--tj-fs-small); color: var(--tj-fg-3); text-transform: uppercase;
+  letter-spacing: .08em; margin-bottom: 6px;
 }
-.tj-mg-swaplbl { font-size: var(--tj-fs-small); color: var(--tj-fg-3); text-transform: uppercase; letter-spacing: .08em; }
+.tj-mg-add, .tj-mg-swap {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px;
+}
 /* Members hang under their leader: a vertical spine with a stub per row, so the
    group reads as one tree instead of a stack of unrelated lines. */
 .tj-mg-tree {
@@ -7620,6 +7714,9 @@
   padding: 8px 8px;
   white-space: nowrap;
 }
+.tj-tbl.is-static thead th {
+  position: static;
+}
 .tj-tbl thead th.l {
   text-align: left;
 }
@@ -7638,7 +7735,7 @@
   font-size: var(--tj-fs-body);
   text-align: center;
   border-top: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
+  color: var(--tj-fg-3);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -7647,9 +7744,6 @@
 }
 .tj-tbl-row {
   cursor: pointer;
-}
-.tj-tbl-row:hover td {
-  background: rgba(255, 255, 255, 0.025);
 }
 .tj-tbl td.tj-pos {
   color: var(--color-green-bright, #34d17a) !important;
@@ -7684,45 +7778,9 @@
   font-weight: var(--tj-w-bold);
 }
 .tj-tbl-stars {
-  color: #f5b301;
-}
-/* Silence is the good news: only the trades still waiting speak up. */
-.tj-tbl-review {
-  color: #d9a441;
-  font-size: var(--tj-fs-small);
-  border-bottom: 1px dashed color-mix(in srgb, #d9a441 55%, transparent);
-  cursor: help;
-}
-.tj-tbl-shot {
-  width: 44px;
-  height: 30px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: var(--background-primary);
-  display: block;
-  position: relative;
-  z-index: 1;
-  transition: transform 120ms ease;
-}
-/* Hover to read it: the thumbnail swells out of its cell instead of forcing
-   every row to reserve 132x84 the way the old cards did. */
-.tj-tbl-row:hover .tj-tbl-shot {
-  transform: scale(1.7);
-  transform-origin: left center;
-  z-index: 5;
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
-}
-.tj-tbl-noshot {
-  display: grid;
-  place-items: center;
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3);
-  border: 1px dashed var(--background-modifier-border);
-  background: transparent;
-}
-.tj-tbl-noshot:hover {
-  transform: none;
-  box-shadow: none;
+  color: var(--tj-tone-mid);
+  display: inline-block;
+  min-width: 4.5em;
 }
 /* Timeline rail: solid dots via CSS ::before on each trade row. No td needed,
    so the sticky thead aligns perfectly with the table body. */
@@ -7754,30 +7812,13 @@
 /* Sticky thead: one solid bar, not eleven cells with a line under each.
    A single top shadow closes the 16px of padding above the table; the sides are
    closed by the ledger eating the container's side padding (see below), so no
-   shadow can be uneven between columns. */
+   shadow can be uneven between columns. Square ends, like the panel that holds
+   it: a rounded bar is not a shape this page language uses. */
 .tj-tbl thead th {
   background: color-mix(in srgb, var(--text-normal) 7%, var(--background-primary)) !important;
   border-bottom: none;
   z-index: 10 !important;
   box-shadow: 0 -20px 0 0 var(--background-primary);
-}
-/* Rounded ends, like our pills: the bar reads as one object while scrolling. */
-.tj-tbl thead th:first-child {
-  border-radius: 7px 0 0 7px;
-}
-.tj-tbl thead th:last-child {
-  border-radius: 0 7px 7px 0;
-}
-/* The ledger spans the full width of the page: it takes the scroll container's
-   20px side padding and gives it back as its own, so nothing can slide past the
-   header bar on the left or the right. */
-.tj-tl-ledger {
-  margin-left: -20px;
-  margin-right: -20px;
-  padding-left: 20px;
-  padding-right: 20px;
-}
-/* Old single-td day layout (targeted td:last-child, collapsed the bar hairlines)
 }
 /* A checkbox in a clickable row is a target in its own right (SC 2.5.8). */
 .tj-tbl-selcol {
@@ -7790,106 +7831,88 @@
   cursor: pointer;
 }
 
-/* ---- Trade Log page chrome (title + numbers, review alert, period line) ---- */
-.tj-tl-head {
-  /* Same reason as .tj-header-actions: the Filters popover is a child of this
-     row, so this row is what it must anchor to. */
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 2px;
-}
-.tj-tl-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.tj-tl-nums {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.tj-tl-net {
-  font-size: var(--tj-fs-head);
-  font-weight: var(--tj-w-bold);
-  font-variant-numeric: tabular-nums;
-}
-.tj-tl-meta {
-  font-size: var(--tj-fs-label);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--tj-fg-3);
-}
-.tj-tl-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-/* "12 to review" — the alert, in the same amber as the review gauge. */
-.tj-tl-reviewalert {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 11px;
-  border-radius: 8px;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, #d9a441 45%, var(--background-modifier-border));
-  color: #d9a441;
-  font-size: var(--tj-fs-body);
-  font-weight: var(--tj-w-medium);
-  cursor: pointer;
-}
-.tj-tl-reviewalert:hover,
-.tj-tl-reviewalert.is-active {
-  background: color-mix(in srgb, #d9a441 14%, transparent);
-}
-.tj-tl-reviewalert .tj-btn-icon svg {
-  width: 14px;
-  height: 14px;
-}
+/* ---- Trade Log page chrome (the same header Accounts opens with) ---- */
 .tj-tl-sub {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   flex-wrap: wrap;
-  margin: 8px 0 6px;
+  margin: 10px 0 8px;
+  min-width: 0;
+}
+.tj-tl-periodbar {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+/* With a custom range the bar holds two date fields, so the box has to open. */
+.tj-tl-periodbar:has(.tj-period-custom) {
+  gap: 6px;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+.tj-tl-periodbar .tj-pbtn {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  box-shadow: none;
+}
+.tj-tl-periodbar .tj-pbtn:hover {
+  background: transparent;
+  color: var(--text-normal);
+}
+.tj-tl-periodbar .tj-pbtn.active {
+  color: var(--text-normal);
+  background: rgba(255, 255, 255, 0.06);
 }
 .tj-tl-sub .tj-tl-periodbar {
   /* Not `margin-right: auto`: that pushed the search to the far right, where an
      open panel covered it. Period and search stay together on the left and the
-     review segment takes the right edge instead. */
+     filters in force take the right edge instead. */
   margin-right: 0;
 }
 .tj-tl-active {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
-/* Applied filters read as "these are in force", not as buttons (no capsules). */
+/* Applied filters read as tags you can lift: the house fill and border, the
+   words first, the × as the only affordance to remove it. */
 .tj-tl-activechip {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
+  min-height: 24px;
+  padding: 2px 2px 3px;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  background: transparent;
   font-size: var(--tj-fs-small);
   color: var(--text-muted);
-  border-bottom: 1px solid var(--background-modifier-border);
-  padding: 2px 2px 3px;
 }
 .tj-tl-activechip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
   color: var(--tj-fg-3);
   cursor: pointer;
 }
 .tj-tl-activechip-x:hover {
-  color: var(--color-red-bright, #ff5d48);
+  color: var(--text-normal);
+  background: rgba(255, 255, 255, 0.08);
 }
 .tj-tl-activeclear {
   border: none !important;
@@ -7905,21 +7928,24 @@
   color: var(--text-normal);
   background: transparent !important;
 }
-.tj-tl-ledger {
-  margin-top: 10px;
-}
+/* Columns: vertical list with drag handles + visibility checkboxes */
+.tj-tl-collist { display: flex; flex-direction: column; gap: 1px; }
+.tj-tl-colitem { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px; font-size: var(--tj-fs-body); color: var(--text-normal); transition: background 120ms; }
+.tj-tl-colitem.dragging { opacity: 0.4; }
+.tj-tl-colitem.drag-over { background: rgba(255, 255, 255, 0.06); }
+.tj-tl-colitem.is-hidden { color: var(--tj-fg-3); }
+.tj-tl-colhandle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; color: var(--tj-fg-3); cursor: grab; border-radius: 4px; }
+.tj-tl-colhandle:hover { background: rgba(255, 255, 255, 0.06); color: var(--text-normal); }
+.tj-tl-colhandle svg { width: 14px; height: 14px; }
+.tj-tl-colcheck { margin: 0; }
+.tj-tl-collabel { flex: 1; }
 .tj-tl-pop {
   width: 340px;
   max-height: 74vh;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-/* Columns: two tidy columns of ticks, in its own small panel. */
-.tj-tl-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px 14px;
-}
+
 .tj-tl-colnote {
   font-size: var(--tj-fs-small);
   color: var(--tj-fg-3);
@@ -7941,34 +7967,47 @@
 .tj-tbl-fills {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 6px;
-  padding: 2px 7px;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
   min-height: 24px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 34%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
-  color: var(--text-muted);
-  font-size: var(--tj-fs-label);
-  font-weight: var(--tj-w-bold);
-  letter-spacing: 0.04em;
+  background: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: inherit;
+  font-size: var(--tj-fs-body);
+  font-weight: var(--tj-w-regular);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
   cursor: pointer;
 }
-.tj-tbl-fills:hover {
+.tj-tbl-fills:hover,
+.tj-tbl-fills:active,
+.tj-tbl-fills:focus {
   color: var(--text-normal);
-  border-color: color-mix(in srgb, var(--interactive-accent) 62%, transparent);
-}
-.tj-tbl-fills-ico {
-  color: var(--interactive-accent);
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none;
 }
 .tj-tbl-fills-chev {
   font-size: var(--tj-fs-label);
   color: var(--tj-fg-3);
 }
+.tj-tbl-fills:hover .tj-tbl-fills-chev,
+.tj-tbl-fills:focus-visible .tj-tbl-fills-chev,
+.tj-tbl-fills.is-open .tj-tbl-fills-chev {
+  color: var(--interactive-accent);
+}
+.tj-tbl-fills:focus-visible {
+  outline: 1px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
 /* The executions: quieter than the trade they belong to, never louder. */
 .tj-tbl-fill td {
   font-size: var(--tj-fs-small);
-  color: var(--text-muted);
+  color: var(--tj-fg-3);
   padding-top: 5px;
   padding-bottom: 5px;
   border-top: none;
@@ -7983,7 +8022,7 @@
   padding: 1px 6px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.06);
-  color: var(--text-muted);
+  color: var(--tj-fg-3);
   font-size: var(--tj-fs-label);
   font-weight: var(--tj-w-bold);
   letter-spacing: 0.05em;
@@ -7991,14 +8030,14 @@
 }
 /* (rail sub-dots removed — fill rows no longer have a rail td) */
 .tj-tbl-pnl-partial {
-  color: #d9a441;
+  color: var(--tj-tone-mid);
   margin-left: 2px;
   cursor: help;
 }
 /* Flat is a state, not a side: a break-even fill (or a trade that nets zero) is
    neither a win nor a loss, so it reads muted instead of green or red. */
 .tj-flat {
-  color: var(--text-muted);
+  color: var(--tj-fg-3);
 }
 .tj-tbl-fill-tag.is-flat {
   color: var(--tj-fg-2);
@@ -8010,57 +8049,19 @@
    The trade page's fills table: the same story as the ledger row, one level
    deeper. Read-only, and it has to tie back to the trade's own totals. */
 .tj-td-execs {
-  margin: 20px 0 4px;
+  margin: 16px 0 4px;
 }
 .tj-td-execs-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
-  margin-bottom: 10px;
-}
-.tj-td-execs-head h3 {
-  margin: 0;
+  margin-bottom: 8px;
 }
 .tj-td-execs-count {
   font-size: var(--tj-fs-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tj-fg-3);
-}
-.tj-td-execs-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.tj-td-execcard {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.02);
-  min-width: 120px;
-}
-.tj-td-execcard-k {
-  font-size: var(--tj-fs-label);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--tj-fg-3);
-  font-weight: var(--tj-w-bold);
-}
-.tj-td-execcard-v {
-  font-size: var(--tj-fs-strong);
-  font-weight: var(--tj-w-bold);
-  font-variant-numeric: tabular-nums;
-  margin-top: 3px;
-}
-.tj-td-execcard-v.pos {
-  color: var(--color-green-bright, #34d17a);
-}
-.tj-td-execcard-v.neg {
-  color: var(--color-red-bright, #ff5d48);
-}
-.tj-td-execcard-v.warn {
-  color: #d9a441;
 }
 .tj-td-execs-table {
   width: 100%;
@@ -8090,6 +8091,19 @@
 /* Entries are context, exits are the news. */
 .tj-td-execrow.is-entry td {
   color: var(--tj-fg-3);
+}
+/* The fill badge carries the side: entry green, exit red, break-even muted. */
+.tj-td-execrow.is-entry .tj-tbl-fill-tag {
+  color: var(--color-green-bright, #34d17a);
+  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent);
+}
+.tj-td-execrow.is-exit .tj-tbl-fill-tag {
+  color: var(--color-red-bright, #ff5d48);
+  background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 14%, transparent);
+}
+.tj-td-execrow .tj-tbl-fill-tag.is-flat {
+  color: var(--tj-fg-2);
+  background: transparent;
 }
 .tj-td-execrow.is-total td {
   color: var(--text-normal);
@@ -8160,37 +8174,6 @@
 .tj-pop-field-wide {
   grid-column: 1 / -1;
 }
-.tj-tl-picks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  max-height: 96px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 2px 0;
-}
-.tj-tl-pick {
-  border: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-muted);
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: var(--tj-fs-small);
-  cursor: pointer;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tj-tl-pick:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.tj-tl-pick.on {
-  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
-  color: var(--text-normal);
-}
 .tj-tl-picknone {
   font-size: var(--tj-fs-small);
   color: var(--tj-fg-3);
@@ -8200,9 +8183,341 @@
   display: inline-flex;
   align-items: center;
 }
+.tj-tl-bulkpick .tj-mg-dd-btn {
+  padding: 4px 8px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 7px !important;
+  color: var(--text-normal);
+  font-size: var(--tj-fs-small);
+}
+.tj-tl-bulkpick .tj-mg-dd-btn:hover {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+}
 .tj-tl-bulkpick.is-disabled {
   opacity: 0.45;
   pointer-events: none;
+}
+
+/* ---- Variant A, the house surface language: Accounts is the reference. ----
+   One definition, every surface. Numbers sit in one segmented card, lists sit in
+   a translucent card with a hairline head (`.tj-acct-h1`), and a queue is a row
+   of chips in the house tag language. No page invents its own card skin. */
+.tj-attention {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+}
+.tj-attn-label {
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-3);
+  white-space: nowrap;
+}
+.tj-attention.is-clear .tj-attn-label {
+  display: none;
+}
+/* A queue chip is a tag you can press: words first, the state carried by the
+   fill and the border, never by colour alone. */
+.tj-attn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  cursor: pointer;
+}
+.tj-attn-chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: var(--tj-tone-mid);
+}
+.tj-attn-chip:hover {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
+}
+.tj-attn-chip.is-on {
+  color: var(--text-normal);
+  border-color: color-mix(in srgb, var(--tj-tone-mid) 55%, var(--background-modifier-border));
+}
+.tj-attn-none {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* A panel is the house list surface: one translucent card, a hairline head,
+   the rows below. Same recipe as the accounts and chart cards. */
+.tj-panel {
+  margin-top: 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.022);
+  overflow: hidden;
+}
+/* The rows inside a panel keep their own frame but drop the page-wide bleed. */
+.tj-panel .tj-tbl {
+  margin: 0;
+}
+/* The shell holds the ledger and, when open, the filters drawer beside it. */
+.tj-tl-shell {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 4px;
+  width: 100%;
+}
+.tj-tl-col {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tj-tl-bulkhost {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+/* The bulk bar floats: it is only there while trades are selected. It is the
+   same card as the rest of the page, solid so rows never read through it. */
+.tj-tl-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.022);
+}
+.tj-tl-bulkinline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.tj-tl-bulkinput {
+  height: 28px;
+  min-width: 160px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--tj-fs-body);
+}
+.tj-tl-bulkinput:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+/* The filters drawer: a slide-over overlay that covers the viewport when open.
+   Table keeps 100% width always; the drawer sits on top. */
+.tj-tl-shell {
+  position: relative;
+}
+.tj-tl-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  max-width: 100%;
+  z-index: 100;
+  padding: 14px;
+  border: none;
+  border-left: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  background: var(--background-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+}
+.tj-tl-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: rgba(0, 0, 0, 0.15);
+}
+@media (max-width: 900px) {
+  .tj-tl-drawer {
+    width: 100%;
+    border-radius: 0;
+    border-left: none;
+  }
+}
+.tj-tl-drawerhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 0 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.tj-tl-drawer-title {
+  font-size: var(--tj-fs-small);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  font-weight: var(--tj-w-bold);
+  color: var(--text-normal);
+}
+.tj-tl-drawer-x {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--tj-fg-3);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-tl-drawer-x:hover {
+  color: var(--text-normal);
+  background: transparent;
+}
+.tj-tl-drawerbody {
+  padding: 8px 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tj-tl-drawerfoot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-tl-drawer-clear {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+  cursor: pointer;
+  padding: 0;
+  height: auto;
+  margin-left: auto;
+}
+.tj-tl-drawer-clear:hover {
+  color: var(--text-normal);
+  background: transparent !important;
+}
+/* Filter sections: the title is a micro-label, the choices are pills. A filter
+   you can read at a glance beats one hidden behind a dropdown. */
+.tj-tl-dsec {
+  margin-bottom: 20px;
+}
+.tj-tl-dsec-t {
+  margin-bottom: 7px;
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-3);
+}
+.tj-tl-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tj-tl-opts + .tj-tl-opts {
+  margin-top: var(--tj-sp-2);
+}
+.tj-tl-opt {
+  padding: 3px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-tl-opt:hover {
+  color: var(--text-normal);
+  background: transparent;
+}
+.tj-tl-opt.on {
+  color: var(--text-normal);
+  border-color: color-mix(in srgb, var(--interactive-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+.tj-tl-optnone {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  padding: 3px 0;
+}
+.tj-tl-mode {
+  margin: 10px 0 8px;
+}
+.tj-tl-incl {
+  display: inline-flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tj-tl-incl button {
+  padding: 3px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-tl-incl button.on {
+  color: var(--text-normal);
+  background: rgba(255, 255, 255, 0.06);
+}
+.tj-tl-drawer-show {
+  flex: 1 1 auto;
+  text-align: center;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  cursor: pointer;
+  box-shadow: none;
+}
+.tj-tl-drawer-show:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+/* The confirm dialog for destructive batch actions. */
+.tj-confirm-title {
+  margin: 0 0 8px;
+  font-size: var(--tj-fs-head);
+  font-weight: var(--tj-w-bold);
+}
+.tj-confirm-body {
+  margin: 0 0 16px;
+  font-size: var(--tj-fs-body);
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.tj-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.tj-btn-del {
+  border-color: color-mix(in srgb, var(--color-red, #ad3527) 55%, transparent) !important;
+  color: var(--color-red-bright, #ff5d48) !important;
+}
+.tj-btn-del:hover {
+  background: color-mix(in srgb, var(--color-red, #ad3527) 16%, transparent) !important;
 }
 /* Getting started tour (first run, and reopenable from Settings → Advanced).
    Four short steps: what this is, where notes live, the accounts, the first
@@ -8899,58 +9214,9 @@
 }
 .tj-tbl-print.is-on {
   color: var(--color-green-bright, #34d17a);
-}
-/* The review tick: the same gesture as the trade page, inside the list. */
-.tj-tbl-tick {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--tj-fg-3);
-  font-size: var(--tj-fs-small);
-  line-height: 1;
   cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
-.tj-tbl-tick:hover {
-  color: var(--text-normal);
-  border-color: var(--background-modifier-border-hover);
-}
-.tj-tbl-tick.is-on {
-  color: var(--color-green-bright, #34d17a);
-  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent);
-  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 10%, transparent);
-}
-/* The day is a bar, not a row. It sticks while its own trades scroll past, so
-   you always know which day you are reading. */
-.tj-tbl-day td {
-  /* Not sticky: several day bars pinned at the same offset simply overlapped
-     each other. The header is the only thing that stays. */
-  padding: 13px 8px 9px;
-  border-top: none;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-}
-.tj-tbl-day .tj-tbl-dayname {
-  color: var(--text-normal);
-}
-.tj-tbl-day .tj-tbl-daynet {
-  font-weight: var(--tj-w-bold);
-}
-.tj-tbl-day .tj-tbl-daymeta {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-}
-/* Inside a day the lines get lighter: the day bar is the divider that counts. */
-.tj-tbl tbody .tj-tbl-row td {
-  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
-}
+
 
 /* One title line per page. Home is the reference: the other pages sat ~17px
    lower because a bare `h1` keeps its browser margin and their header rows added
@@ -8968,14 +9234,12 @@
   padding-top: 10px;
 }
 .tj-app-main > .tj-header,
-.tj-app-main > .tj-tl-head,
 .tj-app-main > .tj-acct-header {
   padding-top: 0;
 }
 /* Home reads 6px higher than it looks: its header is sticky, so it pins to the
    scrollport instead of sitting inside the app padding. Rather than leave that
    gap unexplained, the other titles are nudged up by the same 6px. */
-.tj-app-main > .tj-tl-head,
 .tj-app-main > .tj-acct-header,
 .tj-app-main > .tj-view-h1 {
   margin-top: -6px;
@@ -8983,41 +9247,102 @@
 
 /* Ledger: a copied trade is one row. The chip says how many accounts it reached
    and the hover breaks the money down per account — one decision, not five. */
-.tj-tbl-accs {
-  font-size: var(--tj-fs-small);
-  color: var(--text-muted);
-  border-bottom: 1px dotted color-mix(in srgb, var(--text-muted) 55%, transparent);
-  cursor: help;
-}
 
-/* Trade detail: where else this trade lives. Same card family as Executions, so
-   a copied trade reads as one more fact about it, not a second page. */
-.tj-td-accrows {
+/* Trade detail: where else this trade lives. A badge in the header opens a
+   popover with one row per leg — account, size, entry, money. */
+.tj-td-accbadge-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.tj-td-accbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  cursor: pointer;
+}
+.tj-td-accbadge:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.tj-td-accbadge-ico {
+  display: inline-flex;
+  align-items: center;
+}
+.tj-td-accbadge-ico svg {
+  width: 14px;
+  height: 14px;
+}
+.tj-td-accpop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 360px;
+  max-width: 80vw;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+.tj-td-accpop-t {
+  font-size: var(--tj-fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--tj-fg-3);
+  margin-bottom: 8px;
+}
+.tj-td-acctable {
   display: flex;
   flex-direction: column;
 }
-.tj-td-accrow {
-  display: flex;
+.tj-td-acctable-row {
+  display: grid;
+  grid-template-columns: 1fr 48px 80px 92px;
   align-items: baseline;
-  gap: var(--tj-sp-3);
-  padding: 6px 0;
+  gap: 8px;
+  padding: 5px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+  font-variant-numeric: tabular-nums;
 }
-.tj-td-accrow:last-child {
+.tj-td-acctable-row:last-child {
   border-bottom: none;
 }
-.tj-td-accname {
-  flex: 1 1 auto;
+.tj-td-acctable-row.is-head {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.tj-td-acctable-row.is-head span {
+  font-size: var(--tj-fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tj-fg-3);
+}
+.tj-td-acctable-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   font-size: var(--tj-fs-body);
-  color: var(--text-muted);
+  color: var(--text-normal);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tj-td-accrow.is-orig .tj-td-accname {
-  color: var(--text-normal);
-  font-weight: var(--tj-w-medium);
+.tj-td-acctable-num {
+  font-size: var(--tj-fs-body);
+  color: var(--text-muted);
+  text-align: right;
 }
 .tj-td-acctag {
   flex: 0 0 auto;
@@ -9028,13 +9353,6 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
   padding: 1px 7px;
-  cursor: help;
-}
-.tj-td-accpnl {
-  flex: 0 0 auto;
-  font-size: var(--tj-fs-strong);
-  font-weight: var(--tj-w-medium);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------- ledger bar --
@@ -9046,8 +9364,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  height: auto;
+  padding: 2px;
+  border: none;
   border-bottom: 1px solid var(--background-modifier-border);
-  padding: 1px 2px 2px;
+  border-radius: 0;
+  background: transparent;
+}
+.tj-tl-search:focus-within {
+  border-color: var(--interactive-accent);
 }
 .tj-tl-search-ico {
   display: flex;
@@ -9076,50 +9401,47 @@
 
 /* Ledger: the day is a divider, not a row — a pill of text centred between two
    hairlines. Reading the far-right profits used to lose the day entirely; a
-   centred label is caught without looking for it. The alternating tint then
-   groups the rows by shape, so the day still reads when scrolled. */
+   centred label is caught without looking for it. */
 .tj-tbl-day td {
-  padding: 12px 8px 7px;
-  border-bottom: 1px solid color-mix(in srgb, var(--text-normal) 14%, transparent);
+  padding: 12px 8px 5px;
+  border-top: none;
+  border-bottom: none;
+  background: transparent;
 }
+/* The day is a label between two short rules, not a row of its own. */
 .tj-tbl-daybar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 10px;
   width: 100%;
 }
 .tj-tbl-dayrule {
-  flex: 1 1 auto;
+  flex: 0 0 26px;
   height: 1px;
-  background: color-mix(in srgb, var(--text-normal) 20%, transparent);
+  background: var(--background-modifier-border);
 }
 .tj-tbl-daymid {
   display: inline-flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 1px 2px;
-
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--background-modifier-hover);
-  border: 1px solid color-mix(in srgb, var(--text-normal) 8%, transparent);
 }
 .tj-tbl-dayname {
-  font-size: var(--tj-fs-small);
-  letter-spacing: 0.14em;
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.11em;
   text-transform: uppercase;
-  font-weight: var(--tj-w-bold);
-  color: var(--text-normal);
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-3);
 }
 .tj-tbl-daymeta {
   font-size: var(--tj-fs-label);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   color: var(--tj-fg-3);
-  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
-  border-radius: 999px;
-  padding: 1px 7px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 5px;
+  padding: 2px 6px;
 }
 .tj-tbl-daynet {
   font-size: var(--tj-fs-body);
@@ -9129,7 +9451,7 @@
 /* Zebra removed: the pill in the day bar creates enough separation. */
 .tj-tbl tbody .tj-tbl-row:hover td,
 .tj-tbl tbody .tj-tbl-row.is-alt:hover td {
-  background: var(--background-modifier-hover);
+  background: rgba(255, 255, 255, 0.035);
 }
 /* Side: arrow or text in a small pill — shape says which way, colour agrees. */
 .tj-tbl-side {
@@ -9152,17 +9474,31 @@
   color: var(--color-red-bright, #ff5d48);
   background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 10%, transparent);
 }
-/* Strategies: the placeholder has to look deliberate, not unfinished. The hammer
-   taps once in a while so the page feels alive; it stops with the animations off
-   and for anyone who asked the system for less motion. */
-.tj-strat-title {
-  font-size: var(--tj-fs-display);
+/* Strategies: the "in development" note is deliberately quiet — the list above is
+   the page. The hammer taps once in a while so it feels alive; it stops with the
+   animations off and for anyone who asked the system for less motion. */
+.tj-strat-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 640px;
+  padding: 14px 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
 }
-.tj-strat-hammer svg {
+.tj-strat-note-ico {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--tj-fg-3);
+}
+.tj-strat-note-ico svg {
+  width: 18px;
+  height: 18px;
   transform-origin: 22% 78%;
   animation: tj-hammer 2.8s ease-in-out infinite;
 }
-.tj-strat.is-still .tj-strat-hammer svg {
+.tj-strat-note.is-still .tj-strat-note-ico svg {
   animation: none;
 }
 @keyframes tj-hammer {
@@ -9181,35 +9517,18 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tj-strat-hammer svg {
+  .tj-strat-note-ico svg {
     animation: none;
   }
 }
-.tj-strat-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--tj-sp-2);
-  margin-top: var(--tj-sp-5);
-  max-width: 520px;
-  text-align: left;
+.tj-strat-note-txt {
+  font-size: var(--tj-fs-small);
+  color: var(--text-muted);
+  line-height: 1.45;
 }
-.tj-strat-row {
-  display: grid;
-  grid-template-columns: 168px 1fr;
-  gap: var(--tj-sp-3);
-  align-items: baseline;
-  padding-top: var(--tj-sp-2);
-  border-top: 1px solid var(--background-modifier-border);
-}
-.tj-strat-k {
-  font-size: var(--tj-fs-body);
+.tj-strat-note-strong {
   font-weight: var(--tj-w-medium);
   color: var(--text-normal);
-}
-.tj-strat-v {
-  font-size: var(--tj-fs-body);
-  color: var(--tj-muted, var(--text-muted));
-  line-height: 1.45;
 }
 
 /* Strategies — the naming half that ships now. The list is the source people
@@ -9227,7 +9546,7 @@
   border-radius: 12px;
   padding: 16px;
   margin-bottom: 28px;
-  max-width: 720px;
+  max-width: 640px;
 }
 .tj-strat-card-head {
   display: flex;
@@ -9300,6 +9619,42 @@
 }
 .tj-strat-item:hover .tj-strat-item-actions {
   opacity: 1;
+}
+.tj-strat-item-actions.is-open {
+  opacity: 1;
+}
+.tj-strat-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+.tj-strat-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  font-size: var(--tj-fs-body);
+  color: var(--text-normal);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+.tj-strat-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+.tj-strat-item .tj-strat-input {
+  height: 28px;
+}
+.tj-strat-untracked {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--tj-fs-label);
+  color: var(--tj-fg-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  padding: 1px 7px;
 }
 
 /* The account picker: accounts are their own question, and a journal has fifty of
@@ -9434,20 +9789,6 @@
 .tj-tl-presetbtn.is-quiet {
   border-style: dashed;
 }
-
-/* Clear all outside the filters button — ghost text, no frame. */
-.tj-filterbtn-clear {
-  background: transparent !important;
-  border: none !important;
-  color: var(--text-muted) !important;
-  box-shadow: none !important;
-  font-size: var(--tj-fs-label) !important;
-  text-transform: none !important;
-  letter-spacing: 0 !important;
-  padding: 4px 6px !important;
-  cursor: pointer;
-}
-.tj-filterbtn-clear:hover { color: var(--color-red, #ff5d48) !important; }
 
 /* Side display toggle in the Columns popover */
 .tj-tl-colside { display: flex; align-items: center; gap: 10px; margin-top: var(--tj-sp-3); padding-top: var(--tj-sp-3); border-top: 1px solid var(--background-modifier-border); }
@@ -9701,7 +10042,7 @@
   text-overflow: ellipsis;
 }
 .tj-pq-time {
-  font-size: 9px;
+  font-size: var(--tj-fs-label);
   color: var(--text-muted);
 }
 .tj-pq-remove {
@@ -9715,7 +10056,7 @@
   border: none;
   background: rgba(0, 0, 0, 0.5);
   color: var(--text-muted);
-  font-size: 9px;
+  font-size: var(--tj-fs-label);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -9823,6 +10164,11 @@
 }
 .tj-add-ctl datalist {
   display: none;
+}
+.tj-add-hint {
+  margin-top: 5px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
 }
 
 /* Inside a modal Obsidian paints its own control surfaces over a loose class. */
@@ -10101,3 +10447,122 @@
   }
 }
 
+/* ============================================================
+   Trade Detail — ghost chips, ghost buttons, loose stars
+   Added to override Obsidian's native button styling.
+   ============================================================ */
+
+/* Tag chips row — wraps, stays hidden when empty. */
+.tj-td-tagchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Tag chips — outline only, no fill. Follows accent when on. */
+.tj-td-tagchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--tj-fs-small);
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.tj-td-tagchip:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+.tj-td-tagchip.on {
+  color: var(--interactive-accent) !important;
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
+  background: transparent !important;
+}
+.tj-td-tagchip.on.is-mistake {
+  color: var(--color-red-bright, #ff5d48) !important;
+  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 55%, transparent) !important;
+  background: transparent !important;
+}
+
+/* Panel header actions (Annotate / Enlarge) — ghost text */
+.tj-td-panel-actions {
+  display: flex;
+  gap: 6px;
+}
+.tj-td-panel-actions button {
+  font-family: inherit;
+  font-size: var(--tj-fs-small);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.tj-td-panel-actions button:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+
+/* Ghost "Add tag" link in the section header */
+.tj-td-ghostbtn {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+}
+.tj-td-ghostbtn:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+
+/* Acknowledgement buttons — ghost outline */
+.tj-td-ack {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+  font-family: inherit;
+}
+.tj-td-ack:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+.tj-td-ack.on {
+  background: transparent !important;
+}
+
+/* Loose stars — no boxes at all */
+.tj-td-star {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.tj-td-star:hover,
+.tj-td-star.hover-on {
+  background: transparent !important;
+}
+.tj-td-star.on,
+.tj-td-star.active {
+  background: transparent !important;
+}
+
+/* Screenshot thumbs — outline only, green border when active */
+.tj-td-shot-thumb {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.tj-td-shot-thumb.on {
+  background: transparent !important;
+}
+.tj-td-shot-add {
+  background: transparent !important;
+}

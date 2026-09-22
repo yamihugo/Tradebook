@@ -115,7 +115,7 @@ class AccountsManageModal extends Modal {
     const titleRow = head.createDiv({ cls: "tj-manage-title" });
     const titleIcon = titleRow.createSpan({ cls: "tj-manage-titleicon" });
     setIcon(titleIcon, groups ? "users" : "sliders-horizontal");
-    titleRow.createEl("h2", { text: groups ? "Copy groups" : "Display" });
+    titleRow.createEl("h2", { text: groups ? "Copy groups" : "Settings" });
     head.createEl("p", {
       cls: "tj-manage-sub",
       text: groups
@@ -547,69 +547,11 @@ class AccountsManageModal extends Modal {
     lrow.createSpan({ cls: "tj-mg-lname", text: leader.name });
     lrow.createSpan({ cls: "tj-mg-lsize", text: fmtMoneyAbs(this.sizeOf(leader)) });
 
-    card.createDiv({
-      cls: "tj-mg-hint",
-      text: "Remove takes an account out of the group: it keeps every trade it copied so far and simply stops taking new ones. From there it can join another group or become a leader.",
-    });
-
-    // --- members, drawn on a tree so the leader/copiers relation reads at a glance
+    // --- change the leader: kept right under the leader row, where the eye is
     if (members.length) {
-      const tree = card.createDiv({ cls: "tj-mg-tree" });
-      for (const m of members) this.renderMember(tree, leader, m);
-    }
-
-    // --- add a copier
-    const add = card.createDiv({ cls: "tj-mg-add" });
-    if (free.length) {
-      mountDropdown(
-        add,
-        free.map((f) => ({ id: f.id, label: f.name, note: `${fmtMoneyAbs(this.sizeOf(f))} · not in a group` })),
-        this.addPickedId,
-        (id) => {
-          this.addPickedId = id;
-        },
-        { placeholder: "Add an account…", title: "An account that is not in a group yet" }
-      );
-      this.copyStartControl(
-        add,
-        free.find((f) => f.id === this.addPickedId),
-        this.addCopyFrom,
-        this.addCopyFromDate,
-        (m) => (this.addCopyFrom = m),
-        (iso) => (this.addCopyFromDate = iso)
-      );
-      add
-        .createEl("button", { text: "Add to group", cls: "tj-mg-act", attr: { type: "button" } })
-        .addEventListener("click", async () => {
-          // A pick can go stale when the page redraws under it: drop it and say
-          // so, instead of a button that looks live and does nothing.
-          const target = free.find((f) => f.id === this.addPickedId);
-          if (!target) {
-            this.addPickedId = "";
-            new Notice("Pick an account first.");
-            this.render();
-            return;
-          }
-          unlinkCopier(target);
-          target.copyRole = "copier";
-          target.copyBaseId = leader.id;
-          target.copyMultiplier = 1;
-          startCopying(target, leader.id, 1, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate));
-          this.addPickedId = "";
-          this.addCopyFrom = "start";
-          this.addCopyFromDate = "";
-          await this.apply();
-          new Notice(`${target.name} now copies ${leader.name}.`);
-          this.render();
-        });
-    } else {
-      add.createSpan({ cls: "tj-mg-empty", text: "Every account is already in a group." });
-    }
-
-    // --- change the leader of the whole group
-    if (members.length) {
-      const swap = card.createDiv({ cls: "tj-mg-swap" });
-      swap.createSpan({ cls: "tj-mg-swaplbl", text: "Change leader" });
+      const swapSect = card.createDiv({ cls: "tj-mg-sect" });
+      swapSect.createDiv({ cls: "tj-mg-sectitle", text: "Change leader" });
+      const swap = swapSect.createDiv({ cls: "tj-mg-swap" });
       const all = this.plugin.settings.propAccounts ?? [];
       const items = all
         .filter((a) => a.id !== leader.id)
@@ -662,6 +604,68 @@ class AccountsManageModal extends Modal {
           this.render();
         });
     }
+
+    card.createDiv({
+      cls: "tj-mg-hint",
+      text: "Remove takes an account out of the group: it keeps every trade it copied so far and simply stops taking new ones. From there it can join another group or become a leader.",
+    });
+
+    // --- members, drawn on a tree so the leader/copiers relation reads at a glance
+    if (members.length) {
+      const tree = card.createDiv({ cls: "tj-mg-tree" });
+      for (const m of members) this.renderMember(tree, leader, m);
+    }
+
+    // --- add a copier
+    const addSect = card.createDiv({ cls: "tj-mg-sect" });
+    addSect.createDiv({ cls: "tj-mg-sectitle", text: "Add a copier" });
+    const add = addSect.createDiv({ cls: "tj-mg-add" });
+    if (free.length) {
+      mountDropdown(
+        add,
+        free.map((f) => ({ id: f.id, label: f.name, note: `${fmtMoneyAbs(this.sizeOf(f))} · not in a group` })),
+        this.addPickedId,
+        (id) => {
+          this.addPickedId = id;
+        },
+        { placeholder: "Add an account…", title: "An account that is not in a group yet" }
+      );
+      this.copyStartControl(
+        add,
+        free.find((f) => f.id === this.addPickedId),
+        this.addCopyFrom,
+        this.addCopyFromDate,
+        (m) => (this.addCopyFrom = m),
+        (iso) => (this.addCopyFromDate = iso)
+      );
+      add
+        .createEl("button", { text: "Add to group", cls: "tj-mg-act", attr: { type: "button" } })
+        .addEventListener("click", async () => {
+          // A pick can go stale when the page redraws under it: drop it and say
+          // so, instead of a button that looks live and does nothing.
+          const target = free.find((f) => f.id === this.addPickedId);
+          if (!target) {
+            this.addPickedId = "";
+            new Notice("Pick an account first.");
+            this.render();
+            return;
+          }
+          unlinkCopier(target);
+          target.copyRole = "copier";
+          target.copyBaseId = leader.id;
+          target.copyMultiplier = 1;
+          startCopying(target, leader.id, 1, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate));
+          this.addPickedId = "";
+          this.addCopyFrom = "start";
+          this.addCopyFromDate = "";
+          await this.apply();
+          new Notice(`${target.name} now copies ${leader.name}.`);
+          this.render();
+        });
+    } else {
+      add.createSpan({ cls: "tj-mg-empty", text: "Every account is already in a group." });
+    }
+
   }
 
   private renderMember(card: HTMLElement, leader: PropAccount, m: PropAccount): void {

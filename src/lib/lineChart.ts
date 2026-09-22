@@ -49,9 +49,10 @@ export interface LineChartOpts {
   fadeFloor?: number;
   /** Per-point daily delta — used to colour the day dots. */
   dayDeltas?: number[];
-  /** Indexes of days money left the account (a payout). Those dots turn gold:
-   *  cash is not a win or a loss, it is a withdrawal of capital. */
-  dayCash?: number[];
+  /** Days money moved for a reason that is neither a win nor a loss. A payout
+   *  keeps the gold, a deposit reads green, and a fee correction is a cost and
+   *  stays muted — only a payout is cash leaving on purpose. */
+  dayCash?: Array<{ index: number; kind: "out" | "in" | "cost" }>;
   /** Extra lines for the hover card: [label, value, tone]. */
   hoverLines?: (i: number) => Array<[string, string, string]>;
   /** Inline stroke for the primary line (overrides the default accent). */
@@ -378,11 +379,11 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
   if (opts.dayDeltas && values.length > 2 && values.length <= 400) {
     const step = Math.max(1, Math.floor(values.length / 220));
     for (let i = step; i < values.length; i += step) {
-      const cash = opts.dayCash?.includes(i) ?? false;
-      const d = svgEl("circle", { r: cash ? "3.2" : "2.6", class: "tj-eq-daydot" + (cash ? " is-cash" : "") });
+      const cash = opts.dayCash?.find((c) => c.index === i);
+      const d = svgEl("circle", { r: cash ? "3.2" : "2.6", class: "tj-eq-daydot" + (cash ? " is-cash is-" + cash.kind : "") });
       d.setAttribute("cx", x(i).toFixed(1));
       d.setAttribute("cy", y(values[i]).toFixed(1));
-      // A payout day keeps its gold from the stylesheet: the colour is the point.
+      // A cash day keeps its own colour from the stylesheet: the colour is the point.
       if (!cash) d.setAttribute("fill", (opts.dayDeltas[i] ?? 0) >= 0 ? "var(--color-green-bright, #34d17a)" : "var(--color-red-bright, #ff5d48)");
       svg.appendChild(d);
     }

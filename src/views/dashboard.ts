@@ -6,6 +6,7 @@ import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
+import { netPnl } from "../lib/fees";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import {
   clamp as gClamp,
@@ -1149,7 +1150,7 @@ export class DashboardView extends ItemView {
     const values: number[] = [0];
     const dates: string[] = [sorted[0]?.date ?? ""];
     for (const t of sorted) {
-      cum += t.pnl;
+      cum += netPnl(t);
       values.push(cum);
       dates.push(t.date);
     }

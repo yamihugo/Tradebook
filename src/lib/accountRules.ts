@@ -11,7 +11,7 @@
  */
 
 import { AccountRules, AccountType, PropAccount } from "../types";
-import { PropFirm, PropProgram, PropSize, getFirm, getProgram, getSize } from "../props";
+import { PropFirm, PropProgram, PropSize, getFirm, getSize } from "../props";
 
 export interface ResolvedRules {
   /** 0 reads as "no rule of this kind", exactly like the firm presets. */
@@ -57,9 +57,41 @@ const RULE_KEYS: Array<keyof ResolvedRules> = [
 
 export function resolveAccountView(acc: PropAccount): AccountView {
   const firm = getFirm(acc.firmId);
-  const program = firm ? getProgram(firm, acc.programId) : undefined;
+  const program = firm ? resolveProgram(firm, acc.programId, acc.type) : undefined;
   const firmDefault = program ? getSize(program, acc.size) : undefined;
   return { firm, program, firmDefault, rules: mergeRules(firmDefault, acc.rules, acc.size) };
+}
+
+/**
+ * Match a firm program to an account. `props.getProgram` falls back to the
+ * first program of the firm, which is wrong for wizard-created accounts: they
+ * store the account TYPE as the program id ("funded"), so a funded account
+ * would show an eval program's defaults. Match the id exactly, then fall back
+ * to the program whose phase is the account type, and otherwise admit there is
+ * no preset.
+ */
+function resolveProgram(firm: PropFirm, programId: string, type: AccountType): PropProgram | undefined {
+  const exact = firm.programs.find((p) => p.id === programId);
+  if (exact) return exact;
+  return firm.programs.find((p) => p.phase === type);
+}
+
+export interface DrawdownLabel {
+  /** Short name of the drawdown model. */
+  label: string;
+  /** One line describing where the floor moves to. */
+  lock: string;
+}
+
+/** Human name of an account's drawdown model, from the resolved rules. */
+export function drawdownLabel(rules: Pick<ResolvedRules, "maxLossType" | "ddLockOffset">): DrawdownLabel {
+  const type = rules.maxLossType ?? "eod-trailing";
+  const offset = rules.ddLockOffset ?? 0;
+  if (type === "static") return { label: "Static floor", lock: "The floor never moves." };
+  if (type === "intraday-trailing") return { label: "Intraday trailing", lock: "Trails live, including open trades." };
+  if (type === "eod-trailing-open") return { label: "EOD trailing", lock: "Trails the close and never locks." };
+  if (offset > 0) return { label: "EOD trailing", lock: `Locks $${offset.toLocaleString()} above your starting balance.` };
+  return { label: "EOD trailing", lock: "Locks at break-even." };
 }
 
 /** `base` (preset) → overlays (what the trader saved), with % resolved to $. */

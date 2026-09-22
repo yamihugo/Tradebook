@@ -2,33 +2,30 @@
 // widget inside an account page. One recipe, so the two can never drift apart.
 //
 // The shape was chosen from a browser preview (docs/tradelog-previews-2.html):
-// a timeline rail with one dot per trade, the day as a real separator carrying its
-// own net, columns aligned so figures can be compared straight down the page, and a
-// review column that only speaks when something is waiting.
+// a timeline rail with one dot per trade, columns aligned so figures can be
+// compared straight down the page.
 
-import { TFile } from "obsidian";
+import { TFile, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade, TradeFill } from "../types";
 import { fmtMoney, fmtMoneyAbs, fmtPrice } from "../tz";
 import { formatDate } from "./dates";
-import { reviewStatus } from "./review";
 import { attachTip } from "./tip";
 import { futuresSpec } from "../futures";
-import { fillIndex, fillLabel, fillSet, FillSet, toneClass } from "./fills";
+import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass } from "./fills";
 import { legBaseKey } from "./copy";
-
-/** Number → word for small counts (1–20). Falls back to digits for 21+. */
-function accountWords(n: number): string {
-  const w = [
-    "", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-    "seventeen", "eighteen", "nineteen", "twenty",
-  ];
-  return n >= 0 && n <= 20 ? w[n] : String(n);
-}
+import { netPnl } from "./fees";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Compact date without year: "14 Sep". */
+function compactDateLabel(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  if (!m) return iso || "";
+  const [, , mo, d] = m;
+  return `${parseInt(d, 10)} ${MONTHS[parseInt(mo, 10) - 1]}`;
+}
 
 /**
  * How long a trade was held: `15s`, `1m 30s`, `1h 5m`, `2h 4m 9s`. Times are
@@ -64,16 +61,6 @@ function heldSeconds(entryTime?: string, exitTime?: string): number | null {
 }
 
 /**
- * How long a trade was held, in minutes — the number a filter buckets on.
- * Null (missing, never zero) when either time is absent, so a trade without
- * times is "no time", not a scalp.
- */
-export function holdMinutes(entryTime?: string, exitTime?: string): number | null {
-  const s = heldSeconds(entryTime, exitTime);
-  return s === null ? null : s / 60;
-}
-
-/**
  * The R multiple of a trade: profit over the risk actually taken
  * (entry to stop, in money). Null when there is no stop to measure against —
  * a missing value must read as missing, never as zero.
@@ -92,7 +79,7 @@ export function shotUrl(plugin: TradebookPlugin, t: Trade): string | null {
   const inner = first.replace(/^\[\[/, "").replace(/\]\]$/, "");
   const target = inner.split("|")[0].split("#")[0].trim();
   const folder = plugin.getTradesFolder();
-  const candidates = [first, target, `${folder}/prints/${target}`, `${folder}/${target}`];
+  const candidates = [first, target, ...plugin.attachmentCandidates(target, t.date), `${folder}/${target}`];
   for (const c of candidates) {
     try {
       const f = plugin.app.vault.getAbstractFileByPath(c);
@@ -113,8 +100,6 @@ export function shotUrl(plugin: TradebookPlugin, t: Trade): string | null {
 export interface TradeColumn {
   id: string;
   label: string;
-  /** Header caption when the rows are grouped by day — the date is already above. */
-  groupedLabel?: string;
   align: "left" | "right";
   render: (td: HTMLElement, t: Trade, plugin: TradebookPlugin, ctx: TradeColumnCtx) => void;
   /**
@@ -179,13 +164,13 @@ export interface TradeColumnCtx {
   /** Trade ids whose executions are on screen. */
   expanded: Set<string>;
   toggleFills: (t: Trade) => void;
-  /** Absent in read-only tables, which then draw their own label instead. */
-  onToggleReviewed?: (t: Trade, next: boolean) => void;
   /** Every record behind this row, when the ledger is folding copies. */
   row?: TradeRow;
   /** True when the table is grouping by day. Columns that show the date can
    *  use this to suppress the date portion and show only the time. */
   groupByDay?: boolean;
+  /** When true, date column shows compact "DD Mon, HH:MM" format. */
+  compactDate?: boolean;
 }
 
 /** Every column the ledger can show, in the order the picker offers them. */
@@ -200,12 +185,20 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     sortValue: (t, plugin) => (shotUrl(plugin, t) ? 1 : 0),
     firstDir: "desc",
     render: (td, t, plugin) => {
-      const has = !!shotUrl(plugin, t);
-      const span = td.createSpan({ cls: "tj-tbl-print" + (has ? " is-on" : "") });
-      span.setText(has ? "✓" : "—");
-      attachTip(span, has
-        ? { title: "Has a print", sub: "Open the trade to see it." }
-        : { title: "No print yet", sub: "Drop one on the trade page and this turns into a tick." });
+      const url = shotUrl(plugin, t);
+      const span = td.createSpan({ cls: "tj-tbl-print" + (url ? " is-on" : "") });
+      if (url) {
+        setIcon(span, "image");
+        span.style.cursor = "pointer";
+        span.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void plugin.openTradeDetail({ id: t.id });
+        });
+        attachTip(span, { title: "Has a print", sub: "Click to open the trade and see it." });
+      } else {
+        span.setText("\u2014");
+        attachTip(span, { title: "No print yet", sub: "Drop one on the trade page and this icon lights up." });
+      }
     },
   },
   {
@@ -223,7 +216,7 @@ export const TRADE_COLUMNS: TradeColumn[] = [
         td.setText("—");
         return;
       }
-      td.setText(ctx.groupByDay ? time : `${formatDate(t.date, plugin.settings.dateFormat)} ${time}`.trim());
+      td.setText(ctx.compactDate ? `${compactDateLabel(t.date)}, ${time}` : ctx.groupByDay ? time : `${formatDate(t.date, plugin.settings.dateFormat)} ${time}`.trim());
     },
   },
   {
@@ -259,31 +252,44 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     firstDir: "desc",
     render: (td, t, plugin, ctx) => {
       const set = fillSet(t);
-      if (set.openQty > 0 && set.entryQty > 0) {
+      const multi = set.isMulti;
+      const open = multi && ctx.expanded.has(t.id);
+      const partial = set.openQty > 0 && set.entryQty > 0;
+      // A scaled trade makes its own quantity the door — the number, a chevron,
+      // nothing more; the word would only crowd the ledger.
+      const host: HTMLElement = multi
+        ? td.createEl("button", { cls: "tj-tbl-fills", attr: { type: "button" } })
+        : td;
+      if (partial) {
         // Half the position is still on: say what is left, and let the P&L carry
         // its own asterisk further along the row.
-        const span = td.createSpan({ cls: "tj-tbl-qty-partial" });
+        const span = host.createSpan({ cls: "tj-tbl-qty-partial" });
         span.createSpan({ text: String(set.exitQty) });
         span.createSpan({ cls: "tj-tbl-qty-total", text: `/${set.entryQty}` });
-        attachTip(span, {
-          title: `${set.exitQty} of ${set.entryQty} closed`,
-          sub: "The part still open counts nowhere until it is closed.",
-        });
+        if (!multi) {
+          attachTip(span, {
+            title: `${set.exitQty} of ${set.entryQty} closed`,
+            sub: "The part still open counts nowhere until it is closed.",
+          });
+        }
       } else {
-        td.setText(Number.isFinite(t.quantity) && t.quantity > 0 ? String(t.quantity) : "—");
+        host.setText(Number.isFinite(t.quantity) && t.quantity > 0 ? String(t.quantity) : "—");
       }
-      if (!set.isMulti) return;
-      // The only thing a scaled trade adds to the row: a badge that opens it.
-      const open = ctx.expanded.has(t.id);
-      const badge = td.createEl("button", { cls: "tj-tbl-fills", attr: { type: "button" } });
-      badge.createSpan({ cls: "tj-tbl-fills-ico", text: "⋔" });
-      badge.createSpan({ cls: "tj-tbl-fills-t", text: `${set.fills.length} fills` });
-      badge.createSpan({ cls: "tj-tbl-fills-chev", text: open ? "⌃" : "⌄" });
-      attachTip(badge, {
-        title: `${set.entries.length} in · ${set.exits.length} out`,
-        sub: set.exits.length > 1 ? "Every take profit, with its own P&L." : "Every fill, with its own price.",
+      if (!multi) return;
+      if (open) host.addClass("is-open");
+      host.createSpan({ cls: "tj-tbl-fills-chev", text: open ? "⌃" : "⌄" });
+      host.createSpan({ cls: "tj-sr-only", text: "Show executions" });
+      attachTip(host, {
+        title: `${set.fills.length} executions`,
+        sub: [
+          `${set.entries.length} in · ${set.exits.length} out`,
+          partial ? `${set.exitQty} of ${set.entryQty} closed` : "",
+          "Every fill with its own price.",
+        ]
+          .filter(Boolean)
+          .join(" · "),
       });
-      badge.addEventListener("click", (e) => {
+      host.addEventListener("click", (e) => {
         e.stopPropagation();
         ctx.toggleFills(t);
       });
@@ -368,35 +374,28 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     },
   },
   {
+    id: "net",
+    label: "Net",
+    align: "right",
+    sortValue: (t) => (Number.isFinite(t.pnl) ? netPnl(t) : null),
+    firstDir: "desc",
+    render: (td, t, _plugin, ctx) => {
+      // Net of costs, summed across every account the row reached — what the
+      // row left behind after commission and fees. Hidden by default; the
+      // column picker turns it on.
+      const money = ctx.row ? ctx.row.legs.reduce((s, l) => s + netPnl(l), 0) : netPnl(t);
+      td.addClass("tj-tbl-pnl");
+      td.addClass(toneClass(money));
+      td.setText(money === 0 ? fmtMoneyAbs(0) : fmtMoney(money));
+    },
+  },
+  {
     id: "setup",
     label: "Strategy",
     align: "left",
     sortValue: (t) => t.setup || "",
     firstDir: "asc",
     render: (td, t) => td.setText(t.setup || "—"),
-  },
-  {
-    id: "account",
-    label: "Accounts",
-    align: "left",
-    sortValue: (t, plugin) => plugin.displayAccount(t.account) || "",
-    firstDir: "asc",
-    render: (td, t, plugin, ctx) => {
-      const legs = ctx.row?.legs ?? [t];
-      const n = legs.length;
-      const label = n === 1 ? "one account" : accountWords(n) + " accounts";
-      if (n < 2) {
-        td.setText(label);
-        return;
-      }
-      const chip = td.createSpan({ cls: "tj-tbl-accs", text: label });
-      attachTip(chip, {
-        title: `Copied to ${n} accounts`,
-        sub: legs
-          .map((l) => `${plugin.displayAccount(l.account) || "—"} · ${fmtMoney(l.pnl)}`)
-          .join("\n"),
-      });
-    },
   },
   {
     id: "stars",
@@ -406,67 +405,24 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     firstDir: "desc",
     render: (td, t) => {
       const r = t.rating ?? 0;
-      if (r <= 0) {
-        td.setText("—");
-        return;
-      }
-      const span = td.createSpan({ cls: "tj-tbl-stars", text: "★".repeat(Math.min(5, Math.round(r))) });
-      attachTip(span, { title: `${r}/5`, sub: "Your execution rating for this trade." });
-    },
-  },
-  {
-    id: "review",
-    label: "Review",
-    align: "left",
-    sortValue: (t) => {
-      const rs = reviewStatus(t);
-      return rs.total ? rs.done / rs.total : 0;
-    },
-    firstDir: "asc",
-    render: (td, t, _plugin, ctx) => {
-      const rs = reviewStatus(t);
-      if (!ctx.onToggleReviewed) {
-        // Read-only tables still get the sentence: it is the only thing they can say.
-        if (rs.complete) return;
-        const span = td.createSpan({ cls: "tj-tbl-review", text: "Needs review" });
-        attachTip(span, { title: "Not reviewed yet", sub: `Still missing: ${rs.missing.join(", ")}.` });
-        return;
-      }
-      // The review loop is: read the row, tick it, move on. Making that a trip to
-      // the bulk bar (or the trade page) is what kept the queue from ever clearing.
-      const done = rs.complete;
-      const btn = td.createEl("button", {
-        cls: "tj-tbl-tick" + (done ? " is-on" : ""),
-        attr: { type: "button", "aria-label": done ? "Mark as not reviewed" : "Mark as reviewed" },
-      });
-      btn.setText(done ? "✓" : "○");
-      attachTip(btn, done
-        ? { title: "Reviewed", sub: "Click to put it back in the queue." }
-        : { title: "Mark as reviewed", sub: rs.missing.length ? `Still missing: ${rs.missing.join(", ")}.` : "Nothing is missing — this just says you have read it." });
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        ctx.onToggleReviewed?.(t, !done);
-      });
+      const span = td.createSpan({ cls: "tj-tbl-stars", text: r > 0 ? "★".repeat(Math.min(5, Math.round(r))) : "—" });
+      if (r > 0) attachTip(span, { title: `${r}/5`, sub: "Your execution rating for this trade." });
     },
   },
 ];
 
-/** The default order for the Trade Log page (as agreed: money at the end). */
+/** The default order for the Trade Log page. */
 export const DEFAULT_TRADE_LOG_ORDER = [
-  // The preferred layout: time first, what it was, how many, the number,
-  // where, plan, gaps. All columns center-aligned so reordering never breaks
-  // the visual rhythm.
   "date",
   "symbol",
   "side",
   "qty",
+  "entryexit",
   "points",
   "pnl",
-  "account",
   "setup",
   "stars",
   "image",
-  "review",
 ];
 
 /** The default order for the trades widget on an account page. */
@@ -493,20 +449,24 @@ export interface TradeTableOpts {
   rail?: boolean;
   /** A day row per session, with its own net (Trade Log). */
   groupByDay?: boolean;
-  /**
-   * Fold the records of one trade into a single row (default on). Off means one
-   * row per record, which is what the account page wants if it ever asks for it.
-   */
-  collapse?: boolean;
+  /** When false, suppresses the day header rows even when groupByDay is true. */
+  showDayHeaders?: boolean;
+  /** When true, date column shows compact "DD Mon, HH:MM" format. */
+  compactDate?: boolean;
   selectMode?: boolean;
   selected?: Set<string>;
-  onToggleSelect?: (t: Trade) => void;
+  onToggleSelect?: (t: Trade, shift?: boolean) => void;
   onRowClick: (t: Trade) => void;
   onReorder?: (order: string[]) => void;
   /** Header click sorting. Omit it and the headers stop being clickable. */
   sort?: TradeSort | null;
   onSort?: (next: TradeSort | null) => void;
-  onToggleReviewed?: (t: Trade, next: boolean) => void;
+  /**
+   * Pin the header while the list scrolls (default on). Off inside a page that
+   * is the scroll container itself, where a sticky header would float over the
+   * widget title instead of the rows.
+   */
+  stickyHeader?: boolean;
 }
 
 interface DayGroup {
@@ -584,10 +544,9 @@ function dayNet(rows: TradeRow[]): number {
 }
 
 /**
- * Draw the ledger into `host`. Returns a function that redraws it in place
- * (used when a filter chip changes without a full view re-render).
+ * Draw the ledger into `host`.
  */
-export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () => void {
+export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void {
   const plugin = opts.plugin;
   const cols = opts.order
     .map((id) => TRADE_COLUMNS.find((c) => c.id === id))
@@ -598,17 +557,13 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
   const ctx: TradeColumnCtx = {
     plugin,
     expanded,
-    onToggleReviewed: opts.onToggleReviewed
-      ? (t, next) => {
-          opts.onToggleReviewed?.(t, next);
-        }
-      : undefined,
     toggleFills: (t) => {
       if (expanded.has(t.id)) expanded.delete(t.id);
       else expanded.add(t.id);
       draw();
     },
     groupByDay: !!opts.groupByDay,
+    compactDate: !!opts.compactDate,
   };
 
   /** The arrow a header shows: none, ↓ or ↑. */
@@ -678,11 +633,11 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
           cell.setText(f.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney(f.pnl as number));
           break;
         case "setup": {
-          // A target that closed flat reads as "T2 · BE": the position it belongs
-          // to, and the decision that ended it.
-          const flat = set.exits.includes(f) && f.pnl === 0;
-          const tag = cell.createSpan({ cls: "tj-tbl-fill-tag" + (flat ? " is-flat" : "") });
-          tag.setText(fillLabel(f, fillIndex(f, set), set) + (flat ? " · BE" : ""));
+          // A break-even close reads as "BE"; the rest are TP1, TP2 … in order.
+          const isExit = set.exits.includes(f);
+          const be = isExit && set.explicit && isBreakEven(f, set.avgEntry, pointValue);
+          const tag = cell.createSpan({ cls: "tj-tbl-fill-tag" + (be || (isExit && f.pnl === 0) ? " is-flat" : "") });
+          tag.setText(fillLabel(f, fillIndex(f, set), set, pointValue));
           break;
         }
         default:
@@ -692,8 +647,12 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
   };
 
   const draw = (): void => {
-    host.empty();
-    const table = host.createEl("table", { cls: "tj-tbl" });
+    // Clear only the table we own: the Trade Log draws its section header inside
+    // the same card, and it must survive a redraw (fills open, filter change).
+    for (const child of Array.from(host.children)) {
+      if (child.tagName === "TABLE") child.remove();
+    }
+    const table = host.createEl("table", { cls: "tj-tbl" + (opts.stickyHeader === false ? " is-static" : "") });
     const head = table.createEl("thead").createEl("tr");
     if (opts.selectMode) head.createEl("th", { cls: "tj-tbl-selcol" });
     // The rail is a real column: a ::before on a <tr> becomes an extra anonymous
@@ -729,7 +688,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
       const th = head.createEl("th", {
         cls: (col.align === "left" ? "l" : "") + (col.sortValue ? " tj-col-sort" : ""),
       });
-      th.createSpan({ text: opts.groupByDay && col.id === "date" ? col.groupedLabel ?? col.label : col.label });
+      th.createSpan({ text: col.label });
       if (opts.sort?.id === col.id) th.addClass(opts.sort.dir === "asc" ? "is-asc" : "is-desc");
       if (opts.onSort && col.sortValue) {
         th.setAttribute("aria-sort", !opts.sort || opts.sort.id !== col.id ? "none" : opts.sort.dir === "asc" ? "ascending" : "descending");
@@ -739,8 +698,15 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
       else if (opts.onSort && col.sortValue) th.createSpan({ cls: "tj-tbl-arrow is-idle", text: "\u2195" });
       if (opts.onSort && col.sortValue) {
         th.addClass("tj-col-clickable");
+        th.setAttribute("tabindex", "0");
         attachTip(th, { title: `Sort by ${col.label || "print"}`, sub: "Click again to flip, once more to go back to the plain list." });
         th.addEventListener("click", () => cycleSort(col));
+        // Same door, without a mouse (SC 2.1.1).
+        th.addEventListener("keydown", (e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          e.preventDefault();
+          cycleSort(col);
+        });
       }
       ths.push(th);
       if (!opts.onReorder) return;
@@ -764,9 +730,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
     const body = table.createEl("tbody");
     // One entry per logical trade: a trade copied into five accounts is one line
     // with a "5 accounts" chip, not five lines the reader has to add up.
-    const rows = opts.collapse === false
-      ? opts.trades.map((t) => ({ key: t.id ?? "", rep: t, legs: [t], money: Number.isFinite(t.pnl) ? t.pnl : 0 }))
-      : tradeRows(opts.trades);
+    const rows = tradeRows(opts.trades);
     const groups: DayGroup[] = opts.groupByDay
       ? groupDays(rows, opts.sort ?? null, plugin)
       : [
@@ -784,7 +748,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
     for (const group of groups) {
       const alt = groups.indexOf(group) % 2 === 1;
 
-      if (opts.groupByDay) {
+      if (opts.groupByDay && opts.showDayHeaders !== false) {
         const row = body.createEl("tr", { cls: "tj-tbl-day" });
         if (opts.selectMode) row.createEl("td", { cls: "tj-tbl-selcol" });
         if (opts.rail) row.createEl("td", { cls: "tj-tbl-rail" });
@@ -824,7 +788,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
           check.checked = !!t.id && !!opts.selected?.has(t.id);
           check.addEventListener("click", (e) => {
             e.stopPropagation();
-            opts.onToggleSelect?.(t);
+            opts.onToggleSelect?.(t, (e as MouseEvent).shiftKey);
           });
         }
 
@@ -852,7 +816,6 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): () =>
   };
 
   draw();
-  return draw;
 }
 
 // Test hook (see lib/fills.ts): the ledger is rendered by two views, so the

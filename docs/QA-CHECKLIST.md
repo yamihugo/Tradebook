@@ -59,6 +59,17 @@ Correr a checklist abaixo em cada um destes cenários:
 - [x] Removido widget "Key metrics" duplicado do fundo
 - [x] Removido "Edit widgets" (add/remove/drag não usado)
 - [x] Fix **glitch da scrollbar** ao fazer flip (`display:none` → `opacity` + `position`)
+- [x] **Drawdown = o número da firm** (`ddToLimit` = pico da balance − balance, já com payouts): a caixa mostra `$X used · limit · remaining` (`balance − floor`), badge por % do limite, e o sub nomeia o tipo (`drawdownLabel`: Static floor · Intraday trailing · EOD trailing, com lock). Saíram `DD from peak` e os três locais mortos `floor`/`buffer`/`ddToLimit` do `render()`.
+- [x] **Time in drawdown** (`pctTimeInDD`) juntou-se ao resumo da caixa.
+- [x] Saíram da coluna Performance **Winning trades** (o donut de win rate já o diz) e **Revenge trades** (fica só no verso); entraram **Biggest win** / **Biggest loss**; `Trades ≥ 1R` → **Reached 1R**.
+- [x] **Renomes:** `Risk room` → **Max-loss buffer**, `Worst day / limit` → **Worst day vs limit**.
+- [x] A strip de distribuições (**Hold zones · Order type · Rating**) foi **removida** a pedido do trader — esticava a frente e ficava desproporcional face ao verso; Hold zones e Order type vão para o futuro módulo de estratégias/playbooks (linha no ROADMAP) e o rating fica só no verso.
+- [x] **Uma barra, uma mensagem:** o `Risk↔Target` mantém-se e ganha o tick tracejado `.tj-acc-marker-dd` no floor do trailing dd; a caixa *Drawdown used* perde a segunda barra (fica número, tipo e tempo em DD).
+- [x] **Gauge `Mistakes` → `Clean trades`** (aro cheio = bom); **Discipline score** passa a incluir `Strategy tagged` (pesos 0.25/0.2/0.15/0.15/0.15/0.1) e diz **model** na tooltip; cores dos gauges por tokens `--tj-tone-good/mid/bad`.
+- [x] **Verso:** saiu a linha **Reviewed** duplicada (fica só o gauge) e **Hold W / L** (analysis adiada com as Hold zones).
+- [x] `flipBtn` deixa o `aria-label` (regra da casa): ícone `arrow-left-right` + `<span class="tj-sr-only">Flip card</span>` + `attachTip`; `.tj-acc-flipbtn` ganha `padding: 0` e `svg` a 15px (o glifo desaparecia por baixo do padding nativo do Obsidian).
+- [x] **Revenge** endurecido: reentrada ≤15 min **no mesmo símbolo**, ou uma trade marcada como `mistake` logo após uma perda (conta mesmo fora da janela).
+- [x] **Winning days** (só eval/funded): nova linha **Passing days** / **Payout winning days** = `X of Y days` (Y = `minDays`, X = `M.winDays` = dias que fecharam positivos). É um **modelo** e o sub di-lo — algumas firms pedem um mínimo por dia que o journal não impõe (§0).
 
 ### 2.3 Conta — Breakdowns
 - [x] Tiles com **P&L + win rate centrados**, cor de fundo pelo P&L
@@ -426,7 +437,7 @@ Instalados no config global (`~/.config/opencode/opencode.jsonc`):
 - **Nota** (`src/storage.ts`): bloco YAML `fills:` escrito só quando há escala (indentado, legível e editável à mão) e lido de volta por `parseFills` (tolerante a notas editadas à mão). Hook `window.__tjStorage`.
 - **Import** (`src/csv.ts`): corrigido em `pairRoundTrips`. Acumula entry/exit fills e o `maxOpen` de cada round-trip; o preço na nota passa a ser a **média ponderada** dos fills (o `entryPrice: pos.openPrice` do primeiro fill era o bug) e, havendo mais de um fill, as execuções ficam gravadas com o **P&L e as fees do próprio fill** (fees rateadas por quantidade). Hook `window.__tjCsv`.
 - **Copy trading** (`src/lib/copy.ts`): novo `legFills(base, symbol, legQty, legCost)` — as legs herdam os fills **escalados** pelo multiplier (o fill maior absorve o arredondamento, para o total bater certo), com o P&L recalculado a partir dos pontos do próprio fill (mini↔micro tratado). Decisão do maintainer: «as copiers vao copiar tudo que a leader faz».
-- **Ledger** (`src/lib/tradeTable.ts`): badge `.tj-tbl-fills` («⋔ 3 fills ⌄») na coluna Qty quando a posição tem mais de um fill; clique expande as execuções em sub-linhas (hora, buy/sell, qty, preço, hold da entrada, R do fill, P&L do fill, etiqueta `T1`/`T2`) sem alterar a linha da trade, que continua a mostrar a média. Posição aberta mostra `2/4` com tip («a parte aberta só conta quando fechar») e o P&L leva `*`.
+- **Ledger** (`src/lib/tradeTable.ts`): badge `.tj-tbl-fills` (desde §2.70 é a própria quantidade com chevron — «6 ⌄») na coluna Qty quando a posição tem mais de um fill; clique expande as execuções em sub-linhas (hora, buy/sell, qty, preço, hold da entrada, R do fill, P&L do fill, etiqueta `T1`/`T2`) sem alterar a linha da trade, que continua a mostrar a média. Posição aberta mostra `2/4` com tip («a parte aberta só conta quando fechar») e o P&L leva `*`.
 - **Página da trade** (`src/views/tradeDetailView.ts`): secção **Executions** (só quando há escala) com cartões (contratos fechados, média de saída, melhor saída, fees), tabela por execução (Time · Side · Qty · Price · Points · P&L · Fees · etiqueta) e linha de totais que tem de bater com a trade. Nota a explicar que a média ponderada da linha do ledger é o que aqui aparece em detalhe. Read-only — a nota é que é escrita.
 - **Fila**: o passo 6 (editar fills à mão + split/merge) fica para o fim, como combinado; o Journalit não mostra fills, o TradeZella/TradesViz/TraderSync/Tradervue mostram — é onde o nosso ledger se distingue.
 - **Verificação**: build EXIT 0; smoke **126 PASS**; `node tools/ux-audit.mjs` sem violações (o badge foi dimensionado a 24px para cumprir a SC 2.5.8 sem excepção); harness novo **`fills-check.js`** — prova a lib (médias ponderadas, posição parcial, labels), o round-trip da nota, o badge/expansão/`2/4`/`*` no ledger, a secção da página da trade (e a sua ausência numa trade simples) e o import de um scale-out (1 trade, 3 fills, saída média `21,014` e P&L por fill a somar ao total). `tradelog-check`, `nan-sweep` verdes.
@@ -1518,3 +1529,1321 @@ small targets 5 (dívida de base), faint 0 → **0 violações novas**.
 `styles.css f3ac28f41b8a58a4774804a043471224`,
 `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
 (`ceb1a893ffe6bca661a78d367847c755`, 5072 B, inalterado antes e depois).
+
+---
+
+## §2.70 Página da conta — copy history fora, header quieto, rodapé limpo, fills sem pill (19 Set)
+
+**Pedido.** Quatro coisas na página de conta: (1) o bloco de "copy history" (quanto tempo/quantas
+vezes esteve ligada) não interessa — sai; (2) no ledger "Trades in this account" havia "um
+rectângulo" a tapar o título; (3) em todas as contas aparecia sempre um texto no fundo, a mais; (4)
+o pill dos fills (micros/vários contratos) não encaixa no ledger — a dropdown está bem, o visual não.
+
+**Mudanças.**
+- **Copy history sai das duas superfícies.** O bloco `.tj-acc-copyhist` (linhas `who · Nx · from →
+  now`) saiu do `renderCopyBar` e a secção "Copy history" (`.tj-as-periods`/`.tj-as-period` + hint)
+  saiu do painel Copy-trading do modal. Fica só o chip Leader/Copier com o rácio (a tooltip já nomeia
+  o líder). Os `copyPeriods` continuam na **dados** — são eles que impedem que mudar de líder reescreva
+  trades antigos —, simplesmente deixam de ser desenhados. CSS morto removido (`.tj-acc-copyhist`,
+  `-copyrows`, `-copyrow`, `.tj-as-periods`, `.tj-as-period`, e a metade `.tj-acc-copyhist .tj-acc-k`).
+- **O "rectângulo" era o header sticky.** `.tj-tbl thead th` é `position: sticky` para o Trade Log,
+  mas na página de conta quem faz scroll é a **página** (a tabela vive num widget), e a barra opaca
+  flutuava por cima do título do widget. Novo `TradeTableOpts.stickyHeader?: boolean` (default `true`);
+  a página de conta passa `stickyHeader: false`, o `<table>` ganha `.is-static` e `.tj-tbl.is-static
+  thead th { position: static; }`. O Trade Log fica como estava.
+- **O texto do fundo era a regra da firm.** Saíram as duas linhas do fim da página: o aviso de
+  consistência (`tj-account-note tj-account-warn`) e a prosa `size.note` (a regra da firm por
+  programa, em `src/props.ts`), mais os locais que só o aviso usava (`dayNets`, `grossProfit`,
+  `bestDay`, `consBasis`, `consistency`, `consistencyNeed`). CSS `.tj-account-note` e
+  `.tj-account-warn` removido. Nota: o `note` continua no catálogo `props.ts` como semente (informação
+  da firm), mas já não é desenhado em lado nenhum.
+- **Fills: a quantidade é a porta.** O `.tj-tbl-fills` deixa de ser pill de acento (borda, fundo,
+  `border-radius: 999px`, letra bold, ícone `⋔`) e, segunda passagem, deixa de ser texto («N fills
+  ⌄»): numa trade escalada é a **própria quantidade com um chevron** («6 ⌄», ou «2/4 ⌄» na posição
+  parcial), sem palavra nenhuma. Herda o tipo e a cor do número (`--tj-fs-body`, `color: inherit`),
+  `min-height: 24px` mantido (SC 2.5.8); no `hover` e com a linha aberta o chevron acende a
+  `--interactive-accent`. Uma só tooltip no botão («N executions · X in · Y out · …»), nome acessível
+  via `<span class="tj-sr-only">Show executions</span>` (sem `aria-label`), clique/expansão
+  inalterados. CSS morto `.tj-tbl-fills-ico` e o span `.tj-tbl-fills-t` removidos.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 780ec544ce0cdae9fb91d6921ca839b4`,
+`styles.css f77eb6d417bde27abc0add05fc54e904`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`caa65cd950f97fb99d8f574627543d4c`, inalterado antes e depois).
+(Nota: o `styles.css` foi depois endurecido — ghost forçado no `.tj-tbl-fills`, ver §2.71.)
+
+## §2.71 Âmbito de conta — review e Trade Log presos à conta de origem (19 Set)
+
+Pedido: «se clicares numa trade dentro do trade log que está dentro de uma conta em específico,
+entras no trade log mas apenas com as trades dessa conta». O single trade review abria com o
+journal inteiro (contador `3 / 200`, setas a andar por tudo) e o botão *Trade Log* abria o log sem
+filtro.
+
+- **A origem viaja no estado.** `openTradeDetail()` passa `state: { tradeId, from }` (a
+  `tradeDetailOrigin` já existia mas perdia-se num reload); `TradeDetailView.getState()` devolve
+  também o `from`, e `onOpen()`/`setState()` lêem-no.
+- **O review caminha só dentro da conta.** Novo `loadScope()` no `TradeDetailView`: com origem em
+  conta, `allTrades` filtra-se por `mappedAccount(t.account)?.id === accountId`; se a lista ficar
+  vazia (leg virtual/sem conta) cai na completa — nunca abre vazio. Setas, teclas e contador seguem
+  este âmbito; o *Reload from note* reaplica o mesmo filtro.
+- **Chip de âmbito.** Com origem em conta, o cabeçalho mostra `N / total · <nome da conta>`
+  (`.tj-td-scope`, `--tj-fs-small`/`--tj-fg-3`, tooltip «Scoped to this account») — o contador deixa
+  de ser anónimo.
+- **O Trade Log abre filtrado.** Novo `openTradeLogForAccount(id)` (espelha `openTradeLogForDay`) e
+  `filterByAccount(id)` no `TradeLogView` — transitório, como `filterByDay`: não grava em
+  `settings.tradeLog`, por isso o ribbon continua a abrir tudo; o chip `Account: X` já mostra e
+  limpa o filtro. O *Trade Log* do cabeçalho e o regresso após apagar seguem a conta.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 777857a0393e88adacc97073f26f0d89`,
+`styles.css a0ee852322e33c66d3c1ad99faf39859`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`701a9b4e12d38ffb2080252a55009457`, inalterado antes e depois).
+O ghost forçado do `.tj-tbl-fills` (§2.70) entrou neste mesmo deploy de `styles.css`.
+
+---
+
+## §2.72 Flip card v2 — drawdown da firm, medo do tilt nomeado, hold zones por segundos (19 Set)
+
+Pedido: confirmar todos os sistemas de números contra o comum das prop firms (drawdowns, targets,
+métricas) e tratar **cada tipo de conta** individualmente (eval ≠ funded ≠ live ≠ personal/demo).
+Investigação web (Jun–Jul 2026, 9 firms de futuros) fixou as convenções: três modelos de drawdown
+(**static · EOD trailing · intraday trailing**, sendo EOD o default do mercado), locks ao break-even
+ou a `start + $100`, **target só na eval** (a funded não tem target, tem payouts), consistency
+quase universal mas em **fases diferentes** por firm (eval-only, funded-only, ou ambas, caps 30–50%),
+DLL por vezes **soft** (Topstep) e por vezes hard, dias mínimos em dois conceitos (**passar** vs
+**receber payout**), live = capital real com drawdown normalmente **static**. Veredicto: o motor
+está estruturalmente certo; o que faltava era **nomear** o que ele já calculava.
+
+- **Drawdown = o número da firm, não o nosso.** A caixa passa a mostrar `ddToLimit` (pico da
+  balance − balance, já com payouts) como *used*, o limite, e *remaining* = `balance − floor`
+  (novo `ddRemaining`). O badge é por % do limite; o sub nomeia o tipo via novo `drawdownLabel()`
+  em `lib/accountRules.ts` (`Static floor` · `Intraday trailing` · `EOD trailing` + lock). Saíram
+  `DD from peak` e os três locais mortos `floor`/`buffer`/`ddToLimit` do `render()` (usavam uma
+  fórmula hardcoded que ignorava `maxLossType`/`ddLockOffset`).
+- **Time in drawdown** (`pctTimeInDD`) entrou no resumo da caixa. `computeDrawdownEpisodes` perdeu
+  os campos mortos `avgDepth`/`avgDepthPct`/`worstDD`/`longestDD`.
+- **Revês do tilt, testado.** `revenge` = reentrada ≤15 min **no mesmo símbolo**, ou uma trade com
+  `mistake` explícito logo após uma perda (conta mesmo fora da janela). A linha do verso diz isto.
+- **Hold zones por segundos** (5 baldes): `Flash <1m · Scalp 1–5m · Quick 5–30m · Intraday 30m–2h ·
+  Long >2h`, com net + win rate por balde (novo `holdZones`). O balde `<1m` usa o mesmo relógio dos
+  «Trades < 1 min» do verso (que **fica**: é comportamento a %, não P&L).
+- **Frente:** saíram `Winning trades` (o donut diz) e `Revenge trades` (só verso); entraram
+  **Biggest win/loss**; `Trades ≥ 1R` → `Reached 1R`. Strip no fundo: **Hold zones · Order type ·
+  Rating** (1–5★ + Unrated). Renomes: `Max-loss buffer`, `Worst day vs limit`.
+- **Verso:** gauge `Mistakes` → **`Clean trades`** (aro cheio = bom); score inclui **Strategy
+  tagged** e diz **model**; saiu a linha `Reviewed` (só gauge) e `Hold W / L`. Gauges por tokens
+  `--tj-tone-good/mid/bad` (novos no `:root`).
+- **Tipo de conta:** `resolveAccountView` deixa de usar o fallback errado `programs[0]` (o wizard
+  guarda o tipo em `programId`): resolve por id → `phase === type` → `undefined`. No wizard,
+  `applySizeRules` passa a semear por tipo: **eval** target 6% + `eod-trailing`; **funded** sem
+  target + `eod-trailing`; **live** sem target + `static`; personal/demo sem regras. Os rótulos
+  dizem a fase (`Payout winning days` na funded) e a hint muda com o tipo.
+- **Limpeza:** `getProgram` (morto), `accountBreakdownMetric` (settings morto) e o CSS morto de
+  breakdowns/widgets (`.tj-acc-brow*`, `-btrack*`, `-bfill*`, `-bstat`, `-bseg`, `-blegend`,
+  `-bitem`, `-bdot`, `-bname2/-bval2/-bsub2`, `-brow2*`, `-btrack3/-bfill3`, `-tile-vals`,
+  `-bmetric*`, `-wtools/-wx/-wadd/-seg`, `-breakdowns`, `-bname/-btrack/-bfill/-bval`,
+  `-perfcard/-tradescard/-bcard`, `-disc-rating/-stars/-dots/-facts/-dot`) — ficam só
+  `.tj-acc-treemap`, `-tile*`, `-btabs/-btab`, `-tchip`, `-tradeshead`, `-bdhead`, `-herobreak`,
+  `-wgrid/-widget/-wh`, `-flipcard/-flipbtn`.
+
+**Backlog.** Linha nova no `ROADMAP.md`: *Tilt & psychology — limiares configuráveis* — os limiares
+(revenge 15 min, <1 min, ≥2 perdas) são heurísticas fixas; pesquisar e torná-las configuráveis só
+quando abrir o módulo de estratégias/playbooks.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 353632e0b26af2a9e02acc5cc94e197e`,
+`styles.css c83b697b1a4ba28d093f67c2ca05fa98`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`44ab9c336799464069312a2c2dd1f883`, inalterado antes e depois).
+*(O card foi refinado a seguir — ver §2.73 para o estado e hashes finais.)*
+
+---
+
+## §2.73 Flip card v3 — o card volta ao sítio, uma barra só, hold zones adiadas (19 Set)
+
+Feedback: «não gosto de como ficou o card, ficou muito desconfigurado e super esticado… o ratio
+entre a key metrics e a discipline está super desproporcional… o ícone do flip desapareceu».
+Três causas, três correções.
+
+- **O card esticava porque a strip media a altura toda.** As três distribuições no fundo da frente
+  (**Hold zones · Order type · Rating**) faziam a frente muito mais alta que o verso — e como o
+  verso é `position:absolute; inset:0`, herdava essa altura. A strip **saiu** por decisão do
+  trader: Hold zones e Order type são análise fixa do futuro módulo de estratégias/playbooks (o
+  rating fica só no verso). O `holdZones`/`HoldZone` de `accountMetrics.ts` e o CSS
+  `.tj-acc-diststrip`/`-dist*` foram **removidos** (o helper `heldMinutes`/`hold()` ficou). A medida
+  do herói mantém-se (**1.5fr / 1fr**).
+- **Uma barra, uma mensagem.** O `Risk↔Target` (ao lado dos dials) e a barra *Drawdown used* diziam
+  praticamente o mesmo em dois sítios. Ficou **uma** barra: o `Risk↔Target` ganhou o tick tracejado
+  `.tj-acc-marker-dd` no floor do trailing dd (posição `floorLevel = balance − ddRemaining` mapeada
+  na escala `[−maxLoss, +target]`; só aparece quando cai dentro da barra), e a caixa *Drawdown used*
+  perdeu o `ddtrack`/`ddfill` — fica só com o número (`used` · `limit` · `remaining`), o tipo
+  (`drawdownLabel`) e o resumo (episódios · recuperação · **time in DD**). CSS `.tj-acc-ddtrack`/
+  `-ddfill*` removido.
+- **O ícone do flip voltou.** O glifo desaparecia por baixo do `padding` nativo do Obsidian: uma
+  `button` de 24px com `padding` default colapsa o conteúdo a zero. `.tj-acc-flipbtn` ganha
+  `padding: 0` e `.tj-acc-flipbtn svg { width:15px; height:15px }`, e o ícone passa de `refresh-cw`
+  para `arrow-left-right` (lê-se como "virar"). Mantém `attachTip` + `<span class="tj-sr-only">`,
+  nunca `aria-label`.
+
+**Backlog.** A linha *Tilt & psychology — limiares configuráveis* passa a registar também que
+**Hold zones** e **Order type** voltam no mesmo módulo (saíram do flip card a 19 Set).
+
+**Preview.** `previews/account-hero-v3.html` (mock da barra única com tick do dd e caixa sem
+barra).
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 8653e40834952b3e0dc02f6c7e1e530f`,
+`styles.css 63920dbe9ea8fd59241648e4f06eb80c`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`bf965343b846651b9784664f2a5eb197`, inalterado antes e depois).
+
+## §2.74 Conta — nomes, cartões, cor do cash, settings e copy groups (19 Set)
+
+Lote de treze pontos apanhados enquanto se fazia o flip card. Três causas comuns
+(nome legado do programa, cartão sem coluna, dropdown que não se repinta) explicavam
+metade deles.
+
+- **O programa legado saiu do ecrã (nomes lixados).** O wizard grava
+  `programId = values.type`, e a UI mostrava sempre `view.program?.label` — daí
+  «Tradeify **Growth** 50K», «Topstep **Express Funded**», «Tradovate **Demo Account**».
+  `splitAccountName` (`accountsListView.ts`) passa a montar o subtítulo com
+  `[firmLabel, typeLabel, $XK]` e **deduplica por palavra** contra o título (um nome
+  «Tradeify Eval $50K» já não repete nada); o título do gráfico passa a `Equity — {acc.name}`;
+  `.tj-as-meta` fica `firm · tipo`; `autoName` e o seed `makeAccount`
+  (`props.ts`) passam a `firm · tipo · $XK`. Nenhum sítio mostra `program.label`.
+- **Cartões alinhados.** `.tj-acct-tile` passa a `display:flex; flex-direction:column` e a
+  primeira barra (`.tj-acct-prog.is-first`) ganha `margin-top:auto` — barras e mini-stats
+  encostam ao fundo e todos os cartões alinham (era o caso do AMP/Apex). **Coroa:** a tag do
+  líder usa `setIcon(..., "crown")` (Lucide, herda a tinta) no cartão e no `.tj-acc-copychip`;
+  os emojis 👑/📦/🗑️ saíram e os botões Archive/Delete usam `archive`/`trash-2`.
+- **Gráfico de equity — a cor diz o que é o dinheiro.** O `dayCash` deixa de ser um booleano e
+  passa a `{index, kind}`: **payout** = dourado, **depósito** = verde, **correção de
+  fees/custo** = tom neutro (`--tj-fg-3`). Antes qualquer dia com fluxo negativo (incluindo uma
+  correção) pintava o ponto a dourado de payout. As linhas do hover seguem a mesma regra
+  (`b.tj-cost` neutro).
+- **Account settings rebatidas.** O separador **Copy trading saiu** do modal da conta (a gestão
+  vive toda no Manage — `openCopyGroups`); os imports que só ele usava
+  (`CopyConfigEntry`/`CopyPeriod`, `openCopyPeriod`/`closeCopyPeriods`/`todayIso`) foram
+  removidos, e o CSS morto (`.tj-as-ov*`, `.tj-as-sw`, `.tj-as-copydetail`, `.tj-as-copy-warn`,
+  `.tj-as-field`) apagado. O separador **Rules** foi refeito para **espelhar o wizard**:
+  Profit target ($/%), Max loss ($/%), Daily loss limit, Consistency %, **Drawdown type**,
+  **Locks above balance**, **Position size** e **Minimum trading days / Payout winning days**,
+  com os mesmos rótulos por tipo (eval/funded/live) e o disclaimer das firms; o modelo «Firm
+  default hint» antigo saiu. O painel reusa as classes `.tj-wz-*` com `tj-account-wizard`.
+- **Winning days (ver §2.2).** `AccountMetrics.winDays` (dias > 0) + linha `X of Y days`
+  (Y = `minDays`) só em eval/funded, rotulada *Passing days* / *Payout winning days*.
+- **Copy groups que pareciam mortos.** Causa: `mountDropdown` (`lib/dropdown.ts`) calculava o
+  label/chip uma vez no mount e nunca se repintava — escolher uma conta em *Add to group* ou
+  *Change leader* não dava retorno visual. O dropdown passa a manter `chosen`, repinta label,
+  chip e o `on` da lista no clique (**corrige os 19 sítios de uma vez**). O `renderGroup`
+  (`accountsManage.ts`) foi reorganizado em secções (`.tj-mg-sect`/`.tj-mg-sectitle`) com
+  **Change leader ao lado do líder atual** e *Add a copier* em bloco próprio; `.tj-mg-swaplbl`
+  morreu.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** · `ux-audit` contrast 0,
+literal px 3 (off-scale 3), parent-relative 0, off-scale weights 0, tight line-heights 0,
+small targets 5 (dívida de base), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 2bb5a1882093c4e02ddd038597e5f1bc`,
+`styles.css 83813c305e8161d5a1b229154751002c`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(`361c84f1a8535355d14fd109eb488a15`, inalterado antes e depois).
+
+## §2.75 Conta & Accounts — cartões, General/Rules, header e Types (19 Set)
+
+Segunda passagem sobre a página da conta e a página Accounts, a partir da revisão do trader
+ao que saiu em §2.74.
+
+- **Segundo título repetido (AMP).** `splitAccountName` (accountsListView.ts) passa a
+  descartar qualquer segmento do subtítulo cujas **palavras** já estejam todas no título.
+  "AMP Futures Personal $50K" deixa de repetir "AMP Futures"; nomes de uma só palavra
+  continuam como estavam.
+- **Equity title.** O gráfico da conta passa a ler só **"Equity"** — o nome e o tamanho já
+  estão no cabeçalho da página; o título repetia-os.
+- **Rules sem scroll horizontal.** O painel Rules herda as classes do wizard
+  (`.tj-account-wizard.tj-as-pane`) mas não a largura de 720px do wizard — nova regra
+  `.tj-account-wizard.tj-as-pane { width: auto; }`. Tudo cabe sem scroll lateral.
+- **General com os componentes do wizard.** `ACCOUNT_SIZES` e `TYPE_CATALOG`
+  (6 tipos, incl. *Other*) passam a viver em `lib/accountTypes.ts` e o wizard importa-os
+  (fim da duplicação). O size é um `mountDropdown` com os cinco tamanhos + **Custom…**
+  (revela um campo `$`); o tipo é a grelha `.tj-wz-types`/`.tj-wz-type` com o escolhido em
+  `--interactive-accent`. Mudar o tamanho só actualiza tamanho + nome (modo auto) — nunca
+  re-semeia regras de uma conta existente.
+- **Header da Accounts.** O quadrado passa a chamar-se **Settings** (era *Display*) e a
+  ordem é **Copy groups · Add account · Settings**, com o Settings no canto direito.
+  O modal abre com o título **Settings**; o ícone mantém-se `sliders-horizontal`.
+- **Scroll único na modal Manage.** `.modal-container:has(.tj-manage) .modal-content`
+  ganha `overflow: hidden` — só o `.tj-manage-body` faz scroll, sem barra inútil nem
+  espaço em branco quando o conteúdo já cabe.
+- **Types — ordem por omissão.** `typeOrder()` cai em `DEFAULT_ORDER`
+  (**personal · live · funded · eval · demo · unknown**) quando nada está guardado, em vez
+  da ordem de `TYPE_KEYS`; o *Reset* fica coerente com o que se vê pela primeira vez.
+
+**Prova de gate.** `npm run build` → 0; smoke em `~/trading-journal-smoke` →
+**142 PASS / 0 FAIL**; `node tools/ux-audit.mjs` → contraste 0, literais 3 (off-scale 3),
+parent-relative 0, pesos off-scale 0, small targets 5 (dívida de base: 6px
+`.tj-td-status-dot`, 10px `.tj-td-review-dot`, 7px `.tj-start-dot`, 18px
+`.tj-export-checkbox`, 16px `.tj-pq-remove`), faint 0 → **0 violações novas**.
+
+**Deploy.** `main.js 6f99230a1c10cdeec3c22fca3956eb69`,
+`styles.css 3c10ba7fe0d8625296d98453ca44d58e`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não foi copiado**
+(inalterado pela equipa).
+
+**Segunda passagem (ajuste fino da modal da conta).** As tiles de tipo voltam a
+encolher dentro de `.tj-acc-settings` (grid `minmax(146px,1fr)`, `gap:6px`,
+`padding:8px 10px`, ícone 15px, nome a `--tj-fs-body`) e o ritmo vertical da modal
+é dado por `.tj-acc-settings .tj-wz-field + .tj-wz-field` / `.tj-as-row + .tj-wz-field`
+(`margin-top:14px`) — no wizard os campos viviam num `.tj-wz-row` que dava esse ar;
+aqui empilham-se directamente, por isso o label do campo seguinte tocava a hairline
+do de cima e o "Account type" encostava à linha do `Account size`. O campo
+**Custom…** ganha `flex: 0 0 140px` para se poder escrever. Regressão de gate após o
+ajuste: build 0 · smoke **142 PASS / 0 FAIL** · audit só a dívida de base.
+
+**Deploy (após o ajuste fino).** `main.js 6f99230a1c10cdeec3c22fca3956eb69`,
+`styles.css b1c2a1dc336f0095a3aec439b8d20207`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**.
+
+**Terceira nota.** O nome automático da conta passa a seguir também o **tipo**
+escolhido na modal: `autoName(size, type)` usa o `selectedType` (não o `acc.type`
+original), por isso trocar a tile (ex. Eval → Funded) reescreve `Firma · Tipo · $XK`
+enquanto o nome estiver em modo auto; assim que o trader edita o nome, o hint vira
+*Custom name* e nada é reescrito. Gate mantém-se: build 0 · smoke 142/0 · audit só a
+dívida de base.
+
+**Deploy (nome auto segue o tipo).** `main.js b120d64bad6a50efb659ad6eb015d03b`,
+`styles.css b1c2a1dc336f0095a3aec439b8d20207`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**.
+
+---
+
+## §2.76 Folder structure na 1.0 — notas por ano/mês, `type: trade`, migração automática (19 Set)
+
+A estrutura que o `VAULT-STRUCTURE.md` planeava para o 2.0 passa a valer **já na
+beta**: o que os colegas virem no Obsidian é a organização definitiva. O
+`tradesFolder` sobe a **raiz** (`Tradebook`), as notas nascem em
+`<raiz>/<ano>/<mês>/trades/` (mês numérico, `07`), os screenshots ficam em
+`<raiz>/<ano>/attachments/` e o sistema em `<raiz>/_tradebook/backups`. A pasta
+`library/` continua **reservada** para as estratégias 2.0 — não é criada agora.
+
+- **Escrever.** `saveTrade` (o único ponto por onde passam import, Add Trade e
+  pernas de copy) compõe `<raiz>/<AAAA>/<MM>/trades/` a partir da data da trade e
+  cria a cadeia de pastas que faltar; as colisões `_2`/`_3` continuam a resolver-se
+  **dentro do mês**. Novo helper `tradeMonthPath(root, date)` em `storage.ts`.
+- **Identidade.** Cada nota leva `type: trade` no frontmatter (`Trade.type?` novo;
+  reservados `missed` e `backtest`). A descoberta passa a ser **por `type`, não por
+  pasta**: `loadTrades`/`collectTradeNotes` varrem a raiz recursivamente e excluem
+  `_tradebook/` e `library/`. Notas antigas sem `type` continuam a ser lidas quando
+  vivem dentro de `…/trades/` (compatibilidade), por isso nada se perde.
+- **Screenshots.** As ~5 listas de candidatos duplicadas (tradeTable, tradeDetailView
+  ×2, tradeModal, print queue) foram centralizadas em `plugin.attachmentCandidates()`,
+  que resolve do novo `<raiz>/<ano>/attachments/` para trás (incluindo os caminhos
+  legados `Tradebook/trades/prints`, `Tradebook/prints`, `Tradebook/`).
+- **Backups.** Passam a `<raiz>/_tradebook/backups` (`getBackupFolder`).
+- **Migração.** `settingsVersion` + `runMigrations()` (chamado no `onLayoutReady`,
+  antes da manutenção de contas): a versão 1 move a pasta plana antiga para
+  `<ano>/<mês>/trades/` pela API do Obsidian (`fileManager.renameFile`, a mesma que
+  já atualizava links), acrescenta `type: trade` a quem faltar, sobe a raiz a
+  `Tradebook`, **nunca sobrepõe** (se o destino existir, deixa e registra) e é
+  idempotente — numa journal já migrada não toca em nada. É a última vez que o
+  utilizador vê a pasta plana.
+- **Textos.** Settings, getting-started e diagnostics deixam de dizer "Trades folder"
+  para dizer "Journal folder" (a raiz) e explicam `<ano>/<mês>/trades` +
+  `<ano>/attachments`.
+- **Harness.** Novo `folder-check.js` (11 asserções, corre contra o `main.js`
+  construído): prova que `storeTrades` escreve exatamente
+  `Tradebook/2026/09/trades/2026-09-14 NQ LONG 0930.md` com `type: trade`; que a
+  migração move uma nota plana, apaga o caminho antigo, acrescenta o `type` e fixa a
+  raiz + `settingsVersion === 1`; e que uma journal já migrada fica **byte a byte**
+  intacta.
+
+**Prova de gate.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** (artefacto
+`/home/hugo/tj-out/smoke-folder.txt`) · `node tools/ux-audit.mjs` com contrast 0,
+literal px 3 (off-scale), parent-relative 0, weights 0, line-heights 0, small
+targets 5 (só a dívida de base), faint 0 · `node folder-check.js` **OK**.
+
+**Deploy.** `main.js 477760992feb030f8e94c37c5f5de471`,
+`styles.css b1c2a1dc336f0095a3aec439b8d20207`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**
+(05b7a1e08b24bc1a94d94ee4c4696b17). No primeiro arranque o `runMigrations` move as
+notas planas do vault-dev para `Tradebook/2026/09/trades/`.
+
+---
+
+## §2.77 Estratégias 1.0 / Nível 2 — identidade, nota por estratégia e escolha (19 Set)
+
+A fundação escrita em AJ passa a estar implementada; `settingsVersion` sobe a **2** e a
+migração é idempotente. Nada é imposto (§0): o formulário **pede**, o motor só regista.
+
+- **Identidade.** `settings.strategies: StrategyRecord[]` = `{ id, name, createdAt }`
+  (`types.ts`). `knownSetups()` mantém a **assinatura** (nomes) mas funde, por ordem,
+  `settings.strategies` → `setups` legado → nomes das notas (case-insensitive, a primeira
+  grafia ganha). `Trade.setup` continua **string simples** (contrato §1).
+- **Nota por estratégia.** `library/strategies/<nome>.md` com frontmatter
+  `type: strategy`, `id`, `name`, `createdAt` (pasta criada à medida; `sanitizeFilename`
+  limpa o nome; `writeStrategyNote` **nunca sobrepõe**). As regras/documentação/readiness
+  viverão na nota — o `data.json` é índice.
+- **Remover guarda a nota.** `removeStrategy` limpa só o registo (e o `setups` legado); a
+  nota e as trades ficam intactas. A UI aconselha **renomear**. `renameSetup` mantém o
+  `id`, renomeia a nota pela API e reescreve as notas de trade (conta devolvida).
+  `addSetup`/`removeSetup` ficam como alias.
+- **Migração v2 idempotente.** `migrateStrategies()` semeia o registo a partir do `setups`
+  legado + nomes das notas e escreve a nota de cada uma; correr duas vezes não duplica.
+- **Add Trade — escolha obrigatória (manual).** O picker lê `knownSetups()` (já não das
+  trades). Uma só estratégia → pré-preenchida; ≥2 → sem default e o *Save* desactivado
+  até haver escolha (`needsStrategy()`); nenhuma → hint para `＋ New strategy…`; existe
+  sempre a escolha explícita **No strategy**. O rótulo do campo é **Strategy** (a chave de
+  dados continua `setup`).
+- **Import — campo opcional + link.** Campo **Strategy** aplica-se a TODAS as trades do
+  ficheiro (helper "Apply to all — leave empty if they are not all the same"; pré-preenchido
+  quando só existe uma). O recibo conta as que ficaram sem estratégia (`N without strategy`)
+  e o botão *Assign strategies* abre o **Trade Log filtrado exatamente a essas trades**
+  (`openTradeLogForIds` + `filterByTradeIds`), com o bulk **Set strategy** por dropdown.
+- **Strategies page.** Criar/renomear **inline** (`window.prompt` fora), nomes fora do
+  registo aparecem como **untracked** (chip) com um `+` para os registar, remover pede
+  confirmação e di-lo que a nota fica.
+- **Tutorial.** Novo passo *The strategies you trade* (Add + Skip): recomenda, não impõe.
+
+**Prova de gate.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** (artefacto
+`/home/hugo/tj-out/smoke-strategies.txt`) · `node tools/ux-audit.mjs` com contrast 0,
+literal px 3 (off-scale), parent-relative 0, weights 0, line-heights 0, small targets 5
+(só a dívida de base), faint 0 · `node folder-check.js` **OK** (asserção de
+`settingsVersion` atualizada de 1 → 2, acompanhando a migração v2).
+
+---
+
+## §2.78 Página Strategies — uma coluna, e a nota calada do martelo (19 Set)
+
+- **Uma coluna só.** Intro, `.tj-strat-card` e a nota final passam todas a
+  `max-width: 640px` (era 640 / 720 / 520). A página lê como uma coluna.
+- **Intro curta:** "Name the strategies you trade so every trade can be filed under
+  one. Each name keeps its own note in your vault."
+- **O bloco `More is coming` sai.** O título grande e as 4 linhas (*The rule set ·
+  Trades measured · Its own numbers · One trade, one row*) deixam de competir com o
+  cartão. Entra `.tj-strat-note` — uma nota calada com o martelo Lucide
+  (`.tj-strat-note-ico`, animação `tj-hammer` mantida, desligada com
+  `settings.animations:false` e em `prefers-reduced-motion`) e o texto
+  `In development — Rules, per-strategy numbers and comparison are on the way.
+  Everything you name now carries over.`
+- **Sem contador global** no cabeçalho: a lista já mostra `N trades` por linha.
+- **Limpeza.** CSS morto removido: `.tj-strat-title`, `.tj-strat-hammer`,
+  `.tj-strat-list`, `.tj-strat-row`, `.tj-strat-k`, `.tj-strat-v`. Mantidos
+  `.tj-strat-empty`/`-empty-sub`.
+- **Harness.** A asserção do smoke passa de `/More is coming/` para `/In development/`.
+
+**Prova de gate.** `npm run build` 0 · smoke **142 PASS / 0 FAIL** (artefacto
+`/home/hugo/tj-out/smoke-stratpolish.txt`) · `node tools/ux-audit.mjs` contrast 0,
+literal px 3 (off-scale), parent-relative 0, weights 0, line-heights 0, small targets 5
+(só a dívida de base), faint 0.
+
+**Deploy.** `main.js 3c868aaad9f9c1446fa00d5ab40abbb4`,
+`styles.css a27d50d47585ada07d61b4a113bdacfd`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**.
+
+## §2.79 Trade Log — review honesto, escala, receita C+D e bulk completo (19 Set)
+
+**O que estava errado (e ficou corrigido).** O sistema de review tinha três avarias
+parqueadas desde §2.74:
+
+- `lib/review.ts` decidia o passo *Review* pelo campo morto `t.review`, que a UI já
+  não escrevia: o Trade Log e a conta diziam "falta review" enquanto o detalhe da trade
+  mostrava o passo feito. O passo passa a ler o campo vivo —
+  `hasText(t.notes) || hasText(t.review)`.
+- A flag manual e a auto-detecção anulavam-se: `complete = done === total || reviewed === true`
+  fazia com que uma trade completa nunca pudesse voltar a *Not reviewed* (clique morto).
+  A regra passa a ser **`reviewed === true || (done === total && reviewed !== false)`** —
+  o motor conta os passos, o trader tem a última palavra nos dois sentidos. O toggle em
+  `tradeDetailView.ts` e o tick em `tradeTable.ts` (ambos `done = reviewStatus(t).complete`)
+  funcionam agora para lá e para cá.
+- Os contadores divergiam: `accountMetrics.reviewedPct` lia a flag crua enquanto
+  `reviewCompletePct` lia o motor, por isso o gauge "Reviewed" da conta podia dizer 40%
+  com o Trade Log a dizer 90%. `reviewedPct` **saiu**; o gauge, o discipline score
+  (`0.25·(100−mistakeRate) + 0.35·reviewCompletePct + 0.15·stopDefinedPct +
+  0.15·(100−untaggedPct) + 0.1·avgRating`), `main.ts` (maturity) e o dashboard falam
+  todos pela mesma função. Rótulo do passo: **Screenshot · Strategy · Review · Rating**
+  (`Print` → `Screenshot`); o `aria-label` do dot saiu (só `.tj-sr-only` + `attachTip`).
+
+**Escala — a página deixou de reconstruir-se a cada gesto.** O search re-renderizava o
+ecrã inteiro a cada tecla; agora espera **160 ms** e renderiza uma vez. `stats()` é
+memoizado por uma chave composta (todos os filtros + `trades.length` + `_dataVersion`,
+incrementado em cada releitura). O *Load more* re-renderiza **só o ledger** e repõe o
+scroll de `.tj-app-main` num `requestAnimationFrame` (adeus `setTimeout(50)`). O search
+passou também a procurar em `notes` e em `tags`, que faltavam no haystack.
+Harness novo **`tradelog-perf.js`**: 2 000 trades → página a 50 linhas, strip e fila
+desenhados, re-render memoizado na mesma ordem de grandeza e 5 teclas = **1** render
+adiado; com limite 200 mostra 200 linhas (`TRADELOG PERF: OK`).
+
+**Receita C+D (o que o trader escolheu no mockup `tradelog-recipe-v1.html`).**
+
+- **Strip de 4 mini-cards** no topo: Net P&L · Win rate · Avg R · Profit factor
+  (`.tj-tl-strip`/`.tj-tl-stat`), com o sub honesto dos records quando há cópias.
+- **Fila de atenção** (`.tj-tl-attention`): chips `N to review` · `N missing strategy` ·
+  `N missing print`, cada um a acender o filtro correspondente; sem nada pendente diz
+  "Nothing waiting — every trade is reviewed and filed.".
+- **Ledger em card** (`.tj-tl-ledger` + `.tj-tl-ledgerhead` `Trades · N`): o thead
+  sticky continua preso à página (`overflow: clip`, não `auto`), as cópias aparecem uma
+  vez e o "no strategy" fica âmbar.
+- **Gaveta de filtros** (`.tj-tl-drawer`), substitui o popover: secções *What I traded*
+  (com **Include/Exclude** de contas), *How it went* (Result · Direction · R),
+  *When* (Session) e *Was it done properly* (Strategies · Mistakes · Missing); rodapé
+  com "Show N trades" e "Clear all". Em ecrãs estreitos passa para cima da lista.
+- **Colunas** mantêm o popover próprio (`.tj-tl-pop`), separado dos filtros.
+
+**Bulk completo, ao nível do Journalit — e zero `window.prompt`.** A barra
+(`.tj-tl-bulk`, flutuante e sticky, só com selecção) tem *N selected* · `Select all` ·
+`Strategy…` · `Rating…` · `Account…` · `Mark reviewed` · `More…` (unreviewed, mistake,
+tag, duplicate, delete) · `Clear`. Os três pickers usam o dropdown da casa com
+`＋ New strategy…`, que abre um **input inline** (`inlineInput`). **Tags** entram por
+união via novo `updateTradeTags` em `storage.ts` (o `updateTradeFields` transformava o
+array numa string). O delete usa um **modal da casa** (`ConfirmModal`,`.tj-btn-del`) em
+vez do `window.confirm`, e o `bulkPrompt` foi removido. **Shift-clique** selecciona o
+intervalo (`_lastPicked`/`_renderedIds`, só a barra e os checkboxes são repintados, sem
+re-render da tabela) e **Cmd/Ctrl+A** selecciona tudo.
+
+**Limpeza.** Saem as regras mortas do editor inline antigo (`.tj-tl-editor` ×2,
+`.tj-tl-edfield`, `.tj-tl-edtext` ×2, `.tj-tl-edfoot`, `.tj-tl-edrating`,
+`.tj-tl-edcheck`, `.tj-stars-edit`, `.tj-tl-dirbadge*`, `.tj-tl-dir-arrow`,
+`.tj-tl-sizeseg`, `.tj-pop-clear`) — e, com elas, um **bloco de comentário malformado**
+(`/* Right side: WIN/LOSS + P&L + points{` sem fecho) que engolia silenciosamente o
+`.tj-tl-dir-arrow`; nenhuma classe viva era apanhada. Verificado: 0 classes `tj-tl-*`
+sem consumidor em `src/`.
+
+**Prova de gate.** `npm run build` 0 · smoke **142 PASS / 0 FAIL**
+(`/home/hugo/tj-out/smoke-tradelog.txt`) · `node tools/ux-audit.mjs` contrast 0, literal
+px 3 (off-scale), parent-relative 0, weights 0, line-heights 0, small targets 5 (só a
+dívida de base), faint 0 · `node folder-check.js` **OK** · `node tradelog-perf.js`
+**OK**.
+
+**Deploy.** `main.js fc5ff54a31f1a4ef2e817fd7c243a260`,
+`styles.css 532331a477f1c010b6ea0ab96274e709`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**.
+
+## §2.80 Trade Log — a receita canónica de superfície, escrita como lei (19 Set)
+
+O trader: «o que decidimos aqui é o que tem que ficar definido para tudo, que é para ficar
+exatamente tudo igual como tínhamos metido nas regras da UX Guidelines». A decisão de
+19 Set (variante **C · Híbrido editorial**) passa a ser **normativa**, não um estilo do
+Trade Log.
+
+- **Norma escrita.** `docs/UX-GUIDELINES.md` ganha **§6.1 "One surface language, for every
+  page"** (números numa linha fina com `(i)`, listas num painel sem cartão, fila em quiet
+  chips, hairline perceptível, máximo ghost) + um item novo na checklist §7.
+  `docs/UI-CATALOG.md` ganha **§6.0 "Receita canónica de superfície (normativa)"** com a
+  tabela peça→classes→regra e a lista do que é proibido (`#d9a441` literal,
+  `background-secondary` como fundo de página, `box-shadow` decorativo, cor sem palavra).
+- **Implementação no Trade Log** (`src/views/tradeLogView.ts`): o subtítulo passa a
+  `p.tj-import-info`; os 4 mini-cards (`.tj-tl-strip`/`.tj-tl-stat*`) dão lugar a uma
+  **linha de números** `.tj-statline` → `.tj-statline-cell/-k/-v/-s`, com um **`(i)` por
+  figura** (`.tj-info-dot` + `attachTip`: o que conta cada número — payouts/depósitos nunca
+  entram no Net P&L, break-even não conta na win rate, o R é por trade, o profit factor é
+  ganhos÷perdas); os chips de atenção passam a `.tj-attention` + `.tj-quietchip`
+  (texto sublinhado em `--tj-tone-mid`, sem pill; `.is-on` com tinta) e `.tj-quietchip-none`;
+  o ledger passa de cartão cinzento (`.tj-tl-ledger*`) para `.tj-panel` →
+  `.tj-panel-head/-title/-count/-note` (sem fundo, sem raio, hairline em cima da tabela).
+- **Gaveta e bulk** deixam de ser cartões: `.tj-tl-drawer` passa a uma coluna da página
+  (hairline à esquerda, sem fundo/raio; <900px hairline em baixo) e a barra de bulk passa a
+  tinta de acento translúcida. `.tj-tl-subtitle` (com o fallback falso
+  `var(--fg-3, var(--tj-fg-3))`) sai; o `#d9a441` literal sai.
+- **Sem CSS morto:** `.tj-tl-subtitle`, `.tj-tl-strip`, `.tj-tl-stat*`, `.tj-tl-attention`,
+  `.tj-tl-attn*`, `.tj-tl-ledger*` removidos (0 consumidores em `src/`); a classe sem
+  regras `tj-tl-ledgerwrap` saiu do view. Harness `tradelog-perf.js` passa a assertar
+  `.tj-statline .tj-statline-cell` e `.tj-attention`.
+- **Registado** no `docs/BACKLOG-AND-HISTORY.md` §7: «Receita canónica — alinhar as outras
+  superfícies» (Accounts, Home e página da conta adotam a receita na passagem seguinte).
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** ·
+`node tools/ux-audit.mjs` só a dívida de base (contrast 0, literal px 3 off-scale, small
+targets 5, faint 0) · `node folder-check.js` **OK** · `node tradelog-perf.js` **OK**
+(2 000 trades: 1.º render 93 ms, re-render 45 ms, 5 teclas = 1 render).
+
+**Deploy.** `main.js 516171a1ffc15252603fa8698417a241`,
+`styles.css 8f886bc81004cdeb612f1b173155bf6f`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**.
+
+---
+
+## §2.81 Trade Log — linguagem A, mecanismos e acessibilidade (19 Set)
+
+O trader preferiu a **variante A** («acho que até prefiro o A… fica mais limpo») e ela passa a
+**lei**: «queria tentar aquilo que vemos que de maneira geral todos os Top journals usam e
+mudar a UI do nosso e acertar todos os nossos mecanismos para funcionar perfeito». Âmbito
+fechado: **visual A + bugs + selects** (os mecanismos novos ficam no BACKLOG).
+
+- **Norma reescrita (reversão do §2.80).** `UX-GUIDELINES.md` §6.1 e `UI-CATALOG.md` §6.0
+  passam de C (stat line + plain panel + quiet chips) para a **linguagem da página Accounts**
+  (variante A): faixa de números num **só cartão segmentado** com células separadas por
+  hairline, listas em **cartão translúcido** (`.022` white, raio 14) com cabeçalho
+  `.tj-acct-h1` (ponto + label + contagem + hairline), fila em `.tj-attn-chip`, **gaveta como
+  cartão irmão**. `BACKLOG` §7 passa a dizer que **Home e página da conta** alinham depois.
+- **Trade Log em A** (`src/views/tradeLogView.ts`): cabeçalho `.tj-acct-header` +
+  `.tj-acct-header-actions` (saem `.tj-tl-head`/`-title`/`-actions` e os dois remendos de
+  alinhamento em `styles.css`); strip `.tj-acct-strip` → `.tj-acct-strip-cell/-k/-v/-sub`
+  (com o `(i)` por figura); atenção `.tj-attention` + `.tj-attn-chip`(+`.is-on`)/
+  `.tj-attn-none` (tinta `--tj-tone-mid`, **zero** `#d9a441` literal); ledger `.tj-panel`
+  em cartão com cabeçalho `.tj-acct-h1` + `.tj-panel-note`; chips de filtros activos em
+  **pill da casa**; busca e gaveta e bulk bar como cartões; **Load more** e **Cancel** do
+  confirm passam a ghost (`.tj-actionbtn`). Saem `.tj-statline*` e `.tj-quietchip*`.
+- **Selects.** Os 5 `<select class="dropdown">` nativos da gaveta (Ticker · Result ·
+  Direction · R · Session) passam a **dropdown da casa** (`mountDropdown`); o parâmetro
+  `disabled` morto do `sel()` sai, com ele o estilo de select nativo.
+- **Mecanismos (bugs da auditoria).** `filterByDay`/`filterByAccount`/`filterBySetup`/
+  `filterByReview` voltam a ser **lentes transitórias** (`_skipPersist` — respeita AE: o
+  ribbon abre tudo); a persistência só grava quando a **assinatura muda** (fim do save storm
+  a cada render); o `idFilter` do import ganha **chip visível** com clear e **repõe o
+  período**; **Cmd/Ctrl+A respeita os filtros** (era `this.trades`, incluía cópias e trades
+  escondidas); os scoped opens passam por `scopedTradeLogView()`, que espera pela view
+  (resolve o `DeferredView` do Obsidian ≥1.7.2 — antes era um no-op silencioso); o
+  `groupFilter` mostra o **nome** do grupo e o sentinela `__none__` mostra "None"; o estado
+  **Include/Exclude** das contas e a **selecção** ganham chip; o delete em lote di-lo
+  **honestamente** (o Obsidian manda para o trash quando assim está configurado; senão é
+  permanente); `Clear all` limpa `idFilter`/`accountExclude`/`accQuery`; a memo key de
+  `stats()` inclui `includeCopiesInPortfolioAnalytics` e `timeZone`; `hasCopies` usa
+  `isCopiedTrade`; um novo **`onClose()`** limpa `_searchTimer`/`_filterTimer`.
+- **Acessibilidade.** O sort do header é operável por **teclado** (`th` focável +
+  Enter/Space); a reordenação de colunas ganha **setas** no popover (alternativa ao drag,
+  SC 2.5.7/2.1.1); o `aria-label` sai das âncoras de `attachTip` (Trade Log, tabela, painel
+  de contas, header das contas) e o nome acessível viaja num `.tj-sr-only`;
+  `src/lib/tip.ts` deixa de documentar o contrário da regra.
+- **Limpeza.** Fora os campos mortos de `tradeLog.filters` (`type`/`duration`/`tag`/`tags`/
+  `limit`), o `savedLedgerY`, as chaves `LEGACY_KEYS` que nunca eram lidas, e o CSS morto
+  (`.tj-tbl-shot*`, `.tj-tbl-noshot*`, `.tj-pop-row`, `.tj-filterbtn-clear`,
+  `.tj-filterbar-compact`, selectors duplicados); entram `.tj-tl-colmove`/`-colmove-b` e o
+  `.tj-tl-activechip-x` passa a 24×24.
+
+**Prova de gate.** `npm run build` **0** · smoke **142 PASS / 0 FAIL** ·
+`node tools/ux-audit.mjs` só a dívida de base (contrast 0, literal px 3 off-scale, small
+targets 5, faint 0) · `node folder-check.js` **OK** · `node tradelog-perf.js` **OK**
+(0 renders síncronos ao escrever; 1 render diferido; limit 200 → 200 linhas em 132 ms).
+
+**Harness.** `smoke.js` e `tradelog-perf.js` actualizados para `.tj-acct-header` /
+`.tj-acct-strip`; `rowcheck.js`, `bulk-check.js`, `filters-check.js` e `tradelog-check.js`
+retargetados para as classes novas e para o dropdown da casa. Nota honesta: estes quatro são
+**probes da vault principal** e esta está sem trades — não fazem parte do gate; a cobertura
+de confiança é o `smoke.js` (142) e o `tradelog-perf.js`.
+
+**Deploy.** `main.js 66f3d85e4371a1d49d472122490d8320`,
+`styles.css e305c7ccdf069ae1401d81a29577354d`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**
+(`cc8a17daf8feb375f4513ca64e13c260`).
+
+---
+
+## §2.82 Tabela de trades em linguagem A + painel na página da conta (19 Set)
+
+O trader: «agora temos de mudar a parte onde as Trades aparecem, ainda tem o look antigo,
+não encaixa com isto novo que estamos a criar». O ledger é a última peça do Trade Log que
+ainda falava a língua antiga; a tabela partilhada (`lib/tradeTable.ts`, usada pelo Trade Log
+e pela página da conta) e o widget de trades da conta foram alinhados à variante A.
+
+**Ledger (CSS `.tj-tbl*`).**
+- Células por omissão: `var(--text-muted)` do tema → **`--tj-fg-3`** (token AA da casa) no
+  `tbody td`, nas linhas de execução (`.tj-tbl-fill td`), na tag de execução
+  (`.tj-tbl-fill-tag`) e no `.tj-flat`.
+- Hover da linha: `var(--background-modifier-hover)` → `rgba(255,255,255,.035)` (o translúcido
+  da casa, o mesmo das tiles de conta).
+- Cabeçalho do dia: fundo opaco `var(--background-primary)` fora; fica transparente, com
+  `border-bottom: 1px solid var(--background-modifier-border)`; a pill `.tj-tbl-daymid` passa
+  a `rgba(255,255,255,.05)` + hairline; `.tj-tbl-daymeta` a `rgba(255,255,255,.05)`; a régua
+  (`.tj-tbl-dayrule`) passa a `var(--background-modifier-border)`.
+- Bordas: a assimetria (topo 100% + fundo 55%) morre — sobre uma hairline por cima de cada
+  linha, com as regras duplicadas do dia (dois `.tj-tbl-day td`, dois `.tj-tbl-daymeta`)
+  unificadas e o `padding` morto da pill removido.
+- Header da tabela: sai o `border-radius: 7px` do primeiro/último `th` (era uma barra-pílula
+  dentro de um painel quadrado); mantém-se o `box-shadow` que segura o sticky.
+- Tokens nos estados: estrelas `#f5b301` → `--tj-tone-mid`; `#d9a441` → `--tj-tone-mid` em
+  `.tj-tbl-review` e `.tj-tbl-pnl-partial`; `.tj-tbl-accs` fica em `--tj-fg-3` com o tracejado
+  no mesmo tom.
+
+**Página da conta.** A lista de trades deixa de ser uma tabela nua: é o mesmo `.tj-panel` do
+Trade Log (cartão translúcido raio 14 + hairline) com o cabeçalho `.tj-acct-h1` — ponto ·
+`Trades` · contagem em pill · hairline · o chip do filtro da breakdown à direita. A contagem
+acompanha o filtro (é escrita no `paint()`), o título do widget passa a `Trades in this
+account` (o número vive no painel, não duas vezes) e o `.tj-acc-tradeshead` morreu no CSS.
+
+**Prova de gate.** `npm run build` exit 0 · smoke **142 PASS / 0 FAIL** ·
+`node tools/ux-audit.mjs` só a dívida de base (contrast 0; literal px 3 off-scale;
+parent-relative 0; off-scale weights 0; tight line-heights 0; small targets 5 —
+`.tj-td-status-dot`, `.tj-td-review-dot`, `.tj-start-dot`, `.tj-export-checkbox`,
+`.tj-pq-remove`; faint 0) · `node folder-check.js` **OK** ·
+`node tradelog-perf.js /home/hugo/trading-journal-smoke` **OK**.
+
+**Deploy.** `main.js 03e6849c5da6c0e08d74679fd394d91e`,
+`styles.css 05c4c547071b1027cfb57182dbf42895`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`; `data.json` **não copiado**
+(`5e305272d0665dd24db01a64c75ab274`).
+
+## §2.83 Trade Log — gaveta em pills, bulk só com palavras, cabeçalho do dia (19 Set)
+
+O trader: «ainda não ficou igual ao mockup que foi criado, eu queria dessa maneira para
+depois continuar». Referência: `previews/tradelog-revamp-v1.html` (variante A). Repostas
+fechadas no mesmo passo: a coluna **Review fica com o tick ✓/○** («ainda não sei como vamos
+implementar essas cenas para o automatic review system») e a **gaveta é literalmente como o
+mockup** (linhas de pills, não dropdowns). A coluna de rail/dot existe na implementação e
+não no mockup — fica.
+
+**Gaveta de filtros — linhas de pills (`src/views/tradeLogView.ts`).** Os helpers `sel()`
+(que montava o dropdown da casa) e `multi()` (que criava `.tj-tl-picks`) saem; entram
+`section()` (`.tj-tl-dsec` + `.tj-tl-dsec-t`) e `pills()` (`.tj-tl-opts` → `.tj-tl-opt`
+com `.on`). As secções mantêm a função de cada filtro — What I traded (account picker +
+par **Include/Exclude** em `.tj-tl-incl` + ticker), How it went (Result · Direction · R),
+When (Session), Was it done properly (Strategies · Mistakes · Missing) — e o vazio de cada
+lista diz-se em `.tj-tl-optnone`. O botão do rodapé passa a **`.tj-tl-drawer-show`**
+(`Show N trades`); o `Clear all` mantém-se.
+
+**Bulk bar — só palavras.** O helper `act()` deixa de receber ícone e de desenhar o
+`span.tj-btn-icon`; os botões são texto (`.tj-tl-bulkbtn` mais baixo e em `--tj-fs-small`).
+Os quatro pickers (Strategy…, Rating…, Account…, More…) ficam, mas com o aspecto `prim` do
+mockup (`.tj-tl-bulkpick .tj-mg-dd-btn` com borda hairline e texto normal). O cartão passa a
+`rgba(255,255,255,.022)` com borda `color-mix(accent 35%, border)` e raio 10.
+
+**Barra e fila.** `.tj-tl-periodbar` passa a **segmented control** (borda + raio 8, botões
+sem borda, activo em `rgba(255,255,255,.06)`); o campo de busca perde a caixa e fica numa
+**hairline por baixo**; os chips de filtros activos deixam de ser pílulas e passam a **texto
+com `border-bottom`** (o × mantém 24×24, exigência do audit). Os chips de atenção ganham o
+**ponto âmbar de 6px** via `::before` de `.tj-attn-chip`, altura 27px e realce âmbar no
+`:hover`/`.is-on`.
+
+**Cabeçalho do dia.** As réguas de largura total dão lugar a **hairlines curtas de 26px**
+(`.tj-tbl-dayrule { flex: 0 0 26px }`), a pill perde fundo e borda e o rótulo desce a
+`--tj-fs-label`; o contador de trades passa a tag (raio 5, `rgba(255,255,255,.07)`).
+
+**Limpeza.** Mortos no CSS: `.tj-tl-picks`, `.tj-tl-pick` (+`:hover`/`.on`),
+`.tj-tl-bulkbtn .tj-btn-icon svg`, `.tj-attn-chip .tj-btn-icon svg`. `.tj-tl-picknone`
+fica (o account picker ainda o usa). Um erro de `tsc` na chamada `act("Clear", …)` foi
+corrigido.
+
+**Prova de gate.** `npm run build` exit 0 · smoke **142 PASS / 0 FAIL** ·
+`node tools/ux-audit.mjs` só a dívida de base (contrast 0; literal px 3 off-scale;
+parent-relative 0; off-scale weights 0; tight line-heights 0; small targets 5 —
+`.tj-td-status-dot`, `.tj-td-review-dot`, `.tj-start-dot`, `.tj-export-checkbox`,
+`.tj-pq-remove`; faint 0) · `node folder-check.js` **OK** ·
+`node tradelog-perf.js /home/hugo/trading-journal-smoke` **OK**.
+
+## §2.84 Review do Trade — layout em cartões, fiel ao mockup 1.html (19 Set)
+
+O trader reviu o deploy em Obsidian: «a estrutura da UI está completamente errada, não se
+parece nada com o mockup». Referência: `previews/1.html`. Repostas fechadas antes do
+trabalho: títulos dos cartões em **inglês** (a UI é inglesa) — *Execution & Risk*,
+*Critical Review & Psychology*, *Screenshots & Visual Analysis*; o conjunto de psicologia a
+semear é o proposto (`Confident · Anxious · Impatient · Revenge · Disciplined`); *Enlarge* é
+um **lightbox na própria página**. A reforma é de estrutura e CSS; os dados não mudam.
+
+**Cartões em vez de lista vertical (`src/views/tradeDetailView.ts`).** Novo helper
+`panelCard(host, title)` — `.tj-td-panel` / `-head` / `-title` / `-body` — que embrulha
+cada grupo. A coluna esquerda (`grid-template-columns: minmax(320px,440px) minmax(0,1fr)`,
+quebra a 900px) tem dois cartões: **Execution & Risk** (P&L hero, pontos, R, hold, entry/exit
+time, entry/exit, contratos, símbolo, direção, stop, target, R:R, risco $, fees, order type,
+sessão, max position) e **Critical Review & Psychology** (Reviewed → Strategy → Rating →
+chips de tags → notas, pela ordem do mockup). O velho `front`/flip-card desapareceu; todos os
+`editableRow`/`row` passaram a ter `execCard` como anfitrião. A coluna direita é o cartão
+**Screenshots & Visual Analysis** (a contagem de prints vive no título).
+
+**Screenshots — quick-tags fora, tile no fim, enlarger.** As quick-tags `1m`/`5m`/`15m`/`HTF`
+**saem** (só fica o input livre *Name this print…*). O cabeçalho tem o título à esquerda e
+apenas *Annotate* + *Enlarge* à direita; `openPrintLarge(file)` monta um lightbox
+`.tj-td-lightbox` (`position:fixed`, `inset:0`, z-index 1200) que fecha com clique ou Escape
+(`_lightboxCleanup` remove o listener; o `onClose` também faz o teardown e limpa o paste dos
+`.tj-td-dropzone, .tj-td-shot-add`). A imagem principal fica contida num wrapper escuro de
+380px (`object-fit:contain`, `overflow:hidden`) e **clicar amplia** (substitui o antigo clique
+de anotar). As thumbnails passam a **strip horizontal** (`flex-wrap:nowrap`, `overflow-x:auto`,
+`flex:0 0 auto; width:104px`) e o **+ Add Print** deixa de ser a barra full-width
+(`.tj-td-dropzone.compact`) e passa a um **tile quadrado tracejado no fim da strip**
+(`.tj-td-shot-add` — 104px, `border:1px dashed`, ícone `plus` + label). No estado vazio o
+cartão inteiro continua a ser a dropzone. Todo o wiring de ficheiro/clique/drag/Ctrl+V passou
+a apontar ao genérico `addTarget`.
+
+**Tags — defaults como sugestões.** `knownTags(key)` passa a semear os defaults antes das
+labels já usadas (dedupe case-insensitive, extras ordenadas): mistakes `Hesitation Entry ·
+Early Exit · FOMO · Moved Stop · Overleveraged`, psychology `Confident · Anxious · Impatient ·
+Revenge · Disciplined`. São **só sugestões** — nunca se escrevem sozinhas — clicáveis para
+ligar/desligar, e o input inline continua a aceitar novas. A linha `None yet` saiu (os
+defaults garantem sempre sugestões).
+
+**Limpeza de CSS morto** (0 referências em `src/`): `.tj-td-stats/-stat*`,
+`.tj-td-dropzone-card/-header/-title`, `.tj-td-dropzone.compact`,
+`.tj-td-dropzone-add-label`, `.tj-td-review-card*`, `.tj-td-status-dot`,
+`.tj-td-rating-section`, `.tj-td-tagempty`, família flip-card
+(`.tj-td-flip-card/-face/-ffront/-fback/-flipbtn`), `.tj-td-shot-lab*`, legado v4/v5
+(`.tj-td-kpi-card`, `.tj-td-setup-card`, `.tj-td-ctx-*`), `.tj-td-mic`,
+`@keyframes tj-pulse` e o `@keyframes tjFlipIn` do trade detail. As três regras
+`.tj-app .tj-td-cols > *` (superfície translúcida/blur) passaram a `.tj-app .tj-td-panel`.
+KEPT: `.tj-td-flip-row/-key/-val/-input`, `.tj-td-shot-carousel/-annotate/-remove`,
+`.tj-td-stars/-star/-star-glyph` (ainda usados por `tradeModal.ts`).
+
+**Prova de gate.** `npm run build` exit 0 · smoke **142 PASS / 0 FAIL** ·
+`node tools/ux-audit.mjs` só a dívida de base (contrast 0; 3 px off-scale —
+2 no `.tj-pq-*` + 1 a 20px; parent-relative 0; off-scale weights 0; tight line-heights 0;
+small targets 4 — `.tj-td-review-dot`, `.tj-start-dot`, `.tj-export-checkbox`,
+`.tj-pq-remove`; faint 0) · deploy vault-dev com md5 verificado dos três ficheiros
+(`main.js 1398906f`, `styles.css 4e4f649b`, `manifest.json 4395b22f`); `data.json` não
+tocado. Ctrl+R pedido.
+
+## 2.85 Review do Trade — densidade e barra-hero (BE, 21 Set 2026)
+
+A queixa era de densidade, não de estrutura. Corrigido:
+
+- `.tj-td-hero` nova — título (`symbol · side`, `date, entryTime`, chip de estratégia)
+  e três métricas à direita (Hold Time · Points · Net P&L); as linhas Net P&L, Points e
+  Hold Time saem do cartão *Execution & Risk* (R-Multiple fica).
+- Grid: `gap:20px`, `align-items:start`, `.tj-td-right{align-self:start}`, empilhamento
+  a `960px` (era 900px).
+- Densidade: panel padding 14, panel-head margin 8, flip-row `4px 0`, field margin 10,
+  field-label margin 6, textarea `8px 10px`/min-height 64, chips/estrelas mais justos,
+  `.tj-td-head` margin 14/padding 12.
+- Execuções: stat-cards (`.tj-td-execs-cards`/`.tj-td-execcard*`) removidos do view e do
+  CSS; bloco a `margin:14px 0 4px`; tabela full-width sob o grid.
+
+Prova: `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` só dívida de base
+(contrast 0; 3 px off-scale — 2 no `.tj-pq-*` + 1 a 20px; parent-relative 0; off-scale
+weights 0; tight line-heights 0; small targets 4 — `.tj-td-review-dot`, `.tj-start-dot`,
+`.tj-export-checkbox`, `.tj-pq-remove`; faint 0) · deploy vault-dev com md5 verificado
+(`main.js b9d16ed1`, `styles.css 698bc82e`, `manifest.json 4395b22f`); `data.json` não
+tocado. Ctrl+R pedido.
+
+## 2.86 Review do Trade — cartões v2: hero com badges, tags toggle, execuções (BF, 21 Set 2026)
+
+Fidelidade ao mockup `previews/1.html` e fim do vocabulário "append-only" das tags:
+
+- **Hero**: `.tj-td-hero-sym` passa a ser só o símbolo; entram o badge de direção
+  `.tj-td-hero-dir.is-long/.is-short` (verde/vermelho por token) e o badge de estado
+  `.tj-td-hero-status` (âmbar *Needs Review* → verde *Reviewed*, clicável, com `attachTip`);
+  `.tj-td-hero-title` alinha ao centro com wrap, `.tj-td-hero-metric` alinha ao fim.
+- **Reviewed**: a linha `Reviewed` do cartão *Critical Review & Psychology* **sai** — o
+  estado vive no badge do hero (o cartão começa na Strategy).
+- **Tags**: `tagSection` passa a desenhar **um só chip por label** a partir de
+  `normalizeTags([...knownTags(key), ...tags])`, com estado `.is-on` e clique a alternar
+  (liga/desliga); as sugestões tracejadas `.tj-td-tagsug` e o botão × `.tj-td-tagx`
+  desaparecem do código e do CSS. Os defaults (5 mistakes do mockup + 5 psychology) ficam
+  sempre visíveis como sugestões desligadas; o input inline de tags novas mantém-se.
+- **Execuções**: `renderExecutions` passa a ser um cartão da casa
+  (`.tj-td-panel.tj-td-execs` + `.tj-td-panel-head` + `.tj-td-panel-title`) e os badges de
+  fill ganham tinta por lado (`.is-entry` verde / `.is-exit` vermelho; `.is-flat` muted).
+- **Grid**: base `minmax(320px,440px) minmax(0,1fr)`, faixa intermédia
+  `@media (max-width:1399px) and (min-width:901px)` com `minmax(300px,360px)`, e stack a
+  `900px` (o bloco antigo a `960px` sai).
+- **Viewer**: `.tj-td-shot-main` passa a `height: clamp(260px, 32vh, 380px)`.
+
+Prova: `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` só dívida de base
+(contrast 0; 3 px off-scale — 2 no `.tj-pq-*` + 1 a 20px; parent-relative 0; off-scale
+weights 0; tight line-heights 0; small targets 4 — `.tj-td-review-dot`, `.tj-start-dot`,
+`.tj-export-checkbox`, `.tj-pq-remove`; faint 0) · deploy vault-dev com md5 verificado
+(`main.js d6b827af`, `styles.css cc154c34`, `manifest.json 4395b22f`); `data.json` não
+tocado. Ctrl+R pedido.
+
+## 2.87 Review do Trade — harness `tradedetail-check.js` (BG, 21 Set 2026)
+
+Novo harness `~/trading-journal-smoke/tradedetail-check.js` — 27 asserções contra o DOM
+real (jsdom) e o `styles.css` real injetado. Corrigiu o que faltava para o mockup:
+
+- **Hero**: badges com as classes do mockup — direção em `.tj-td-hero-badge.is-long/.is-short`
+  e estado de review em `.tj-td-hero-badge.is-status.is-needs-review/.is-reviewed` (o antigo
+  `.tj-td-hero-status.is-done` saiu); a barra tem exatamente 3 `.tj-td-hero-metric`.
+- **Campos movidos**: **Entry Time** e **Exit Time** saem do `.tj-td-panel-body` (o tempo
+  vive no hero; `zoneShortLabel` fora do import). **Target** e **Order Type** passam a viver
+  num `<details class="tj-td-more">` no fim do cartão (`summary.tj-td-more-sum`,
+  `.tj-td-more-body`).
+- **Screenshots**: o palco ganha `.tj-td-shot-badge` (etiqueta escura no canto, como o
+  `.screenshot-badge-label` do mockup); thumbnails passam de flex a
+  `grid repeat(auto-fill, minmax(110px, 1fr))` e o tile `+ Add Print` perde a largura fixa
+  e flui na grelha; a thumbnail ativa fica verde (`--color-green-bright, #34d17a`).
+- **Grid**: base `.tj-td-cols` a `440px minmax(0, 1fr)`.
+
+Prova: harness **27/27 PASS** · `npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit`
+só dívida de base (contrast 0; 3 px off-scale; parent-relative 0; off-scale weights 0; tight
+line-heights 0; small targets 4; faint 0) · deploy vault-dev com md5 verificado
+(`main.js 0bfeb891`, `styles.css 39c4aa20`, `manifest.json 4395b22f`); `data.json` não
+tocado. Ctrl+R pedido.
+
+## 2.88 Trade Detail v2 — layout responsivo (BI, 21 Set 2026)
+
+> Nota de numeração: o pedido dizia §2.86, mas §2.86 (BF) e §2.87 (BG) já existiam;
+> esta entrada é a §2.88.
+
+O `TradeDetailView` fecha a passagem ao mockup `previews/1.html` com layout responsivo
+a sério e o harness que o prova.
+
+- **Hero**: vive no **corpo** (não no header sticky), como cartão — símbolo, data/hora,
+  badge de direção (`.tj-td-hero-badge.is-long/.is-short`), badge de estado de review
+  (`.tj-td-hero-badge.is-status.is-needs-review/.is-reviewed`, clicável, `attachTip`) e
+  **exatamente 3** `.tj-td-hero-metric` (Hold Time · Points · Net P&L). O header fica só
+  com navegação e ações, pelo que não conta altura fixa em ecrãs pequenos.
+- **Grid**: `.tj-td-cols` com três breakpoints (abaixo); o rail esquerdo empilha
+  *Execution & Risk* → *Critical Review & Psychology*, a coluna direita é
+  *Screenshots & Visual Analysis* alinhada ao topo.
+- **Ordem em ecrã pequeno**: hero → screenshots → review → execução → fills (prioridade,
+  não ordem arbitrária — `UX-GUIDELINES.md` §5.2).
+- **Clamp**: `.tj-td-shot-main` a `height: clamp(260px, 32vh, 380px)`; nenhuma regra
+  `.tj-td-*` fixa `height: 380px`.
+- **Campos movidos**: **Entry Time**/**Exit Time** saem do cartão (vivem no hero);
+  **Target** e **Order Type** dobrados em `<details class="tj-td-more">`.
+- **Chips de tags**: defaults semeados sempre visíveis e **toggle ligado/desligado**
+  (`.tj-td-tagchip` + `.is-on`, mistakes tingidos por `.tj-td-tags--mistakes`), mais
+  `＋ Add tag` inline; `.tj-td-tagsug`/`.tj-td-tagx` removidos.
+- **Grelha de thumbnails**: `.tj-td-shot-thumbs` em `grid repeat(auto-fill, minmax(110px, 1fr))`,
+  thumbnail ativa contornada a verde (`--color-green-bright, #34d17a`), `.tj-td-shot-badge`
+  no palco e o tile `+ Add Print` tracejado a fluir na grelha.
+- **Execuções**: cartão da casa com badges por lado (ENTRY verde / EXIT vermelho /
+  break-even muted).
+
+### Breakpoints
+
+| Largura  | Layout                                        |
+|----------|-----------------------------------------------|
+| ≥1400px  | 2 colunas: rail 440px + painel elástico        |
+| 900–1399 | 2 colunas: rail 360px + painel elástico        |
+| <900px   | 1 coluna empilhada por prioridade              |
+
+### Harness
+
+Novo `~/trading-journal-smoke/tradedetail-check.js` (jsdom + `main.js` + `styles.css`
+injetado): **31/31 PASS** — hero e badges, os 3 breakpoints, `clamp()`, chips com toggle
+(sem escrever na vault), grelha de thumbnails + ativa verde, badges de execução por lado
+e os campos movidos.
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` só dívida de base
+(contrast 0; 3 px off-scale; parent-relative 0; off-scale weights 0; tight line-heights 0;
+small targets 4; faint 0) · `tradedetail-check.js` **31/31 PASS** · `fills-check.js` OK ·
+deploy vault-dev com md5 verificado (`main.js 0bfeb891343beb2d38ded1158457d803`,
+`styles.css 39c4aa208e6c1450c6e6cb2d44310853`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não tocado.
+
+### Teste manual pendente (3 tamanhos)
+
+Redimensionar o painel do Obsidian e confirmar a leitura por prioridade:
+
+- **1440px** — duas colunas, rail 440px; hero e 3 métricas numa linha.
+- **1280px** — duas colunas, rail 360px; hero ainda numa linha.
+- **900px** — uma coluna: hero → screenshots → review → execução → fills; o header não
+  ganha altura fixa.
+
+## §2.89 Review engine v2 + Trade Detail v3.3 (22 Set 2026)
+
+> Nota de numeração: o pedido dizia §2.86, mas §2.86 (BF), §2.87 (BG) e §2.88 (BI) já
+> existiam; esta entrada é a §2.89.
+
+O motor de review tinha três avarias somadas: campos que se actualizavam sozinhos, campos
+ignorados e a flag manual "sticky". Esta passagem fecha as três e reconstrói o Trade Detail
+ao mockup `previews/trade-detail-v3.html`.
+
+### Parte A — Review engine v2 (dois níveis)
+
+- **Modelo**: `Trade.psychologyAcknowledged` e `Trade.mistakesAcknowledged` (opcionais,
+  `undefined` por omissão). `storage.ts` emite `psychology_acknowledged: true` /
+  `mistakes_acknowledged: true` **só quando true** e lê-os de volta; notas antigas sem os
+  campos comportam-se exactamente como antes.
+- **`lib/review.ts`**: o `ReviewStatus` passa a ter dois níveis. **Required** (decidem
+  `complete`): Screenshot · Strategy · Review · Rating. **Optional** (nunca bloqueiam):
+  Psychology State · Execution Mistakes — cada um fica `done` com ≥1 tag **ou** com a
+  acknowledgement explícita. `complete = requiredDone === 4 && reviewed !== false`, pelo que
+  `reviewed === true` deixou de ser override absoluto (limpar um campo required volta a
+  pôr a trade incompleta) e `reviewed === false` continua a forçar incompleta. Uma trade
+  sem psicologia e sem mistakes, sem acknowledgement, **continua completa** (o journal
+  reporta, nunca impõe). `checks` leva as 6 entradas com `required`; `done`/`total` contam
+  0..6, `requiredDone`/`requiredTotal` contam 0..4, `label` é `"Complete"` ou `"N/4"` e
+  `missing` lista só os required. Novo `optionalSummary(t)` — `"5 psychology · 3 mistakes"`,
+  `"no mistakes"`, `"no psychology"` ou `""` (singulariza `1 mistake`).
+- **Consumidores**: `tradeDetailView` (4 dots filtrados a required + linha de summary por
+  baixo + botões `.tj-td-ack` que persistem via `saveAck`), `tradeLogView` e `dashboard`
+  falam todos por `reviewStatus(t).complete` / `reviewSummary` (API mantida). Ligar um chip
+  de mistake desliga a acknowledgement sozinho — a trade está a registar um erro, não a
+  dizer que não houve.
+
+### Parte B — Trade Detail v3.3
+
+- **Hero numa linha**: `.tj-td-hero-title-group` (título `SYMBOL · Long`, data/hora, badges
+  `is-long`/`is-short` e `is-status.is-reviewed`/`.is-needs-review`) + `.tj-td-hero-metrics`
+  (`margin-left:auto`) com **3 métricas**: Net P&L · Points · Hold Time. Fallback a 720px
+  (métricas em linha própria com hairline). Saem `.tj-td-hero-sym`/`-dir`/`-status`.
+- **Grid**: base `400px minmax(0,1fr)` `gap:12px`; `@media (max-width:1399px)` `340px`;
+  `@media (max-width:900px)` `1fr`.
+- **Execution & Risk**: R-Multiple (`.is-hero`) · Entry → Exit (cada preço editável) ·
+  Contracts · Stop / Risk · Session · Fees; `<details class="tj-td-more">` com Target ·
+  Planned R:R · Order Type · Max position · Fill count.
+- **Strategy + Rating** em `.tj-td-two-col` (`1fr auto`), estrelas soltas (`.tj-td-star`
+  sem caixa, hover 1..N, clique na mesma estrela limpa) e chips `.on` (psicologia acento,
+  mistakes `.is-mistake` vermelho) com `.tj-td-ack` tracejado que fica verde quando ligado.
+- **Screenshots**: viewer `clamp(180px, 28vh, 280px)`, badge no canto, grelha
+  `repeat(auto-fill, minmax(110px,1fr))`, thumb activa com `2px solid` verde, tile
+  `+ Add Print` tracejado. Execuções mantêm os badges ENTRY verde / EXIT vermelho.
+- **CSS**: regras v3.3 em `styles.css`; removidos `.tj-td-tz`, `.tj-td-stars-inline`,
+  `.tj-td-flip-row-rating` e o selector `.tj-td-stat-value` do privacy. Verificado por
+  `rg`: **0 classes `.tj-td-*` sem consumidor em `src/`**. Sem código morto.
+
+### Harness
+
+Novo `~/trading-journal-smoke/review-check.js` (jsdom + `main.js`, trades sintéticas em
+memória, readers do plugin stubados e paths sempre a falhar — **nada é escrito na vault**):
+**10 cenários / 32 asserções PASS** — required-only completo com summary vazio; chips
+(1 psychology · 1 mistake); acknowledgements ("no psychology" · "no mistakes");
+`reviewed=true` com screenshot em falta → incompleto; `reviewed=false` → incompleto;
+optional vazio → completo; limpar chips muda o summary e mantém `complete`; clicar um chip
+de mistake desliga a acknowledgement (DOM real); `reviewStatus()` é o veredicto único dos
+três consumidores (badge do detalhe, summary do dashboard, filtro do Trade Log); e notas
+antigas sem os campos novos (`undefined`, comportamento inalterado).
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `ux-audit` só dívida de base
+(contrast 0; 3 px off-scale; parent-relative 0; off-scale weights 0; tight line-heights 0;
+small targets 4; faint 0) · `review-check.js` **10/10 cenários (32 asserções)** ·
+`tradedetail-check.js` **31/31** · deploy vault-dev com md5 verificado
+(`main.js 92fb4d8668a5bfb5b581d9acef1f8519`,
+`styles.css 20832dc8afa734fe97926632d40ce1ca`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não tocado.
+
+### Notas de harness
+
+- `smoke.js`: duas asserções actualizadas ao contrato novo — `partial.total` 4→6 e o
+  fixture de `accountMetrics` (as trades com `reviewed:true` passam a precisar dos 4 campos
+  required para fechar). Sem elas o gate ficava 141/1.
+- `tradedetail-check.js`: base grid 440→400px e chips `.is-on`→`.on` (renomeado em v3.3).
+
+## §2.90 Print Annotator — seta com pontos livres + edição de pontos (22 Set 2026)
+
+O annotator (`src/views/printAnnotator.ts`) troca o modelo *curve type* da seta por polilinha
+de pontos livres à moda do Excalidraw, e ganha edição de pontos.
+
+### Parte 1 — o curve type sai
+
+- **Removidos**: tipo `ArrowType` (`straight`/`curved`/`elbow`), campo `arrowType?` do
+  `Shape`, `currentArrowType` e a secção *Arrow type* da sidebar (a sidebar da seta fica
+  só em *Arrowheads* — ←, →, ↔ — que continua a escrever `startArrowhead`/`endArrowhead`).
+- **`arrowGeometry(pts)`** é a única fonte de verdade: recebe a lista de pontos da forma,
+  suaviza-a com Catmull-Rom→Bézier cúbico (2 pontos = segmento reto) e devolve
+  `{ path, points (32/segmento), startAngle, endAngle }`. Desenho (`geo.path(c)`),
+  hit-test (`hitsPolyline(geo.points)`) e bbox (`arrowGeometry(s.pts)`) leem todos daqui.
+- Os ramos `line` e `arrow` do `drawShape` unificam-se numa só condição; a linha é a
+  mesma polilinha sem cabeças. `bboxOf`/`hitTest` passam `arrow` **e** `line` pelo
+  mesmo caminho (a linha beneficiou do suavizador quando tiver >2 pontos).
+- Sidecar/`loadShapes` deixa de ler `arrowType` (notas antigas com o campo são
+  silenciosamente ignoradas — sem migração necessária).
+- Verificado por `rg`: **0 ocorrências** de `arrowType|ArrowType|currentArrowType|Arrow type`
+  em `src/` e `styles.css` (nunca houve CSS dedicado — os botões usavam
+  `.tj-anno-sidebar-btn`, ainda vivo noutras secções).
+
+### Parte 2 — edição de pontos (arrow / line / pen)
+
+- **Entrar**: duplo-clique na forma (seleciona-a e abre os handles) ou tecla `E` com a
+  forma selecionada; `E`/`Esc` alternam. **Sair**: clique fora da forma, `Esc` (mantém a
+  seleção), troca de tool, apagar a forma, undo que a remova, ou Reset — tudo por
+  `exitPointEdit()`.
+- **Handles em canvas** (`drawPointHandles`, espaço de ecrã, depois de `drawSelection`,
+  **sem CSS novo**): pontos 8px branco com bordo de acento; midpoints 6px com fill
+  branco translúcido e bordo tracejado de acento. Hit em `8 / view.scale` unidades canvas,
+  pontos avaliados antes dos midpoints (`pointHandleAt`).
+- **Interacções**: arrastar um ponto move-no (com origem guardada em `dragOrigPt`, sem
+  snap); clicar num midpoint insere um ponto que já nasce agarrado ao pointer; duplo-clique
+  num ponto intermédio apaga (extremos preservados); com a tool *select*, o clique dentro
+  da forma não arrasta a forma inteira (os handles estão vivos) e o pointerdown/pointermove
+  de handles é interceptado antes dos ramos de draw/move/resize.
+- `dblclick` fora do modo de edição, em forma não editável, não faz nada.
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `review-check.js` **OK** ·
+`tradedetail-check.js` **OK** · `node tools/ux-audit.mjs` → **`no normative violations
+found`** (contrast 0; os 2 lit. de 9px de `.tj-pq-time`/`.tj-pq-remove` corrigidos para
+`var(--tj-fs-label)`; restante só dívida de base: 2 px off-scale 16/20px, 4 small targets)
+· deploy vault-dev com md5 verificado (`main.js 4cd8d28b79e96a450534b2d7348ca9c4`,
+`styles.css f732f796f4564650335e5a0e072eff36`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não tocado
+(`d0836e261052021b7c5e5713ea3f73f2`).
+
+## §2.91 Export Trade Card — linguagem v3.3 (22 Set 2026)
+
+O cartão de exportação (modal + PNG partilhável) herdava a UI de antes do Trade
+Detail v3.3. Reconstruído à linguagem nova mantendo a hierarquia de pôster — o código
+vive em `src/views/tradeDetailView.ts`: `showExportPanel()` (modal, toggles, preview
+viva) e `buildExportCanvas()` (tudo o que é desenhado no canvas 1080px).
+
+### O que mudou no cartão
+
+- **Badge de estado (FIX 1)**: `reviewStatus(t).complete` → `REVIEWED` (verde
+  `#34d17a`) / `NEEDS REVIEW` (`--tj-tone-mid` `#d9a441`), pílula preenchida com a
+  mesma tipografia/padding da LONG (18px bold, +28 de largura, h38/r19, tinta 12%),
+  canto superior direito do hero. "Review Pending"/"Review Complete" saíram.
+- **Stop / Risk consolidado (FIX 2)**: os 4 campos (Stop · Target · Risk $ ·
+  Contracts) passam a 3 por linha — `Stop / Risk` = `{stop} / ${risk}` com
+  `risk = |entry − stop| × pointValue × qty` a `toFixed(0)` (mesmo cálculo do
+  detalhe); sem stop ou sem entry → `— / —`. **Hide P&L** continua a esconder o
+  risco: `{stop} / —`. Target e Contracts como campos próprios.
+- **Estrelas soltas (FIX 3)**: ★ diretas no fundo do canvas — 26px, gap 6px,
+  cheias `#f5b301`, vazias `rgba(255,255,255,0.15)`; sem caixas. `drawStarCanvas`
+  removido (ficava sem chamadas).
+- **Badges no topo (FIX 4)**: ordem no hero = LONG/SHORT (tinta 12% verde/vermelho)
+  → estratégia (pílula neutra: hairline + `rgba(255,255,255,0.04)`, texto
+  `--tj-fg-3`, só quando `t.setup` não está vazio) → estado ao fundo à direita.
+  Data · entry time · sessão descem para a 2ª linha a 16px (o setup saiu da linha
+  de meta — agora é badge).
+- **Statline sem caixas (FIX 5)**: os 4 KPIs (Net P&L · Points · R-Multiple · Hold
+  Time) deixam as caixas `#181818` e passam a colunas separadas por hairlines
+  verticais `rgba(255,255,255,0.08)`; label 10px uppercase, número 32px bold;
+  Net P&L com verde/vermelho por sinal, os outros `#dcddde`. Hide P&L continua a
+  retirar a coluna Net P&L.
+- **Psychology & Mistakes (FIX 6)**: toggle novo no grupo *Data* (default off,
+  `opts.psychology`); quando ligado e com tags, desenha abaixo do rating e acima
+  das notas — label 10px uppercase + chips pílula hairline 12px com gap 4px
+  (psychology com o accent `--interactive-accent` resolvido via
+  `getComputedStyle`, mistakes com `--color-red-bright`). Sub-secção vazia salta;
+  ambas vazias, a secção inteira salta. Altura pré-medida (`chipRowsOf`, wrap em
+  `maxTextW`) como as notas — a preview refresca pelo handler genérico dos toggles.
+- **Watermark (FIX 7)**: "Tradebook" no canto inferior saiu do canvas e o
+  `totalH += 52` correspondente também.
+- **Fundo (FIX 8)**: `#0d0d0d` fixo, mantido.
+
+### Intocáveis
+
+Botões PNG/JPG/Copy, largura 1080, encaixe/borda do screenshot, reset para
+defaults, e os toggles pré-existentes (incluindo a desc do *Stats*, que não foi
+tocada). `styles.css` não mudou — o toggle novo reutiliza `.tj-export-option*`.
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `review-check.js` OK ·
+`tradedetail-check.js` OK · `node tools/ux-audit.mjs` → **`no normative violations
+found`** · deploy vault-dev com md5 verificado (`main.js 9a8fa24ed9ff9db72a3374ed6657fe85`,
+`styles.css f732f796f4564650335e5a0e072eff36`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não tocado
+(`d0836e261052021b7c5e5713ea3f73f2`).
+
+## §2.92 Export Trade Card — polish A/B/C (22 Set 2026)
+
+Três passes de alinhamento v3.3 sobre `buildExportCanvas()` em
+`src/views/tradeDetailView.ts` (o modal não mudou — `styles.css` intocado).
+
+### A — Hero ao idioma v3.3
+
+- Título único `"MES · Long"` / `"MES · Short"` (42px bold, `ctx.letterSpacing =
+  "-0.01em"`, `#f0f1f2`), badge de direção e badge de estratégia logo a seguir
+  (mesmas receitas de hoje); o badge de estado (**REVIEWED** / **NEEDS REVIEW**)
+  fica **alinhado à direita** na mesma linha do título — segui o bullet *Layout*
+  do pedido («right edge of the card»), que é o explícito sobre placement, em
+  vez do diagrama ASCII (que o mostrava encostado).
+- 2ª linha só data + hora: `formatDate(t.date, settings.dateFormat), entryTime`
+  (ex. `2026-08-20, 10:06:02`), 16px `#8a9099`; **a sessão sai do hero**.
+- Altura do header: 120 → 100.
+
+### B — Estrelas maiores
+
+- ★ passam a path de 5 pontas com **raio exterior 10px** (20px de diámetro,
+  medida determinística — o glifo ★ a 26px de fonte só media ~14px visuais),
+  gap 8px, cheias `#f5b301`, vazias `rgba(255,255,255,0.15)`, sem caixas.
+- Label `EXECUTION RATING` a 10px uppercase `--tj-fg-3` (estylo das labels de
+  Psych/Statline). Bloco: 70 → 54.
+
+### C — Hairlines de secção + Session
+
+- Hairlines 1px `rgba(255,255,255,0.06)` com inset `PAD` em todos os pares:
+  hero↔screenshot (1) e screenshot↔stats (2) já existiam; **novo** (3)
+  statline↔fields dentro do bloco stats; (4) fields↔rating = separador
+  trailing do stats; (5) rating↔psych e (6) psych↔notes mantidos. O separador
+  de notes deixa de olhar para `opts.stats` (o stats já termina em hairline —
+  acaba a linha dupla que existia entre fields e notes).
+- **Fields row** ganha a 4ª coluna **Session**: `sessionLabel(t, zone)` com
+  `SESSION_UNKNOWN` (ou vazio) a `—`. Import novo: `sessionLabel`,
+  `SESSION_UNKNOWN` (sessions) e `formatDate` (dates); `SESSION_LABELS` saiu
+  do import (ficava sem uso no ficheiro — o hero já não o lê; `sessionOf`
+  continua vivo no dropdown da linha 584).
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `review-check.js` OK ·
+`tradedetail-check.js` OK · `node tools/ux-audit.mjs` → **`no normative
+violations found`** · deploy vault-dev com md5 verificado
+(`main.js 4e3d77c71b7d233c39b728c3086bc954`,
+`styles.css f732f796f4564650335e5a0e072eff36`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não tocado
+(`d0836e261052021b7c5e5713ea3f73f2`).
+
+## §2.93 Export Trade Card — Notes v3.3 substitui Thesis/Review/Improvements (22 Set 2026)
+
+O cartão de exportação ainda espelhava os três campos de texto livres antigos.
+Na v3.3 do Trade Detail todo o texto vive num só campo *Notes* (e as mistakes em
+`mistake_tags`, com fallback ao string legado) — o export passa a dizer o mesmo.
+Tudo em `src/views/tradeDetailView.ts` (`showExportPanel` + `buildExportCanvas`);
+`styles.css` intocado (o toggle reutiliza `.tj-export-option*`).
+
+### Toggles e conteúdo
+
+- **Saem** *Thesis*, *Review* e *Improvements* da lista de toggles e do canvas:
+  chaves `thesis`/`review`/`mistakes` removidas do `opts`, da assinatura de
+  `buildExportCanvas` e das branches que desenhavam as três secções
+  (`noteItems` eliminado — greps `noteItems`, `opts.thesis|review|mistakes`,
+  `toggleThesis|toggleReview|toggleImprovements` a 0 em `src/`).
+- **Entra** *Notes* ("What you wrote on the trade"), default OFF, único item do
+  grupo *Review Notes*. *Visual*, *Data* e *Privacy* ficam como estavam.
+- **Fallback** (primeiro não-vazio): `t.notes` → `t.review` → `t.thesis`. Nada
+  não-vazio? A secção não desenha, mesmo com o toggle ligado — sem heading vazio.
+- **Formato**: label `NOTES` 10px uppercase `#8a9099`, corpo 14px `#dcddde`
+  quebrado pelo `wrapText` já existente (font 14px no `tempCtx` antes de medir).
+  `lineH` 24→20; bloco = `24 + linhas×20 + 16` (draw e `totalH` iguais).
+- O separador antes das notas continua `showPsych || opts.rating` (stats e
+  screenshot já terminam em hairline) — o par psych↔notes (hairline 6) mantém-se.
+
+### Mistakes — fallback legado
+
+`mistake_tags` é a fonte v3.3; se a lista ficar vazia e `t.mistake` (string
+legada) não estiver vazia, o string entra como **um único chip** na secção
+Psychology & Mistakes. Psicologia continua a ler só `psychology_tags`.
+
+### Prova
+
+`npm run build` 0 · smoke **142 PASS / 0 FAIL** · `review-check.js` OK ·
+`tradedetail-check.js` OK · `node tools/ux-audit.mjs` → **`no normative
+violations found`** · deploy vault-dev com md5 verificado
+(`main.js 7c187afc78dc42ed25c2c06db3b4559f`,
+`styles.css f732f796f4564650335e5a0e072eff36`,
+`manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não copiado
+(mudou entretanto por interação no Obsidian: `93e0c331f8ea80b9de111ed55f7468d6`).
+
+## §2.94 Points = a maior saída real da entrada — qty fora, BE fora, TP1/TP2 (22 Set 2026)
+
+**Regra.** Points de uma trade = a maior distância entre o preço de entrada
+(média ponderada) e qualquer preço de saída em que o trader **fechou mesmo**.
+Quantidade nunca multiplica; saída break-even não conta; nada de "what could
+have been" — só os fills que existem. LONG: `max(saidas não-BE) − entrada`;
+SHORT: `entrada − min(saidas não-BE)`; tudo BE (ou sem saídas) → 0; trade sem
+fills guardados (entrada+saída únicas) → `|saída − entrada|` com o sinal da
+direção, e essa saída **nunca** é BE.
+
+**O bug.** O exemplo do relatório (entrada 7 669, TP1 7 672 ×5, TP2 7 669.25 ×5
+= BE) media **+16.25** porque o valor era o P&L em $ partido pelo point value —
+`(3.00×5 + 0.25×5)×2 / 2` — ou seja, os pontos já embutiam os contratos. Com a
+regra nova: **+3.00** (só o TP1 conta).
+
+### Código
+
+- **`src/lib/fills.ts`** (fonte única):
+  - `isBreakEven(f, entry, pointValue)` — não há flag BE no `TradeFill`;
+    testa **distância ≤ 0.5 pt à entrada E `|fill.pnl| ≤ max(0.01, 0.5·pv·qty)`**
+    (o "very close to 0" em dólares vale a meia ponto daquele contrato).
+  - `pointsOf(direction, entry, exits, pv, explicit)` — a fórmula acima;
+    `explicit = false` (sem fills guardados) ⇒ a única saída nunca é BE.
+  - `tradePoints(t)` — `fillSet` + `futuresSpec(t.symbol)`.
+  - `fillLabel(f, i, set, pointValue=0)` — saídas: `TP1/TP2/…` só sobre as
+    **não-BE** (em ordem), BE → `"BE"`, saída única → `"exit"`; entradas
+    ficam `entry` / `entry N`. `applyFillsToTrade` passou a regenerar
+    `t.pnlPoints`. Hook `window.__tjFills` expõe os três.
+- **Escritores**:
+  - `csv.ts` `pairRoundTrips` — `points = gross / spec.pointValue` **saiu**;
+    passou a `pointsOf(pos.dir, avgEntry, exitFills, pv, explícito⇔fills
+    guardados)` (mesma condição que decide se a nota guarda os fills).
+  - `addTradePanel` (`paint` + `doSave`) — `pts * qty` → `pts`.
+  - `copy.ts` `buildLeg` — `grossPnl` e `pnlPoints` da perna usam
+    `tradePoints(base)`; o branch `hasPoints` continua a ler o valor guardado
+    (o smoke "points missing" continua a cair no path net: `100` ✓).
+- **Leitura/display**: `storage` lê `pnl_points` como dantes; recomputa **em
+  memória** quando a trade tem fills — `main.loadTrades` (nota única + loop) e
+  `TradeDetail.setTrade` — sem escrever a nota (só o edit do utilizador grava).
+- **Execuções** (`tradeDetailView.renderExecutions`): label por fill via
+  `fillIndex` (antes usava `set.fills.indexOf` → off-by-one `T2` na 1.ª
+  saída); BE → tag `BE` + `is-flat`, **Points 0** na linha; linha **Total**
+  mostra `trade.pnlPoints` (antes `—`). Ledger (`tradeTable.drawFillRow`)
+  usa a mesma `fillLabel` com `pointValue`.
+
+### Prova
+
+- `npm run build` 0.
+- smoke **142 PASS / 0 FAIL** · `review-check.js` OK · `tradedetail-check.js` OK.
+- **`fills-check.js` OK** — expectativas actualizadas para a regra:
+  `entry | TP1 | TP2`; linha de saída `TP1`; runner `BE` sem número TP3;
+  trade page tem `TP2`; Total `+18.00`; `tradePoints` = 18 (scaled), 20
+  (runner, BE excluído), 0 (tudo BE).
+- `node tools/ux-audit.mjs` → **`no normative violations found`**.
+- `ledger-check` / `tradelog-check` / `numbers-check` **falham já com o
+  `main.js` anterior** (`7c187afc…`) — drift pré-existente, não desta tarefa.
+- Deploy vault-dev md5 verificado (`main.js 134dcdc74852b28d6ad3e2c8c8730482`,
+  `styles.css f732f796f4564650335e5a0e072eff36`,
+  `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não copiado
+  (`93e0c331f8ea80b9de111ed55f7468d6`).
+
+## §2.95 Trade Detail — Target em $, cartão sem colapso, Points sem ×qty, P&L por fill (22 Set 2026)
+
+### O que mudou (FIX 1–7)
+
+- **FIX 1 — Stop/Target com os dois formatos** (`tradeDetailView`): helper
+  partilhado `parsePriceOrDollars(raw, "stop" | "target")` — número simples é o
+  preço; `$X` é a distância em dollars (`dist = $ / pointValue / qty`), com o
+  target no lado vencedor da entrada e o stop no perdedor, arredondado a 2
+  casas. Input em text (aceita `$`), placeholder `Price or $ target` /
+  `Price or $ risk`; o clique é delegado no `execCard` para
+  `[data-field='stopLoss'], [data-field='target']` (cancelar já não deixa um
+  span morto). Display do Target: `{fmtPrice(target)} / ${|target−entry| ×
+  pointValue × qty}` com `$` a 2 casas; sem target → `— / —`. Grava
+  `saveFields({ target: String(price) })` — só o preço é persistido, os $ são
+  derivados (`storage` lê/escreve `target` como antes, round-trip verificado:
+  `num()` escreve, `get()` des-aspóna).
+- **FIX 2 — Execution & Risk sem colapso**: o `<details class="tj-td-more">`
+  ("More details") e a linha **Planned R:R** saíram; todas as linhas ficam
+  abertas, por ordem: Entry → Exit · R-Multiple · Contracts · Stop / Risk ·
+  **Target** · Session · Fees · Order Type · Max position · Fill count. CSS
+  morto removido (`.tj-td-more`, `-sum`, `-sum::-webkit-details-marker`,
+  `-sum::before`, `[open]`, `-sum:hover`, `-body`); `row()` e `editableRow()`
+  continuam consumidos.
+- **FIX 3 — Points recomputam mesmo sem fills**: as guards
+  `(t.fills ?? []).length` saíram de `main.loadTrades` (os dois ramos) e de
+  `TradeDetail.setTrade` → `t.pnlPoints = tradePoints(t)` sempre, em memória.
+  **Porque o §2.94 "não colou"**: o valor antigo `57.5` (11.5 pts × 5 qty)
+  está escrito na nota real
+  `vault-dev/Tradebook/2026/08/trades/25-08-2026 MNQ LONG 0944.md:13`
+  (`pnl_points: 57.5`), criado pelo escritor antigo (`addTradePanel`
+  `pts * qty` / `csv.ts` `gross / pointValue` — ambos removidos na §2.94); a
+  guarda em `src/main.ts:1692`, `src/main.ts:1732` e `setTrade`
+  (`tradeDetailView.ts`) só recomputeava trades **com** bloco `fills`, e esta
+  nota é scalar — por isso o display mantinha o ×qty. A nota só é reescrita
+  quando o utilizador edita; o hero passa a ler `+11.50`.
+- **FIX 4 — P&L e fees por fill nas trades scalar** (`fills.ts` `inferred()`):
+  a saída inferida passa a carregar `fees = (commission || 0) + (fees || 0)` e
+  `pnl = dist_sinal × pointValue × qty − fees` (guard `exit > 0`) — a tabela
+  deixa de mostrar `—` no P&L de uma trade fechada e o Total de fees deixa de
+  ser `$0.00`. Coluna Points por fill: a distância própria à `avgEntry`,
+  sinalizada pela direção (BE → 0; linha de entrada → `—`); qty nunca
+  multiplica. Fills explícitos do CSV (pnl gross por contrato) não mudam.
+- **FIX 5 — Total Price = avgExit** (`renderExecutions`): a linha Total passa
+  de `fmtPrice(set.avgEntry)` para `set.avgExit > 0 ? fmtPrice(set.avgExit) :
+  "—"`.
+- **FIX 6 — Total Points = o do hero**: já era `t.pnlPoints` (§2.94); com o
+  FIX 3 passa a dar `+11.50` na nota de teste (antes `57.5`).
+- **FIX 7 — labels de fill**: `fillLabel` perde a branch `exits ≤ 1 →
+  "exit"` — a saída não-BE única passa a **TP1**; BE continua `BE`; entradas
+  ficam `entry` / `entry N`. O ledger (`tradeTable.drawFillRow`) usa a mesma
+  função, por isso as duas superfícies concordam.
+- **Nota de teste** (MNQ long 5 @ 29,342 → 29,353.5, fees $9.50): hero
+  `+11.50`, fill Points `11.50`, fill P&L `+$105.50`, Total Price `29,353.5`,
+  Total Points `+11.50`, tag do fill `TP1`.
+
+### Prova
+
+- `npm run build` 0.
+- smoke **142 PASS / 0 FAIL** · `review-check.js` OK.
+- **`tradedetail-check.js` OK** — secção `[fields]` reescrita: sem
+  `<details>`, sem "More details", sem "Planned R:R"; as 10 linhas do cartão
+  na ordem exacta; Target `21,040 / $320.00`; o caso do stop `$200` →
+  `20,975 / $200` continua a passar.
+- **`fills-check.js` OK** — `entry | TP1 | TP2`, BE sem número, Total
+  `+18.00`, trade page `TP2` (a label nova só muda a saída única, que o
+  harness não assertava).
+- `node tools/ux-audit.mjs` → **`no normative violations found`**.
+- `ledger-check` / `tradelog-check` / `numbers-check` continuam com o drift
+  pré-existente (falhavam já antes).
+- Deploy vault-dev md5 verificado (`main.js fc3679f351ee7c734b2bae0562742157`,
+  `styles.css 701fde2ca7a3ce4ee4c42f626f82fe73`,
+  `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não copiado
+  (`89baa19a5881fbf236718b83af496b3d` — mudou só por interação).
+
