@@ -153,9 +153,9 @@ const MIN_W: Record<string, number> = {
   discipline: 12, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
-  equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
-  breakdown: 4, streaks: 2, score: 6,
-  discipline: 3, trends: 4, payouts: 3,
+  equity: 3, longpnl: 3, shortpnl: 3, calendar: 5, heatmap: 5,
+  breakdown: 3, streaks: 2, score: 6,
+  discipline: 3, trends: 3, payouts: 2,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
 const minOf = (id: string): { w: number; h: number } => ({ w: MIN_W[id] ?? 1, h: MIN_H[id] ?? 1 });
@@ -275,6 +275,9 @@ export class WidgetGridView extends ItemView {
   private bodyRenderers = new Map<HTMLElement, () => void>();
   private _resizeRaf = 0;
   private _pendingResize = new Set<HTMLElement>();
+  /** True while a card drag/resize is in progress: the ResizeObserver must not
+   *  re-draw widget bodies on every pointer move (commit re-draws once). */
+  _interacting = false;
   // Re-render the whole grid when the pane/window width changes (keeps columns
   // and card sizes in sync instead of drifting until you enter Edit).
   private _resizeTimer = 0;
@@ -651,6 +654,7 @@ export class WidgetGridView extends ItemView {
 
   private startGridDrag(e: PointerEvent, item: GridItem): void {
     e.preventDefault();
+    this._interacting = true;
     if (this._dragGhost) this._dragGhost.remove();
     this.dragId = item.i;
     const card = this.findCardEl(this.gridEl as HTMLElement, item.i);
@@ -706,6 +710,7 @@ export class WidgetGridView extends ItemView {
       ghost.remove();
       this._dragGhost = null;
       this.dragId = null;
+      this._interacting = false;
       this.hidePlaceholder();
       const layout = this.getLayout();
       for (const it of layout) {
@@ -736,6 +741,7 @@ export class WidgetGridView extends ItemView {
     handle.addEventListener("pointerdown", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      this._interacting = true;
       const startX = e.clientX;
       const startY = e.clientY;
       const baseW = item.w;
@@ -758,6 +764,7 @@ export class WidgetGridView extends ItemView {
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        this._interacting = false;
         this.setLayout(compactVertical(gridResize(this.getLayout(), item.i, curW, curH, minOf(item.i))));
         this.saveLayout();
       };
@@ -1061,9 +1068,20 @@ export class WidgetGridView extends ItemView {
     this._pendingResize.clear();
     if (typeof ResizeObserver !== "undefined") {
       this.bodyObserver = new ResizeObserver((entries) => {
-        // Ignore the first layout pass — it would cancel the intro animations.
-        if (Date.now() < this._introUntil) return;
-        for (const e of entries) this._pendingResize.add(e.target as HTMLElement);
+        for (const e of entries) {
+          const el = e.target as HTMLElement;
+          // Generic size classes: every widget can adapt its content in CSS.
+          const h = el.clientHeight;
+          el.toggleClass("is-short", h > 0 && h < 150);
+          el.toggleClass("is-tiny", h > 0 && h < 90);
+          // Suppress content re-draws while a drag/resize is in progress — the
+          // pointerup commit re-renders once instead of on every move.
+          if (this._interacting) continue;
+          // Ignore the first layout pass — it would cancel the intro animations.
+          if (Date.now() < this._introUntil) continue;
+          this._pendingResize.add(el);
+        }
+        if (this._interacting) return;
         if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
         this._resizeRaf = requestAnimationFrame(() => {
           this._resizeRaf = 0;

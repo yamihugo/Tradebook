@@ -5824,6 +5824,13 @@ textarea.tj-anno-textinput {
 .tj-streaks-ctx { font-size: var(--tj-fs-small); color: var(--tj-fg-3); cursor: help; }
 /* Compact: drop the state line when the card is tiny. */
 .tj-streaks.is-tiny .tj-streaks-state { display: none; }
+/* Generic card-body size classes (set by the ResizeObserver) — every widget can
+   adapt its content to the card height without a per-widget check. */
+.tj-gridcard-body.is-short .tj-cbar-track { height: 22px; }
+.tj-gridcard-body.is-short .tj-dim { gap: 4px; }
+.tj-gridcard-body.is-tiny .tj-disc-gauge { display: none; }
+.tj-gridcard-body.is-tiny .tj-revieww { grid-template-areas: "foot"; grid-template-columns: 1fr; }
+.tj-gridcard-body.is-tiny .tj-streaks-state { display: none; }
 /* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
 .tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
 .tj-treemap-tile {
