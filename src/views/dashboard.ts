@@ -28,12 +28,12 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap, renderRibbon } from "../lib/chartKit";
+import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap } from "../lib/chartKit";
 import { dimensionBars, dimensionTiles, type DimensionBarsOpts } from "../lib/breakdown";
 import { normalizeOrderType } from "../lib/tradeTable";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
-import { computeProcessSignals, streakStats } from "../lib/process";
+import { computeProcessSignals, streakStats, streakState } from "../lib/process";
 import { sessionOf, sessionRank, SESSION_BADGES } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
@@ -2010,17 +2010,13 @@ export class WidgetGridView extends ItemView {
     }
     const avg = runs ? winsTotal / runs : 0;
 
-    // State machine on the current signed run.
-    const state =
-      current >= 3 ? { icon: "flame", text: "on fire" }
-        : current > 0 ? (current === 1 ? { icon: "trending-up", text: "good start" } : { icon: "trending-up", text: "building" })
-          : current <= -3 ? { icon: "refresh-ccw", text: "reset" }
-            : current < 0 ? { icon: "alert-triangle", text: "careful" }
-              : { icon: "minus", text: "steady" };
+    // Icon by family (calm): win trending up, flame once the run is real.
+    const icon = current >= 3 ? "flame" : current > 0 ? "trending-up" : current < 0 ? "alert-triangle" : "minus";
+    const tone = current > 0 ? "is-pos" : current < 0 ? "is-warn" : "is-flat";
 
     const wrap = body.createDiv({ cls: "tj-streaks" });
     // Compact when the card is short: measured height, else the grid row count
-    // (keeps the behaviour testable in jsdom). Hides the ribbon, then the state.
+    // (keeps the behaviour testable in jsdom). Hides the state line when tiny.
     const measured = body.clientHeight || 0;
     const rows = h ?? 6;
     const compact = measured > 0 ? measured < 110 : rows <= 3;
@@ -2029,16 +2025,14 @@ export class WidgetGridView extends ItemView {
     wrap.toggleClass("is-tiny", tiny);
 
     // Line 1 — the run.
-    const hero = wrap.createDiv({
-      cls: "tj-streaks-hero " + (current > 0 ? "is-pos" : current < 0 ? "is-neg" : "is-flat"),
-    });
+    const hero = wrap.createDiv({ cls: "tj-streaks-hero " + tone });
     const ic = hero.createSpan({ cls: "tj-streaks-icon" });
-    setIcon(ic, state.icon);
+    setIcon(ic, icon);
     hero.createSpan({
       cls: "tj-streaks-count",
       text:
-        current > 0 ? `${current} win${current === 1 ? "" : "s"} in a row`
-          : current < 0 ? `${Math.abs(current)} loss${current === -1 ? "" : "es"} in a row`
+        current > 0 ? `${current} win${current === 1 ? "" : "s"}`
+          : current < 0 ? `${Math.abs(current)} loss${current === -1 ? "" : "es"}`
             : "No active streak",
     });
 
@@ -2051,22 +2045,7 @@ export class WidgetGridView extends ItemView {
     });
 
     // Line 3 — state (hidden when the card is tiny).
-    if (!tiny) wrap.createDiv({ cls: "tj-streaks-state", text: state.text });
-
-    // Recent W/L sequence, oldest → newest (hidden when compact).
-    if (!compact) {
-      renderRibbon(wrap, {
-        className: "tj-streaks-ribbon",
-        items: ordered.slice(-40).map((t, i) => ({
-          key: t.id || String(i),
-          result: t.pnl,
-          tip: {
-            title: `${t.symbol}${t.direction ? " " + t.direction.toUpperCase() : ""}`,
-            sub: `${t.date} · ${fmtMoney2(t.pnl)}`,
-          },
-        })),
-      });
-    }
+    if (!tiny) wrap.createDiv({ cls: "tj-streaks-state " + tone, text: streakState(current) });
   }
 
   /**

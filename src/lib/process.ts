@@ -93,6 +93,32 @@ export function streakStats(trades: Trade[]): { current: number; bestWin: number
 }
 
 /**
+ * A calm, motivating phrase for the current run. No scolding — a loss run is a
+ * prompt to refocus, never a verdict.
+ */
+export function streakState(current: number): string {
+  if (current > 0) {
+    if (current >= 10) return "locked in";
+    if (current >= 8) return "unstoppable";
+    if (current >= 6) return "on fire";
+    if (current >= 5) return "focused";
+    if (current >= 4) return "in the zone";
+    if (current >= 3) return "on a roll";
+    if (current >= 2) return "building up";
+    return "good start";
+  }
+  if (current < 0) {
+    const n = -current;
+    if (n >= 5) return "back to basics";
+    if (n >= 4) return "breathe";
+    if (n >= 3) return "reset";
+    if (n >= 2) return "refocus";
+    return "stay calm";
+  }
+  return "ready";
+}
+
+/**
  * All process signals for a trade list. `dayKey` decides what "a day" is, so the
  * caller controls the timezone.
  */
@@ -157,5 +183,5 @@ export function computeProcessSignals(trades: Trade[], dayKey: (t: Trade) => str
 
 // Test hook, same pattern as the other pure modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjProcess = { computeProcessSignals, revengeStats, streakStats };
+  (window as any).__tjProcess = { computeProcessSignals, revengeStats, streakStats, streakState };
 }
