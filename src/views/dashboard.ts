@@ -58,17 +58,46 @@ export const CARD_TITLES: Record<string, string> = {
   ...METRIC_TITLES,
 };
 
-// Default grid (12 columns) — LITERAL copy of Journalit's dashboard layout (lg):
-// pnlChart(5x3), performanceCalendar(6x5), recentTrades(5x4),
-// shortPnLChart(6x8), longPnLChart(6x8); the KPI strip sits on top, full-width.
-const DEFAULT_TILES: GridItem[] = [
-  { i: "kpi", x: 0, y: 0, w: 12, h: 2, static: true },
-  { i: "equity", x: 0, y: 2, w: 5, h: 3 },
-  { i: "calendar", x: 0, y: 5, w: 6, h: 5 },
-  { i: "recent", x: 7, y: 2, w: 5, h: 4 },
-  { i: "shortpnl", x: 6, y: 6, w: 6, h: 8 },
-  { i: "longpnl", x: 0, y: 10, w: 6, h: 8 },
+/** Home — the fixed narrative: the eight blocks that fit one screen. */
+export const HOME_DEFAULT: GridItem[] = [
+  { i: "equity", x: 0, y: 0, w: 24, h: 3 },
+  { i: "m.netpnl", x: 0, y: 3, w: 8, h: 2 },
+  { i: "m.winrate", x: 8, y: 3, w: 8, h: 2 },
+  { i: "m.avgloss", x: 16, y: 3, w: 8, h: 2 },
+  { i: "calendar", x: 0, y: 5, w: 12, h: 5 },
+  { i: "trends", x: 12, y: 5, w: 12, h: 5 },
+  { i: "review", x: 0, y: 10, w: 12, h: 3 },
+  { i: "payouts", x: 12, y: 10, w: 12, h: 3 },
 ];
+
+/** Home's curated surface — also the allow-list for its Edit menu. */
+export const HOME_IDS: string[] = HOME_DEFAULT.map((t) => t.i);
+
+/** Metric widgets the archive seeds, in reading order. */
+const DASHBOARD_METRIC_IDS = [
+  "m.netpnl", "m.winrate", "m.trades", "m.maxdd", "m.profitfactor", "m.sharpe",
+  "m.expectancy", "m.bestday", "m.worstday", "m.largestwin", "m.largestloss",
+  "m.winstreak", "m.lossstreak", "m.wintrades", "m.losstrades", "m.avgwin",
+  "m.avgloss", "m.avgrr", "m.holdtime", "m.winhold", "m.losshold",
+  "m.besthour", "m.worsthour",
+];
+
+/** Dashboard — the rich archive: charts, breakdowns and every metric. */
+export const DASHBOARD_DEFAULT: GridItem[] = (() => {
+  const tiles: GridItem[] = [
+    { i: "longpnl", x: 0, y: 0, w: 8, h: 6 },
+    { i: "shortpnl", x: 8, y: 0, w: 8, h: 6 },
+    { i: "score", x: 16, y: 0, w: 8, h: 6 },
+    { i: "besthours", x: 0, y: 6, w: 12, h: 4 },
+    { i: "heatmap", x: 12, y: 6, w: 12, h: 4 },
+    { i: "symbols", x: 0, y: 10, w: 24, h: 6 },
+  ];
+  const perRow = 6;
+  DASHBOARD_METRIC_IDS.forEach((id, idx) => {
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 16 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+  });
+  return tiles;
+})();
 
 const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, besthours: 10, review: 12, heatmap: 10, trends: 8, payouts: 6 };
 const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, besthours: 4, review: 4, heatmap: 5, trends: 4, payouts: 3 };
@@ -152,7 +181,19 @@ const GREETING_LINES = [
 // Used when the container width is unknown (e.g. jsdom harness).
 const DESIGN_W = 1200;
 
-export class DashboardView extends ItemView {
+/**
+ * Shared grid engine behind Home and Dashboard.
+ *
+ * It owns the data loading, filters, drag/resize grid and every widget
+ * renderer. It deliberately knows nothing about *which* layout is on screen:
+ * `layout()` / `setLayout()`, `defaultLayout()`, `allowedIds()` and
+ * `viewKey()` are the seams its subclasses override.
+ *
+ * `DashboardView` (the archive) and `HomeView` (the fixed narrative) are the
+ * two thin subclasses. Both are editable; the difference is the default set
+ * and the allowed set of widget ids.
+ */
+export class WidgetGridView extends ItemView {
   plugin: TradebookPlugin;
   trades: Trade[] = [];
   filter = "all";
@@ -225,6 +266,33 @@ export class DashboardView extends ItemView {
 
   getIcon(): string {
     return "grip";
+  }
+
+  // ---------------- Overridable view hooks (what makes Home ≠ Dashboard) ----------------
+
+  /** The persisted layout this view reads from. */
+  layout(): DashItem[] | undefined {
+    return this.plugin.settings.dashboardLayout;
+  }
+
+  /** Persist a new layout for this view (caller still calls saveSettings). */
+  setLayout(layout: DashItem[]): void {
+    this.plugin.settings.dashboardLayout = layout;
+  }
+
+  /** The seed used only when no layout was ever saved (undefined, not []). */
+  defaultLayout(): GridItem[] {
+    return DASHBOARD_DEFAULT;
+  }
+
+  /** Which widget ids this view is allowed to show. */
+  allowedIds(): Set<string> {
+    return new Set(Object.keys(CARD_TITLES));
+  }
+
+  /** Identity handed to the app shell (nav highlight). */
+  viewKey(): string {
+    return "dashboard";
   }
 
   async onOpen(): Promise<void> {
@@ -335,13 +403,17 @@ export class DashboardView extends ItemView {
   }
 
   ensureLayout(): void {
-    const s = this.plugin.settings;
-    let layout = s.dashboardLayout as any[];
-    if (!layout || layout.length === 0) {
-      // User's explicit choice: an empty dashboard stays empty (add via Edit).
-      s.dashboardLayout = [];
+    const raw = this.layout() as any[] | undefined;
+    if (!raw) {
+      this.setLayout(this.defaultLayout());
       return;
     }
+    if (raw.length === 0) {
+      // User's explicit choice: an empty dashboard stays empty (add via Edit).
+      this.setLayout([]);
+      return;
+    }
+    const layout = raw;
     // (Migration removed: user has full manual control over layout)
     // Migration from the old flow format: {id, size, rows} -> {i, x, y, w, h}
     const isOld = layout.some((it) => it.id !== undefined || it.size !== undefined);
@@ -365,24 +437,27 @@ export class DashboardView extends ItemView {
           y++;
         }
       }
-      s.dashboardLayout = compactVertical(packed);
+      this.setLayout(compactVertical(packed));
       return;
     }
     // New format: drop unknown widgets, clamp bounds, re-compact.
     // First migrate coordinates if the saved layout used an older grid width
     // (e.g. 12 columns) so nothing shrinks or overlaps on upgrade.
-    const savedCols = s.gridCols || 12;
-    if (savedCols !== GRID_COLS) {
+    // Only the Dashboard layout can be legacy — Home's layout is always written
+    // at the current width — and `gridCols` is a single shared marker, so the
+    // scale must run for one view only or it would double-scale the other.
+    const savedCols = this.plugin.settings.gridCols || 12;
+    if (savedCols !== GRID_COLS && this.viewKey() === "dashboard") {
       const factor = GRID_COLS / savedCols;
-      (layout as any[]).forEach((it) => {
+      layout.forEach((it) => {
         if (!it) return;
         if (typeof it.x === "number") it.x = Math.round(it.x * factor);
         if (typeof it.w === "number") it.w = Math.max(1, Math.round(it.w * factor));
       });
-      s.gridCols = GRID_COLS;
+      this.plugin.settings.gridCols = GRID_COLS;
       void this.plugin.saveSettings();
     }
-    const valid = new Set(Object.keys(CARD_TITLES));
+    const valid = this.allowedIds();
     const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
       it.w = gClamp(Math.round(it.w), 1, GRID_COLS);
@@ -390,12 +465,12 @@ export class DashboardView extends ItemView {
       it.x = gClamp(Math.round(it.x || 0), 0, GRID_COLS - it.w);
       it.y = Math.max(0, Math.round(it.y || 0));
     }
-    s.dashboardLayout = compactVertical(filtered);
+    this.setLayout(compactVertical(filtered));
   }
 
   getLayout(): GridItem[] {
     this.ensureLayout();
-    return this.plugin.settings.dashboardLayout;
+    return this.layout() ?? this.defaultLayout();
   }
 
   saveLayout(): Promise<void> {
@@ -406,12 +481,12 @@ export class DashboardView extends ItemView {
     const isMetric = id.startsWith("m.");
     const w = NEW_W[id] ?? (isMetric ? 3 : 12);
     const h = NEW_H[id] ?? (isMetric ? 2 : 6);
-    this.plugin.settings.dashboardLayout = placeNew(this.getLayout(), id, w, h);
+    this.setLayout(placeNew(this.getLayout(), id, w, h));
     this.saveLayout();
   }
 
   removeWidget(id: string): void {
-    this.plugin.settings.dashboardLayout = this.getLayout().filter((i) => i.i !== id);
+    this.setLayout(this.getLayout().filter((i) => i.i !== id));
     this.saveLayout();
   }
 
@@ -563,7 +638,7 @@ export class DashboardView extends ItemView {
         el?.removeClass("tj-moving");
       }
       const { nx, ny } = snapPos(ev);
-      this.plugin.settings.dashboardLayout = compactVertical(gridMove(layout, item.i, nx, ny));
+      this.setLayout(compactVertical(gridMove(layout, item.i, nx, ny)));
       this.saveLayout();
     };
 
@@ -608,7 +683,7 @@ export class DashboardView extends ItemView {
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
-        this.plugin.settings.dashboardLayout = compactVertical(gridResize(this.getLayout(), item.i, curW, curH));
+        this.setLayout(compactVertical(gridResize(this.getLayout(), item.i, curW, curH)));
         this.saveLayout();
       };
       window.addEventListener("pointermove", onMove);
@@ -619,7 +694,7 @@ export class DashboardView extends ItemView {
   render(): void {
     const root = this.contentEl;
     root.empty();
-    const main = renderAppShell(root, this.plugin, "dashboard");
+    const main = renderAppShell(root, this.plugin, this.viewKey());
     this.mainEl = main;
     if (this._intro) root.addClass("tj-intro-root");
     root.addClass("tj-dashboard");
@@ -810,7 +885,7 @@ export class DashboardView extends ItemView {
     pop.createDiv({ cls: "tj-pop-section", text: "Add widget" });
     const list = pop.createDiv({ cls: "tj-widgetmenu-list" });
     const present = new Set(this.getLayout().map((i) => i.i));
-    for (const id of Object.keys(CARD_TITLES)) {
+    for (const id of this.allowedIds()) {
       const added = present.has(id);
       const item = list.createDiv({ cls: "tj-widgetmenu-item" + (added ? " is-added" : "") });
       item.createSpan({ cls: "tj-widgetmenu-name", text: CARD_TITLES[id] });
@@ -2004,3 +2079,11 @@ export class DashboardView extends ItemView {
 
 
 }
+
+/**
+ * Dashboard — the archive. Fully editable and rich: every widget, drag, resize,
+ * add and remove. It reads and writes `settings.dashboardLayout`, seeds
+ * `DASHBOARD_DEFAULT` on a brand-new journal and allows every widget id — all
+ * of which are the shared engine's defaults, so it stays a thin subclass.
+ */
+export class DashboardView extends WidgetGridView {}

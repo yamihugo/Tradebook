@@ -37,7 +37,7 @@ import {
   Phase,
 } from "./lib/maturity";
 import { SettingsTab } from "./settings";
-import { DashboardView, DASHBOARD_VIEW_TYPE } from "./views/dashboard";
+import { DashboardView, DASHBOARD_VIEW_TYPE, HOME_DEFAULT } from "./views/dashboard";
 import type { DashItem } from "./views/dashboard";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
 import { openAddTradeModal } from "./views/addTradeModal";
@@ -88,6 +88,9 @@ export interface TradebookSettings {
   journalName: string;
   dashboardTitle: string;
   dashboardLayout: DashItem[];
+  /** Home's own layout. Left undefined until the split migration seeds it (then
+   *  HOME_DEFAULT). An explicit `[]` means the user emptied Home on purpose. */
+  homeLayout?: DashItem[];
   /** Grid resolution the saved layout coordinates were written for. */
   gridCols: number;
   /** Master switch for UI animations (count-ups, transitions). */
@@ -235,7 +238,7 @@ export interface TradebookSettings {
 }
 
 /** Current `data.json` schema version. Bump when adding a numbered migration. */
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 
 /** A strategy name reduced to a safe vault filename. The name itself is kept
  *  verbatim on the record; this is only the file it is filed under. */
@@ -366,7 +369,7 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
     this.addRibbonIcon("grip", "Tradebook — Home", () => {
-      this.openDashboard();
+      this.openHome();
     });
     this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
       this.openAccounts();
@@ -378,6 +381,11 @@ export default class TradebookPlugin extends Plugin {
       this.openAddPanel();
     });
 
+    this.addCommand({
+      id: "open-home",
+      name: "Open Home",
+      callback: () => this.openHome(),
+    });
     this.addCommand({
       id: "open-dashboard",
       name: "Open Trading Dashboard",
@@ -2295,8 +2303,20 @@ export default class TradebookPlugin extends Plugin {
     if (current >= SETTINGS_VERSION) return;
     if (current < 1) await this.migrateFolderStructure();
     if (current < 2) await this.migrateStrategies();
+    if (current < 3) await this.migrateHomeLayout();
     this.settings.settingsVersion = SETTINGS_VERSION;
     await this.saveSettings();
+  }
+
+  /**
+   * 2 → 3. Home and Dashboard split into two layouts. Only seed Home when it
+   * has never been written (`undefined`); an explicit `[]` is the user's choice
+   * and is respected, and `dashboardLayout` is never used as a source.
+   */
+  private async migrateHomeLayout(): Promise<void> {
+    if (this.settings.homeLayout === undefined) {
+      this.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
+    }
   }
 
   /**

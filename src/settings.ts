@@ -13,6 +13,7 @@ import { openRenamePreview } from "./views/renamePreview";
 import { buildDiagnostics } from "./lib/diagnostics";
 import { openBackupSummary } from "./views/backupRestore";
 import { summariseBackup } from "./lib/backup";
+import { HOME_DEFAULT } from "./views/dashboard";
 
 type SettingsTabId = "root" | "journal" | "tradelog" | "appearance" | "timezone" | "accounts" | "advanced";
 
@@ -131,15 +132,29 @@ export class SettingsTab extends PluginSettingTab {
 
   // ---------------------------------------------------------------- Main
   renderJournal(containerEl: HTMLElement): void {
+    containerEl.createEl("h3", { text: "Home" });
+    new Setting(containerEl)
+      .setName("Home layout")
+      .setDesc("Home's curated narrative. Press 'Edit' on Home to rearrange it. Resetting restores the eight default blocks.")
+      .addButton((btn) =>
+        btn.setButtonText("Reset Home").onClick(async () => {
+          this.plugin.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+          new Notice("Home layout reset to the default.");
+        })
+      );
+
     containerEl.createEl("h3", { text: "Dashboard" });
     new Setting(containerEl)
-      .setName("Dashboard content")
-      .setDesc("Open the dashboard and press 'Edit' to add, remove, resize or drag cards around. Your layout is saved automatically.")
+      .setName("Dashboard layout")
+      .setDesc("The Dashboard archive (every widget). Press 'Edit' to rearrange it; clearing leaves it empty so you can build it your way.")
       .addButton((btn) =>
-        btn.setButtonText("Reset layout").onClick(async () => {
+        btn.setButtonText("Clear Dashboard").onClick(async () => {
           this.plugin.settings.dashboardLayout = [];
           await this.plugin.saveSettings();
-          new Notice("Dashboard layout reset to the default.");
+          await this.plugin.reloadAllViews();
+          new Notice("Dashboard layout cleared.");
         })
       );
 
@@ -567,6 +582,7 @@ export class SettingsTab extends PluginSettingTab {
       .addButton((b) =>
         b.setButtonText("Reset").setWarning().onClick(async () => {
           this.plugin.settings.dashboardLayout = [];
+          this.plugin.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
           this.plugin.settings.tradeLog = {};
           this.plugin.settings.tradeLogColOrder = undefined;
           this.plugin.settings.privacyMode = false;

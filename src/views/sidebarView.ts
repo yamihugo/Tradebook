@@ -84,8 +84,9 @@ export class TradebookSidebarView extends ItemView {
   private viewToNavId(type: string): string | null {
     switch (type) {
       case "tradebook-home-view":
-      case "tradebook-dashboard-view":
         return "home";
+      case "tradebook-dashboard-view":
+        return "dashboard";
       case "tradebook-trade-log-view":
       case "tradebook-trade-detail-view":
         return "tradelog";
@@ -124,6 +125,7 @@ export class TradebookSidebarView extends ItemView {
   private navItems(): NavItem[] {
     return [
       { id: "home", label: "Home", icon: "home", fn: () => this.plugin.openHome(), category: "OVERVIEW" },
+      { id: "dashboard", label: "Dashboard", icon: "grip", fn: () => this.plugin.openDashboard(), category: "OVERVIEW" },
       { id: "tradelog", label: "Trade Log", icon: "folder-tree", fn: () => this.plugin.openTradeLog(), category: "OVERVIEW" },
       { id: "setups", label: "Strategies", icon: "target", fn: () => this.plugin.openSetups(), category: "OVERVIEW" },
       { id: "accounts", label: "Accounts", icon: "users", fn: () => this.plugin.openAccounts(), category: "OVERVIEW" },
