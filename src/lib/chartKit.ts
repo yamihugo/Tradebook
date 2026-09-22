@@ -329,32 +329,7 @@ export function renderDumbbell(host: HTMLElement, spec: DumbbellSpec): HTMLEleme
   return wrap;
 }
 
-// -------------------------------------------------------------------- ribbon
-
-export interface RibbonItem {
-  key: string;
-  /** Positive = win, negative = loss, 0 = break-even. */
-  result: number;
-  tip?: { title: string; sub?: string };
-}
-
-export interface RibbonSpec {
-  items: RibbonItem[];
-  className?: string;
-}
-
-/** An ordered W/L ribbon, oldest to newest. Returns the root. */
-export function renderRibbon(host: HTMLElement, spec: RibbonSpec): HTMLElement {
-  const wrap = host.createDiv({ cls: "tj-ribbon" + (spec.className ? " " + spec.className : "") });
-  for (const it of spec.items) {
-    const tone = it.result > 0 ? "pos" : it.result < 0 ? "neg" : "flat";
-    const mark = wrap.createEl("i", { cls: "tj-ribbon-mark " + tone });
-    if (it.tip) attachTip(mark, it.tip);
-  }
-  return wrap;
-}
-
 // Test hook, same pattern as the other pure-ish modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjChartKit = { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap, renderDumbbell, renderRibbon };
+  (window as any).__tjChartKit = { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap, renderDumbbell };
 }
