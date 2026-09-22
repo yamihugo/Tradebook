@@ -67,6 +67,16 @@ export function hasText(value?: string): boolean {
 }
 
 /**
+ * Does this trade have a print? Presence, not renderability: the legacy "added"
+ * sentinel counts as present (the trader did attach something), and the vault
+ * file is never checked here — that stays a display concern (see shotUrl).
+ */
+export function hasPrint(t: Trade): boolean {
+  if ((t.screenshots ?? []).some((s) => (s.file ?? "").trim() !== "")) return true;
+  return hasText(t.screenshot);
+}
+
+/**
  * The optional tier as one line: what the trader logged, or said they did not.
  * Empty when neither group has tags and neither was acknowledged.
  */
@@ -94,7 +104,7 @@ export function isReviewed(t: Trade): boolean {
 /** Full review status for a trade. */
 export function reviewStatus(t: Trade): ReviewStatus {
   const requiredChecks: ReviewCheck[] = [
-    { key: "print", label: "Screenshot", required: true, done: hasText(t.screenshot) || (t.screenshots?.length ?? 0) > 0 },
+    { key: "print", label: "Screenshot", required: true, done: hasPrint(t) },
     { key: "setup", label: "Strategy", required: true, done: hasText(t.setup) },
     // The live field is `notes` (the old `review` is read for journals written
     // before the merge, so an old note is never reported as unreviewed).

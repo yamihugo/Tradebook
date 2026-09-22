@@ -4,6 +4,7 @@ import { Trade } from "../types";
 import { updateTradeFields } from "../storage";
 import { fmtMoney2, fmtPrice } from "../tz";
 import { attachTip } from "../lib/tip";
+import { hasPrint } from "../lib/review";
 
 /**
  * Big TradeZella-style pop-up for viewing + editing a single trade.
@@ -29,18 +30,21 @@ attachTip(closeBtn, { title: "Close" });
 
   // ---- LEFT: print / screenshot (big) ----
   const left = cols.createDiv({ cls: "tj-trade-modal-left" });
-  const shot = (trade.screenshot || "").trim();
-  if (!shot) {
+  // The array is the source of truth; the legacy scalar is the fallback, and
+  // "added" is a present-but-unrenderable sentinel.
+  const arrayFiles = (trade.screenshots ?? []).map((s) => (s.file ?? "").trim()).filter(Boolean);
+  const legacy = (trade.screenshot || "").trim();
+  const legacySentinel = legacy.toLowerCase() === "added";
+  const legacyParts = legacy && !legacySentinel ? legacy.split(/[,;\n]+/).map((p) => p.trim()).filter(Boolean) : [];
+  const links = arrayFiles.length ? arrayFiles : legacyParts;
+  if (!hasPrint(trade)) {
     left.createDiv({ cls: "tj-empty", text: "No print/screenshot attached yet." });
-  } else if (shot.toLowerCase() === "added") {
+  } else if (!links.length) {
     left.createDiv({ cls: "tj-hint", text: "Print marked as added (no image file linked)." });
   } else {
-    const parts = shot.split(/[,;\n]+/);
     let foundAny = false;
-    for (const p of parts) {
-      const trimmed = p.trim();
-      if (!trimmed) continue;
-      const resolved = resolveImage(plugin, trimmed, trade.date);
+    for (const link of links) {
+      const resolved = resolveImage(plugin, link, trade.date);
       if (resolved) {
         foundAny = true;
         const img = left.createEl("img", { attr: { src: resolved, alt: "trade screenshot" }, cls: "tj-trade-modal-img" });
@@ -50,7 +54,7 @@ attachTip(closeBtn, { title: "Close" });
       }
     }
     if (!foundAny) {
-      left.createDiv({ cls: "tj-hint", text: `Print not found: ${shot}. Link the image in the note.` });
+      left.createDiv({ cls: "tj-hint", text: `Print not found: ${links[0]}. Link the image in the note.` });
     }
   }
 

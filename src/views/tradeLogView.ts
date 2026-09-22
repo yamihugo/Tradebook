@@ -3,7 +3,7 @@ import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
 import { renderAppShell } from "../ui";
-import { reviewStatus, reviewSummary } from "../lib/review";
+import { reviewStatus, hasPrint } from "../lib/review";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
@@ -58,7 +58,7 @@ const NO_ACCOUNT = "__none__";
 
 /** Is this trade missing one of the things a finished journal entry has? */
 function missingFlag(t: Trade, kind: string): boolean {
-  if (kind === "noprint") return !t.screenshot || t.screenshot === "added";
+  if (kind === "noprint") return !hasPrint(t);
   if (kind === "nosetup") return !(t.setup || "").trim();
   if (kind === "nostop") return !(typeof t.stopLoss === "number" && t.stopLoss > 0);
   return !(typeof t.rating === "number" && t.rating > 0);
@@ -463,19 +463,20 @@ export class TradeLogView extends ItemView {
     // the totals count one entry per logical trade: a copy must not add a second
     // "trade" or a second win to these numbers.
     const counted = analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
-    // Attention counts use the FULL list (skipAttention) so clicking a chip
-    // never changes the number it displays.
+    // The attention chips must (a) never change number when their own filter is
+    // active, and (b) match exactly the rows a click shows. Both hold when the
+    // count runs the SAME predicate over the SAME population the table renders:
+    // the attention list is the full list with attention filters skipped, every
+    // leg included (the table renders `list`, not the folded `counted`).
     const attentionList = this.filtered({ skipAttention: true });
-    const attentionCounted = analyticsTrades(attentionList, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
-    const attentionSummary = reviewSummary(attentionCounted);
 
     const value: TradeLogStats = {
       list,
       counted,
       tradeCount: counted.length,
-      pending: attentionCounted.length - attentionSummary.complete,
-      missingSetup: attentionSummary.noSetup,
-      missingPrint: attentionSummary.missingPrint,
+      pending: attentionList.filter((t) => !reviewStatus(t).complete).length,
+      missingSetup: attentionList.filter((t) => missingFlag(t, "nosetup")).length,
+      missingPrint: attentionList.filter((t) => missingFlag(t, "noprint")).length,
     };
     this._stats = { key, value };
     return value;
