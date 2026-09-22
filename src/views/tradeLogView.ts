@@ -16,6 +16,7 @@ import {
   TRADE_COLUMNS,
   renderTradeTable,
   tradeR,
+  tradeRows,
   TradeSort,
   resolveOrder,
 } from "../lib/tradeTable";
@@ -99,6 +100,8 @@ export class TradeLogView extends ItemView {
   sessionFilter = "all";
   /** Which gaps to look for — a trade can be missing more than one thing. */
   qualityFilters: string[] = [];
+  /** Leave demo-account trades out of the ledger and every count (Trade Log only). */
+  excludeDemos = false;
   /** What the reader typed in the account picker (kept across re-renders). */
   accQuery = "";
   /** all | 1plus | 0to1 | neg — how the trade finished in R, not in dollars. */
@@ -181,6 +184,7 @@ export class TradeLogView extends ItemView {
           : typeof f.quality === "string" && f.quality !== "all"
             ? [f.quality]
             : this.qualityFilters;
+        this.excludeDemos = f.excludeDemos === true;
         this.customFrom = f.customFrom ?? this.customFrom;
         this.customTo = f.customTo ?? this.customTo;
         this.search = f.search ?? this.search;
@@ -275,6 +279,7 @@ export class TradeLogView extends ItemView {
       customTo: this.customTo,
       search: this.search,
       setups: this.setupFilters.slice(),
+      excludeDemos: this.excludeDemos,
     };
     // Writing the same thing every render was a save storm; only a real change
     // touches data.json. A scoped open records its signature without saving, so
@@ -390,6 +395,12 @@ export class TradeLogView extends ItemView {
         return this.sessionFilter === "none" ? s === "" : s === this.sessionFilter;
       });
     }
+    // Demo accounts count by default — the trader is testing on them. The
+    // explicit "Exclude demo accounts" toggle (a global list filter, not an
+    // attention filter) drops them from the ledger AND from every count below.
+    if (this.excludeDemos) {
+      list = list.filter((t) => (this.plugin.mappedAccount(t.account)?.type ?? t.accountType) !== "demo");
+    }
     // qualityFilters and reviewFilter are skipped when computing the attention
     // queue — the chips must always show the GLOBAL count regardless of which
     // filter is active, to avoid the circular-dependency bug where clicking a
@@ -464,19 +475,19 @@ export class TradeLogView extends ItemView {
     // "trade" or a second win to these numbers.
     const counted = analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
     // The attention chips must (a) never change number when their own filter is
-    // active, and (b) match exactly the rows a click shows. Both hold when the
-    // count runs the SAME predicate over the SAME population the table renders:
-    // the attention list is the full list with attention filters skipped, every
-    // leg included (the table renders `list`, not the folded `counted`).
+    // active, and (b) match exactly the rows a click shows. The table folds copy
+    // legs into one row per logical trade (tradeRows), so the chips count the
+    // same way: one count per logical trade whose legs include a match.
     const attentionList = this.filtered({ skipAttention: true });
+    const attentionRows = tradeRows(attentionList);
 
     const value: TradeLogStats = {
       list,
       counted,
       tradeCount: counted.length,
-      pending: attentionList.filter((t) => !reviewStatus(t).complete).length,
-      missingSetup: attentionList.filter((t) => missingFlag(t, "nosetup")).length,
-      missingPrint: attentionList.filter((t) => missingFlag(t, "noprint")).length,
+      pending: attentionRows.filter((r) => r.legs.some((l) => !reviewStatus(l).complete)).length,
+      missingSetup: attentionRows.filter((r) => r.legs.some((l) => missingFlag(l, "nosetup"))).length,
+      missingPrint: attentionRows.filter((r) => r.legs.some((l) => missingFlag(l, "noprint"))).length,
     };
     this._stats = { key, value };
     return value;
@@ -1117,6 +1128,9 @@ export class TradeLogView extends ItemView {
       const group = this.plugin.settings.accountGroups.find((g) => g.id === this.groupFilter);
       out.push({ label: `Group: ${group?.name || "Unknown group"}`, clear: () => (this.groupFilter = "") });
     }
+    if (this.excludeDemos) {
+      out.push({ label: "Demo accounts excluded", clear: () => (this.excludeDemos = false) });
+    }
     if (this.idFilter.length) {
       // A scoped open (the trades an import just wrote) must be visible and
       // removable here, or the ledger looks broken with no way back.
@@ -1157,6 +1171,7 @@ export class TradeLogView extends ItemView {
     this.customTo = "";
     this.search = "";
     this.setupFilters = [];
+    this.excludeDemos = false;
     this.limit = 50;
   }
 
@@ -1500,6 +1515,16 @@ export class TradeLogView extends ItemView {
       });
     }
     pills(g, syms, [this.symbolFilter], (v) => { this.symbolFilter = v; this.render(); });
+    const demoRow = g.createDiv({ cls: "tj-tl-opts" });
+    const demoBtn = demoRow.createEl("button", {
+      cls: "tj-tl-opt" + (this.excludeDemos ? " on" : ""),
+      text: "Exclude demo accounts",
+      attr: { type: "button" },
+    });
+    demoBtn.addEventListener("click", () => {
+      this.excludeDemos = !this.excludeDemos;
+      this.render();
+    });
 
     g = section("How it went");
     pills(g, [["all", "All"], ["win", "Wins"], ["loss", "Losses"], ["be", "Break-even"]], [this.resultFilter], (v) => { this.resultFilter = v; this.render(); });

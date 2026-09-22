@@ -136,6 +136,8 @@ export interface TradebookSettings {
       search?: string;
       setup?: string;
       setups?: string[];
+      /** Leave demo-account trades out of the ledger and its counts (Trade Log only). */
+      excludeDemos?: boolean;
     };
     /** How the Side column renders: arrows (▲/▼) or letters (LONG/SHORT). */
     sideDisplay?: "arrows" | "letters";
