@@ -28,8 +28,9 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderContinuousBar, renderStatusRow } from "../lib/chartKit";
-import { dimensionBars, type DimensionBarsOpts } from "../lib/breakdown";
+import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap } from "../lib/chartKit";
+import { dimensionBars, dimensionTiles, type DimensionBarsOpts } from "../lib/breakdown";
+import { normalizeOrderType } from "../lib/tradeTable";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
 import { computeProcessSignals } from "../lib/process";
@@ -67,6 +68,8 @@ export const CARD_TITLES: Record<string, string> = {
   session: "By Session",
   weekday: "By Weekday",
   symbols: "Symbol Breakdown",
+  setup: "By Setup",
+  "order-type": "By Order Type",
   score: "Trading Score & Radar",
   discipline: "Discipline",
   trends: "Trends",
@@ -116,17 +119,19 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "session", x: 8, y: 6, w: 8, h: 3 },
     { i: "weekday", x: 16, y: 6, w: 8, h: 3 },
     { i: "heatmap", x: 0, y: 9, w: 24, h: 4 },
-    { i: "symbols", x: 0, y: 13, w: 24, h: 6 },
+    { i: "symbols", x: 0, y: 13, w: 12, h: 6 },
+    { i: "setup", x: 12, y: 13, w: 12, h: 6 },
+    { i: "order-type", x: 0, y: 19, w: 24, h: 4 },
   ];
   const perRow = 6;
   DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 19 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
+    tiles.push({ i: id, x: (idx % perRow) * 4, y: 23 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
   });
   return tiles;
 })();
 
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, setup: 12, "order-type": 24, hour: 8, session: 8, weekday: 8, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, setup: 6, "order-type": 4, hour: 5, session: 5, weekday: 5, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /**
  * Minimum tile size per widget: the engine refuses to draw a smaller box, so
@@ -135,19 +140,19 @@ const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, cale
  */
 const MIN_W: Record<string, number> = {
   equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
-  hour: 8, session: 8, weekday: 8, symbols: 12, score: 8,
+  hour: 8, session: 8, weekday: 8, symbols: 12, setup: 12, "order-type": 8, score: 8,
   discipline: 12, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
   equity: 4, longpnl: 4, shortpnl: 4, calendar: 5, heatmap: 5,
-  hour: 3, session: 3, weekday: 3, symbols: 4, score: 6,
+  hour: 3, session: 3, weekday: 3, symbols: 4, setup: 4, "order-type": 3, score: 6,
   discipline: 3, trends: 4, payouts: 3,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
 const minOf = (id: string): { w: number; h: number } => ({ w: MIN_W[id] ?? 1, h: MIN_H[id] ?? 1 });
 
-/** Widgets whose body scrolls (tables/lists); everything else scales. */
-const SCROLL_WIDGETS = new Set(["symbols"]);
+/** Widgets whose body scrolls (tables/lists); treemaps and charts scale. */
+const SCROLL_WIDGETS = new Set<string>();
 
 /** Parse a displayed metric value to a number, or null if it is not numeric
  *  (e.g. "9am", "3m", "—", "∞"). */
@@ -1133,7 +1138,9 @@ export class WidgetGridView extends ItemView {
         try {
           switch (item.i) {
             case "equity": this.renderEquityBody(body, trades); break;
-            case "symbols": this.renderSymbolTable(body, trades, counted); break;
+            case "symbols": this.renderSymbolWidget(body, trades, counted); break;
+            case "setup": this.renderSetupWidget(body, trades, counted); break;
+            case "order-type": this.renderOrderTypeWidget(body, trades, counted); break;
             case "score": this.renderScoreRadar(body, counted); break;
             case "hour": this.renderHourWidget(body, trades, counted); break;
             case "session": this.renderSessionWidget(body, trades, counted); break;
@@ -1961,84 +1968,43 @@ export class WidgetGridView extends ItemView {
     meta.createSpan({ cls: "tj-score-weeks", text: `· ${weeksActive}w` });
   }
 
-  /** Body-level hover card (never clipped by the widget). */
-  private showRowTip(x: number, y: number, text: string): void {
-    let tip = document.querySelector(".tj-hover-tip") as HTMLElement | null;
-    if (!tip) {
-      tip = document.body.createDiv({ cls: "tj-eq-card tj-hover-tip" });
-    }
-    tip.setText(text);
-    tip.style.left = `${Math.round(x + 14)}px`;
-    tip.style.top = `${Math.round(y + 14)}px`;
-  }
-
-  private hideRowTip(): void {
-    document.querySelector(".tj-hover-tip")?.remove();
-  }
-
-  /** Symbol Breakdown — dot (win-rate tier) + P&L bar + "win% · trades". */
-  renderSymbolTable(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
-    const groups = new Map<string, { count: number; wins: number; net: number }>();
-    const groupOf = (key: string) => {
-      const g = groups.get(key) ?? { count: 0, wins: 0, net: 0 };
-      groups.set(key, g);
-      return g;
-    };
-    for (const t of trades) {
-      if (!isFiniteNumber(t.pnl)) continue;
-      groupOf(t.symbol || "—").net += t.pnl;
-    }
-    for (const t of counted) {
-      if (!isFiniteNumber(t.pnl)) continue;
-      const g = groupOf(t.symbol || "—");
-      g.count++;
-      if (t.pnl > 0) g.wins++;
-    }
-    const rows = [...groups.entries()].sort((a, b) => b[1].net - a[1].net);
-    if (!rows.length) {
+  /** One treemap adapter for every "P&L + win% by X" breakdown. */
+  private renderBreakdown(
+    body: HTMLElement,
+    trades: Trade[],
+    counted: Trade[],
+    keyOf: (t: Trade) => string,
+    labelOf: (key: string) => string,
+    cls: string
+  ): void {
+    const tiles = dimensionTiles(trades, counted, keyOf, { labelOf, formatMoney: fmtMoney2 });
+    if (!tiles.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
     }
+    renderTreemap(body, { tiles, className: cls, formatMoney: fmtMoney2 });
+  }
 
-    // Compact modes so everything fits without scrollbars.
-    const w = body.clientWidth || 0;
-    const h = body.clientHeight || 0;
-    const compact = w > 0 && w < 360;
-    const tiny = (h > 0 && h < 130) || (w > 0 && w < 280);
-    const wrap = body.createDiv({ cls: "tj-symw" + (compact ? " is-compact" : "") + (tiny ? " is-tiny" : "") });
-    const maxAbs = Math.max(...rows.map(([, g]) => Math.abs(g.net)), 1);
-    let idx = 0;
-    for (const [sym, g] of rows) {
-      idx++;
-      const winRate = g.count ? (g.wins / g.count) * 100 : 0;
-      const row = wrap.createDiv({ cls: "tj-symw-row" });
-      row.createSpan({ cls: "tj-symw-sym", text: sym });
+  /** Symbol Breakdown — treemap by symbol. */
+  renderSymbolWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    this.renderBreakdown(body, trades, counted, (t) => t.symbol || "—", (k) => k, "tj-bd-symbols");
+  }
 
-      const dot = row.createSpan({
-        cls: "tj-symw-dot " + (winRate >= 65 ? "is-good" : winRate >= 45 ? "is-mid" : "is-bad"),
-      });
-      dot.title = `${winRate.toFixed(0)}% win rate`;
+  /** Setup Breakdown — treemap by strategy. */
+  renderSetupWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    this.renderBreakdown(body, trades, counted, (t) => t.setup || "No strategy", (k) => k, "tj-bd-setup");
+  }
 
-      const track = row.createDiv({ cls: "tj-symw-track" });
-      const bar = track.createDiv({ cls: "tj-symw-bar " + (g.net >= 0 ? "pos" : "neg") });
-      const target = `${Math.max(3, (Math.abs(g.net) / maxAbs) * 100)}%`;
-      if (this._intro && this.plugin.settings.animations !== false) {
-        bar.style.width = "0%";
-        const delay = 120 + idx * 70;
-        window.setTimeout(() => {
-          bar.style.width = target;
-        }, delay);
-      } else {
-        bar.style.width = target;
-      }
-
-      row.createSpan({ cls: "tj-symw-val " + (g.net >= 0 ? "tj-pos" : "tj-neg"), text: fmtMoney2(g.net) });
-      // Hover card shows only win% + trades (the symbol & P&L are already visible).
-      const label = `${winRate.toFixed(0)}% win · ${g.count} trades`;
-      row.addEventListener("mouseenter", (ev) => this.showRowTip(ev.clientX, ev.clientY, label));
-      row.addEventListener("mousemove", (ev) => this.showRowTip(ev.clientX, ev.clientY, label));
-      row.addEventListener("mouseleave", () => this.hideRowTip());
-    }
+  /** Order-type Breakdown — treemap by entry order type. */
+  renderOrderTypeWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    this.renderBreakdown(
+      body,
+      trades,
+      counted,
+      (t) => normalizeOrderType(t.orderType) || "—",
+      (k) => k,
+      "tj-bd-ordertype"
+    );
   }
 
 

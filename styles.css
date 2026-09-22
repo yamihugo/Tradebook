@@ -4665,66 +4665,9 @@
 }
 .tj-radar { max-width: 100%; max-height: 100%; }
 
-/* Symbol Breakdown (1C) — dot + P&L bar + win% · trades */
-.tj-symw { display: flex; flex-direction: column; gap: 9px; height: 100%; min-height: 0; overflow: auto; }
-.tj-symw-row { display: flex; align-items: center; gap: 10px; }
-.tj-symw-sym { width: 46px; font-weight: 700; flex: 0 0 auto; }
-.tj-symw-dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
-.tj-symw-dot.is-good { background: var(--color-green-bright, #34d17a); }
-.tj-symw-dot.is-mid { background: #d97706; }
-.tj-symw-dot.is-bad { background: var(--color-red, #ad3527); }
-.tj-symw-track {
-  flex: 1 1 auto;
-  height: 12px;
-  border-radius: 6px;
-  background: var(--background-modifier-border);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  min-width: 40px;
-}
-.tj-symw-bar { height: 100%; border-radius: 6px; }
-.tj-symw-bar.pos { background: var(--tj-chart-good); }
-.tj-symw-bar.neg { background: var(--tj-chart-bad); }
-.tj-symw-val {
-  width: 92px;
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  flex: 0 0 auto;
-}
-.tj-symw-meta {
-  width: 96px;
-  text-align: right;
-  color: var(--text-muted);
-  font-size: var(--tj-fs-body);
-  flex: 0 0 auto;
-}
-
 /* Needs Review — more air between top and foot */
 .tj-revieww { gap: 12px 18px; }
 .tj-revieww-sub { font-size: var(--tj-fs-small); }
-
-/* Symbol Breakdown — smaller, uniform type + no scrollbars */
-.tj-symw {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-.tj-symw-row { display: flex; align-items: center; gap: 8px; }
-.tj-symw-sym { width: 40px; font-weight: 600; font-size: var(--tj-fs-strong); flex: 0 0 auto; }
-.tj-symw-dot { width: 8px; height: 8px; }
-.tj-symw-track { height: 10px; min-width: 0; }
-.tj-symw-val { width: 84px; font-size: var(--tj-fs-strong); }
-.tj-symw-meta { width: 84px; font-size: var(--tj-fs-small); }
-.tj-symw.is-compact .tj-symw-meta { display: none; }
-.tj-symw.is-tiny { gap: 5px; }
-.tj-symw.is-tiny .tj-symw-sym { width: 32px; font-size: var(--tj-fs-body); }
-.tj-symw.is-tiny .tj-symw-val { width: auto; font-size: var(--tj-fs-body); }
 
 /* Score number lives inside the radar (never disappears when small) */
 .tj-radar-box { position: relative; }
@@ -4740,9 +4683,6 @@
 }
 .tj-radar-score .tj-score-num { font-size: var(--tj-fs-display); font-weight: 700; color: var(--tj-score-color, var(--text-normal)); }
 .tj-radar-score .tj-score-suffix { color: var(--text-muted); }
-
-/* Symbol Breakdown hover card */
-.tj-symw { position: relative; }
 
 /* Needs Review — single centered gauge */
 .tj-revieww {
@@ -4761,15 +4701,6 @@
 .tj-revieww-gaugewrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .tj-revieww-gauge-cap.is-complete { color: var(--color-green-bright, #34d17a); }
 .tj-revieww-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-
-/* Symbol Breakdown — body-level hover card */
-.tj-hover-tip {
-  position: fixed;
-  z-index: 4000;
-  pointer-events: none;
-  font-size: var(--tj-fs-body);
-  white-space: nowrap;
-}
 
 /* Header: no separator line (blends with the page) */
 .tj-header { border-bottom: none !important; box-shadow: none !important; }
@@ -5339,12 +5270,10 @@ textarea.tj-anno-textinput {
 
 /* Privacy mode — blur money, reveal on hover */
 .tj-privacy .tj-metric-value,
-.tj-privacy .tj-symw-val,
 .tj-privacy .tj-eq-value,
 .tj-privacy .tj-score-num,
 .tj-privacy .tj-kpi-value { filter: blur(7px); transition: filter 140ms ease; }
 .tj-privacy .tj-metric-value:hover,
-.tj-privacy .tj-symw-val:hover,
 .tj-privacy .tj-eq-value:hover,
 .tj-privacy .tj-kpi-value:hover { filter: blur(0); }
 
@@ -5599,12 +5528,10 @@ textarea.tj-anno-textinput {
 /* Immersive entrance */
 @keyframes tjFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .tj-intro-root { animation: tjFadeIn 420ms ease both; }
-.tj-symw-bar { transition: width 720ms cubic-bezier(0.2, 0.7, 0.3, 1); }
 @keyframes tjCellIn { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
 .tj-pcal-cell.tj-pcal-in { animation: tjCellIn 320ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
 @media (prefers-reduced-motion: reduce) {
   .tj-intro-root, .tj-pcal-cell.tj-pcal-in { animation: none; }
-  .tj-symw-bar { transition: none; }
 }
 
 /* Even more transparent surfaces — closer to the background */
@@ -5874,7 +5801,25 @@ textarea.tj-anno-textinput {
 .tj-status-square.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-status-square:hover { filter: brightness(1.2); }
 .tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Treemap tiles (lib/chartKit.ts) — colour from the tone tokens, intensity inline. */
+/* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
+.tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
+.tj-treemap-tile {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+  transition: filter 120ms ease;
+}
+.tj-treemap-tile:hover { filter: brightness(1.15); }
+.tj-treemap-t { font-size: var(--tj-fs-small); font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tj-treemap-v { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tj-treemap-w { font-size: var(--tj-fs-small); color: var(--text-muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 .tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 /* Discipline compact mode: the widget measures its body and adds .is-compact. */
