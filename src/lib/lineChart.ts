@@ -226,15 +226,15 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
   svg.appendChild(defs);
 
   const gUp = svgEl("linearGradient", { id: id + "up", gradientUnits: "userSpaceOnUse", x1: "0", y1: String(topY), x2: "0", y2: String(zy) });
-  gUp.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#227a4a", "stop-opacity": "0.45" }));
-  gUp.appendChild(svgEl("stop", { offset: "40%", "stop-color": "#227a4a", "stop-opacity": "0.24" }));
-  gUp.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#227a4a", "stop-opacity": "0" }));
+  gUp.appendChild(svgEl("stop", { offset: "0%", class: "tj-eq-grad-up", "stop-opacity": "0.45" }));
+  gUp.appendChild(svgEl("stop", { offset: "40%", class: "tj-eq-grad-up", "stop-opacity": "0.24" }));
+  gUp.appendChild(svgEl("stop", { offset: "100%", class: "tj-eq-grad-up", "stop-opacity": "0" }));
   defs.appendChild(gUp);
 
   const gDn = svgEl("linearGradient", { id: id + "dn", gradientUnits: "userSpaceOnUse", x1: "0", y1: String(zy), x2: "0", y2: String(botY) });
-  gDn.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#8f2b1e", "stop-opacity": "0" }));
-  gDn.appendChild(svgEl("stop", { offset: "60%", "stop-color": "#8f2b1e", "stop-opacity": "0.24" }));
-  gDn.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#8f2b1e", "stop-opacity": "0.45" }));
+  gDn.appendChild(svgEl("stop", { offset: "0%", class: "tj-eq-grad-dn", "stop-opacity": "0" }));
+  gDn.appendChild(svgEl("stop", { offset: "60%", class: "tj-eq-grad-dn", "stop-opacity": "0.24" }));
+  gDn.appendChild(svgEl("stop", { offset: "100%", class: "tj-eq-grad-dn", "stop-opacity": "0.45" }));
   defs.appendChild(gDn);
 
   const cUp = svgEl("clipPath", { id: id + "cu" });
@@ -276,7 +276,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
           y: String(Math.max(topY + 8, ty - 4)),
           "text-anchor": "end",
           class: "tj-eq-reflabel",
-          fill: "var(--color-green-bright, #34d17a)",
+          fill: "var(--tj-tone-good)",
         });
         t.textContent = "Target";
         svg.appendChild(t);
@@ -300,7 +300,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
         y: String(botY - 4),
         "text-anchor": "end",
         class: "tj-eq-reflabel tj-eq-ddlabel",
-        fill: "var(--color-red-bright, #ff5d48)",
+        fill: "var(--tj-tone-bad)",
       });
       t.textContent = "Drawdown level";
       // Hover tooltip on the label
@@ -413,7 +413,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
       d.setAttribute("cx", x(i).toFixed(1));
       d.setAttribute("cy", y(values[i]).toFixed(1));
       // A cash day keeps its own colour from the stylesheet: the colour is the point.
-      if (!cash) d.setAttribute("fill", (opts.dayDeltas[i] ?? 0) >= 0 ? "var(--color-green-bright, #34d17a)" : "var(--color-red-bright, #ff5d48)");
+      if (!cash) d.setAttribute("fill", (opts.dayDeltas[i] ?? 0) >= 0 ? "var(--tj-tone-good)" : "var(--tj-tone-bad)");
       svg.appendChild(d);
     }
   }

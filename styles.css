@@ -273,13 +273,13 @@
   stroke-linecap: round;
 }
 .tj-chart-line.pos {
-  stroke: var(--color-green-bright, #34d17a);
+  stroke: var(--tj-tone-good);
 }
 .tj-chart-line.neg {
-  stroke: var(--text-error, #ad3527);
+  stroke: var(--tj-tone-bad);
 }
 .tj-chart-area-grad {
-  fill: rgba(16, 185, 129, 0.2);
+  fill: color-mix(in srgb, var(--tj-tone-good) 20%, transparent);
 }
 
 /* ---------------- Chart box ---------------- */
@@ -374,14 +374,14 @@
 }
 .tj-hm-cell.empty { background: var(--background-modifier-border); opacity: 0.35; }
 .tj-hm-cell.zero { background: var(--background-modifier-border); }
-.tj-hm-cell.pos1 { background: rgba(16, 185, 129, 0.25); }
-.tj-hm-cell.pos2 { background: rgba(16, 185, 129, 0.45); }
-.tj-hm-cell.pos3 { background: rgba(16, 185, 129, 0.7); }
-.tj-hm-cell.pos4 { background: rgba(5, 150, 105, 0.95); }
-.tj-hm-cell.neg1 { background: rgba(173, 53, 39, 0.25); }
-.tj-hm-cell.neg2 { background: rgba(173, 53, 39, 0.45); }
-.tj-hm-cell.neg3 { background: rgba(173, 53, 39, 0.7); }
-.tj-hm-cell.neg4 { background: rgba(173, 53, 39, 0.95); }
+.tj-hm-cell.pos1 { background: color-mix(in srgb, var(--tj-tone-good) 25%, transparent); }
+.tj-hm-cell.pos2 { background: color-mix(in srgb, var(--tj-tone-good) 45%, transparent); }
+.tj-hm-cell.pos3 { background: color-mix(in srgb, var(--tj-tone-good) 70%, transparent); }
+.tj-hm-cell.pos4 { background: var(--tj-tone-good); }
+.tj-hm-cell.neg1 { background: color-mix(in srgb, var(--tj-tone-bad) 25%, transparent); }
+.tj-hm-cell.neg2 { background: color-mix(in srgb, var(--tj-tone-bad) 45%, transparent); }
+.tj-hm-cell.neg3 { background: color-mix(in srgb, var(--tj-tone-bad) 70%, transparent); }
+.tj-hm-cell.neg4 { background: var(--tj-tone-bad); }
 
 /* ---------------- Import ---------------- */
 .tj-import-info {
@@ -629,8 +629,8 @@
 
 /* Long/Short P&L bars */
 .tj-bar { cursor: pointer; }
-.tj-bar.pos { fill: var(--color-green, var(--color-green-bright, #34d17a)); }
-.tj-bar.neg { fill: var(--color-red, var(--text-error, #ad3527)); }
+.tj-bar.pos { fill: var(--tj-tone-good); }
+.tj-bar.neg { fill: var(--tj-tone-bad); }
 .tj-bar:hover { opacity: 0.8; }
 
 /* Recent trades table — Journalit header look */
@@ -1234,9 +1234,9 @@
 }
 .tj-gauge-label { font-size: var(--tj-fs-body); color: var(--text-muted); }
 .tj-gauge-value { font-size: var(--tj-fs-strong); font-weight: 700; white-space: nowrap; }
-.tj-gauge-value.pos { color: var(--color-green-bright, #34d17a); }
-.tj-gauge-value.neg { color: #ad3527; }
-.tj-gauge-value.warn { color: #f59e0b; }
+.tj-gauge-value.pos { color: var(--tj-tone-good); }
+.tj-gauge-value.neg { color: var(--tj-tone-bad); }
+.tj-gauge-value.warn { color: var(--tj-tone-mid); }
 .tj-gauge-track {
   height: 8px;
   border-radius: 999px;
@@ -1248,9 +1248,9 @@
   border-radius: 999px;
   transition: width 0.4s ease;
 }
-.tj-gauge-fill.pos { background: #227a4a; }
-.tj-gauge-fill.neg { background: #ad3527; }
-.tj-gauge-fill.warn { background: #f59e0b; }
+.tj-gauge-fill.pos { background: var(--tj-tone-good); }
+.tj-gauge-fill.neg { background: var(--tj-tone-bad); }
+.tj-gauge-fill.warn { background: var(--tj-tone-mid); }
 .tj-gauge-fill.neutral { background: var(--interactive-accent); }
 .tj-tooltip {
   position: absolute;
@@ -3543,6 +3543,8 @@
 .tj-eq-area {
   stroke: none;
 }
+.tj-eq-grad-up { stop-color: var(--tj-tone-good); }
+.tj-eq-grad-dn { stop-color: var(--tj-tone-bad); }
 .tj-eq-zero {
   stroke: var(--tj-fg-3);
   stroke-width: 1;
@@ -4506,7 +4508,7 @@
 .tj-revieww-row:hover { background: var(--background-modifier-hover); }
 .tj-revieww-row-date { color: var(--text-muted); }
 .tj-revieww-row-sym { font-weight: 600; }
-.tj-revieww-row-missing { color: var(--color-red, #ad3527); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tj-revieww-row-missing { color: var(--tj-tone-bad); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-revieww-actions { display: flex; justify-content: flex-end; }
 
 /* Needs Review widget — compact gauge layout */
@@ -4678,8 +4680,8 @@
   min-width: 40px;
 }
 .tj-symw-bar { height: 100%; border-radius: 6px; }
-.tj-symw-bar.pos { background: linear-gradient(90deg, #227a4a, #0e7a37); }
-.tj-symw-bar.neg { background: linear-gradient(90deg, #8f2b1e, #7a2016); }
+.tj-symw-bar.pos { background: var(--tj-tone-good); }
+.tj-symw-bar.neg { background: var(--tj-tone-bad); }
 .tj-symw-val {
   width: 92px;
   text-align: right;
@@ -5871,17 +5873,15 @@ textarea.tj-anno-textinput {
 /* Treemap tiles (lib/chartKit.ts) — colour from the tone tokens, intensity inline. */
 .tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 .tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-tone-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
-/* Card bodies are size containers so a widget can adapt to a short card. */
-.tj-gridcard-body { container-type: size; }
-@container (max-height: 150px) {
-  .tj-disc-gauge { display: none; }
-  .tj-revieww { grid-template-areas: "foot"; grid-template-columns: 1fr; }
-}
+/* Discipline compact mode: the widget measures its body and adds .is-compact. */
+.tj-revieww.is-compact { grid-template-areas: "foot"; grid-template-columns: 1fr; }
+.tj-revieww.is-compact .tj-disc-gauge { display: none; }
 /* Overflow policy: charts scale inside the card; tables/lists scroll. */
 .tj-gridcard-body.tj-scale { overflow: hidden; }
 .tj-gridcard-body.tj-scroll { overflow: auto; }
 /* Discipline — hero gauge + compact status squares */
-.tj-disc-gauge { width: clamp(64px, 40%, 108px); }
+.tj-disc-gauge { width: clamp(64px, 40%, 108px); max-height: 100%; }
+.tj-disc-gauge .tj-arc-svg { max-height: 100%; }
 .tj-disc-process { margin-top: 2px; }
 /* Dimension widgets (hour / session / weekday) — one continuous bar + a summary */
 .tj-dim { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 100%; min-height: 0; }

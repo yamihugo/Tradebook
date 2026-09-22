@@ -1139,7 +1139,7 @@ export class WidgetGridView extends ItemView {
             case "session": this.renderSessionWidget(body, trades, counted); break;
             case "weekday": this.renderWeekdayWidget(body, trades, counted); break;
             case "heatmap": this.renderHeatmap(body, trades, counted); break;
-            case "discipline": this.renderDisciplineWidget(body, counted); break;
+            case "discipline": this.renderDisciplineWidget(body, counted, item.h); break;
             case "trends": this.renderTrendsWidget(body, counted); break;
             case "payouts": this.renderPayoutsWidget(body); break;
             case "calendar":
@@ -1529,7 +1529,7 @@ export class WidgetGridView extends ItemView {
     }
   }
 
-  renderDisciplineWidget(body: HTMLElement, trades: Trade[]): void {
+  renderDisciplineWidget(body: HTMLElement, trades: Trade[], h?: number): void {
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
@@ -1552,24 +1552,31 @@ export class WidgetGridView extends ItemView {
     const tiltPct = process.tradeCount ? (process.afterTwoLosses / process.tradeCount) * 100 : 0;
 
     const wrap = body.createDiv({ cls: "tj-revieww" });
+    // Compact when the card is short: measured height when the DOM has laid out,
+    // otherwise the grid row count (keeps the behaviour testable in jsdom).
+    const measured = body.clientHeight || 0;
+    const compact = measured > 0 ? measured < 150 : (h ?? 6) <= 4;
+    wrap.toggleClass("is-compact", compact);
 
-    const gaugewrap = wrap.createDiv({ cls: "tj-revieww-gaugewrap" });
-    const color = need === 0 ? "var(--tj-tone-good)" : rev.pct >= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)";
-    const animationsOn = this.plugin.settings.animations !== false;
-    const prevPct = this._reviewPct;
-    this._reviewPct = rev.pct;
-    renderGauge(gaugewrap, {
-      pct: rev.pct,
-      color,
-      label: `${rev.pct}%`,
-      sublabel: "reviewed",
-      className: "tj-disc-gauge",
-      animate: animationsOn && prevPct !== rev.pct,
-    });
-    gaugewrap.createDiv({
-      cls: "tj-revieww-gauge-cap" + (need === 0 ? " is-complete" : ""),
-      text: need === 0 ? "complete" : "trades need review",
-    });
+    if (!compact) {
+      const gaugewrap = wrap.createDiv({ cls: "tj-revieww-gaugewrap" });
+      const color = need === 0 ? "var(--tj-tone-good)" : rev.pct >= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)";
+      const animationsOn = this.plugin.settings.animations !== false;
+      const prevPct = this._reviewPct;
+      this._reviewPct = rev.pct;
+      renderGauge(gaugewrap, {
+        pct: rev.pct,
+        color,
+        label: `${rev.pct}%`,
+        sublabel: "reviewed",
+        className: "tj-disc-gauge",
+        animate: animationsOn && prevPct !== rev.pct,
+      });
+      gaugewrap.createDiv({
+        cls: "tj-revieww-gauge-cap" + (need === 0 ? " is-complete" : ""),
+        text: need === 0 ? "complete" : "trades need review",
+      });
+    }
 
     const foot = wrap.createDiv({ cls: "tj-revieww-foot" });
     foot.createDiv({
