@@ -37,7 +37,7 @@ import {
   Phase,
 } from "./lib/maturity";
 import { SettingsTab } from "./settings";
-import { DashboardView, DASHBOARD_VIEW_TYPE, HOME_DEFAULT } from "./views/dashboard";
+import { DashboardView, DASHBOARD_VIEW_TYPE, HOME_DEFAULT, WIDGET_ID_ALIASES } from "./views/dashboard";
 import type { DashItem } from "./views/dashboard";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
 import { openAddTradeModal } from "./views/addTradeModal";
@@ -238,7 +238,7 @@ export interface TradebookSettings {
 }
 
 /** Current `data.json` schema version. Bump when adding a numbered migration. */
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 
 /** A strategy name reduced to a safe vault filename. The name itself is kept
  *  verbatim on the record; this is only the file it is filed under. */
@@ -2304,8 +2304,26 @@ export default class TradebookPlugin extends Plugin {
     if (current < 1) await this.migrateFolderStructure();
     if (current < 2) await this.migrateStrategies();
     if (current < 3) await this.migrateHomeLayout();
+    if (current < 4) await this.migrateWidgetIds();
     this.settings.settingsVersion = SETTINGS_VERSION;
     await this.saveSettings();
+  }
+
+  /**
+   * 3 → 4. The Home/Dashboard split renamed widgets (`review` → `discipline`,
+   * `besthours` → `timing`). Rewrite the deprecated ids in both saved layouts so
+   * no tile is lost. `ensureLayout` repeats this as a safety net for layouts
+   * written by an older build.
+   */
+  private async migrateWidgetIds(): Promise<void> {
+    const rewrite = (list?: DashItem[]): void => {
+      if (!Array.isArray(list)) return;
+      for (const it of list) {
+        if (it && WIDGET_ID_ALIASES[it.i]) it.i = WIDGET_ID_ALIASES[it.i];
+      }
+    };
+    rewrite(this.settings.dashboardLayout);
+    rewrite(this.settings.homeLayout);
   }
 
   /**

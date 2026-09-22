@@ -4498,15 +4498,6 @@
 .tj-revieww-bar { height: 6px; border-radius: 3px; background: var(--background-modifier-border); overflow: hidden; }
 .tj-revieww-fill { height: 100%; background: var(--interactive-accent); border-radius: 3px; }
 .tj-revieww-sub { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
-.tj-revieww-pills { display: flex; gap: 8px; flex-wrap: wrap; }
-.tj-revieww-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: var(--tj-fs-small); padding: 2px 8px; border-radius: 999px;
-  background: var(--background-secondary); color: var(--text-muted);
-}
-.tj-revieww-pill-n { font-weight: 700; color: var(--text-normal); }
-.tj-revieww-pill.tj-neg .tj-revieww-pill-n { color: var(--color-red, #ad3527); }
-.tj-revieww-pill.tj-warn .tj-revieww-pill-n { color: #d97706; }
 .tj-revieww-list { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
 .tj-revieww-row {
   display: grid; grid-template-columns: 92px 48px 1fr; gap: 8px; align-items: center;
@@ -4516,33 +4507,11 @@
 .tj-revieww-row-date { color: var(--text-muted); }
 .tj-revieww-row-sym { font-weight: 600; }
 .tj-revieww-row-missing { color: var(--color-red, #ad3527); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-revieww-done { padding: 10px; text-align: center; color: var(--color-green-bright, #34d17a); font-size: var(--tj-fs-strong); }
 .tj-revieww-actions { display: flex; justify-content: flex-end; }
 
 /* Needs Review widget — compact gauge layout */
 .tj-revieww { display: flex; align-items: center; gap: 22px; height: 100%; min-height: 0; }
 .tj-revieww-gaugewrap { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
-.tj-revieww-gauge {
-  --pct: 0;
-  position: relative;
-  width: 104px;
-  height: 104px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--tj-gauge-color, color-mix(in srgb, var(--interactive-accent) 72%, var(--background-modifier-border))) calc(var(--pct) * 1%),
-    var(--background-modifier-border) 0
-  );
-  display: grid;
-  place-items: center;
-}
-.tj-revieww-gauge::before {
-  content: "";
-  position: absolute;
-  inset: 10px;
-  border-radius: 50%;
-  background: var(--background-primary);
-}
-.tj-revieww-gauge-num { position: relative; z-index: 1; font-size: var(--tj-fs-display); font-weight: 700; }
 .tj-revieww-gauge-cap { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
 .tj-revieww-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
 .tj-revieww-num { font-size: var(--tj-fs-hero); font-weight: 700; }
@@ -4550,14 +4519,6 @@
 .tj-revieww-num.tj-pos { color: var(--color-green-bright, #34d17a); }
 .tj-revieww-cap { font-size: var(--tj-fs-strong); color: var(--text-muted); }
 .tj-revieww-sub { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
-.tj-revieww-pills { display: flex; gap: 6px; flex-wrap: wrap; }
-.tj-revieww-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: var(--tj-fs-small); padding: 2px 8px; border-radius: 999px;
-  background: var(--background-secondary); color: var(--text-muted);
-}
-.tj-revieww-pill-n { font-weight: 700; color: var(--color-red, #ad3527); }
-.tj-revieww-done { font-size: var(--tj-fs-body); color: var(--color-green-bright, #34d17a); }
 .tj-revieww-actions { display: flex; justify-content: flex-start; margin-top: 6px; }
 
 /* Fix: popovers (Add widget / Filters) must be fully opaque and on top */
@@ -4633,9 +4594,6 @@
   border-color: color-mix(in srgb, var(--text-normal) 32%, transparent);
   color: var(--text-normal);
 }
-.tj-revieww-pill.is-clickable { cursor: pointer; transition: background 120ms ease; }
-.tj-revieww-pill.is-clickable:hover { background: var(--background-modifier-hover); }
-.tj-revieww-info { justify-content: center; }
 
 /* Radar: fill the space, readable labels, smaller score text */
 .tj-gridcard-body > .tj-chart-box.tj-radar-box {
@@ -4671,9 +4629,6 @@
 /* Needs Review compact */
 .tj-revieww { gap: 6px 16px; padding: 0; }
 .tj-revieww-gaugewrap { gap: 3px; }
-.tj-revieww-gauge { width: 84px; height: 84px; }
-.tj-revieww-gauge::before { inset: 9px; }
-.tj-revieww-gauge-num { font-size: var(--tj-fs-head); }
 .tj-revieww-gauge-cap { font-size: var(--tj-fs-small); }
 .tj-revieww-num { font-size: var(--tj-fs-display); }
 .tj-revieww-cap { font-size: var(--tj-fs-strong); }
@@ -4694,7 +4649,6 @@
   height: 100%;
 }
 .tj-revieww-foot { justify-items: center; align-items: center; text-align: center; }
-.tj-revieww-pills { justify-content: center; }
 .tj-revieww-info { justify-content: center; }
 
 /* Radar — keep it centered and scaling nicely at any size */
@@ -4741,15 +4695,8 @@
   flex: 0 0 auto;
 }
 
-/* Needs Review — more air between top and foot, smaller pills on one line */
+/* Needs Review — more air between top and foot */
 .tj-revieww { gap: 12px 18px; }
-.tj-revieww-pills { gap: 4px; flex-wrap: wrap; }
-.tj-revieww-pill {
-  font-size: var(--tj-fs-small);
-  padding: 1px 7px;
-  gap: 4px;
-}
-.tj-revieww-pill-n { font-weight: 700; }
 .tj-revieww-sub { font-size: var(--tj-fs-small); }
 
 /* Symbol Breakdown — smaller, uniform type + no scrollbars */
@@ -4806,7 +4753,6 @@
   padding: 4px;
 }
 .tj-revieww-gaugewrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.tj-revieww-gauge-num { position: relative; z-index: 1; font-size: var(--tj-fs-display); font-weight: 700; }
 .tj-revieww-gauge-cap.is-complete { color: var(--color-green-bright, #34d17a); }
 .tj-revieww-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 
@@ -5321,10 +5267,7 @@ textarea.tj-anno-textinput {
 .tj-nav-brand h3 { font-size: var(--tj-fs-big); }
 .tj-nav-section-header { font-size: var(--tj-fs-small); }
 
-/* Needs Review: use the space — bigger gauge */
-.tj-revieww-gauge { width: 116px; height: 116px; }
-.tj-revieww-gauge::before { inset: 11px; }
-.tj-revieww-gauge-num { font-size: var(--tj-fs-hero); }
+/* Needs Review: gauge sizing */
 .tj-revieww-gauge-cap { font-size: var(--tj-fs-small); }
 
 .tj-pill { font-size: var(--tj-fs-small); padding: 2px 8px; border-radius: 999px; background: var(--background-secondary); color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5703,14 +5646,6 @@ textarea.tj-anno-textinput {
 .tj-bh-value { font-size: var(--tj-fs-big); font-weight: 700; margin-top: 1px; }
 .tj-bh-value.tj-pos { color: var(--color-green-bright, #34d17a); }
 .tj-bh-value.tj-neg { color: #ad3527; }
-.tj-bh-bar { display: flex; gap: 2px; height: 34px; align-items: stretch; }
-.tj-bh-seg { flex: 1 1 0; border-radius: 3px; min-width: 2px; transition: opacity 120ms ease; }
-.tj-bh-seg:hover { opacity: 0.82; }
-.tj-bh-seg.is-empty { background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent); }
-.tj-bh-bar .tj-bh-seg:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
-.tj-bh-bar .tj-bh-seg:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
-.tj-bh-axis { display: flex; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
-.tj-bh-tick { flex: 1 1 0; text-align: center; white-space: nowrap; overflow: hidden; }
 
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
@@ -5791,12 +5726,7 @@ textarea.tj-anno-textinput {
 .tj-heat-legend { display: flex; align-items: center; gap: 5px; justify-content: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-heat-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 
-/* Best Hours — softer, rounded segments (nicer than the plain blocks) */
-.tj-bh-bar { gap: 3px; height: 36px; }
-.tj-bh-seg { border-radius: 6px; }
-.tj-bh-bar .tj-bh-seg:first-child,
-.tj-bh-bar .tj-bh-seg:last-child { border-radius: 6px; }
-.tj-bh-seg:hover { filter: brightness(1.28); opacity: 1; }
+/* Timing — the 30-min bars and session split come from lib/chartKit.ts */
 .tj-bh-range { font-size: var(--tj-fs-display); }
 
 /* Date field that honours the Date format setting */
@@ -5934,6 +5864,30 @@ textarea.tj-anno-textinput {
 .tj-arc-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-arc-color, var(--text-normal)); }
 .tj-arc-small { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
 .tj-score-gauge { width: min(56%, 170px); }
+/* Bar-row primitive (lib/chartKit.ts) — timing buckets, discipline process. */
+.tj-barrow { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.tj-barrow-track { display: flex; align-items: flex-end; gap: 2px; height: 100%; min-height: 24px; }
+.tj-barrow-col { flex: 1 1 0; display: flex; align-items: flex-end; justify-content: center; min-width: 0; height: 100%; position: relative; }
+.tj-barrow-bar { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--tj-tone-mid); position: relative; overflow: hidden; }
+.tj-barrow-bar.pos { background: var(--tj-tone-good); }
+.tj-barrow-bar.neg { background: var(--tj-tone-bad); }
+.tj-barrow-bar.mid { background: var(--tj-tone-mid); }
+.tj-barrow-bar.neutral { background: color-mix(in srgb, var(--tj-fg-3) 30%, transparent); }
+.tj-barrow-bar.is-empty { background: color-mix(in srgb, var(--tj-fg-3) 10%, transparent); }
+.tj-barrow-overlay { position: absolute; left: 0; right: 0; bottom: 0; display: block; background: color-mix(in srgb, var(--text-normal) 55%, transparent); }
+.tj-barrow-axis { display: flex; gap: 2px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
+.tj-barrow-tick { flex: 1 1 0; text-align: center; white-space: nowrap; overflow: hidden; }
+/* Discipline — hero gauge + process bars */
+.tj-disc-gauge { width: 108px; }
+.tj-disc-process .tj-barrow-track { height: 42px; }
+.tj-disc-process { margin-top: 2px; }
+/* Timing — hero slots + session split */
+.tj-timing-hero { display: flex; justify-content: center; gap: 20px; text-align: center; }
+.tj-timing-slot { display: flex; flex-direction: column; gap: 1px; }
+.tj-timing-k { font-size: var(--tj-fs-label); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
+.tj-timing-bars .tj-barrow-track { height: 62px; }
+.tj-timing-sessions { margin-top: 2px; }
+.tj-timing-sessions .tj-barrow-track { height: 24px; }
 .tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
 .tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
 .tj-score-foot { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: center; gap: 9px; margin-top: 2px; }

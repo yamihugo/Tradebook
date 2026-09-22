@@ -28,9 +28,11 @@ import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge } from "../lib/chartKit";
+import { renderGauge, renderBarRow } from "../lib/chartKit";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
+import { computeProcessSignals } from "../lib/process";
+import { sessionOf, SESSION_BADGES } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
@@ -49,14 +51,24 @@ export const CARD_TITLES: Record<string, string> = {
   shortpnl: "Short P&L",
   calendar: "Performance Calendar",
   heatmap: "Last 6 Months",
-  besthours: "Best Hours",
+  timing: "Timing",
   symbols: "Symbol Breakdown",
   score: "Trading Score & Radar",
-  review: "Needs Review",
+  discipline: "Discipline",
   trends: "Trends",
   payouts: "Payouts",
   // One widget per metric (the old combined "Key Stats" strip is gone).
   ...METRIC_TITLES,
+};
+
+/**
+ * Deprecated widget ids → their canonical replacement. Rewritten on load so a
+ * saved layout (or a Home seed) written before the rename keeps its tiles.
+ * `review` → `discipline`, `besthours` → `timing`.
+ */
+export const WIDGET_ID_ALIASES: Record<string, string> = {
+  review: "discipline",
+  besthours: "timing",
 };
 
 /** Home — the fixed narrative: the eight blocks that fit one screen. */
@@ -67,7 +79,7 @@ export const HOME_DEFAULT: GridItem[] = [
   { i: "m.avgloss", x: 16, y: 3, w: 8, h: 2 },
   { i: "calendar", x: 0, y: 5, w: 12, h: 5 },
   { i: "trends", x: 12, y: 5, w: 12, h: 5 },
-  { i: "review", x: 0, y: 10, w: 12, h: 3 },
+  { i: "discipline", x: 0, y: 10, w: 12, h: 3 },
   { i: "payouts", x: 12, y: 10, w: 12, h: 3 },
 ];
 
@@ -80,7 +92,6 @@ const DASHBOARD_METRIC_IDS = [
   "m.expectancy", "m.bestday", "m.worstday", "m.largestwin", "m.largestloss",
   "m.winstreak", "m.lossstreak", "m.wintrades", "m.losstrades", "m.avgwin",
   "m.avgloss", "m.avgrr", "m.holdtime", "m.winhold", "m.losshold",
-  "m.besthour", "m.worsthour",
 ];
 
 /** Dashboard — the rich archive: charts, breakdowns and every metric. */
@@ -89,7 +100,7 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
     { i: "longpnl", x: 0, y: 0, w: 8, h: 6 },
     { i: "shortpnl", x: 8, y: 0, w: 8, h: 6 },
     { i: "score", x: 16, y: 0, w: 8, h: 6 },
-    { i: "besthours", x: 0, y: 6, w: 12, h: 4 },
+    { i: "timing", x: 0, y: 6, w: 12, h: 4 },
     { i: "heatmap", x: 12, y: 6, w: 12, h: 4 },
     { i: "symbols", x: 0, y: 10, w: 24, h: 6 },
   ];
@@ -100,8 +111,8 @@ export const DASHBOARD_DEFAULT: GridItem[] = (() => {
   return tiles;
 })();
 
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, besthours: 10, review: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, besthours: 4, review: 4, heatmap: 5, trends: 4, payouts: 3 };
+const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, symbols: 12, timing: 10, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
+const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, symbols: 6, timing: 4, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /** Parse a displayed metric value to a number, or null if it is not numeric
  *  (e.g. "9am", "3m", "—", "∞"). */
@@ -458,6 +469,11 @@ export class WidgetGridView extends ItemView {
       this.plugin.settings.gridCols = GRID_COLS;
       void this.plugin.saveSettings();
     }
+    // Deprecated ids are rewritten to their canonical replacement, so a saved
+    // layout written before the rename keeps its tiles instead of losing them.
+    layout.forEach((it) => {
+      if (it && WIDGET_ID_ALIASES[it.i]) it.i = WIDGET_ID_ALIASES[it.i];
+    });
     const valid = this.allowedIds();
     const filtered = (layout as GridItem[]).filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
@@ -1011,7 +1027,7 @@ export class WidgetGridView extends ItemView {
         item.i === "equity" ||
         item.i === "longpnl" ||
         item.i === "shortpnl" ||
-        item.i === "besthours" ||
+        item.i === "timing" ||
         item.i === "calendar"
       ) {
         card.addClass("tj-blend");
@@ -1082,9 +1098,9 @@ export class WidgetGridView extends ItemView {
             case "equity": this.renderEquityBody(body, trades); break;
             case "symbols": this.renderSymbolTable(body, trades, counted); break;
             case "score": this.renderScoreRadar(body, counted); break;
-            case "besthours": this.renderBestHours(body, trades, counted); break;
+            case "timing": this.renderTimingWidget(body, trades, counted); break;
             case "heatmap": this.renderHeatmap(body, trades, counted); break;
-            case "review": this.renderReviewWidget(body, counted); break;
+            case "discipline": this.renderDisciplineWidget(body, counted); break;
             case "trends": this.renderTrendsWidget(body, counted); break;
             case "payouts": this.renderPayoutsWidget(body); break;
             case "calendar":
@@ -1472,77 +1488,76 @@ export class WidgetGridView extends ItemView {
     }
   }
 
-  renderReviewWidget(body: HTMLElement, trades: Trade[]): void {
+  renderDisciplineWidget(body: HTMLElement, trades: Trade[]): void {
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
     }
     const rev = reviewSummary(trades);
     const need = rev.total - rev.complete;
+    const dayKey = (t: Trade): string => toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
+    const process = computeProcessSignals(trades, dayKey);
+
+    // Journaling coverage: optional psychology / mistake signals logged or
+    // explicitly acknowledged. Distinct from the required-checklist review %.
+    const journaled = trades.filter(
+      (t) =>
+        (t.psychology_tags?.length ?? 0) > 0 ||
+        t.psychologyAcknowledged === true ||
+        (t.mistake_tags?.length ?? 0) > 0 ||
+        t.mistakesAcknowledged === true
+    ).length;
+    const journalPct = trades.length ? (journaled / trades.length) * 100 : 0;
+    const tiltPct = process.tradeCount ? (process.afterTwoLosses / process.tradeCount) * 100 : 0;
 
     const wrap = body.createDiv({ cls: "tj-revieww" });
 
     const gaugewrap = wrap.createDiv({ cls: "tj-revieww-gaugewrap" });
-    const gauge = gaugewrap.createDiv({ cls: "tj-revieww-gauge" });
-    gauge.style.setProperty("--tj-gauge-color", need === 0 ? "var(--color-green-bright)" : "#d97706");
-    const gaugeNum = gauge.createDiv({ cls: "tj-revieww-gauge-num" });
+    const color = need === 0 ? "var(--tj-tone-good)" : rev.pct >= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)";
+    const animationsOn = this.plugin.settings.animations !== false;
+    const prevPct = this._reviewPct;
+    this._reviewPct = rev.pct;
+    renderGauge(gaugewrap, {
+      pct: rev.pct,
+      color,
+      label: `${rev.pct}%`,
+      sublabel: "reviewed",
+      className: "tj-disc-gauge",
+      animate: animationsOn && prevPct !== rev.pct,
+    });
     gaugewrap.createDiv({
       cls: "tj-revieww-gauge-cap" + (need === 0 ? " is-complete" : ""),
       text: need === 0 ? "complete" : "trades need review",
     });
 
     const foot = wrap.createDiv({ cls: "tj-revieww-foot" });
-    foot.createDiv({ cls: "tj-revieww-sub", text: `${rev.complete} of ${rev.total} complete` });
-    const pills = foot.createDiv({ cls: "tj-revieww-pills" });
-    const pill = (label: string, count: number) => {
-      if (count <= 0) return;
-      const p = pills.createSpan({ cls: "tj-revieww-pill" });
-      p.createSpan({ cls: "tj-revieww-pill-n", text: String(count) });
-      p.createSpan({ text: label });
-    };
-    pill("no print", rev.missingPrint);
-    pill("no strategy", rev.noSetup);
-    pill("no review", rev.noReview);
-    pill("no rating", rev.noRating);
-    if (!pills.childElementCount) pills.createSpan({ cls: "tj-revieww-done", text: "All caught up 🎉" });
+    foot.createDiv({
+      cls: "tj-revieww-sub",
+      text: need === 0 ? "All caught up 🎉" : `${rev.complete} of ${rev.total} complete`,
+    });
 
-    // Animate the count and the gauge arc on change (e.g. after reviewing).
-    const animationsOn = this.plugin.settings.animations !== false;
-    const prevNeed = this.metricDisplay.get("review.need");
-    this.metricDisplay.set("review.need", need);
-    if (animationsOn && prevNeed !== undefined && prevNeed !== need) {
-      this.animateNumber(gaugeNum as HTMLElement, "review.need", prevNeed, need, String(need));
-    } else {
-      gaugeNum.textContent = String(need);
-    }
-
-    const prevPct = this._reviewPct;
-    this._reviewPct = rev.pct;
-    if (animationsOn && prevPct < 0) {
-      const dur = 800;
-      const t0 = performance.now();
-      const tick0 = (now: number) => {
-        const t = Math.min(1, (now - t0) / dur);
-        const e = 1 - Math.pow(1 - t, 3);
-        gauge.style.setProperty("--pct", String(rev.pct * e));
-        if (t < 1) requestAnimationFrame(tick0);
-        else gauge.style.setProperty("--pct", String(rev.pct));
-      };
-      requestAnimationFrame(tick0);
-    } else if (animationsOn && prevPct >= 0 && prevPct !== rev.pct) {
-      const dur = 900;
-      const t0 = performance.now();
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - t0) / dur);
-        const e = 1 - Math.pow(1 - t, 3);
-        gauge.style.setProperty("--pct", String(prevPct + (rev.pct - prevPct) * e));
-        if (t < 1) requestAnimationFrame(tick);
-        else gauge.style.setProperty("--pct", String(rev.pct));
-      };
-      requestAnimationFrame(tick);
-    } else {
-      gauge.style.setProperty("--pct", String(rev.pct));
-    }
+    // Good signals read green when high; bad signals read green when low.
+    const pctTone = (v: number, good: boolean): "pos" | "mid" | "neg" =>
+      good ? (v >= 70 ? "pos" : v >= 40 ? "mid" : "neg") : v <= 10 ? "pos" : v <= 25 ? "mid" : "neg";
+    renderBarRow(foot, {
+      max: 100,
+      className: "tj-disc-process",
+      axisEvery: 1,
+      items: [
+        { key: "review", label: "Review", value: rev.pct, tone: pctTone(rev.pct, true),
+          tip: { title: "Reviewed", value: `${rev.pct}%`, sub: `${rev.complete} of ${rev.total} complete` } },
+        { key: "journal", label: "Journal", value: journalPct, tone: pctTone(journalPct, true),
+          tip: { title: "Journaling coverage", value: `${journalPct.toFixed(0)}%`, sub: "Psychology or mistakes logged or acknowledged." } },
+        { key: "stops", label: "Stops", value: process.stopDefinedPct, tone: pctTone(process.stopDefinedPct, true),
+          tip: { title: "Stop defined", value: `${process.stopDefinedPct.toFixed(0)}%`, sub: "Trades with a protective stop." } },
+        { key: "revenge", label: "Revenge", value: process.revengeRate, tone: pctTone(process.revengeRate, false),
+          tip: { title: "Revenge trades", value: `${process.revengeRate.toFixed(0)}%`, sub: `${process.revengeCount} re-entries after a loss.` } },
+        { key: "tilt", label: "Tilt", value: tiltPct, tone: pctTone(tiltPct, false),
+          tip: { title: "After two losses", value: `${process.afterTwoLosses}`, sub: "Trades opened right after two consecutive losses." } },
+        { key: "fast", label: "Fast", value: process.fastTradesPct, tone: pctTone(process.fastTradesPct, false),
+          tip: { title: "Impulsive", value: `${process.fastTradesPct.toFixed(0)}%`, sub: "Opened and closed inside a minute." } },
+      ],
+    });
 
     // Explicit action instead of a hoverable, fully-clickable card.
     const actions = foot.createDiv({ cls: "tj-revieww-actions" });
@@ -1555,13 +1570,6 @@ export class WidgetGridView extends ItemView {
       e.stopPropagation();
       void this.openReviewQueue();
     });
-    for (const p of Array.from(pills.children)) {
-      (p as HTMLElement).addClass("is-clickable");
-      p.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void this.openReviewQueue();
-      });
-    }
   }
 
   /** Opens the Trade Log filtered to a single day (calendar day click). */
@@ -1691,7 +1699,8 @@ export class WidgetGridView extends ItemView {
   }
 
   /** Best Hours — segmented 30-min bar across the trading session. */
-  renderBestHours(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+  renderTimingWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+    const zone = this.plugin.settings.timeZone;
     const parseMin = (tt: string): number | null => {
       const m = /^(\d{1,2}):(\d{2})/.exec(tt || "");
       return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
@@ -1710,7 +1719,8 @@ export class WidgetGridView extends ItemView {
       buckets.set(k, b);
       return b;
     };
-    for (const t of rows) bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B).net += t.pnl;
+    // Money is net (every leg); the win rate is per logical trade (counted).
+    for (const t of rows) bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B).net += netPnl(t);
     for (const t of crows) {
       const b = bucketOf(Math.floor(parseMin(t.entryTime)! / B) * B);
       b.count += 1;
@@ -1722,15 +1732,23 @@ export class WidgetGridView extends ItemView {
     for (let k = keys[0]; k <= keys[keys.length - 1]; k += B) slots.push(k);
     const avg = (b: Bucket) => (b.count ? b.net / b.count : 0);
     let best: { k: number; b: Bucket } | null = null;
+    let worst: { k: number; b: Bucket } | null = null;
     for (const k of slots) {
       const b = buckets.get(k);
       if (!b || !(b.count >= 5 && b.days.size >= 3)) continue;
       if (!best || avg(b) > avg(best.b)) best = { k, b };
+      if (!worst || avg(b) < avg(worst.b)) worst = { k, b };
     }
     if (!best) {
       for (const k of slots) {
         const b = buckets.get(k);
         if (b && (!best || b.net > best.b.net)) best = { k, b };
+      }
+    }
+    if (!worst) {
+      for (const k of slots) {
+        const b = buckets.get(k);
+        if (b && (!worst || b.net < worst.b.net)) worst = { k, b };
       }
     }
     const fmtT = (mins: number) => {
@@ -1742,49 +1760,79 @@ export class WidgetGridView extends ItemView {
     const maxAbs = Math.max(...slots.map((k) => Math.abs(buckets.get(k)?.net ?? 0)), 1);
 
     const wrap = body.createDiv({ cls: "tj-bh" });
-    const hero = wrap.createDiv({ cls: "tj-bh-hero" });
-    if (best) {
-      hero.createDiv({ cls: "tj-bh-range", text: `${fmtT(best.k)}-${fmtT(best.k + B)}` });
-      hero.createDiv({
-        cls: "tj-bh-value " + (avg(best.b) >= 0 ? "tj-pos" : "tj-neg"),
-        text: fmtMoney2(avg(best.b)),
+    const hero = wrap.createDiv({ cls: "tj-bh-hero tj-timing-hero" });
+    const slot = (label: string, pick: { k: number; b: Bucket } | null) => {
+      if (!pick) return;
+      const box = hero.createDiv({ cls: "tj-timing-slot" });
+      box.createDiv({ cls: "tj-timing-k", text: label });
+      box.createDiv({ cls: "tj-bh-range", text: `${fmtT(pick.k)}-${fmtT(pick.k + B)}` });
+      box.createDiv({
+        cls: "tj-bh-value " + (avg(pick.b) >= 0 ? "tj-pos" : "tj-neg"),
+        text: fmtMoney2(avg(pick.b)),
       });
+    };
+    slot("Best", best);
+    slot("Worst", worst);
+
+    renderBarRow(wrap, {
+      max: maxAbs,
+      className: "tj-timing-bars",
+      axisEvery: Math.max(1, Math.ceil(slots.length / 5)),
+      items: slots.map((k) => {
+        const b = buckets.get(k);
+        return {
+          key: String(k),
+          label: fmtT(k),
+          value: b?.net ?? 0,
+          overlay: b && b.count ? b.wins / b.count : undefined,
+          tone: !b ? "neutral" : b.net >= 0 ? "pos" : "neg",
+          empty: !b,
+          tip: b
+            ? { title: `${fmtT(k)}–${fmtT(k + B)}`, value: fmtMoney2(b.net), sub: `${b.count} trades · ${Math.round((b.wins / b.count) * 100)}% win` }
+            : undefined,
+        };
+      }),
+    });
+
+    // Session split — where in the market day the money is made.
+    const sessionKeys: Array<"newyork" | "london" | "asia" | "off"> = ["newyork", "london", "asia", "off"];
+    interface Agg { net: number; count: number; wins: number; }
+    const agg = new Map<string, Agg>();
+    const aggOf = (s: string): Agg => {
+      const a = agg.get(s) ?? { net: 0, count: 0, wins: 0 };
+      agg.set(s, a);
+      return a;
+    };
+    for (const t of trades) {
+      const s = sessionOf(t, zone);
+      if (s) aggOf(s).net += netPnl(t);
     }
-    const bar = wrap.createDiv({ cls: "tj-bh-bar" });
-    for (const k of slots) {
-      const b = buckets.get(k);
-      const seg = bar.createDiv({ cls: "tj-bh-seg tj-tip-anchor" });
-      if (b) {
-        const intensity = 22 + Math.round((Math.abs(b.net) / maxAbs) * 58);
-        const pos = b.net >= 0;
-        seg.style.background =
-          b.net === 0
-            ? "color-mix(in srgb, var(--text-faint) 22%, transparent)"
-            : `rgba(${pos ? "34,122,74" : "143,43,30"},${(intensity / 100).toFixed(2)})`;
-        const winPct = Math.round((b.wins / b.count) * 100);
-        seg.addEventListener("mouseenter", () =>
-          showTip(
-            {
-              title: `${fmtT(k)}–${fmtT(k + B)}`,
-              value: fmtMoney2(b.net),
-              tone: b.net >= 0 ? "pos" : "neg",
-              sub: `${b.count} trades · ${winPct}% win`,
-            },
-            "tj-bh-tip"
-          )
-        );
-        seg.addEventListener("mousemove", (e) => moveTip(e));
-        seg.addEventListener("mouseleave", () => killTip());
-      } else {
-        seg.addClass("is-empty");
-      }
+    for (const t of counted) {
+      const s = sessionOf(t, zone);
+      if (!s) continue;
+      const a = aggOf(s);
+      a.count += 1;
+      if (t.pnl > 0) a.wins += 1;
     }
-    const axis = wrap.createDiv({ cls: "tj-bh-axis" });
-    const labelEvery = Math.max(1, Math.ceil(slots.length / 5));
-    slots.forEach((k, i) => {
-      const t = axis.createDiv({ cls: "tj-bh-tick", text: i % labelEvery === 0 || i === slots.length - 1 ? fmtT(k) : "" });
-      if (i === 0) t.style.textAlign = "left";
-      else if (i === slots.length - 1) t.style.textAlign = "right";
+    const sMax = Math.max(...sessionKeys.map((s) => Math.abs(agg.get(s)?.net ?? 0)), 1);
+    renderBarRow(wrap, {
+      max: sMax,
+      className: "tj-timing-sessions",
+      axisEvery: 1,
+      items: sessionKeys.map((s) => {
+        const a = agg.get(s);
+        return {
+          key: s,
+          label: SESSION_BADGES[s] ?? s,
+          value: a?.net ?? 0,
+          overlay: a && a.count ? a.wins / a.count : undefined,
+          tone: !a ? "neutral" : a.net >= 0 ? "pos" : "neg",
+          empty: !a,
+          tip: a
+            ? { title: SESSION_BADGES[s] ?? s, value: fmtMoney2(a.net), sub: `${a.count} trades · ${Math.round((a.wins / a.count) * 100)}% win` }
+            : undefined,
+        };
+      }),
     });
   }
 

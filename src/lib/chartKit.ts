@@ -112,7 +112,7 @@ export interface BarRowItem {
   value: number;
   /** Optional stacked overlay as a 0..1 fraction of the bar (e.g. win rate). */
   overlay?: number;
-  tone?: "pos" | "neg" | "neutral";
+  tone?: "pos" | "mid" | "neg" | "neutral";
   /** Tooltip shown on hover. */
   tip?: { title: string; value?: string; sub?: string };
   /** Draw an empty slot (no data at this bucket). */
