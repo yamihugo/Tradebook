@@ -29,12 +29,12 @@ import { analyticsTrades } from "../lib/scope";
 import { computeTrends, isBetter } from "../lib/trends";
 import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
 import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap } from "../lib/chartKit";
-import { dimensionBars, dimensionTiles, type DimensionBarsOpts } from "../lib/breakdown";
+import { dimensionTiles } from "../lib/breakdown";
 import { normalizeOrderType } from "../lib/tradeTable";
 import { mountDateField } from "../lib/dates";
 import { reviewSummary } from "../lib/review";
 import { computeProcessSignals, streakStats, streakState } from "../lib/process";
-import { sessionLabel, sessionRank } from "../lib/sessions";
+import { sessionLabel } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
@@ -56,10 +56,10 @@ function fmtHourLabel(h: number): string {
   return `${h12}${ampm}`;
 }
 
-/** Entry-time hour bucket (raw wall clock, "9".."23"), or "" when there is no time. */
+/** Entry-time hour bucket (raw wall clock, "9".."23"), or "—" when there is no time. */
 function hourBlockOf(t: Trade): string {
   const m = /^(\d{1,2}):/.exec(t.entryTime || "");
-  return m ? String(parseInt(m[1], 10)) : "";
+  return m ? String(parseInt(m[1], 10)) : "—";
 }
 
 /** Chronological order for raw hour keys. */
@@ -149,12 +149,12 @@ const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, cale
  */
 const MIN_W: Record<string, number> = {
   equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
-  breakdown: 8, streaks: 8, score: 8,
-  discipline: 12, trends: 8, payouts: 12,
+  breakdown: 6, streaks: 8, score: 6,
+  discipline: 8, trends: 8, payouts: 12,
 };
 const MIN_H: Record<string, number> = {
   equity: 3, longpnl: 3, shortpnl: 3, calendar: 5, heatmap: 5,
-  breakdown: 3, streaks: 2, score: 6,
+  breakdown: 3, streaks: 2, score: 4,
   discipline: 3, trends: 3, payouts: 2,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
@@ -1174,7 +1174,7 @@ export class WidgetGridView extends ItemView {
         try {
           switch (item.i) {
             case "equity": this.renderEquityBody(body, trades); break;
-            case "breakdown": this.renderBreakdownWidget(body, trades, counted); break;
+            case "breakdown": this.renderBreakdownWidget(body, trades, counted, header); break;
             case "streaks": this.renderStreaksWidget(body, counted, item.h); break;
             case "score": this.renderScoreRadar(body, counted); break;
             case "heatmap": this.renderHeatmap(body, trades, counted); break;
@@ -1783,35 +1783,6 @@ export class WidgetGridView extends ItemView {
     cell.addEventListener("mouseleave", () => killTip());
   }
 
-  /** Shared shell for a timeline dimension: one summary + one continuous bar. */
-  private renderDimension(
-    body: HTMLElement,
-    trades: Trade[],
-    counted: Trade[],
-    keyOf: (t: Trade) => string,
-    opts: DimensionBarsOpts,
-    bestLabel: string,
-    cls: string
-  ): void {
-    if (!trades.some((t) => keyOf(t))) {
-      body.createDiv({ cls: "tj-empty", text: "No time data yet." });
-      return;
-    }
-    const { items, best } = dimensionBars(trades, counted, keyOf, opts);
-    const wrap = body.createDiv({ cls: "tj-dim " + cls });
-    if (best) {
-      const line = wrap.createDiv({ cls: "tj-dim-summary" });
-      line.createSpan({ cls: "tj-dim-k", text: bestLabel });
-      line.createSpan({ cls: "tj-dim-best", text: best.label });
-      line.createSpan({
-        cls: "tj-dim-val " + (best.value >= 0 ? "tj-pos" : "tj-neg"),
-        text: fmtMoney2(best.value),
-      });
-    }
-    // Equal-width chronological slots: a timeline read, never vertical bars.
-    renderContinuousBar(wrap, { segments: items, className: "tj-dim-bars", showLabels: true });
-  }
-
   /**
    * Trading Score — Journalit-style weighted radar.
    * 6 axes: risk 25 · profitability 20 · execution 15 · consistency 15 ·
@@ -1871,7 +1842,7 @@ export class WidgetGridView extends ItemView {
     const pt = (i: number, dist: number) => ({ x: cx + Math.cos(angle(i)) * dist, y: cy + Math.sin(angle(i)) * dist });
     const svg = el("svg", { viewBox: "0 0 400 320", preserveAspectRatio: "xMidYMid meet", class: "tj-chart tj-radar", width: "100%", height: "100%" });
     box.appendChild(svg as unknown as Node);
-    const small = (box.clientWidth > 0 && box.clientWidth < 190) || (box.clientHeight > 0 && box.clientHeight < 150);
+    const small = (box.clientWidth > 0 && box.clientWidth < 150) || (box.clientHeight > 0 && box.clientHeight < 110);
 
     for (const pct of [0.25, 0.5, 0.75, 1]) {
       let d = "";
@@ -2019,81 +1990,114 @@ export class WidgetGridView extends ItemView {
   }
 
   /**
-   * Breakdown — one widget with six tabs. Categories (Symbol · Setup · Order
-   * Type) render as a treemap; timelines (Weekday · Hour · Session) render as a
-   * continuous bar. The selected tab is persisted in settings.
+   * Breakdown — one widget with six tabs, all rendering the same treemap of
+   * activity-sized tiles coloured by result. Categorical dimensions are ordered
+   * by activity; the timelines (Weekday · Hour · Session) read chronologically
+   * and show every bucket that has trades. The selected tab is persisted.
    */
-  renderBreakdownWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+  renderBreakdownWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades, header?: HTMLElement): void {
     const zone = this.plugin.settings.timeZone;
     const weekdayOf = (t: Trade): string => {
       const d = toZoneDate(t.date, t.entryTime, zone);
       const [y, m, day] = d.split("-").map(Number);
-      return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "";
+      return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "—";
+    };
+    const sessionOrder = (label: string): number => {
+      // Clock order: London opens, then New York, then the afternoon gap, then Asia.
+      if (label === "London") return 0;
+      if (label === "New York") return 1;
+      if (label === "Off Hours") return 2;
+      if (label === "Asia") return 3;
+      return 4;
     };
     interface Dim {
       id: string;
       label: string;
-      kind: "treemap" | "continuous";
       key: (t: Trade) => string;
       labelOf?: (k: string) => string;
       orderOf?: (k: string) => number;
-      slots?: string[];
-      best: string;
-      cls: string;
+      /** Timeline dimensions show every bucket that has trades, never "Other". */
+      timeline?: boolean;
     }
     const dims: Dim[] = [
-      { id: "symbol", label: "Symbol", kind: "treemap", key: (t) => t.symbol || "—", best: "Best symbol", cls: "tj-bd-symbol" },
-      { id: "setup", label: "Setup", kind: "treemap", key: (t) => t.setup || "No strategy", best: "Best setup", cls: "tj-bd-setup" },
-      { id: "order-type", label: "Order Type", kind: "treemap", key: (t) => normalizeOrderType(t.orderType) || "—", best: "Best order type", cls: "tj-bd-ordertype" },
+      { id: "symbol", label: "Symbol", key: (t) => t.symbol || "—" },
+      { id: "setup", label: "Setup", key: (t) => t.setup || "No strategy" },
+      { id: "order-type", label: "Type", key: (t) => normalizeOrderType(t.orderType) || "—" },
       {
-        id: "weekday", label: "Weekday", kind: "continuous", key: weekdayOf,
-        slots: WEEKDAY_ORDER,
+        id: "weekday", label: "Day", key: weekdayOf, timeline: true,
         orderOf: (k) => {
           const i = WEEKDAY_ORDER.indexOf(k);
           return i < 0 ? 99 : i;
         },
-        best: "Best day", cls: "tj-bd-weekday",
       },
       {
-        id: "hour", label: "Hour", kind: "continuous", key: hourBlockOf,
-        labelOf: (k) => fmtHourLabel(Number(k)),
+        id: "hour", label: "Hour", key: hourBlockOf, timeline: true,
+        labelOf: (k) => (k === "—" ? "—" : fmtHourLabel(Number(k))),
         orderOf: hourOrder,
-        best: "Best hour", cls: "tj-bd-hour",
       },
       {
-        id: "session", label: "Session", kind: "continuous", key: (t) => sessionLabel(t, zone),
-        slots: ["New York", "London", "Asia", "Off Hours"],
-        orderOf: sessionRank,
-        best: "Best session", cls: "tj-bd-session",
+        id: "session", label: "Session", key: (t) => sessionLabel(t, zone), timeline: true,
+        orderOf: sessionOrder,
       },
     ];
     let current = this.plugin.settings.dashboardBreakdownTab ?? "symbol";
     if (!dims.some((d) => d.id === current)) current = "symbol";
 
     const wrap = body.createDiv({ cls: "tj-bd" });
-    const tabs = wrap.createDiv({ cls: "tj-bd-tabs" });
+    // Tabs sit on the card's title line, top-right (like the account page), so the
+    // body is all chart and there is no empty band under the tabs. Re-draws clear
+    // the previous set first, or resizing would stack them.
+    let tabs: HTMLElement;
+    if (header) {
+      header.querySelectorAll(".tj-bd-tabs").forEach((el) => el.remove());
+      tabs = header.createDiv({ cls: "tj-bd-tabs tj-bd-tabs-head" });
+      header.insertBefore(tabs, header.querySelector(".tj-card-controls"));
+    } else {
+      tabs = wrap.createDiv({ cls: "tj-bd-tabs" });
+    }
     const panel = wrap.createDiv({ cls: "tj-bd-body" });
     const buttons = new Map<string, HTMLElement>();
 
     const draw = () => {
       panel.empty();
       const dim = dims.find((d) => d.id === current) ?? dims[0];
-      if (dim.kind === "treemap") {
-        const tiles = dimensionTiles(trades, counted, dim.key, { labelOf: dim.labelOf, formatMoney: fmtMoney2 });
-        if (!tiles.length) {
-          panel.createDiv({ cls: "tj-empty", text: "No trades in this period." });
-          return;
-        }
-        // Tile value is compact so it never ellipsises to a meaningless fragment;
-        // the full figure and win% live in the tooltip.
-        renderTreemap(panel, { tiles, className: "tj-bd-treemap", formatMoney: fmtMoneyCompact });
-      } else {
-        this.renderDimension(
-          panel, trades, counted, dim.key,
-          { slots: dim.slots, labelOf: dim.labelOf, orderOf: dim.orderOf, formatMoney: fmtMoney2 },
-          dim.best, dim.cls
-        );
+      const tiles = dimensionTiles(trades, counted, dim.key, {
+        labelOf: dim.labelOf,
+        orderOf: dim.orderOf,
+        formatMoney: fmtMoney2,
+      });
+      if (!tiles.length) {
+        panel.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+        return;
       }
+      // Timeline tabs keep every bucket: hours only exist where trades exist, and
+      // a seven-day week must not lose Sunday to an "Other" tile. Tile value is
+      // compact so it never ellipsises to a meaningless fragment; the full figure
+      // and win% live in the tooltip.
+      // Carry the grid's own scope into the Trade Log, so a click means "these
+      // trades, as I was looking at them" — period, dates, account and class.
+      const scope = {
+        period: this.dateRange,
+        customFrom: this.customFrom,
+        customTo: this.customTo,
+        accountId: this.accountId,
+        accountType: this.filter,
+      };
+      renderTreemap(panel, {
+        tiles,
+        className: "tj-bd-treemap",
+        maxTiles: dim.timeline ? tiles.length : undefined,
+        formatMoney: fmtMoneyCompact,
+        onTileClick: (tile) => {
+          void this.plugin.openTradeLogForBreakdown(
+            `${dim.label}: ${tile.label}`,
+            // Archived trades are out of every Home number, so the lens must leave
+            // them out too — otherwise the ledger shows rows the tile never counted.
+            (t) => !this.plugin.isArchivedTrade(t) && (dim.key(t) || "") === tile.key,
+            scope
+          );
+        },
+      });
     };
 
     for (const dim of dims) {

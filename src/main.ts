@@ -134,6 +134,7 @@ export interface TradebookSettings {
       mistakes?: string[];
       review?: string;
       session?: string;
+      accountType?: string;
       quality?: string | string[];
       period?: string;
       customFrom?: string;
@@ -607,6 +608,25 @@ export default class TradebookPlugin extends Plugin {
   async openTradeLogForIds(ids: string[]) {
     const view = await this.scopedTradeLogView();
     if (view) view.filterByTradeIds(ids);
+  }
+
+  /**
+   * Opens the Trade Log as a lens from a Home/Dashboard breakdown tile: the tile
+   * predicate plus the scope the grid was read in (period, dates, account class).
+   */
+  async openTradeLogForBreakdown(
+    label: string,
+    test: (t: Trade) => boolean,
+    scope: {
+      period?: string;
+      customFrom?: string;
+      customTo?: string;
+      accountId?: string | null;
+      accountType?: string;
+    }
+  ) {
+    const view = await this.scopedTradeLogView();
+    if (view && typeof view.scopeFromBreakdown === "function") view.scopeFromBreakdown(label, test, scope);
   }
 
   /**

@@ -2847,3 +2847,99 @@ regra nova: **+3.00** (só o TP1 conta).
   `manifest.json 4395b22f3733eeb1c69bcc3f0a0aeaec`); `data.json` não copiado
   (`89baa19a5881fbf236718b83af496b3d` — mudou só por interação).
 
+## §2.96 Breakdown do Home/Dashboard — as seis tabs num só treemap (23 Set 2026)
+
+**Pedido:** «ainda temos problema nos breakdowns no home e dashboard; quero todos
+como temos o symbol, setup e order type; o weekday, hour e session vais apagar e
+refazer, compara com o código que temos no per accounts page.»
+
+- **O que estava:** Symbol/Setup/Order Type → treemap; Weekday/Hour/Session →
+  continuous bar (`renderDimension` + `dimensionBars`), com slots canónicos vazios
+  e linha de resumo "Best X". Duas linguagens no mesmo widget.
+- **O que passa a ser:** as seis tabs desenham o mesmo treemap de `dimensionTiles`
+  + `renderTreemap` (a linguagem da página da conta). Uma linha de desenho só.
+- **Ordens:** Weekday Mon→Sun · Hour 00h→23h · Session **London → New York →
+  Off Hours → Asia** (ordem de relógio; `sessionRank` da conta fica como estava).
+  Symbol/Setup/Order Type mantêm a ordem por actividade (nº de trades).
+- **Temporais mostram só o que existe:** `maxTiles = tiles.length` — sem slots de
+  dias/horas vazios e sem "Other" a engolir o último dia ou as últimas horas.
+  Categóricas mantêm o merge a 6 + "Other".
+- **Fallbacks:** `weekdayOf`/`hourBlockOf` devolvem `"—"` (paridade com a conta);
+  sem `entryTime`, Hour cai no tile `"—"` e Session em "No time".
+- **Código morto removido:** `dimensionBars` + `DimensionBarsOpts` +
+  `DimensionBarsResult` de `lib/breakdown.ts`; `renderDimension` de `dashboard.ts`;
+  CSS `.tj-dim*` de `styles.css` (o `.tj-cbar*` fica — widget Payouts).
+
+### Prova
+
+- [ ] Home e Dashboard, as 6 tabs: todas desenham treemap (sem `.tj-cbar`).
+- [ ] Weekday: só dias com trades, Mon→Sun.
+- [ ] Hour: só horas com trades, 00h→23h, sem "Other".
+- [ ] Session: London → New York → Off Hours → Asia (No time no fim).
+- [ ] Symbol/Setup/Order Type inalterados (ordem por actividade, "Other" a 6).
+- [ ] `dashboardBreakdownTab` continua a persistir entre Home e Dashboard.
+- `npm run build` 0.
+- smoke **167 PASS / 0 FAIL** (as seis tabs assertadas como treemap).
+- `node tools/ux-audit.mjs` → **`no normative violations found`**.
+- Deploy vault-dev md5 verificado; `data.json` não copiado.
+
+## §2.97 Breakdown Home/Dashboard — tabs da conta, auto-fit robusto e clique para o Trade Log (23 Set 2026)
+
+**Pedido:** «os botões onde navegas os breakdowns iguais aos da per account page»
+(limpos, sem fundo, só a linha em baixo); nomes mais curtos; e «clicar e ir para o
+trade log com os filtros corretos aplicados», levando o scope em que se estava a ver.
+
+- **Tabs:** `.tj-bd-tab` passa ao estilo `.tj-acc-btab` — transparente, sem pílula,
+  `.on` só com a barra `::after` em `--interactive-accent`. Labels:
+  **Symbol · Setup · Type · Day · Hour · Session** (ids inalterados).
+- **Auto-fit:** o valor escala com o tile (`min(--tj-fs-strong, 27cqi)`) e nunca
+  faz ellipsis; a label encolhe (`min(--tj-fs-small, 24cqi)`) em vez de desaparecer;
+  win% sai a ≤92px; label só cai a ≤40px. Vale para poucos ou muitos tiles.
+- **Clique → Trade Log:** cada tile (exceto "Other") abre o Trade Log com a lente
+  exata do bucket (`Symbol: NQ`, `Setup: No strategy`, `Day: Wed`, …) **e** o scope
+  do grid: período, datas custom, conta e classificação de conta.
+  `1m` no grid → `This Month` no ledger.
+
+### Prova
+
+- [ ] Tabs sem fundo, com underline accent na ativa (Home e Dashboard).
+- [ ] Labels `Symbol · Setup · Type · Day · Hour · Session`.
+- [ ] Tiles estreitos mostram o valor completo (sem `$2...`) e mantêm a label.
+- [ ] Clicar `Symbol: NQ` com o grid em **This Month** abre o Trade Log com
+      `Ticker: NQ` + `Period: This Month`.
+- [ ] O mesmo clique com o grid em **All Time** abre só com `Ticker: NQ`.
+- [ ] Com classificação ativa (ex.: Eval) o Trade Log mostra `Account type: Eval`.
+- [ ] O chip da lente é removível e "Clear all" limpa tudo.
+- [ ] O tile "Other" (categóricas >6) não é clicável.
+- `npm run build` 0.
+- smoke **176 PASS / 0 FAIL** (labels + cenário de clique com scope).
+- `node tools/ux-audit.mjs` → **`no normative violations found`**.
+- Deploy vault-dev md5 verificado; `data.json` não copiado.
+
+## §2.98 Resize v2 — Journalit mechanics aplicadas ao Home/Dashboard (23 Set 2026)
+
+**Pedido:** o resize do Tradebook adapta mal (espaço vazio, conteúdo não encolhe,
+drag lento); aprender as mecânicas do Journalit sem copiar o visual; tabs do
+Breakdown no topo direito; Trading Score & Radar (e Discipline) adaptativos.
+
+- **Tabs do Breakdown** na linha do título, à direita (`.tj-card-header .tj-bd-tabs`),
+  como a conta. O corpo fica só com o treemap.
+- **Score/Radar:** sem `aspect-ratio`; radar `flex:1`, número/legenda em
+  `.tj-score-foot` (nunca sobrepõe); labels da radar escondem-se só em tamanho muito
+  pequeno (<150×110); número e meta encolhem em `is-short`/`is-tiny`.
+- **Discipline:** gauge cresce com o cartão; `is-short` encolhe.
+- **Mínimos:** score `6×4`, discipline `8×3`, breakdown `6×3`.
+- **Drag/resize:** `contain: layout paint` por cartão; conteúdo inerte em edição.
+
+### Prova
+
+- [ ] Breakdown: tabs na mesma linha do título, à direita; sem faixa vazia.
+- [ ] Score: radar e número separados em qualquer tamanho; sem sobreposição.
+- [ ] Discipline: gauge acompanha o tamanho do cartão.
+- [ ] Score e Discipline reduzem-se abaixo do tamanho anterior.
+- [ ] Drag/resize fluido; conteúdo não reage durante a edição.
+- `npm run build` 0 · smoke **178 PASS / 0 FAIL** · `ux-audit` sem violações.
+- Deploy vault-dev md5 verificado (`main.js 42e90fcc…`, `styles.css 232eae38…`); `data.json` não copiado.
+
+
+

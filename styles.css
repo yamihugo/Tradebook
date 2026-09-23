@@ -549,6 +549,15 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* Each card is its own layout/paint island: moving or resizing one cannot
+     force a re-layout of the others (the Journalit drag stays fluid this way). */
+  contain: layout paint;
+}
+/* While editing, card content is inert: pointer events go to the grid (drag) and
+   no widget re-layouts under the cursor, so dragging/resizing stays smooth. */
+.tj-grid.is-editing .tj-gridcard-body {
+  pointer-events: none;
+  user-select: none;
 }
 /* The accent placeholder shows exactly where the dragged card will land */
 .tj-grid-placeholder {
@@ -4601,14 +4610,17 @@
   color: var(--text-normal);
 }
 
-/* Radar: a fixed 5:4 budget so the shape never deforms to fill a short box */
+/* Radar fills the card and the score sits below it. The SVG keeps its shape
+   (preserveAspectRatio="meet"), so no fixed aspect box is needed — that box was
+   what forced the text onto the chart on short cards. */
 .tj-gridcard-body > .tj-chart-box.tj-radar-box {
-  aspect-ratio: 5 / 4;
+  flex: 1 1 auto;
   width: 100%;
+  height: auto;
   min-height: 0;
 }
-.tj-radar { height: 100%; }
-.tj-radar-label { font-size: var(--tj-fs-big); }
+.tj-radar { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; }
+.tj-radar-label { font-size: var(--tj-fs-label); }
 .tj-score-num { font-size: var(--tj-fs-display); }
 
 /* Needs Review — grid: gauge+number on top, completion+missing below BOTH */
@@ -5801,12 +5813,22 @@ textarea.tj-anno-textinput {
 .tj-status-square.neutral { background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
 .tj-status-square:hover { filter: brightness(1.2); }
 .tj-status-label { font-size: var(--tj-fs-label); color: var(--tj-fg-3); max-width: 100%; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Breakdown widget — internal tabs over one treemap. */
+/* Breakdown widget — internal tabs over one treemap. Tabs are plain text with an
+   accent underline on the active one (the same language as the account page). */
 .tj-bd { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-.tj-bd-tabs { display: flex; gap: 4px; flex-wrap: wrap; flex: 0 0 auto; }
-.tj-bd-tab { font-size: var(--tj-fs-small); color: var(--text-muted); background: transparent; border: none; padding: 3px 10px; border-radius: 999px; cursor: pointer; }
-.tj-bd-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
-.tj-bd-tab.on { color: var(--text-normal); font-weight: 600; background: rgba(255, 255, 255, 0.07); }
+.tj-bd-tabs { display: flex; gap: 2px; flex-wrap: wrap; flex: 0 0 auto; }
+/* On the card title line: pushed to the right, and allowed to shrink/wrap. */
+.tj-bd-tabs-head { margin-left: auto; min-width: 0; justify-content: flex-end; }
+.tj-bd-tab {
+  position: relative; border: none !important; background: transparent !important; box-shadow: none !important;
+  color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-weight: 600; padding: 3px 8px 5px; border-radius: 6px; cursor: pointer;
+}
+.tj-bd-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
+.tj-bd-tab.on { color: var(--text-normal); font-weight: 600; background: transparent !important; }
+.tj-bd-tab.on::after {
+  content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 2px;
+  background: color-mix(in srgb, var(--interactive-accent) 78%, transparent); border-radius: 0;
+}
 .tj-bd-body { flex: 1 1 auto; min-height: 0; }
 .tj-bd-treemap { height: 100%; }
 /* Streaks — hero + context + W/L ribbon. */
@@ -5827,7 +5849,6 @@ textarea.tj-anno-textinput {
 /* Generic card-body size classes (set by the ResizeObserver) — every widget can
    adapt its content to the card height without a per-widget check. */
 .tj-gridcard-body.is-short .tj-cbar-track { height: 22px; }
-.tj-gridcard-body.is-short .tj-dim { gap: 4px; }
 .tj-gridcard-body.is-tiny .tj-disc-gauge { display: none; }
 .tj-gridcard-body.is-tiny .tj-revieww { grid-template-areas: "foot"; grid-template-columns: 1fr; }
 .tj-gridcard-body.is-tiny .tj-streaks-state { display: none; }
@@ -5848,13 +5869,21 @@ textarea.tj-anno-textinput {
   transition: filter 120ms ease;
 }
 .tj-treemap-tile:hover { filter: brightness(1.15); }
+.tj-treemap-tile-click { cursor: pointer; }
+.tj-treemap-tile.is-active { outline: 2px solid color-mix(in srgb, var(--interactive-accent) 70%, transparent); outline-offset: 1px; }
 .tj-treemap-t { font-size: var(--tj-fs-small); font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-treemap-v { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The value scales with the tile itself (`cqi` = 1% of the tile's inline size) so
+   it never ellipsises into a meaningless fragment, whatever the card width. */
+.tj-treemap-v { font-size: min(var(--tj-fs-strong), 27cqi); font-weight: 700; font-variant-numeric: tabular-nums; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-treemap-w { font-size: var(--tj-fs-small); color: var(--text-muted); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* Auto-fit: drop the win% then the label as the tile narrows, so the compact
-   value never ellipsises into a meaningless fragment. */
+/* Auto-fit: the win% is the first to go, then the label tightens, and only a
+   sliver drops the label entirely. */
 @container (max-width: 92px) { .tj-treemap-w { display: none; } }
-@container (max-width: 64px) { .tj-treemap-t { display: none; } .tj-treemap-tile { padding: 4px; } }
+@container (max-width: 64px) {
+  .tj-treemap-tile { padding: 4px; }
+  .tj-treemap-t { font-size: min(var(--tj-fs-small), 24cqi); }
+}
+@container (max-width: 40px) { .tj-treemap-t { display: none; } }
 .tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 .tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 /* Discipline compact mode: the widget measures its body and adds .is-compact. */
@@ -5867,14 +5896,7 @@ textarea.tj-anno-textinput {
 .tj-disc-gauge { width: clamp(64px, 40%, 108px); max-height: 100%; }
 .tj-disc-gauge .tj-arc-svg { max-height: 100%; }
 .tj-disc-process { margin-top: 2px; }
-/* Dimension widgets (hour / session / weekday) — one continuous bar + a summary */
-.tj-dim { display: flex; flex-direction: column; justify-content: center; gap: 6px; height: 100%; min-height: 0; }
-.tj-dim-summary { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
-.tj-dim-k { text-transform: uppercase; letter-spacing: 0.05em; }
-.tj-dim-best { font-weight: 600; color: var(--text-normal); }
-.tj-dim-val { font-weight: 700; }
-.tj-dim-bars { flex: 1 1 auto; min-height: 0; }
-.tj-dim-bars .tj-cbar-track { height: 30px; }
+/* Payouts widget — six months of cash out as one continuous bar. */
 .tj-pay-cbar .tj-cbar-track { height: 26px; }
 .tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
 .tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
@@ -5883,6 +5905,16 @@ textarea.tj-anno-textinput {
 .tj-score-meta { display: flex; flex-direction: column; font-size: var(--tj-fs-small); line-height: 1.25; }
 .tj-score-phase { font-weight: 600; color: var(--text-muted); }
 .tj-score-weeks { color: var(--tj-fg-3); }
+/* Score & Discipline adapt to the card: the number steps down and secondary
+   lines drop before anything overlaps or clips. */
+.tj-gridcard-body.is-short .tj-score-big { font-size: var(--tj-fs-head); }
+.tj-gridcard-body.is-tiny .tj-score-big { font-size: var(--tj-fs-strong); }
+.tj-gridcard-body.is-tiny .tj-score-meta { display: none; }
+.tj-gridcard-body.is-short .tj-score-gauge { width: min(64%, 150px); }
+/* Discipline: the gauge grows with the card, so a tall card is not mostly empty. */
+.tj-gridcard-body .tj-disc-gauge { width: clamp(64px, 46%, 150px); }
+.tj-gridcard-body.is-short .tj-disc-gauge { width: clamp(56px, 42%, 110px); }
+.tj-gridcard-body.is-short .tj-revieww { gap: 6px; }
 
 /* Accounts tab — toolbar bits (header styles are defined once below, with the
    portfolio section, so there is only one definition of each rule) */

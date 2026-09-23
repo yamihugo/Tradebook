@@ -207,6 +207,10 @@ export interface TreemapSpec {
   /** Tiles beyond this are merged into "Other". Default 6. */
   maxTiles?: number;
   formatMoney?: (v: number) => string;
+  /** When set, tiles become clickable (e.g. to open the Trade Log filtered). */
+  onTileClick?: (tile: TreemapTile) => void;
+  /** Key of the tile to mark as active (an outline), when clickable. */
+  activeKey?: string;
 }
 
 /**
@@ -219,14 +223,15 @@ export function renderTreemap(host: HTMLElement, spec: TreemapSpec): HTMLElement
   const wrap = host.createDiv({ cls: "tj-treemap" + (spec.className ? " " + spec.className : "") });
 
   let tiles = spec.tiles;
+  let mergedTile: TreemapTile | null = null;
   if (tiles.length > maxTiles) {
     const head = tiles.slice(0, maxTiles);
     const rest = tiles.slice(maxTiles);
-    const merged = rest.reduce(
+    mergedTile = rest.reduce(
       (a, t) => ({ key: "other", label: "Other", net: a.net + t.net, count: a.count + t.count, wins: a.wins + t.wins }),
       { key: "other", label: "Other", net: 0, count: 0, wins: 0 }
     );
-    tiles = [...head, merged];
+    tiles = [...head, mergedTile];
   }
 
   const maxAbs = Math.max(...tiles.map((t) => Math.abs(t.net)), 1);
@@ -243,14 +248,19 @@ export function renderTreemap(host: HTMLElement, spec: TreemapSpec): HTMLElement
     tile.createDiv({ cls: "tj-treemap-t", text: t.label });
     tile.createDiv({ cls: "tj-treemap-v " + (good ? "tj-pos" : "tj-neg"), text: fmt(t.net) });
     tile.createDiv({ cls: "tj-treemap-w", text: `${t.count ? Math.round((t.wins / t.count) * 100) : 0}% win` });
-    attachTip(
-      tile,
-      t.tip ?? {
-        title: t.label,
-        value: fmt(t.net),
-        sub: `${t.count} trades (${Math.round((t.count / total) * 100)}% of activity)`,
-      }
-    );
+    const tip = t.tip ?? {
+      title: t.label,
+      value: fmt(t.net),
+      sub: `${t.count} trades (${Math.round((t.count / total) * 100)}% of activity)`,
+    };
+    if (spec.onTileClick && t !== mergedTile) {
+      tile.addClass("tj-treemap-tile-click");
+      if (spec.activeKey === t.key) tile.addClass("is-active");
+      attachTip(tile, { ...tip, sub: [tip.sub, "Click to open in the Trade Log."].filter(Boolean).join(" ") });
+      tile.addEventListener("click", () => spec.onTileClick!(t));
+    } else {
+      attachTip(tile, tip);
+    }
   }
   return wrap;
 }

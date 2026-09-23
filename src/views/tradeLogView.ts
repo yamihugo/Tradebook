@@ -2,7 +2,7 @@ import { ItemView, Modal, Notice, setIcon, TFile } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
-import { renderAppShell } from "../ui";
+import { renderAppShell, accountFilters } from "../ui";
 import { reviewStatus, hasPrint, hasText } from "../lib/review";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
@@ -98,6 +98,14 @@ export class TradeLogView extends ItemView {
   reviewFilter: "all" | "pending" | "complete" = "all";
   /** all | rth | overnight | none */
   sessionFilter = "all";
+  /** all | demo | eval | funded | live | personal | unknown — the account class. */
+  accountTypeFilter = "all";
+  /**
+   * A one-shot lens handed over by a Home/Dashboard breakdown tile: a label for
+   * the chip and the exact predicate that made the tile. It is a view, not a
+   * preference — it never persists and clears with the other filters.
+   */
+  lens: { label: string; test: (t: Trade) => boolean } | null = null;
   /** Which gaps to look for — a trade can be missing more than one thing. */
   qualityFilters: string[] = [];
   /** Leave demo-account trades out of the ledger and every count (Trade Log only). */
@@ -178,6 +186,7 @@ export class TradeLogView extends ItemView {
         this.mistakeFilters = f.mistakes ?? (f.mistake ? [f.mistake] : this.mistakeFilters);
         this.reviewFilter = (f.review as any) ?? this.reviewFilter;
         this.sessionFilter = f.session ?? this.sessionFilter;
+        this.accountTypeFilter = f.accountType ?? this.accountTypeFilter;
         // Missing used to be a single choice; read that once and carry on with the list.
         this.qualityFilters = Array.isArray(f.quality)
           ? f.quality
@@ -273,6 +282,7 @@ export class TradeLogView extends ItemView {
       mistakes: this.mistakeFilters.slice(),
       review: this.reviewFilter,
       session: this.sessionFilter,
+      accountType: this.accountTypeFilter,
       quality: this.qualityFilters.slice(),
       period: this.period,
       customFrom: this.customFrom,
@@ -347,12 +357,44 @@ export class TradeLogView extends ItemView {
     this.render();
   }
 
+  /**
+   * Scoped open from a Home/Dashboard breakdown tile: the tile's own predicate
+   * (label + test) plus the scope the trader was reading the grid in — period,
+   * dates, account and account class. So "NQ in This Month" arrives as NQ *and*
+   * This Month, and "NQ in All Time" arrives as just NQ. A view, not a
+   * preference: it is not persisted (the chip still makes it visible/removable).
+   */
+  scopeFromBreakdown(
+    label: string,
+    test: (t: Trade) => boolean,
+    scope: {
+      period?: string;
+      customFrom?: string;
+      customTo?: string;
+      accountId?: string | null;
+      accountType?: string;
+    }
+  ): void {
+    this.clearFilters();
+    // "1m" is the grid's id for the current month; the ledger calls it thismonth.
+    const periodMap: Record<string, string> = { "1m": "thismonth" };
+    this.period = periodMap[scope.period ?? ""] ?? scope.period ?? "all";
+    this.customFrom = this.period === "custom" ? (scope.customFrom ?? "") : "";
+    this.customTo = this.period === "custom" ? (scope.customTo ?? "") : "";
+    if (scope.accountId) this.accountFilters = [scope.accountId];
+    if (scope.accountType && scope.accountType !== "all") this.accountTypeFilter = scope.accountType;
+    this.lens = { label, test };
+    this._skipPersist = true;
+    this.render();
+  }
+
   filtered(opts?: { skipAttention?: boolean }): Trade[] {
     let list = this.trades.filter((t) => t && t.date && typeof t.pnl === "number");
     if (this.idFilter.length) {
       const ids = new Set(this.idFilter);
       list = list.filter((t) => ids.has(t.id));
     }
+    if (this.lens) list = list.filter((t) => this.lens!.test(t));
     if (this.symbolFilter) list = list.filter((t) => (t.symbol || "").toUpperCase() === this.symbolFilter.toUpperCase());
     if (this.accountFilters.length) {
       const wanted = this.accountFilters
@@ -375,6 +417,16 @@ export class TradeLogView extends ItemView {
       list = list.filter((t) => {
         const mapped = this.plugin.mappedAccount(t.account);
         return mapped ? ids.has(mapped.id) : false;
+      });
+    }
+    if (this.accountTypeFilter !== "all") {
+      const want = this.accountTypeFilter;
+      list = list.filter((t) => {
+        const at = this.plugin.mappedAccount(t.account)?.type ?? t.accountType;
+        // "Live" is the trader's own money, and personal accounts are the same
+        // question — the dashboard's Classification filter treats them together.
+        if (want === "live") return at === "live" || at === "personal";
+        return at === want;
       });
     }
     if (this.directionFilter !== "all") list = list.filter((t) => t.direction === this.directionFilter);
@@ -1106,6 +1158,13 @@ export class TradeLogView extends ItemView {
       const sessionNames: Record<string, string> = { newyork: "New York", london: "London", asia: "Asia", off: "Off Hours", none: "no time", rth: "New York", overnight: "Off Hours" };
       out.push({ label: `Session: ${sessionNames[this.sessionFilter] ?? this.sessionFilter}`, clear: () => (this.sessionFilter = "all") });
     }
+    if (this.lens) {
+      out.push({ label: this.lens.label, clear: () => (this.lens = null) });
+    }
+    if (this.accountTypeFilter !== "all") {
+      const typeName = accountFilters().find((x) => x.id === this.accountTypeFilter)?.label ?? this.accountTypeFilter;
+      out.push({ label: `Account type: ${typeName}`, clear: () => (this.accountTypeFilter = "all") });
+    }
     if (this.qualityFilters.length) {
       const words: Record<string, string> = { noprint: "no print", nosetup: "no strategy", nostop: "no stop", norating: "no rating" };
       const picked = this.qualityFilters.map((q) => words[q] ?? q);
@@ -1164,6 +1223,8 @@ export class TradeLogView extends ItemView {
     this.mistakeFilters = [];
     this.reviewFilter = "all";
     this.sessionFilter = "all";
+    this.accountTypeFilter = "all";
+    this.lens = null;
     this.qualityFilters = [];
     this.rFilter = "all";
     this.period = "all";
@@ -1525,6 +1586,15 @@ export class TradeLogView extends ItemView {
       this.excludeDemos = !this.excludeDemos;
       this.render();
     });
+    pills(
+      g,
+      accountFilters().map((f) => [f.id, f.label] as [string, string]),
+      [this.accountTypeFilter],
+      (v) => {
+        this.accountTypeFilter = v;
+        this.render();
+      }
+    );
 
     g = section("How it went");
     pills(g, [["all", "All"], ["win", "Wins"], ["loss", "Losses"], ["be", "Break-even"]], [this.resultFilter], (v) => { this.resultFilter = v; this.render(); });

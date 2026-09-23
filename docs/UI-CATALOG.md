@@ -109,6 +109,7 @@ Dívida conhecida: **o Trade Log adotou A**; **Home e a página da conta** ainda
 | Needs Review | `review` | `renderReviewWidget()` |
 | Trends | `trends` | `renderTrendsWidget()` |
 | Payouts | `payouts` | `renderPayoutsWidget()` |
+| Breakdown | `breakdown` | `renderBreakdownWidget()` — tabs `.tj-bd-tabs`/`.tj-bd-tab` (texto limpo + underline accent no `.on`, como a conta), **um treemap por dimensão** (Symbol · Setup · Type · Day · Hour · Session); tiles clicáveis (`.tj-treemap-tile-click`, `.is-active`) abrem o Trade Log com a lente do bucket + o scope da grelha |
 | Uma por métrica | `m.*` | `renderMetricBody()` — títulos em `METRIC_TITLES` |
 
 Métricas (`m.*`): netpnl, winrate, trades, maxdd, profitfactor, sharpe, expectancy,
