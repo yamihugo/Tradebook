@@ -5595,6 +5595,16 @@ textarea.tj-anno-textinput {
   box-shadow: none;
 }
 
+/* Briefing canvas — widgets are modules of the page, not cards: remove the
+   decorative shell (tint, border, shadow) only. Analytics keeps its card.
+   Internal surfaces (calendar day borders, treemap tiles, tables, controls,
+   tooltips, hover/selected states) are untouched. */
+.tj-dashboard.tj-briefing .tj-gridcard {
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+}
+
 /* Date line inside the chart hover card */
 .tj-eq-card-date { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
 
