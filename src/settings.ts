@@ -57,7 +57,7 @@ export class SettingsTab extends PluginSettingTab {
       });
     new Setting(basics)
       .setName("Your name")
-      .setDesc("Used in the home greeting, e.g. 'Good morning, Alex'.")
+      .setDesc("Used in the briefing greeting, e.g. 'Good morning, Alex'.")
       .addText((text) =>
         text
           .setPlaceholder("Your name")
@@ -84,7 +84,7 @@ export class SettingsTab extends PluginSettingTab {
 
     // Sections (drill-down)
     const sections: { id: SettingsTabId; title: string; desc: string }[] = [
-      { id: "journal", title: "Journal", desc: "Dashboard layout, behaviour, formatting and support." },
+      { id: "journal", title: "Journal", desc: "Analytics layout, behaviour, formatting and support." },
       { id: "tradelog", title: "Trade Log", desc: "Default period, columns and layout." },
       { id: "appearance", title: "Appearance", desc: "Themes, colours, animations and privacy." },
       { id: "timezone", title: "Time zone", desc: "Market hours and how days are grouped." },
@@ -132,29 +132,29 @@ export class SettingsTab extends PluginSettingTab {
 
   // ---------------------------------------------------------------- Main
   renderJournal(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "Home" });
+    containerEl.createEl("h3", { text: "Briefing" });
     new Setting(containerEl)
-      .setName("Home layout")
-      .setDesc("Home's curated narrative. Press 'Edit' on Home to rearrange it. Resetting restores the eight default blocks.")
+      .setName("Briefing layout")
+      .setDesc("Briefing's curated narrative. Press 'Edit' on Briefing to rearrange it. Resetting restores the six default blocks.")
       .addButton((btn) =>
-        btn.setButtonText("Reset Home").onClick(async () => {
+        btn.setButtonText("Reset Briefing").onClick(async () => {
           this.plugin.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
           await this.plugin.saveSettings();
           await this.plugin.reloadAllViews();
-          new Notice("Home layout reset to the default.");
+          new Notice("Briefing layout reset to the default.");
         })
       );
 
-    containerEl.createEl("h3", { text: "Dashboard" });
+    containerEl.createEl("h3", { text: "Analytics" });
     new Setting(containerEl)
-      .setName("Dashboard layout")
-      .setDesc("The Dashboard archive (every widget). Press 'Edit' to rearrange it; clearing leaves it empty so you can build it your way.")
+      .setName("Analytics layout")
+      .setDesc("The Analytics archive (every widget). Press 'Edit' to rearrange it; clearing leaves it empty so you can build it your way.")
       .addButton((btn) =>
-        btn.setButtonText("Clear Dashboard").onClick(async () => {
+        btn.setButtonText("Clear Analytics").onClick(async () => {
           this.plugin.settings.dashboardLayout = [];
           await this.plugin.saveSettings();
           await this.plugin.reloadAllViews();
-          new Notice("Dashboard layout cleared.");
+          new Notice("Analytics layout cleared.");
         })
       );
 
@@ -213,8 +213,8 @@ export class SettingsTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: "Behaviour" });
     new Setting(containerEl)
-      .setName("Open Home on startup")
-      .setDesc("Automatically open the Home view when the plugin loads.")
+      .setName("Open Briefing on startup")
+      .setDesc("Automatically open the Briefing view when the plugin loads.")
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.openHomeOnStartup === true).onChange(async (v) => {
           this.plugin.settings.openHomeOnStartup = v;

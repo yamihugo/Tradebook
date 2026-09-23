@@ -130,7 +130,7 @@ Wertheimer (1923) · Okabe & Ito (2008) · ColorBrewer · Bringhurst · Brown (2
 - Funções pequenas e focadas; nomes claros; código autoexplicativo.
 - Sem código morto, sem estilos mortos, sem comentários obsoletos.
 - Validar todos os inputs; nunca expor segredos; princípio do menor privilégio.
-- Testar o caminho feliz **e** os erros; correr o smoke (142 PASS) e o audit antes de dar
+- Testar o caminho feliz **e** os erros; correr o smoke (181 PASS) e o audit antes de dar
   algo por feito.
 - Se uma regra for violada por engano, corrigir e registar em `PROJECT-SPEC.md` §7.
 
@@ -148,4 +148,4 @@ rename-plan.js · rename-apply.js · folder-check.js · tradelog-perf.js
 
 Screenshots/artefactos: `layout-shot.js <out>` · `modal-shot.js` · `tradelog-shot.js`.
 **Escrever artefactos em `/home/hugo/tj-out/`** — `/tmp` é um tmpfs pequeno.
-O full gate é `node smoke.js /home/hugo/trading-journal-smoke` → **142 PASS / 0 FAIL**.
+O full gate é `node smoke.js /home/hugo/trading-journal-smoke` → **181 PASS / 0 FAIL**.

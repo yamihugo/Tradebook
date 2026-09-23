@@ -371,7 +371,7 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
-    this.addRibbonIcon("grip", "Tradebook — Home", () => {
+    this.addRibbonIcon("grip", "Tradebook — Briefing", () => {
       this.openHome();
     });
     this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
@@ -386,12 +386,12 @@ export default class TradebookPlugin extends Plugin {
 
     this.addCommand({
       id: "open-home",
-      name: "Open Home",
+      name: "Open Briefing",
       callback: () => this.openHome(),
     });
     this.addCommand({
       id: "open-dashboard",
-      name: "Open Trading Dashboard",
+      name: "Open Analytics",
       callback: () => this.openDashboard(),
     });
     this.addCommand({

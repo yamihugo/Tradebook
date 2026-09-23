@@ -780,6 +780,7 @@ export class WidgetGridView extends ItemView {
     this.mainEl = main;
     if (this._intro) root.addClass("tj-intro-root");
     root.addClass("tj-dashboard");
+    root.addClass(this.viewKey() === "home" ? "tj-briefing" : "tj-analytics");
     root.toggleClass("tj-editing", this.editMode);
     main.addClass("tj-dash-main");
 
@@ -856,46 +857,49 @@ export class WidgetGridView extends ItemView {
     }
   }
 
-  /** Time-of-day greeting, using the name from settings (journalName). */
+  /** Time-of-day greeting (user's local clock), using the name from settings. */
   private greetingText(): string {
     const h = new Date().getHours();
-    const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    const part =
+      h < 6 || h >= 22 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
     const name = (this.plugin.settings.journalName || "").trim();
     return name ? `${part}, ${name}` : part;
   }
 
-  /** Dashboard header: rotating greeting on the left, actions on the right. */
+  /** Page header: Briefing shows the rotating greeting; both keep the actions. */
   renderHeader(main: HTMLElement): HTMLElement {
     const header = main.createDiv({ cls: "tj-header" + (this._intro ? " tj-intro" : "") });
 
-    const left = header.createDiv({ cls: "tj-header-greeting" });
-    left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
-    const sub = left.createDiv({ cls: "tj-header-sub" });
-    this.msgEl = sub;
+    if (this.viewKey() === "home") {
+      const left = header.createDiv({ cls: "tj-header-greeting" });
+      left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
+      const sub = left.createDiv({ cls: "tj-header-sub" });
+      this.msgEl = sub;
 
-    // The line is derived from the clock, so re-renders (clicks on Edit/Filters)
-    // always show the SAME line. It only advances on its own 20s timer.
-    if (this.msgBase < 0) {
-      const now = new Date();
-      const day = Math.floor(now.getTime() / 86400000);
-      this.msgBase = (day * 7 + now.getHours()) % GREETING_LINES.length;
+      // The line is derived from the clock, so re-renders (clicks on Edit/Filters)
+      // always show the SAME line. It only advances on its own 20s timer.
+      if (this.msgBase < 0) {
+        const now = new Date();
+        const day = Math.floor(now.getTime() / 86400000);
+        this.msgBase = (day * 7 + now.getHours()) % GREETING_LINES.length;
+      }
+      const currentLine = () =>
+        GREETING_LINES[(this.msgBase + Math.floor((Date.now() - this.msgStart) / 20000)) % GREETING_LINES.length];
+      sub.setText(currentLine());
+      if (this.headerTimer !== null) {
+        window.clearInterval(this.headerTimer);
+        this.headerTimer = null;
+      }
+      this.headerTimer = window.setInterval(() => {
+        const el = this.msgEl;
+        if (!el) return;
+        el.addClass("tj-fade");
+        window.setTimeout(() => {
+          el.setText(currentLine());
+          el.removeClass("tj-fade");
+        }, 220);
+      }, 20000);
     }
-    const currentLine = () =>
-      GREETING_LINES[(this.msgBase + Math.floor((Date.now() - this.msgStart) / 20000)) % GREETING_LINES.length];
-    sub.setText(currentLine());
-    if (this.headerTimer !== null) {
-      window.clearInterval(this.headerTimer);
-      this.headerTimer = null;
-    }
-    this.headerTimer = window.setInterval(() => {
-      const el = this.msgEl;
-      if (!el) return;
-      el.addClass("tj-fade");
-      window.setTimeout(() => {
-        el.setText(currentLine());
-        el.removeClass("tj-fade");
-      }, 220);
-    }, 20000);
 
     const actions = header.createDiv({ cls: "tj-header-actions" });
 
@@ -1051,7 +1055,8 @@ export class WidgetGridView extends ItemView {
     const prevTrades = this.previousPeriodTrades();
 
     if (layout.length === 0) {
-      grid.createDiv({ cls: "tj-empty", text: "Dashboard is empty — press the pencil, then “Add widget”." });
+      const page = this.viewKey() === "home" ? "Briefing" : "Analytics";
+      grid.createDiv({ cls: "tj-empty", text: `${page} is empty — press the pencil, then “Add widget”.` });
       return;
     }
     const rows = Math.max(1, gridRows(layout));

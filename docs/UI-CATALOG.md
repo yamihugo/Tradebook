@@ -95,7 +95,7 @@ Dívida conhecida: **o Trade Log adotou A**; **Home e a página da conta** ainda
 | Wrapper de widget | `DashboardView.renderLayout()` | `.tj-card.tj-gridcard`, `data-wid`, `.tj-blend`, `.tj-intro`, `.tj-static`, `.tj-card-header`, `.tj-card-controls`, `.tj-card-del`, `.tj-gridcard-body` |
 | Account tile | `AccountsListView.renderTile()` | `.tj-acct-tile` (+`.is-demo`, `.is-error`) |
 
-### 6.2 Dashboard (`views/dashboard.ts`) — títulos em `CARD_TITLES`
+### 6.2 Briefing/Analytics (`views/dashboard.ts`) — títulos em `CARD_TITLES`
 
 | Nome | `data-wid` | Builder |
 |---|---|---|

@@ -5,12 +5,13 @@ import { HOME_DEFAULT, WidgetGridView, type DashItem } from "./dashboard";
 export const HOME_VIEW_TYPE = "tradebook-home-view";
 
 /**
- * Home = the journal talking to you. It reuses the shared WidgetGridView engine
- * and owns its own persisted layout (`settings.homeLayout`), seeded from the six
- * curated HOME_DEFAULT tiles.
+ * Home = the journal talking to you, displayed as "Briefing". It reuses the
+ * shared WidgetGridView engine and owns its own persisted layout
+ * (`settings.homeLayout`), seeded from the six curated HOME_DEFAULT tiles.
  *
- * The difference from Dashboard is the DEFAULT, not the allow-list: both views
- * accept any widget, so the trader can add whatever they want to either.
+ * The difference from Dashboard (displayed as "Analytics") is the DEFAULT, not
+ * the allow-list: both views accept any widget, so the trader can add whatever
+ * they want to either.
  */
 export class HomeView extends WidgetGridView {
   constructor(leaf: any, plugin: TradebookPlugin) {
@@ -22,7 +23,7 @@ export class HomeView extends WidgetGridView {
   }
 
   getDisplayText(): string {
-    return "Home";
+    return "Briefing";
   }
 
   getIcon(): string {
