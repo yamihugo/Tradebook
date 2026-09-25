@@ -1,14 +1,15 @@
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { accountFilters, kpiCard } from "../ui";
-import { fmtMoney, isFiniteNumber, toZoneDate } from "../tz";
+import { fmtMoney, isFiniteNumber } from "../tz";
+import { tradeDayInZone } from "../lib/instant";
 
 /**
  * Reusable day-log modal (TradeZella style). Used by the Calendar view and the
  * dashboard's Performance Calendar widget.
  */
 export function openDayLogModal(plugin: TradebookPlugin, allTrades: Trade[], dateKey: string, timeZone: string): void {
-  const dayKey = (t: Trade) => toZoneDate(t.date, t.entryTime, timeZone);
+  const dayKey = (t: Trade) => tradeDayInZone(t, timeZone);
   const allTradesForDay = allTrades.filter((t) => isFiniteNumber(t.pnl) && t.date && dayKey(t) === dateKey);
   const overlay = document.body.createDiv({ cls: "tj-modal-overlay" });
   const modal = overlay.createDiv({ cls: "tj-modal tj-day-log-modal" });

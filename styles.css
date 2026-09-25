@@ -29,6 +29,10 @@
      Charts only; text keeps the bright --tj-tone-* pair. */
   --tj-chart-good: #227a4a;
   --tj-chart-bad: #8f2b1e;
+  /* Home shared pair — the chart pair lifted toward the bright tone so the
+     donut, bars and calendar read at a glance without going neon. */
+  --tj-home-good: color-mix(in srgb, var(--tj-chart-good) 62%, var(--tj-tone-good));
+  --tj-home-bad: color-mix(in srgb, var(--tj-chart-bad) 62%, var(--tj-tone-bad));
   /* Space (§3) — 4px base */
   --tj-sp-1: 4px;
   --tj-sp-2: 8px;
@@ -559,6 +563,7 @@
   pointer-events: none;
   user-select: none;
 }
+.tj-grid.is-editing .tj-gridcard { touch-action: none; }
 /* The accent placeholder shows exactly where the dragged card will land */
 .tj-grid-placeholder {
   position: absolute;
@@ -569,8 +574,11 @@
   pointer-events: none;
   box-shadow: inset 0 0 0 1.5px var(--interactive-accent);
 }
+/* The card being dragged is represented by the floating ghost: hide the original
+   entirely so it never shows through the placeholder or double-stacks with it. */
 .tj-gridcard.tj-moving {
-  opacity: 0.15;
+  opacity: 0;
+  pointer-events: none;
 }
 .tj-gridcard.tj-static {
   cursor: default;
@@ -583,6 +591,10 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  /* Each card body is its own query container, so a widget adapts its content
+     to the space it actually has — not to the window. Journalit uses the same
+     technique (container queries keyed on the widget's own inline size). */
+  container-type: inline-size;
 }
 /* Recent-trades table is the one widget that scrolls internally */
 .tj-gridcard-body .tj-tablewrap {
@@ -701,6 +713,13 @@
   border-radius: 12px;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
   will-change: transform;
+}
+/* The ghost is a snapshot of the card, not an editable one: strip the edit-only
+   chrome so the preview reads as a single clean widget. */
+.tj-drag-ghost .tj-card-controls,
+.tj-drag-ghost .tj-card-del,
+.tj-drag-ghost .tj-resize-handle {
+  display: none !important;
 }
 .tj-gridcard.dragging {
   opacity: 0.25;
@@ -3037,8 +3056,6 @@
 }
 
 /* ---------------- Radar Chart & Zella Score ---------------- */
-
-/* ---------------- Radar Chart & Zella Score ---------------- */
 .tj-radar {
   width: 100%;
   max-height: 360px;
@@ -3052,38 +3069,31 @@
   stroke: var(--background-modifier-border);
   stroke-width: 1;
 }
+.tj-radar-axis.is-na {
+  stroke-dasharray: 3 4;
+  opacity: 0.55;
+}
 .tj-radar-label {
   fill: var(--text-muted);
   font-size: var(--tj-fs-small);
 }
+.tj-radar-label.is-na {
+  fill: var(--tj-fg-3);
+}
 .tj-radar-fill {
-  fill: var(--tj-score-color, var(--interactive-accent, #7c5cff));
+  fill: var(--tj-score-plot-color, var(--tj-score-color, var(--interactive-accent, #7c5cff)));
   fill-opacity: 0.20;
-  stroke: var(--tj-score-color, var(--interactive-accent, #7c5cff));
+  stroke: var(--tj-score-plot-color, var(--tj-score-color, var(--interactive-accent, #7c5cff)));
   stroke-width: 2;
 }
+.tj-radar-fill.is-partial {
+  fill: none;
+}
 .tj-radar-dot {
-  fill: var(--interactive-accent, #7c5cff);
+  fill: var(--tj-score-plot-color, var(--tj-score-color, var(--interactive-accent, #7c5cff)));
   stroke: #fff;
   stroke-width: 1;
 }
-.tj-score-value {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
-  margin-top: 8px;
-}
-.tj-score-num {
-  font-size: var(--tj-fs-hero);
-  font-weight: 700;
-  color: var(--text-normal);
-}
-.tj-score-suffix {
-  font-size: var(--tj-fs-strong);
-  color: var(--text-muted);
-}
-
 /* ==========================================================================
    Dashboard header — greeting + icon actions
    ========================================================================== */
@@ -3272,12 +3282,35 @@
   margin-top: 0;
 }
 .tj-pop-label {
-  font-size: var(--tj-fs-body);
-  color: var(--text-muted);
+  font-size: var(--tj-fs-label);
+  font-weight: var(--tj-w-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
 }
 .tj-popover select,
 .tj-popover .tj-input {
   width: 100%;
+}
+/* Home filters — the same flat language as the rest of the journal. */
+.tj-pop-fields { display: flex; flex-direction: column; gap: 6px; }
+.tj-pop-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.tj-pop-pill {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  padding: 4px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.tj-pop-pill:hover { color: var(--tj-fg-1); background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent) !important; }
+.tj-pop-pill.is-on {
+  color: var(--interactive-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
 }
 .tj-iconbtn {
   display: inline-flex;
@@ -3512,6 +3545,42 @@
   padding: 0 8px;
   font-size: var(--tj-fs-body);
 }
+.tj-period-more-trigger { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.tj-period-more-range { color: var(--tj-fg-3); font-weight: 400; }
+.tj-period-more-chevron { font-size: var(--tj-fs-label); }
+.tj-period-more-backdrop { z-index: 3000 !important; }
+.tj-period-more-menu {
+  width: min(340px, calc(100vw - 24px));
+  max-height: min(70vh, 440px);
+  overflow-y: auto;
+  gap: 5px;
+}
+.tj-period-more-option {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: none !important;
+  border-radius: 6px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  text-align: left;
+  font-size: var(--tj-fs-body);
+  cursor: pointer;
+}
+.tj-period-more-option:hover { background: var(--background-modifier-hover) !important; color: var(--text-normal); }
+.tj-period-more-option.is-active { color: var(--text-normal); font-weight: 600; }
+.tj-period-custom-row { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 8px; }
+.tj-period-custom-row .tj-datefield { width: 100%; }
+.tj-period-custom-row .tj-datefield-input { min-width: 0; }
+.tj-period-validation { color: var(--tj-tone-bad); font-size: var(--tj-fs-small); }
+.tj-period-custom-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+@media (max-width: 720px) {
+  .tj-period-more-range { display: none; }
+  .tj-period-more-menu { right: 0; }
+}
 
 /* ==========================================================================
    Cumulative P&L — minimal, auto-adjusting (Journalit style)
@@ -3551,9 +3620,10 @@
   display: block;
 }
 .tj-eq-line {
-  /* Barely-there line — the gradient area does the talking. */
-  stroke: color-mix(in srgb, var(--text-normal) 38%, transparent);
-  stroke-width: 1.1;
+  /* Barely-there line — the gradient area does the talking. Kept low so the
+     line reads as part of the fill, not painted on top of it. */
+  stroke: color-mix(in srgb, var(--text-normal) 24%, transparent);
+  stroke-width: 1;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -3636,6 +3706,110 @@
 }
 .tj-metric-value.tj-pos { color: var(--tj-tone-good); }
 .tj-metric-value.tj-neg { color: var(--tj-tone-bad); }
+.tj-home-netpnl { gap: 2px; }
+.tj-home-netpnl-value { flex: 0 0 auto; }
+.tj-home-pnl-chart { flex: 1 1 0; width: calc(100% + 20px); min-width: 0; min-height: 36px; max-height: none; margin: 0 -10px -8px; overflow: hidden; }
+.tj-home-pnl-chart svg { display: block; width: 100%; height: 100%; }
+.tj-home-pnl-empty,
+.tj-home-metric-empty { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
+.tj-home-winvisual { display: flex; flex: 1 1 0; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: hidden; }
+.tj-home-winring { position: relative; display: grid; flex: 0 1 auto; min-width: 0; max-width: 100%; aspect-ratio: 1; place-items: center; border-radius: 50%; background: conic-gradient(color-mix(in srgb, var(--tj-home-good) 52%, transparent) var(--tj-home-win-pct), color-mix(in srgb, var(--tj-home-bad) 42%, transparent) 0); }
+.tj-home-winring::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; background: var(--background-primary); }
+.tj-home-win-center { position: relative; z-index: 1; color: var(--tj-fg-1); font-size: var(--tj-fs-head); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tj-home-win-center.is-compact { font-size: var(--tj-fs-small); }
+.tj-home-win-hidden-value { display: none; }
+.tj-home-pf-positive { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
+.tj-home-pf-negative { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
+.tj-home-pfvisual { display: flex; flex: 1 1 0; flex-direction: column; justify-content: center; gap: 6px; min-width: 0; min-height: 0; padding-top: 2px; }
+.tj-home-pfvisual.is-compact { gap: 3px; padding-top: 0; }
+.tj-home-pf-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; min-width: 0; }
+.tj-home-pfvisual.is-compact .tj-home-pf-row { gap: 2px; }
+.tj-home-pf-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; color: var(--tj-fg-2); font-size: var(--tj-fs-small); }
+.tj-home-pf-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tj-home-pf-share { flex: 0 0 auto; color: var(--tj-fg-1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tj-home-pfvisual.is-openable { padding: 4px 6px; border-radius: 8px; cursor: pointer; }
+.tj-home-pfvisual.is-openable:hover,
+.tj-home-pfvisual.is-openable:focus-visible { background: color-mix(in srgb, var(--tj-fg-3) 6%, transparent); outline: none; }
+.tj-home-pf-track { width: 100%; height: 7px; overflow: hidden; border-radius: 4px; background: color-mix(in srgb, var(--tj-fg-3) 16%, transparent); }
+.tj-home-pfvisual.is-compact .tj-home-pf-track { height: 5px; }
+.tj-home-pf-fill { height: 100%; min-width: 0; border-radius: inherit; transition: width 180ms ease; }
+.tj-home-pf-fill.is-profit { background: var(--tj-home-good); }
+.tj-home-pf-fill.is-loss { background: var(--tj-home-bad); }
+.tj-home-pf-note { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
+
+/* Home-only action and navigation widgets. */
+.tj-home-accounts-link {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 8px;
+  border: 0 !important;
+  border-bottom: 0 !important;
+  border-radius: 8px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+.tj-home-accounts-link:hover { color: var(--interactive-accent); background: var(--background-modifier-hover) !important; }
+.tj-card-header .tj-home-accounts-link { flex: 0 0 auto; min-height: 28px; width: auto; padding: 2px 4px; font-size: var(--tj-fs-small); }
+.tj-focus-hub { display: grid; flex: 1 1 auto; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: stretch; gap: 10px; min-width: 0; min-height: 0; }
+.tj-focus-task-card { appearance: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 12px 10px; border: 1px solid transparent !important; border-radius: 10px; background: transparent !important; box-shadow: none !important; color: var(--tj-fg-1); text-align: center; cursor: pointer; }
+.tj-focus-task-card:hover:not(:disabled) { border-color: var(--background-modifier-border) !important; background: color-mix(in srgb, var(--tj-fg-3) 4%, transparent) !important; }
+.tj-focus-task-card:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.tj-focus-task-card:disabled { cursor: default; }
+.tj-focus-review-heading { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.tj-focus-review-icon { display: inline-flex; flex: 0 0 auto; color: var(--tj-fg-2); }
+.tj-focus-review-icon svg { width: 26px; height: 26px; }
+.tj-focus-review-count { color: var(--tj-fg-1); font-size: var(--tj-fs-big); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; }
+.tj-focus-review-title { overflow: hidden; color: var(--tj-fg-2); font-size: var(--tj-fs-body); text-overflow: ellipsis; white-space: nowrap; }
+.tj-focus-task-action { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--tj-fg-1); font-size: var(--tj-fs-small); font-weight: var(--tj-w-medium); }
+.tj-focus-task-card:hover:not(:disabled) .tj-focus-task-action { color: var(--interactive-accent); }
+.tj-focus-task-arrow { display: inline-flex; flex: 0 0 auto; color: var(--tj-fg-3); }
+.tj-focus-task-arrow svg { width: 14px; height: 14px; }
+.tj-focus-task-status { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
+.tj-focus-clear { display: flex; grid-column: 1 / -1; align-items: center; min-height: 36px; color: var(--tj-fg-2); font-size: var(--tj-fs-body); }
+@container (max-width: 420px) {
+  .tj-focus-hub { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .tj-focus-task-card { gap: 4px; padding: 6px; }
+  .tj-focus-review-heading { gap: 4px; }
+  .tj-focus-review-title { font-size: var(--tj-fs-small); }
+  .tj-focus-task-action { justify-self: stretch; gap: 4px; }
+}
+/* Tighter top inset so the cards sit closer to the ACCOUNTS heading. */
+.tj-dashboard.tj-briefing .tj-gridcard[data-wid="accounts"] .tj-gridcard-body { padding-top: 4px; }
+.tj-home-accounts-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); grid-auto-rows: minmax(0, 1fr); align-content: stretch; flex: 1 1 auto; gap: 8px; min-height: 0; overflow: hidden; padding-top: 0; }
+.tj-home-account-card { appearance: none; display: flex !important; container-type: inline-size; flex-direction: column; gap: 5px; min-height: 0; height: 100%; overflow: hidden; padding: 6px 8px; border: none !important; border-radius: 10px; background: transparent !important; box-shadow: none !important; outline: none; }
+.tj-home-account-card:hover { background: color-mix(in srgb, var(--tj-fg-3) 4%, transparent) !important; }
+.tj-home-account-card:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; }
+.tj-home-accounts-list.is-single { grid-template-columns: minmax(0, 1fr); }
+.tj-home-account-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; }
+.tj-home-account-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tj-home-account-name { overflow: hidden; font-size: var(--tj-fs-body); text-overflow: ellipsis; white-space: nowrap; }
+.tj-home-account-type { overflow: hidden; color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-overflow: ellipsis; white-space: nowrap; }
+.tj-home-account-balance { flex: 0 0 auto; overflow: hidden; color: var(--tj-fg-1); font-size: var(--tj-fs-big); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tj-home-account-balance.is-positive { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
+.tj-home-account-balance.is-negative { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
+.tj-home-account-chart { display: flex; flex: 1 1 auto; align-items: stretch; justify-content: center; width: 100%; min-width: 0; min-height: 32px; overflow: hidden; }
+.tj-home-account-chart .tj-eq-svg { width: 100%; height: 100%; }
+.tj-home-account-nohistory { color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-align: center; }
+.tj-home-accounts-empty { display: flex; align-items: center; flex: 1 1 auto; min-height: 44px; padding: 4px 2px; color: var(--tj-fg-2); font-size: var(--tj-fs-body); }
+.tj-home-accounts-link { justify-content: flex-start; width: auto; min-height: 28px; padding-left: 2px; color: var(--tj-fg-2); font-size: var(--tj-fs-small); }
+@container (max-width: 280px) {
+  .tj-home-account-card { gap: 4px; padding: 6px 7px; min-height: 76px; }
+  .tj-home-account-balance { font-size: var(--tj-fs-strong); }
+  .tj-home-account-chart { min-height: 48px; }
+}
+/* Short cards: drop the chart before anything overlaps or clips. */
+.tj-gridcard-body.is-short .tj-home-account-card { min-height: 0; padding: 5px 7px; }
+.tj-gridcard-body.is-short .tj-home-account-chart { min-height: 40px; }
+.tj-gridcard-body.is-tiny .tj-home-account-chart { display: none; }
+.tj-gridcard-body.is-tiny .tj-home-account-card { min-height: 0; }
+.tj-home-accounts-list { overflow: hidden; }
+/* Focus Areas: keep the two actions inside the card at short heights. */
+.tj-gridcard-body.is-short .tj-focus-task-card { gap: 5px; padding: 8px; }
 
 /* Floating remove button for headerless widgets (chart + metrics) */
 .tj-card-del {
@@ -3673,7 +3847,7 @@
   font-size: var(--tj-fs-small);
   letter-spacing: 0.05em;
   color: var(--tj-fg-3);
-  pointer-events: none;
+  pointer-events: auto;
   text-transform: uppercase;
 }
 .tj-eq-hover { pointer-events: none; }
@@ -4504,41 +4678,46 @@
   color: var(--tj-fg-3);
 }
 
-/* Radar sizing safety + error surface */
-.tj-score-error { font-size: var(--tj-fs-small); color: var(--color-red, #ad3527); margin-top: 6px; }
-
-/* Needs Review widget */
-.tj-revieww { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-.tj-revieww-head { display: flex; align-items: baseline; gap: 8px; }
-.tj-revieww-num { font-size: var(--tj-fs-hero); font-weight: 700; }
-.tj-revieww-num.tj-neg { color: var(--tj-tone-bad); }
-.tj-revieww-num.tj-pos { color: var(--tj-tone-good); }
-.tj-revieww-cap { font-size: var(--tj-fs-strong); color: var(--text-muted); }
-.tj-revieww-bar { height: 6px; border-radius: 3px; background: var(--background-modifier-border); overflow: hidden; }
-.tj-revieww-fill { height: 100%; background: var(--interactive-accent); border-radius: 3px; }
-.tj-revieww-sub { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
-.tj-revieww-list { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
-.tj-revieww-row {
-  display: grid; grid-template-columns: 92px 48px 1fr; gap: 8px; align-items: center;
-  padding: 5px 8px; border-radius: 6px; cursor: pointer; font-size: var(--tj-fs-body);
+/* Discipline — one open arc with the review-completion percentage, a single
+   completion line and a quiet queue link. The colour reads completion only. */
+.tj-disc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--tj-sp-3);
+  height: 100%;
+  min-height: 0;
+  text-align: center;
 }
-.tj-revieww-row:hover { background: var(--background-modifier-hover); }
-.tj-revieww-row-date { color: var(--text-muted); }
-.tj-revieww-row-sym { font-weight: 600; }
-.tj-revieww-row-missing { color: var(--tj-tone-bad); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-revieww-actions { display: flex; justify-content: flex-end; }
-
-/* Needs Review widget — compact gauge layout */
-.tj-revieww { display: flex; align-items: center; gap: 22px; height: 100%; min-height: 0; }
-.tj-revieww-gaugewrap { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
-.tj-revieww-gauge-cap { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
-.tj-revieww-info { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
-.tj-revieww-num { font-size: var(--tj-fs-hero); font-weight: 700; }
-.tj-revieww-num.tj-neg { color: var(--tj-tone-bad); }
-.tj-revieww-num.tj-pos { color: var(--tj-tone-good); }
-.tj-revieww-cap { font-size: var(--tj-fs-strong); color: var(--text-muted); }
-.tj-revieww-sub { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
-.tj-revieww-actions { display: flex; justify-content: flex-start; margin-top: 6px; }
+.tj-disc.is-wide { flex-direction: row; justify-content: flex-start; gap: var(--tj-sp-4); text-align: left; }
+.tj-disc-dial { position: relative; flex: 0 0 auto; container-type: inline-size; }
+.tj-disc-arc { width: 100%; height: 100%; display: block; }
+.tj-disc-track { fill: none; stroke: color-mix(in srgb, var(--tj-fg-3) 22%, transparent); stroke-width: 9; stroke-linecap: round; }
+.tj-disc-fill { fill: none; stroke: var(--tj-disc-color, var(--tj-fg-3)); stroke-width: 9; stroke-linecap: round; transition: stroke 160ms ease; }
+.tj-disc-pct { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.tj-disc-pct-num { font-size: clamp(16px, 27cqi, 52px); font-weight: var(--tj-w-bold); line-height: 1; color: var(--tj-disc-color, var(--text-normal)); font-variant-numeric: tabular-nums; }
+.tj-disc-info { display: flex; flex-direction: column; align-items: center; gap: var(--tj-sp-2); min-width: 0; }
+.tj-disc.is-wide .tj-disc-info { align-items: flex-start; }
+.tj-disc-line { font-size: var(--tj-fs-body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* A plain text link: no button chrome, just the letters. */
+.tj-disc-link {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+  font-weight: 600;
+  padding: 0;
+  height: auto;
+  cursor: pointer;
+}
+.tj-disc-link:hover {
+  color: var(--text-normal);
+  background: transparent !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 /* Fix: popovers (Add widget / Filters) must be fully opaque and on top */
 .tj-popover {
@@ -4592,28 +4771,6 @@
 .tj-grid.is-editing .tj-resize-handle { display: block; opacity: 1; }
 .tj-resize-handle:hover { background: color-mix(in srgb, var(--interactive-accent) 40%, transparent); }
 
-/* Needs Review — gauge left, info right (row); explicit action, no card hover */
-.tj-revieww {
-  flex-direction: row;
-  align-items: center;
-  gap: 20px;
-  border-radius: 8px;
-  padding: 4px;
-}
-.tj-revieww-open {
-  border: 1px solid color-mix(in srgb, var(--tj-fg-3) 26%, transparent);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--tj-fs-small); font-weight: 600;
-  padding: 3px 10px; border-radius: 7px; cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.tj-revieww-open:hover {
-  background: color-mix(in srgb, var(--text-normal) 6%, transparent);
-  border-color: color-mix(in srgb, var(--text-normal) 32%, transparent);
-  color: var(--text-normal);
-}
-
 /* Radar fills the card and the score sits below it. The SVG keeps its shape
    (preserveAspectRatio="meet"), so no fixed aspect box is needed — that box was
    what forced the text onto the chart on short cards. */
@@ -4625,19 +4782,6 @@
 }
 .tj-radar { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; }
 .tj-radar-label { font-size: var(--tj-fs-label); }
-.tj-score-num { font-size: var(--tj-fs-display); }
-
-/* Needs Review — grid: gauge+number on top, completion+missing below BOTH */
-.tj-revieww {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas: "gauge head" "foot foot";
-  gap: 8px 20px;
-  align-items: center;
-}
-.tj-revieww-gaugewrap { grid-area: gauge; }
-.tj-revieww-info { grid-area: head; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.tj-revieww-foot { grid-area: foot; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
 /* Add widget / Filters popover must sit above the grid cards (stacking fix) */
 .tj-header { z-index: 3000 !important; }
@@ -4648,31 +4792,6 @@
 .tj-dashboard .tj-gridcard .tj-gridcard-body { padding: 10px 12px; }
 .tj-dashboard .tj-gridcard .tj-card-header { padding: 9px 12px 2px; }
 
-/* Needs Review compact */
-.tj-revieww { gap: 6px 16px; padding: 0; }
-.tj-revieww-gaugewrap { gap: 3px; }
-.tj-revieww-gauge-cap { font-size: var(--tj-fs-small); }
-.tj-revieww-num { font-size: var(--tj-fs-display); }
-.tj-revieww-cap { font-size: var(--tj-fs-strong); }
-.tj-revieww-sub { font-size: var(--tj-fs-small); }
-.tj-revieww-info { gap: 6px; }
-
-/* Needs Review — centered at any size */
-.tj-revieww {
-  display: grid;
-  grid-template-columns: auto auto;
-  grid-template-areas: "gauge head" "foot foot";
-  justify-content: center;
-  align-content: center;
-  align-items: center;
-  justify-items: center;
-  gap: 4px 12px;
-  width: 100%;
-  height: 100%;
-}
-.tj-revieww-foot { justify-items: center; align-items: center; text-align: center; }
-.tj-revieww-info { justify-content: center; }
-
 /* Radar — keep it centered and scaling nicely at any size */
 .tj-gridcard-body > .tj-chart-box.tj-radar-box {
   display: flex;
@@ -4680,43 +4799,6 @@
   justify-content: center;
 }
 .tj-radar { max-width: 100%; max-height: 100%; }
-
-/* Needs Review — more air between top and foot */
-.tj-revieww { gap: 12px 18px; }
-.tj-revieww-sub { font-size: var(--tj-fs-small); }
-
-/* Score number lives inside the radar (never disappears when small) */
-.tj-radar-box { position: relative; }
-.tj-radar-score {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  pointer-events: none;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
-}
-.tj-radar-score .tj-score-num { font-size: var(--tj-fs-display); font-weight: 700; color: var(--tj-score-color, var(--text-normal)); }
-.tj-radar-score .tj-score-suffix { color: var(--text-muted); }
-
-/* Needs Review — single centered gauge */
-.tj-revieww {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 12px;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 4px;
-}
-.tj-revieww-gaugewrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.tj-revieww-gauge-cap.is-complete { color: var(--color-green-bright, #34d17a); }
-.tj-revieww-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 
 /* Header: no separator line (blends with the page) */
 .tj-header { border-bottom: none !important; box-shadow: none !important; }
@@ -4826,21 +4908,6 @@
   margin: 1px 0;
 }
 .tj-nav-icon svg { width: 15px; height: 15px; }
-
-/* Score inside the radar: legible over the shape */
-.tj-radar-score::before {
-  content: "";
-  position: absolute;
-  width: 66px;
-  height: 66px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--background-primary) 68%, transparent);
-}
-.tj-radar-score .tj-score-num,
-.tj-radar-score .tj-score-suffix { position: relative; z-index: 1; }
-
-/* Remove the circle behind the radar score */
-.tj-radar-score::before { display: none !important; content: none !important; }
 
 /* ==========================================================================
    Sidebar — density A (compact, seamless)
@@ -5212,25 +5279,29 @@ textarea.tj-anno-textinput {
 .tj-nav-brand h3 { font-size: var(--tj-fs-big); }
 .tj-nav-section-header { font-size: var(--tj-fs-small); }
 
-/* Needs Review: gauge sizing */
-.tj-revieww-gauge-cap { font-size: var(--tj-fs-small); }
-
 .tj-pill { font-size: var(--tj-fs-small); padding: 2px 8px; border-radius: 999px; background: var(--background-secondary); color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tj-stars { font-size: var(--tj-fs-small); color: var(--tj-fg-3); letter-spacing: 1px; }
 .tj-stars .on { color: #f5b301; }
 
 /* Bulk bar — ghost controls (the house header recipe); it floats over the list. */
 .tj-tl-bulk-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 7px 0 2px;
+  margin-right: 2px;
+  border-right: 1px solid var(--background-modifier-border);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-bold);
-  color: var(--text-normal);
-  margin-right: 4px;
+  color: var(--tj-fg-2);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .tj-tl-bulkbtn {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
+  min-height: 24px;
+  padding: 2px 7px;
   border: none;
   border-radius: 7px;
   background: transparent;
@@ -5287,10 +5358,11 @@ textarea.tj-anno-textinput {
 /* Privacy mode — blur money, reveal on hover */
 .tj-privacy .tj-metric-value,
 .tj-privacy .tj-eq-value,
-.tj-privacy .tj-score-num,
+.tj-privacy .tj-score-big,
 .tj-privacy .tj-kpi-value { filter: blur(7px); transition: filter 140ms ease; }
 .tj-privacy .tj-metric-value:hover,
 .tj-privacy .tj-eq-value:hover,
+.tj-privacy .tj-score-big:hover,
 .tj-privacy .tj-kpi-value:hover { filter: blur(0); }
 
 /* ==========================================================================
@@ -5501,10 +5573,12 @@ textarea.tj-anno-textinput {
 .tj-pcal-wk { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-width: 0; border-radius: 9px; }
 .tj-pcal-wknum { font-size: var(--tj-fs-small); font-weight: 700; color: var(--tj-fg-3); }
 .tj-pcal-wkpnl { font-size: var(--tj-fs-small); font-weight: 600; color: var(--text-muted); }
-.tj-pcal-wk.is-pos { background: color-mix(in srgb, var(--color-green-bright) 9%, transparent); border: 1px solid color-mix(in srgb, var(--color-green-bright) 16%, transparent); }
-.tj-pcal-wk.is-pos .tj-pcal-wknum { color: var(--color-green-bright); }
-.tj-pcal-wk.is-neg { background: color-mix(in srgb, var(--color-red-bright) 9%, transparent); border: 1px solid color-mix(in srgb, var(--color-red-bright) 15%, transparent); }
-.tj-pcal-wk.is-neg .tj-pcal-wknum { color: var(--color-red-bright); }
+.tj-pcal-wk.is-pos { background: color-mix(in srgb, var(--tj-home-good) 16%, transparent); border: 1px solid color-mix(in srgb, var(--tj-home-good) 28%, transparent); }
+.tj-pcal-wk.is-pos .tj-pcal-wknum { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
+.tj-pcal-wk.is-pos .tj-pcal-wkpnl { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
+.tj-pcal-wk.is-neg { background: color-mix(in srgb, var(--tj-home-bad) 16%, transparent); border: 1px solid color-mix(in srgb, var(--tj-home-bad) 28%, transparent); }
+.tj-pcal-wk.is-neg .tj-pcal-wknum { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
+.tj-pcal-wk.is-neg .tj-pcal-wkpnl { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
 
 /* ==========================================================================
    Softer surfaces — translucent layer, less contrast, unified look
@@ -5566,19 +5640,21 @@ textarea.tj-anno-textinput {
 }
 .tj-app .tj-nav-sidebar { background-color: color-mix(in srgb, var(--tj-surface, var(--background-secondary)) 50%, transparent); }
 
-/* Calendar day tints — soft, matching the equity chart palette */
+/* Calendar day tints — the shared home pair, intensity by day magnitude. */
 .tj-pcal-cell.is-pos {
-  background: color-mix(in srgb, var(--tj-tone-good) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-tone-good) 18%, transparent);
+  background: color-mix(in srgb, var(--tj-home-good) calc(var(--tj-pcal-strength, 0.24) * 100%), transparent);
+  border-color: color-mix(in srgb, var(--tj-home-good) calc(var(--tj-pcal-strength, 0.24) * 160%), transparent);
 }
-.tj-pcal-cell.is-pos .tj-pcal-val { color: var(--tj-tone-good); }
+.tj-pcal-cell.is-pos .tj-pcal-val { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
 .tj-pcal-cell.is-neg {
-  background: color-mix(in srgb, var(--tj-tone-bad) 8%, transparent);
-  border-color: color-mix(in srgb, var(--tj-tone-bad) 17%, transparent);
+  background: color-mix(in srgb, var(--tj-home-bad) calc(var(--tj-pcal-strength, 0.24) * 100%), transparent);
+  border-color: color-mix(in srgb, var(--tj-home-bad) calc(var(--tj-pcal-strength, 0.24) * 160%), transparent);
 }
-.tj-pcal-cell.is-neg .tj-pcal-val { color: var(--tj-tone-bad); }
-.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-good) 62%, var(--text-muted)); }
-.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-tone-bad) 62%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-val { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
+.tj-pcal-cell.is-pos .tj-pcal-num { color: color-mix(in srgb, var(--tj-home-good) 32%, var(--text-muted)); }
+.tj-pcal-cell.is-neg .tj-pcal-num { color: color-mix(in srgb, var(--tj-home-bad) 32%, var(--text-muted)); }
+.tj-pcal-tip-val.tj-pos { color: color-mix(in srgb, var(--tj-home-good) 55%, var(--tj-fg-1)); }
+.tj-pcal-tip-val.tj-neg { color: color-mix(in srgb, var(--tj-home-bad) 55%, var(--tj-fg-1)); }
 
 /* Dashboard: let the background pattern show through the widgets */
 .tj-dashboard .tj-app .tj-gridcard {
@@ -5595,7 +5671,7 @@ textarea.tj-anno-textinput {
   box-shadow: none;
 }
 
-/* Briefing canvas — widgets are modules of the page, not cards: remove the
+/* Home canvas — widgets are modules of the page, not cards: remove the
    decorative shell (tint, border, shadow) only. Analytics keeps its card.
    Internal surfaces (calendar day borders, treemap tiles, tables, controls,
    tooltips, hover/selected states) are untouched. */
@@ -5654,14 +5730,15 @@ textarea.tj-anno-textinput {
 .tj-tip.is-wide { max-width: 520px; }
 .tj-tip.is-wide .tj-tip-sub { font-family: var(--font-monospace, monospace); font-size: var(--tj-fs-label); }
 
-/* GitHub-style P&L heat-map ("Last 6 Months") */
-.tj-heat { display: flex; flex-direction: column; gap: 7px; height: 100%; min-height: 0; justify-content: center; align-items: center; }
-.tj-heat-months { display: flex; gap: 3px; padding-left: 22px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); align-self: center; }
+/* GitHub-style Trading Activity heatmap (last six months). */
+.tj-heat { display: flex; flex-direction: column; gap: 6px; width: 100%; height: 100%; min-width: 0; min-height: 0; justify-content: center; align-items: stretch; }
+.tj-heat-scroll { flex: 0 1 auto; width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.tj-heat-months { display: flex; width: max-content; gap: 3px; margin-inline: auto; padding-left: 26px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
 .tj-heat-mslot { flex: 0 0 auto; overflow: visible; white-space: nowrap; padding-right: 2px; }
-.tj-heat-main { display: flex; gap: 6px; align-self: center; }
-.tj-heat-days { display: flex; flex-direction: column; gap: 3px; width: 16px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
+.tj-heat-main { display: flex; width: max-content; gap: 6px; margin-inline: auto; }
+.tj-heat-days { display: flex; flex: 0 0 20px; flex-direction: column; gap: 3px; width: 20px; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
 .tj-heat-day { display: flex; align-items: center; line-height: 1; }
-.tj-heat-weeks { display: flex; gap: 3px; min-width: 0; }
+.tj-heat-weeks { display: flex; flex: 0 0 auto; gap: 3px; min-width: 0; }
 .tj-heat-col { display: flex; flex-direction: column; gap: 3px; }
 .tj-heat-cell { border-radius: 3px; background: rgba(255, 255, 255, 0.045); transition: filter 120ms ease; }
 .tj-heat-cell.tj-tip-anchor:hover { filter: brightness(1.35); }
@@ -5791,11 +5868,18 @@ textarea.tj-anno-textinput {
   color: var(--text-normal) !important;
 }
 
-/* Trading Score v2 — weighted radar / unlock ring */
+/* Trading Score v1 — five-axis radar with honest unavailable states. */
 .tj-score2 { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .tj-score2 .tj-radar { flex: 1 1 auto; min-height: 0; }
-.tj-score-lock { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; position: relative; }
-/* Arc gauge primitive (lib/chartKit.ts) — score unlock ring + review gauge. */
+/* Wide card: put the score beside the radar and use the horizontal space. */
+@container (min-width: 380px) {
+  .tj-score2 { flex-direction: row; align-items: center; gap: 14px; }
+  .tj-score2 .tj-radar { flex: 1 1 58%; min-width: 0; }
+  .tj-score-foot { flex: 0 0 auto; flex-direction: column; align-items: flex-start; margin-top: 0; gap: 4px; }
+  .tj-score-meta { flex: 0 0 auto; align-items: flex-start; }
+  .tj-score-scope { white-space: normal; }
+}
+/* Arc gauge primitive (lib/chartKit.ts) — review gauge. */
 .tj-arc { position: relative; display: inline-flex; align-items: center; justify-content: center; }
 .tj-arc-svg { width: 100%; height: auto; display: block; }
 .tj-arc-track { stroke: rgba(255, 255, 255, 0.08); }
@@ -5803,7 +5887,6 @@ textarea.tj-anno-textinput {
 .tj-arc-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .tj-arc-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-arc-color, var(--text-normal)); }
 .tj-arc-small { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
-.tj-score-gauge { width: min(56%, 170px); }
 /* Continuous-bar primitive (lib/chartKit.ts) — horizontal, never vertical. */
 .tj-cbar { display: flex; flex-direction: column; gap: 4px; width: 100%; }
 .tj-cbar-track { display: flex; gap: 2px; height: 26px; border-radius: 6px; overflow: hidden; }
@@ -5830,7 +5913,8 @@ textarea.tj-anno-textinput {
 /* Breakdown widget — internal tabs over one treemap. Tabs are plain text with an
    accent underline on the active one (the same language as the account page). */
 .tj-bd { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
-.tj-bd-tabs { display: flex; gap: 2px; flex-wrap: wrap; flex: 0 0 auto; }
+.tj-bd-tabs { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex: 0 0 auto; }
+.tj-bd-tabs::-webkit-scrollbar { display: none; }
 /* On the card title line: pushed to the right, and allowed to shrink/wrap. */
 .tj-bd-tabs-head { margin-left: auto; min-width: 0; justify-content: flex-end; }
 .tj-bd-tab {
@@ -5843,29 +5927,44 @@ textarea.tj-anno-textinput {
   content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 2px;
   background: color-mix(in srgb, var(--interactive-accent) 78%, transparent); border-radius: 0;
 }
-.tj-bd-body { flex: 1 1 auto; min-height: 0; }
+.tj-bd-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .tj-bd-treemap { height: 100%; }
-/* Streaks — hero + context + W/L ribbon. */
-.tj-streaks { display: flex; flex-direction: column; justify-content: center; gap: 8px; height: 100%; min-height: 0; }
-.tj-streaks-hero { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.tj-streaks-icon { display: inline-flex; align-items: center; }
-.tj-streaks-icon svg { width: 16px; height: 16px; }
-.tj-streaks-count { font-size: var(--tj-fs-head); font-weight: 700; }
-.tj-streaks-hero.is-pos .tj-streaks-count { color: var(--tj-tone-good); }
-.tj-streaks-hero.is-warn .tj-streaks-count { color: var(--tj-tone-mid); }
-.tj-streaks-state { font-size: var(--tj-fs-small); text-transform: uppercase; letter-spacing: 0.05em; color: var(--tj-fg-3); }
-.tj-streaks-state.is-pos { color: var(--tj-tone-good); }
-.tj-streaks-state.is-warn { color: var(--tj-tone-mid); }
-.tj-streaks-state.is-flat { color: var(--tj-fg-3); }
-.tj-streaks-ctx { font-size: var(--tj-fs-small); color: var(--tj-fg-3); cursor: help; }
-/* Compact: drop the state line when the card is tiny. */
-.tj-streaks.is-tiny .tj-streaks-state { display: none; }
+/* Streaks — one prominent current run, phrase, and existing historical context. */
+.tj-streaks {
+  /* A touch brighter than the shared pair, so the current run stands out on
+     the Home canvas without going neon. */
+  --tj-streak-good: color-mix(in srgb, var(--tj-home-good) 62%, var(--tj-tone-good));
+  --tj-streak-bad: color-mix(in srgb, var(--tj-home-bad) 62%, var(--tj-tone-bad));
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "hero" "state" "context"; align-content: center; justify-items: center; gap: 10px; width: 100%; height: 100%; min-height: 0; text-align: center;
+}
+.tj-streaks-hero { display: flex; grid-area: hero; align-items: center; justify-content: center; gap: 14px; min-width: 0; max-width: 100%; flex-wrap: wrap; text-align: center; }
+.tj-streaks-icon { display: inline-flex; flex: 0 0 auto; align-items: center; color: var(--tj-fg-2); }
+.tj-streaks-icon svg { width: calc(var(--tj-fs-hero) * var(--tj-streak-scale, 1)); height: calc(var(--tj-fs-hero) * var(--tj-streak-scale, 1)); }
+.tj-streaks-count { overflow: hidden; font-size: calc(var(--tj-fs-hero) * var(--tj-streak-scale, 1)); font-weight: var(--tj-w-bold); text-overflow: ellipsis; white-space: nowrap; }
+.tj-streaks-hero.is-pos .tj-streaks-icon { color: var(--tj-streak-good); }
+.tj-streaks-hero.is-warn .tj-streaks-icon { color: var(--tj-streak-bad); }
+.tj-streaks-hero.is-pos .tj-streaks-count { color: color-mix(in srgb, var(--tj-streak-good) 55%, var(--tj-fg-1)); }
+.tj-streaks-hero.is-warn .tj-streaks-count { color: color-mix(in srgb, var(--tj-streak-bad) 55%, var(--tj-fg-1)); }
+.tj-streaks-state { grid-area: state; padding-top: calc(var(--tj-sp-1) * var(--tj-streak-scale, 1)); color: var(--tj-fg-3); font-size: calc(var(--tj-fs-body) * var(--tj-streak-scale, 1)); font-weight: var(--tj-w-medium); letter-spacing: 0.08em; text-align: center; text-transform: uppercase; }
+.tj-streaks-state.is-pos { color: color-mix(in srgb, var(--tj-streak-good) 55%, var(--tj-fg-1)); }
+.tj-streaks-state.is-warn { color: color-mix(in srgb, var(--tj-streak-bad) 55%, var(--tj-fg-1)); }
+.tj-streaks-state.is-flat { color: var(--tj-fg-2); }
+.tj-streaks-ctx { grid-area: context; color: var(--tj-fg-3); font-size: calc(var(--tj-fs-small) * var(--tj-streak-scale, 1)); text-align: center; cursor: help; }
+.tj-streaks.is-tiny { grid-template-columns: auto auto; grid-template-areas: "hero state" "context context"; justify-content: center; gap: 2px 8px; }
+.tj-streaks.is-tiny .tj-streaks-hero { gap: 5px; flex-wrap: nowrap; }
+
+/* Optional Home visual — Avg hold. */
+.tj-hold { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; height: 100%; min-height: 0; text-align: center; }
+.tj-hold-icon { display: inline-flex; color: var(--tj-fg-3); }
+.tj-hold-icon svg { width: 20px; height: 20px; }
+.tj-hold-value { color: color-mix(in srgb, var(--tj-home-good) 70%, var(--tj-fg-1)); font-size: var(--tj-fs-hero); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; line-height: 1; }
+.tj-hold-label { color: var(--tj-fg-3); font-size: var(--tj-fs-small); letter-spacing: 0.04em; text-transform: uppercase; }
+.tj-gridcard-body.is-short .tj-hold-value { font-size: var(--tj-fs-head); }
+.tj-gridcard-body.is-tiny .tj-hold-value { font-size: var(--tj-fs-big); }
+.tj-gridcard-body.is-tiny .tj-hold-label { display: none; }
 /* Generic card-body size classes (set by the ResizeObserver) — every widget can
    adapt its content to the card height without a per-widget check. */
 .tj-gridcard-body.is-short .tj-cbar-track { height: 22px; }
-.tj-gridcard-body.is-tiny .tj-disc-gauge { display: none; }
-.tj-gridcard-body.is-tiny .tj-revieww { grid-template-areas: "foot"; grid-template-columns: 1fr; }
-.tj-gridcard-body.is-tiny .tj-streaks-state { display: none; }
 /* Treemap (lib/chartKit.ts) — activity-sized tiles, colour from the chart tokens. */
 .tj-treemap { display: flex; gap: 6px; height: 100%; min-height: 0; width: 100%; }
 .tj-treemap-tile {
@@ -5900,35 +5999,92 @@ textarea.tj-anno-textinput {
 @container (max-width: 40px) { .tj-treemap-t { display: none; } }
 .tj-treemap-tile.pos { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-good) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
 .tj-treemap-tile.neg { background: linear-gradient(160deg, color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 100%), transparent), color-mix(in srgb, var(--tj-chart-bad) calc(var(--tj-tile-strength, 0.2) * 50%), transparent)); }
-/* Discipline compact mode: the widget measures its body and adds .is-compact. */
-.tj-revieww.is-compact { grid-template-areas: "foot"; grid-template-columns: 1fr; }
-.tj-revieww.is-compact .tj-disc-gauge { display: none; }
 /* Overflow policy: charts scale inside the card; tables/lists scroll. */
 .tj-gridcard-body.tj-scale { overflow: hidden; }
 .tj-gridcard-body.tj-scroll { overflow: auto; }
-/* Discipline — hero gauge + compact status squares */
-.tj-disc-gauge { width: clamp(64px, 40%, 108px); max-height: 100%; }
-.tj-disc-gauge .tj-arc-svg { max-height: 100%; }
-.tj-disc-process { margin-top: 2px; }
-/* Payouts widget — six months of cash out as one continuous bar. */
-.tj-pay-cbar .tj-cbar-track { height: 26px; }
-.tj-score-msg { text-align: center; font-size: var(--tj-fs-strong); color: var(--text-normal); margin-top: 8px; }
-.tj-score-trades { text-align: center; font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; }
-.tj-score-foot { flex: 0 0 auto; display: flex; align-items: baseline; justify-content: center; gap: 9px; margin-top: 2px; }
-.tj-score-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-score-color, var(--text-normal)); }
-.tj-score-meta { display: flex; flex-direction: column; font-size: var(--tj-fs-small); line-height: 1.25; }
+/* Score footer: the number is essential, so the metadata wraps under it instead
+   of pushing the number out of the card on a narrow widget. */
+.tj-score-foot { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; row-gap: 2px; gap: 9px; margin-top: 2px; min-width: 0; }
+.tj-score-big { font-size: var(--tj-fs-hero); font-weight: 700; line-height: 1; color: var(--tj-score-color, var(--text-normal)); transition: font-size 160ms ease; }
+.tj-score-meta { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; font-size: var(--tj-fs-small); line-height: 1.25; }
 .tj-score-phase { font-weight: 600; color: var(--text-muted); }
-.tj-score-weeks { color: var(--tj-fg-3); }
+.tj-score-phase.is-provisional { color: var(--tj-tone-mid); }
+.tj-score-scope { color: var(--tj-fg-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Compact summary (no room for a readable radar): centre the number. */
+.tj-score2.is-mini { justify-content: center; }
 /* Score & Discipline adapt to the card: the number steps down and secondary
    lines drop before anything overlaps or clips. */
 .tj-gridcard-body.is-short .tj-score-big { font-size: var(--tj-fs-head); }
 .tj-gridcard-body.is-tiny .tj-score-big { font-size: var(--tj-fs-strong); }
-.tj-gridcard-body.is-tiny .tj-score-meta { display: none; }
-.tj-gridcard-body.is-short .tj-score-gauge { width: min(64%, 150px); }
-/* Discipline: the gauge grows with the card, so a tall card is not mostly empty. */
-.tj-gridcard-body .tj-disc-gauge { width: clamp(64px, 46%, 150px); }
-.tj-gridcard-body.is-short .tj-disc-gauge { width: clamp(56px, 42%, 110px); }
-.tj-gridcard-body.is-short .tj-revieww { gap: 6px; }
+.tj-gridcard-body.is-tiny .tj-score-scope { display: none; }
+
+/* ==========================================================================
+   Container-query adaptations
+   `.tj-gridcard-body` is the container (inline-size), so these rules key off
+   the widget's own width — a narrow card adapts even on a wide window, and a
+   short one drops secondary lines before anything clips. Journalit does the
+   same with @container on its widget roots.
+   ========================================================================== */
+
+/* Performance Calendar: drop the per-day P&L, then the week column and title. */
+@container (max-width: 360px) or (max-height: 250px) {
+  .tj-pcal-val { display: none; }
+}
+@container (max-width: 290px) or (max-height: 200px) {
+  .tj-pcal-wk { display: none; }
+  .tj-pcal-name { display: none; }
+  .tj-pcal-title { font-size: var(--tj-fs-small); margin-bottom: 3px; }
+}
+
+/* Trading Activity: size the six-month grid to fit and reduce its label density. */
+@container (max-width: 360px) {
+  .tj-heat-days { display: none; }
+  .tj-heat-months { padding-left: 0; }
+}
+@container (max-width: 300px) {
+  .tj-heat-months { display: none; }
+}
+@container (max-width: 220px) {
+  .tj-heat-legend { display: none; }
+}
+@container (max-height: 150px) {
+  .tj-heat-legend { display: none; }
+}
+
+/* Trading Score: hide the axis labels before they turn to unreadable specks. */
+@container (max-width: 300px) {
+  .tj-radar-label { display: none; }
+}
+
+/* Charts: axis labels are the first thing to go on a small card. */
+@container (max-height: 140px) or (max-width: 220px) {
+  .tj-eq-ylabel, .tj-eq-xlabel { display: none; }
+}
+
+/* Trends: the "previous" column is context, not the answer — drop it first. */
+@container (max-width: 320px) {
+  .tj-trendval.is-prev { display: none; }
+}
+
+/* Metric cards: the label is the identity; the sub-line is secondary. */
+@container (max-width: 110px) {
+  .tj-metric-label { -webkit-line-clamp: 1; }
+}
+@container (max-height: 72px) {
+  .tj-metric-sub { display: none; }
+}
+
+/* Breakdown list fallback: names + values stay readable without hover. */
+.tj-bd-list { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.tj-bd-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: baseline;
+  padding: 4px 2px; border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer; font-size: var(--tj-fs-small);
+}
+.tj-bd-row:hover { background: var(--background-modifier-hover); }
+.tj-bd-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tj-bd-row-win { color: var(--tj-fg-3); text-align: right; font-variant-numeric: tabular-nums; }
+.tj-bd-row-val { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Accounts tab — toolbar bits (header styles are defined once below, with the
    portfolio section, so there is only one definition of each rule) */
@@ -6737,33 +6893,13 @@ textarea.tj-anno-textinput {
   border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 15px 17px;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.012)); min-width: 0;
 }
-.tj-acc-eqval { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.tj-acc-eqval { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
 .tj-acc-big { font-size: var(--tj-fs-hero); font-weight: 700; font-variant-numeric: tabular-nums; }
 .tj-acc-growth { font-size: var(--tj-fs-body); font-variant-numeric: tabular-nums; }
 .tj-acc-eqchart { position: relative; height: 170px; }
 
-/* risk ↔ target */
-.tj-acc-riskrow { display: grid; grid-template-columns: 88px 1fr auto; gap: 12px; align-items: center; }
-.tj-acc-riskname { font-size: var(--tj-fs-body); color: var(--text-muted); }
-.tj-acc-risktrack { position: relative; height: 22px; border-radius: 7px; background: rgba(255,255,255,.05); overflow: hidden; }
-.tj-acc-zone { position: absolute; top: 0; bottom: 0; }
-.tj-acc-zone-loss { left: 0; background: linear-gradient(90deg, rgba(143,43,30,.6), rgba(143,43,30,.15)); }
-.tj-acc-zone-gain { right: 0; background: linear-gradient(90deg, rgba(34,122,74,.12), rgba(34,122,74,.5)); }
-.tj-acc-zone-mid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,.25); }
-.tj-acc-marker { position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,.45); }
-/* Trailing drawdown floor — a thin dashed tick on the same bar, so the loss
-   limit and the target keep one message instead of two competing bars. */
-.tj-acc-marker-dd { position: absolute; top: -3px; bottom: -3px; width: 2px;
-  background: repeating-linear-gradient(to bottom, var(--tj-fg-2) 0 3px, transparent 3px 6px); }
-.tj-acc-riskright { text-align: right; min-width: 84px; }
-.tj-acc-risknet { font-size: var(--tj-fs-strong); font-weight: 700; font-variant-numeric: tabular-nums; }
-.tj-acc-risksub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
-.tj-acc-riskaxis {
-  position: relative; height: 14px; margin: 8px 0 0 100px; padding-right: 96px;
-  color: var(--tj-fg-3); font-size: var(--tj-fs-label); letter-spacing: .06em; text-transform: uppercase;
-}
-.tj-acc-riskaxis span { position: absolute; top: 0; white-space: nowrap; }
-.tj-acc-riskfacts { display: flex; gap: 26px; flex-wrap: wrap; margin-top: 14px; }
+/* Risk summary */
+.tj-acc-risktrack { position: relative; height: 20px; border-radius: 7px; background: rgba(255,255,255,.05); overflow: hidden; }
 .tj-acc-factv { font-size: var(--tj-fs-big); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* performance dials */
@@ -6786,6 +6922,11 @@ textarea.tj-anno-textinput {
   border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 15px 17px;
   background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.012)); min-width: 0;
 }
+.tj-acc-widget-trades { min-width: 0; }
+.tj-acc-widget-trades .tj-panel { margin-top: 0; }
+.tj-acc-widget-trades .tj-acct-h1 { min-height: 38px; gap: var(--tj-sp-2); margin: 0; padding: 0 var(--tj-sp-4); border-bottom: 1px solid var(--background-modifier-border); }
+.tj-acc-widget-trades .tj-acct-h1-t { letter-spacing: .08em; }
+.tj-acc-widget-trades .tj-acct-h1-line { margin-left: var(--tj-sp-2); }
 .tj-acc-wh { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tj-acc-wh .tj-acc-k { margin-bottom: 9px; }
 .tj-acc-widgets.is-editing .tj-acc-widget { outline: 1px dashed color-mix(in srgb, #d9a441 45%, transparent); outline-offset: 3px; }
@@ -6913,8 +7054,6 @@ textarea.tj-anno-textinput {
 @media (max-width: 900px) { .tj-acc-mcols { grid-template-columns: 1fr; } }
 
 /* Breakdown widgets — diverging bars + stats */
-.tj-acc-bhead { display: flex; justify-content: space-between; font-size: var(--tj-fs-small); letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3); padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent); }
-
 /* Discipline — gauges + rating + streak dots */
 .tj-acc-disc-top { display: flex; gap: 20px; align-items: center; }
 .tj-acc-disc-top .tj-acc-dscore { flex: 1 1 auto; margin: 0; min-width: 0; }
@@ -6928,7 +7067,6 @@ textarea.tj-anno-textinput {
 .tj-acc-wgrid { gap: 10px; }
 .tj-acc-widget { padding: 12px 14px; }
 .tj-acc-widget .tj-acc-k { margin-bottom: 6px; }
-.tj-acc-bhead { padding-bottom: 6px; margin-bottom: 2px; }
 .tj-acc-btabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
 .tj-acc-btab {
   font: inherit; font-size: var(--tj-fs-small); font-weight: 600; color: var(--tj-fg-3);
@@ -6971,25 +7109,36 @@ textarea.tj-anno-textinput {
 .tj-acc-tchipx { border: none !important; background: transparent !important; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-small); }
 .tj-acc-tchipx:hover { color: var(--text-normal); }
 
-/* Risk bar — labels/values above (centered), bar full width */
-.tj-acc-barhead { display: grid; grid-template-columns: 1fr 1fr; align-items: end; margin-bottom: 7px; }
-.tj-acc-barhead .tj-acc-riskside { min-width: 0; text-align: left; }
-.tj-acc-barhead .tj-acc-riskside-right { text-align: right; }
-/* only the top labels are centered */
-.tj-acc-barhead .tj-acc-riskside-k { text-align: center; }
-.tj-acc-risktrack { position: relative; height: 20px; border-radius: 7px; background: rgba(255,255,255,.05); overflow: hidden; }
+.tj-acc-risk-empty { display: block; padding: 3px 8px; color: var(--tj-fg-3); font-size: var(--tj-fs-small); line-height: 1.4; }
+.tj-acc-risk-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 9px; }
+.tj-acc-risk-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tj-acc-risk-stat-k { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
+.tj-acc-risk-stat-v { overflow: hidden; color: var(--tj-fg-1); font-size: var(--tj-fs-strong); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tj-acc-risk-used { height: 100%; min-width: 0; border-radius: inherit; background: var(--tj-tone-good); transition: width 180ms ease; }
+.tj-acc-risk-used.is-zero { width: 0 !important; }
+.tj-acc-risktrack.is-evaluation { overflow: hidden; background: color-mix(in srgb, var(--tj-fg-3) 10%, transparent); }
+.tj-acc-eval-positive,
+.tj-acc-eval-negative { position: absolute; top: 0; bottom: 0; }
+.tj-acc-eval-positive { background: color-mix(in srgb, var(--tj-tone-good) 28%, transparent); }
+.tj-acc-eval-negative { background: color-mix(in srgb, var(--tj-tone-bad) 28%, transparent); }
+.tj-acc-eval-zero { position: absolute; top: 0; bottom: 0; width: 2px; transform: translateX(-1px); background: var(--tj-fg-1); opacity: .85; }
+.tj-acc-eval-progress { position: absolute; top: -2px; bottom: -2px; width: 3px; transform: translateX(-1px); border-radius: 2px; background: var(--tj-fg-1); box-shadow: 0 0 0 2px color-mix(in srgb, var(--background-primary) 65%, transparent); }
+.tj-acc-risktrack.is-reached { outline: 1px solid var(--tj-tone-bad); outline-offset: 1px; }
+.tj-acc-risktrack.is-unavailable { display: flex; align-items: center; background: color-mix(in srgb, var(--tj-fg-3) 12%, transparent); }
+.tj-acc-ddbadge-unknown { color: var(--tj-fg-2); background: color-mix(in srgb, var(--tj-fg-3) 14%, transparent); }
+.tj-acc-riskaxis { display: flex; justify-content: space-between; gap: 8px; height: auto !important; margin: 4px 0 0 !important; padding: 0 !important; color: var(--tj-fg-3); font-size: var(--tj-fs-small); letter-spacing: 0; text-transform: none; }
+.tj-acc-riskaxis span { position: static; white-space: nowrap; }
+@media (max-width: 560px) {
+  .tj-account-dash .tj-acc-risk-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
-/* Drawdown limit used bar */
-.tj-acc-ddbox { margin-top: 10px; }
+/* Drawdown limit status for the risk summary. */
 .tj-acc-ddhead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .tj-acc-ddbadge { font-size: var(--tj-fs-label); font-weight: 700; letter-spacing: .08em; padding: 2px 6px; border-radius: 4px; }
 .tj-acc-ddbadge-safe { background: rgba(34,122,74,.25); color: var(--color-green-bright, #34d17a); }
 .tj-acc-ddbadge-warning { background: rgba(217,164,65,.2); color: #d9a441; }
 .tj-acc-ddbadge-critical { background: rgba(255,93,72,.2); color: var(--color-red-bright, #ff5d48); }
 .tj-acc-ddbadge-breached { background: rgba(143,43,30,.3); color: var(--color-red-bright, #ff5d48); }
-.tj-acc-ddinfo { display: flex; justify-content: space-between; margin-top: 3px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
-.tj-acc-ddsummary { margin-top: 4px; font-size: var(--tj-fs-small); color: var(--text-muted); }
-.tj-acc-ddtype { margin-top: 3px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-acc-eqright { margin-left: auto; text-align: right; flex-shrink: 0; }
 .tj-acc-eqtitlerow { display: flex; align-items: center; justify-content: space-between; }
 .tj-acc-eqtitlerow .tj-acc-k { font-size: var(--tj-fs-label); letter-spacing: .1em; text-transform: uppercase; color: var(--tj-fg-3); }
@@ -6998,8 +7147,6 @@ textarea.tj-anno-textinput {
 .tj-acc-streak-win { background: var(--color-green-bright, #34d17a); }
 .tj-acc-streak-loss { background: var(--color-red-bright, #ff5d48); }
 .tj-acc-streak-be { background: rgba(255,255,255,.12); }
-.tj-acc-riskaxis { position: relative !important; height: 14px !important; margin: 6px 0 0 !important; padding: 0 !important; }
-.tj-acc-riskaxis span { position: absolute; top: 0; white-space: nowrap; }
 
 /* Discipline side — score bar (mirrors the Risk bar) */
 .tj-acc-dscore { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; margin: 0; }
@@ -7017,6 +7164,48 @@ textarea.tj-anno-textinput {
 .tj-acc-bdhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .tj-acc-bdhead .tj-acc-k { margin-bottom: 8px; }
 .tj-acc-btabs { display: flex; gap: 2px; margin-bottom: 8px; }
+
+/* Individual Account Dashboard: quieter hierarchy and a compact, aligned
+   Key Metrics face. The configured loss/target proportions stay proportional;
+   the zones are subdued so the white Net-result marker remains the answer. */
+.tj-account-dash .tj-acc-titlewrap h1 {
+  font-size: var(--tj-fs-display);
+  line-height: 1.25;
+}
+.tj-account-dash .tj-acc-eqcard,
+.tj-account-dash .tj-acc-flipface {
+  padding: 12px 14px;
+}
+.tj-account-dash .tj-acc-riskchart {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.tj-account-dash .tj-acc-riskdials {
+  gap: 8px;
+}
+.tj-account-dash .tj-acc-risktrack {
+  height: 17px;
+}
+.tj-account-dash .tj-acc-mcols {
+  gap: 3px 20px;
+  margin-top: 10px;
+}
+.tj-account-dash .tj-acc-mrow {
+  gap: 8px;
+  padding: 3px 0;
+}
+.tj-account-dash .tj-acc-mvalue {
+  font-size: var(--tj-fs-body);
+}
+.tj-account-dash .tj-acc-riskchart .tj-acc-dial-num {
+  font-size: var(--tj-fs-strong);
+}
+@media (max-width: 900px) {
+  .tj-account-dash .tj-acc-riskchart {
+    grid-template-columns: 1fr;
+  }
+}
 
 /* Flip card: padding override */
 .tj-acc-flipcard { padding: 0 !important; }
@@ -7069,6 +7258,7 @@ textarea.tj-anno-textinput {
 .tj-eq-mark-dot { fill: var(--background-primary); stroke-width: 2; }
 .tj-eq-mark-in .tj-eq-mark-dot { stroke: var(--color-green-bright, #34d17a); }
 .tj-eq-mark-out .tj-eq-mark-dot { stroke: #d9a441; }
+.tj-eq-mark-adjustment .tj-eq-mark-dot { stroke: var(--tj-fg-3); }
 .tj-eq-reflabel { font-size: var(--tj-fs-label); letter-spacing: .08em; text-transform: uppercase; opacity: .95; paint-order: stroke; stroke: var(--background-primary); stroke-width: 3px; stroke-linejoin: round; }
 .tj-eq-ddlabel { cursor: pointer; }
 .tj-eq-chart-tip { position: fixed; z-index: 1000; background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; padding: 8px 10px; box-shadow: 0 4px 12px rgba(0,0,0,.35); pointer-events: none; }
@@ -7627,7 +7817,7 @@ textarea.tj-anno-textinput {
    column — the whole point of the widget is column reading. */
 .tj-trendrow {
   display: grid;
-  grid-template-columns: 1fr 108px 108px 96px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--tj-sp-2);
   padding: 5px 0;
@@ -7644,6 +7834,9 @@ textarea.tj-anno-textinput {
 .tj-trendname {
   font-size: var(--tj-fs-body);
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tj-trendval {
   font-size: var(--tj-fs-strong);
@@ -7807,20 +8000,19 @@ textarea.tj-anno-textinput {
    closed by the ledger eating the container's side padding (see below), so no
    shadow can be uneven between columns. Square ends, like the panel that holds
    it: a rounded bar is not a shape this page language uses. */
-.tj-tbl thead th {
+.tj-tbl:not(.is-static) thead th {
   background: color-mix(in srgb, var(--text-normal) 7%, var(--background-primary)) !important;
   border-bottom: none;
   z-index: 10 !important;
   box-shadow: 0 -20px 0 0 var(--background-primary);
 }
 /* A checkbox in a clickable row is a target in its own right (SC 2.5.8). */
-.tj-tbl-selcol {
-  width: 30px;
-  padding: 0 4px 0 0 !important;
-}
+.tj-tbl-selcol { width: 34px; min-width: 34px; max-width: 34px; padding: 0 !important; text-align: center; }
 .tj-tbl-check {
+  display: block;
   width: 24px;
   height: 24px;
+  margin: 0 auto;
   cursor: pointer;
 }
 
@@ -8198,51 +8390,88 @@ textarea.tj-anno-textinput {
 .tj-attention {
   display: flex;
   align-items: center;
-  gap: 8px;
   flex-wrap: wrap;
-  margin: 12px 0 0;
+  gap: 2px 5px;
+  margin: 7px 0 0;
 }
 .tj-attn-label {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 3px;
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
-  color: var(--tj-fg-3);
+  color: var(--tj-fg-2);
   white-space: nowrap;
 }
 .tj-attention.is-clear .tj-attn-label {
   display: none;
 }
-/* A queue chip is a tag you can press: words first, the state carried by the
-   fill and the border, never by colour alone. */
-.tj-attn-chip {
+/* Needs-attention filters use the same text-tab treatment as period controls. */
+.tj-attn-shortcut {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 3px 8px 5px;
+  border: 0 !important;
+  border-radius: 0;
   background: transparent !important;
   background-image: none !important;
-  box-shadow: none;
-  color: var(--text-muted);
-  font-size: var(--tj-fs-small);
+  box-shadow: none !important;
+  color: var(--tj-fg-1);
+  font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-medium);
+  text-align: center;
   cursor: pointer;
+  transition: color 120ms ease;
 }
-.tj-attn-chip::before {
+.tj-attn-shortcut::after {
+  position: absolute;
+  right: 7px;
+  bottom: 0;
+  left: 7px;
+  height: 1px;
+  background: transparent;
   content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  background: var(--tj-tone-mid);
 }
-.tj-attn-chip:hover {
-  color: var(--text-normal);
-  border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
+.tj-attn-count {
+  color: var(--tj-fg-1);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
-.tj-attn-chip.is-on {
+.tj-attn-copy {
+  color: var(--tj-fg-2);
+  white-space: nowrap;
+}
+.tj-attn-shortcut:hover {
   color: var(--text-normal);
-  border-color: color-mix(in srgb, var(--tj-tone-mid) 55%, var(--background-modifier-border));
+  background: transparent !important;
+}
+.tj-attn-shortcut:hover .tj-attn-count,
+.tj-attn-shortcut:hover .tj-attn-copy {
+  color: var(--text-normal);
+}
+.tj-attn-shortcut:hover::after {
+  background: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+}
+.tj-attn-shortcut.is-on {
+  color: var(--text-normal);
+  background: transparent !important;
+}
+.tj-attn-shortcut.is-on::after {
+  background: var(--interactive-accent);
+}
+.tj-attn-shortcut.is-on .tj-attn-count,
+.tj-attn-shortcut.is-on .tj-attn-copy {
+  color: var(--text-normal);
+}
+.tj-attn-shortcut:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: 3px;
 }
 .tj-attn-none {
   font-size: var(--tj-fs-small);
@@ -8283,21 +8512,29 @@ textarea.tj-anno-textinput {
 .tj-tl-bulk {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 12px;
-  margin: 8px 0;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 35%, var(--background-modifier-border));
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.022);
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 7px 10px;
+  margin: 5px 0;
+  border: 0;
+  border-radius: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+  background: transparent;
 }
+.tj-tl-bulk > * { flex: 0 0 auto; }
+.tj-tl-bulkgroup { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; }
+.tj-tl-bulkgroup.is-separated { margin-left: 3px; padding-left: 9px; border-left: 1px solid var(--background-modifier-border); }
+.tj-tl-bulkgroup.is-destructive { padding-left: 10px; border-left-color: color-mix(in srgb, var(--tj-tone-bad) 45%, var(--background-modifier-border)); }
 .tj-tl-bulkinline {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 30px;
 }
 .tj-tl-bulkinput {
-  height: 28px;
+  height: 30px;
   min-width: 160px;
   padding: 0 9px;
   border-radius: 7px;
@@ -8309,6 +8546,81 @@ textarea.tj-anno-textinput {
 .tj-tl-bulkinput:focus {
   outline: none;
   border-color: var(--interactive-accent);
+}
+.tj-tl-bulkbtn:focus-visible,
+.tj-tl-bulkpick .tj-mg-dd-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+.tj-tl-bulkbtn.is-disabled,
+.tj-tl-bulkbtn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.tj-tl-bulkbtn.tj-del {
+  color: var(--color-red-bright, #ff5d48);
+}
+.tj-tl-bulkbtn.tj-del:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-red, #ad3527) 12%, transparent);
+}
+.tj-tl-bulk .tj-tl-bulkpick .tj-mg-dd-btn {
+  min-height: 30px;
+  padding: 4px 9px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  font-size: var(--tj-fs-small);
+}
+.tj-tl-bulk .tj-mg-dd-list { padding: 4px; }
+.tj-tl-bulk .tj-mg-dd-item { min-height: 30px; gap: 6px; padding: 4px 5px; }
+.tj-tl-bulk .tj-mg-dd-txt { min-width: 0; }
+.tj-tl-bulk .tj-tl-bulkbtn {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent !important;
+  box-shadow: none !important;
+  line-height: 1.2;
+}
+.tj-tl-bulk .tj-tl-bulkbtn:hover:not(:disabled) {
+  border-color: var(--background-modifier-border);
+  background: var(--background-modifier-hover) !important;
+}
+.tj-tl-bulkgroup.is-destructive .tj-tl-bulkbtn.tj-del {
+  border-color: color-mix(in srgb, var(--tj-tone-bad) 30%, transparent);
+  color: var(--tj-tone-bad);
+}
+.tj-tl-bulk-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow: hidden;
+  padding: 10px;
+}
+.tj-tl-bulk-tags-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.tj-tl-bulk-tags-title { color: var(--tj-fg-1); font-size: var(--tj-fs-small); font-weight: var(--tj-w-bold); }
+.tj-tl-bulk-tags-count { margin-left: auto; color: var(--tj-fg-3); font-size: var(--tj-fs-label); font-variant-numeric: tabular-nums; }
+.tj-tl-bulk-tags-note { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
+.tj-tl-bulk-tags-list { max-height: min(38vh, 240px); min-height: 0; overflow-y: auto; border-top: 1px solid var(--background-modifier-border); border-bottom: 1px solid var(--background-modifier-border); padding: 3px 0; }
+.tj-tl-bulk-tag-option { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; min-height: 30px; padding: 3px 5px; border-radius: 5px; cursor: pointer; }
+.tj-tl-bulk-tag-option:hover { background: var(--background-modifier-hover); }
+.tj-tl-bulk-tag-option input { width: 16px; height: 16px; margin: 0; accent-color: var(--interactive-accent); }
+.tj-tl-bulk-tag-label { min-width: 0; color: var(--tj-fg-2); font-size: var(--tj-fs-small); }
+.tj-tl-bulk-tags-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tj-tl-bulk-tags-actions button { min-height: 30px; padding: 4px 7px; border: 1px solid var(--background-modifier-border); border-radius: 6px; background: transparent; color: var(--tj-fg-2); font-size: var(--tj-fs-small); }
+.tj-tl-bulk-tags-actions button:hover:not(:disabled) { border-color: var(--interactive-accent); color: var(--interactive-accent); }
+.tj-tl-bulk-tags-actions .tj-tl-bulk-tags-remove { border-color: color-mix(in srgb, var(--tj-tone-bad) 35%, var(--background-modifier-border)); color: var(--tj-tone-bad); }
+.tj-tl-bulk-tags-actions button:disabled { opacity: .4; cursor: not-allowed; }
+@media (max-width: 760px) {
+  .tj-tl-bulk {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+  .tj-tl-bulkgroup { flex-wrap: wrap; }
 }
 /* The filters drawer: a slide-over overlay that covers the viewport when open.
    Table keeps 100% width always; the drawer sits on top. */
@@ -8323,42 +8635,47 @@ textarea.tj-anno-textinput {
   width: 320px;
   max-width: 100%;
   z-index: 100;
-  padding: 14px;
-  border: none;
+  padding: 0 14px;
+  border: 0;
   border-left: 1px solid var(--background-modifier-border);
   border-radius: 0;
   background: var(--background-primary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+  box-shadow: none;
 }
 .tj-tl-drawer-backdrop {
   position: fixed;
   inset: 0;
   z-index: 99;
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(0, 0, 0, 0.24);
 }
 @media (max-width: 900px) {
   .tj-tl-drawer {
-    width: 100%;
-    border-radius: 0;
-    border-left: none;
+    width: min(360px, 100vw);
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
   }
 }
 .tj-tl-drawerhead {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 0 10px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 .tj-tl-drawer-title {
   font-size: var(--tj-fs-small);
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  font-weight: var(--tj-w-bold);
-  color: var(--text-normal);
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-2);
+}
+.tj-tl-drawer-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-label);
+  font-variant-numeric: tabular-nums;
 }
 .tj-tl-drawer-x {
   margin-left: auto;
@@ -8379,71 +8696,114 @@ textarea.tj-anno-textinput {
   background: transparent;
 }
 .tj-tl-drawerbody {
-  padding: 8px 0 16px;
+  padding: 3px 0 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 .tj-tl-drawerfoot {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 0;
+  gap: 8px;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--background-modifier-border);
 }
 .tj-tl-drawer-clear {
-  border: none !important;
+  min-height: 28px;
+  padding: 0 6px;
+  border: 0 !important;
+  border-radius: 5px;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
-  padding: 0;
-  height: auto;
   margin-left: auto;
 }
 .tj-tl-drawer-clear:hover {
-  color: var(--text-normal);
+  color: var(--interactive-accent);
   background: transparent !important;
 }
 /* Filter sections: the title is a micro-label, the choices are pills. A filter
    you can read at a glance beats one hidden behind a dropdown. */
 .tj-tl-dsec {
-  margin-bottom: 20px;
+  position: relative;
+  margin: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
 }
+.tj-tl-dsec:last-child { border-bottom: 0; }
 .tj-tl-dsec-t {
-  margin-bottom: 7px;
-  font-size: var(--tj-fs-label);
-  letter-spacing: 0.12em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: var(--tj-fs-small);
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   font-weight: var(--tj-w-medium);
-  color: var(--tj-fg-3);
+  color: var(--tj-fg-2);
 }
 .tj-tl-opts {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px 8px;
 }
 .tj-tl-opts + .tj-tl-opts {
-  margin-top: var(--tj-sp-2);
+  margin-top: 5px;
 }
 .tj-tl-opt {
-  padding: 3px 9px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
+  min-height: 28px;
+  padding: 3px 5px;
+  border: 0 !important;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent !important;
+  background-image: none !important;
+  color: var(--tj-fg-2);
   font-size: var(--tj-fs-small);
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: none !important;
+  white-space: nowrap;
 }
 .tj-tl-opt:hover {
-  color: var(--text-normal);
-  background: transparent;
+  color: var(--interactive-accent);
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  background: transparent !important;
 }
 .tj-tl-opt.on {
-  color: var(--text-normal);
-  border-color: color-mix(in srgb, var(--interactive-accent) 50%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+  background: transparent !important;
+  font-weight: var(--tj-w-medium);
+}
+.tj-tl-opt:focus-visible,
+.tj-tl-incl button:focus-visible,
+.tj-tl-accbtn:focus-visible,
+.tj-tl-accrow:focus-visible,
+.tj-tl-drawer-x:focus-visible,
+.tj-tl-drawer-show:focus-visible,
+.tj-tl-drawer-clear:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.tj-tl-accpick .tj-pop-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+}
+.tj-tl-acctop { flex-wrap: wrap; }
+.tj-tl-accinfo { order: 2; width: 100%; }
+.tj-tl-accsearch {
+  order: 1;
+  flex-basis: 100%;
+  min-height: 28px;
+}
+.tj-tl-acclist {
+  max-height: 132px;
+  padding-right: 2px;
 }
 .tj-tl-optnone {
   font-size: var(--tj-fs-small);
@@ -8451,42 +8811,84 @@ textarea.tj-anno-textinput {
   padding: 3px 0;
 }
 .tj-tl-mode {
-  margin: 10px 0 8px;
+  margin: 6px 0;
 }
 .tj-tl-incl {
   display: inline-flex;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
+  border-radius: 5px;
+  padding: 1px;
   overflow: hidden;
 }
 .tj-tl-incl button {
-  padding: 3px 10px;
+  min-height: 25px;
+  padding: 2px 8px;
   border: none;
-  background: transparent;
+  background: transparent !important;
+  background-image: none !important;
   color: var(--text-muted);
   font-size: var(--tj-fs-small);
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: none !important;
 }
 .tj-tl-incl button.on {
-  color: var(--text-normal);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--interactive-accent);
+  border-bottom: 2px solid var(--interactive-accent);
+  border-radius: 0;
+  background: transparent !important;
 }
+.tj-tl-acc-section-label {
+  margin: 10px 0 4px;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-label);
+  font-weight: var(--tj-w-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tj-tl-acctools-wrap { margin-top: var(--tj-sp-2); }
+.tj-tl-acctools-wrap .tj-tl-acc-section-label { margin-top: 0; }
+.tj-tl-acc-list-label { margin-top: var(--tj-sp-3); }
+.tj-tl-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: var(--tj-sp-3) 0; }
+.tj-tl-mode .tj-tl-acc-section-label { margin: 0; }
+.tj-tl-incl button { min-height: 28px; padding: 3px 8px; border-bottom: 2px solid transparent; border-radius: 0; }
 .tj-tl-drawer-show {
   flex: 1 1 auto;
   text-align: center;
-  padding: 6px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: transparent;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border));
+  border-radius: 6px;
+  background: transparent !important;
+  background-image: none !important;
   color: var(--text-normal);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: none !important;
 }
 .tj-tl-drawer-show:hover {
-  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+  background: transparent !important;
+  background-image: none !important;
+}
+.tj-tl-drawer-show:focus-visible,
+.tj-tl-incl button:focus-visible,
+.tj-tl-accbtn:focus-visible,
+.tj-tl-opt:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+@media (max-width: 560px) {
+  .tj-attn-shortcut {
+    min-height: 30px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+  .tj-tl-bulk { column-gap: 4px; row-gap: 4px; }
+  .tj-tl-bulkgroup { gap: 3px; }
+  .tj-tl-bulkgroup.is-separated { margin-left: 0; padding-left: 6px; }
+  .tj-tl-bulk .tj-tl-bulkpick .tj-mg-dd-btn { max-width: 100%; }
 }
 /* The confirm dialog for destructive batch actions. */
 .tj-confirm-title {
@@ -8635,14 +9037,26 @@ textarea.tj-anno-textinput {
   border-color: rgba(217, 164, 65, 0.35);
 }
 
-/* Home → Payouts: cash that left the accounts, and when. No verdicts — the
-   widget answers "how much have I taken out, and when", nothing else. */
-.tj-pay {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--tj-sp-3);
+/* Home → Payouts: one quiet icon and the selected scope's cash-out total. */
+.tj-payout-summary { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 100%; min-width: 0; }
+.tj-payout-summary-head { display: flex; align-items: center; justify-content: center; gap: 12px; min-width: 0; }
+.tj-payout-summary-icon { display: inline-flex; flex: 0 0 auto; color: var(--tj-fg-3); }
+.tj-payout-summary-icon svg { width: 18px; height: 18px; }
+.tj-payout-summary-value { color: var(--tj-fg-1); font-size: var(--tj-fs-hero); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tj-payout-summary-sub { color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-variant-numeric: tabular-nums; }
+.tj-payout-summary-empty { position: absolute; right: 8px; bottom: 4px; left: 8px; color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-align: center; }
+.tj-payout-summary.is-compact { gap: 0; }
+.tj-payout-summary.is-compact .tj-payout-summary-icon svg { width: 14px; height: 14px; }
+.tj-payout-summary.is-compact .tj-payout-summary-value { font-size: var(--tj-fs-head); }
+.tj-payout-summary.is-compact .tj-payout-summary-empty { bottom: 0; font-size: var(--tj-fs-label); }
+.tj-pay-v {
+  font-size: var(--tj-fs-hero);
+  font-weight: var(--tj-w-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-normal);
 }
+/* Shared with the payout modal (the modal reuses these class names). */
 .tj-pay-top {
   display: flex;
   align-items: flex-end;
@@ -8658,11 +9072,6 @@ textarea.tj-anno-textinput {
   color: var(--tj-fg-3);
   font-weight: var(--tj-w-medium);
 }
-.tj-pay-v {
-  font-size: var(--tj-fs-head);
-  font-weight: var(--tj-w-bold);
-  font-variant-numeric: tabular-nums;
-}
 .tj-pay-facts {
   display: flex;
   gap: var(--tj-sp-4);
@@ -8674,11 +9083,6 @@ textarea.tj-anno-textinput {
   font-weight: var(--tj-w-medium);
   font-variant-numeric: tabular-nums;
   color: var(--text-normal);
-}
-.tj-pay-last {
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3);
-  font-variant-numeric: tabular-nums;
 }
 /* Account page: the payout badge. Gold, one number, and nothing else — the door
    is the square in the header next to account settings, so the badge never
@@ -8821,7 +9225,7 @@ textarea.tj-anno-textinput {
 }
 .tj-payout-modal input.tj-payout-input:focus {
   border-bottom-color: var(--interactive-accent) !important;
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  background: transparent !important;
   outline: none;
 }
 /* The number spinner is a browser default that fights the hairline. */
@@ -9648,12 +10052,12 @@ textarea.tj-anno-textinput {
   color: var(--text-normal);
 }
 .tj-tl-accsearch:focus {
-  border-bottom-color: var(--text-muted) !important;
+  border-bottom-color: var(--interactive-accent) !important;
 }
 .tj-tl-acclist {
   display: flex;
   flex-direction: column;
-  max-height: 210px;
+  max-height: 132px;
   overflow-y: auto;
   overscroll-behavior: contain;
   margin-top: var(--tj-sp-2);
@@ -9661,14 +10065,25 @@ textarea.tj-anno-textinput {
 .tj-tl-accrow {
   display: flex;
   align-items: center;
+  width: 100%;
   gap: var(--tj-sp-2);
-  padding: 5px 6px;
-  border-radius: 7px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal);
   cursor: pointer;
   font-size: var(--tj-fs-body);
+  text-align: left;
 }
 .tj-tl-accrow:hover {
-  background: var(--background-modifier-hover);
+  background: var(--background-modifier-hover) !important;
+}
+.tj-tl-accrow.on {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border)) !important;
+  background: transparent !important;
 }
 .tj-tl-accrow.on .tj-tl-accname {
   color: var(--text-normal);
@@ -9678,19 +10093,20 @@ textarea.tj-anno-textinput {
 }
 .tj-tl-accbox {
   flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--tj-fs-label);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  color: var(--text-normal);
+  border-radius: 5px;
+  color: var(--interactive-accent);
 }
 .tj-tl-accrow.on .tj-tl-accbox {
-  border-color: rgba(255, 255, 255, 0.32);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent, #fff);
 }
 .tj-tl-accname {
   flex: 1 1 auto;
@@ -9713,17 +10129,20 @@ textarea.tj-anno-textinput {
   margin-top: var(--tj-sp-2);
 }
 .tj-tl-accbtn {
-  background: transparent;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 999px;
-  padding: 2px 10px;
+  min-height: 28px;
+  background: transparent !important;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  padding: 3px 6px;
   font-size: var(--tj-fs-small);
   color: var(--text-muted);
   cursor: pointer;
 }
 .tj-tl-accbtn:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-hover);
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+  background: transparent !important;
 }
 /* Column presets: a layout you did not choose is one you cannot trust, so the way
    back has to be one click. */

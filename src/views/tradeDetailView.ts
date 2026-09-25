@@ -5,14 +5,14 @@ import { renderAppShell } from "../ui";
 import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice } from "../tz";
 import { legBaseKey } from "../lib/copy";
 import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots } from "../storage";
-import { normalizeTags } from "../lib/tags";
+import { DEFAULT_MISTAKE_TAGS, DEFAULT_PSYCHOLOGY_TAGS, normalizeTags } from "../lib/tags";
 import { PrintAnnotator } from "./printAnnotator";
 import { attachTip } from "../lib/tip";
 import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass, tradePoints } from "../lib/fills";
 import { futuresSpec } from "../futures";
 import { sessionLabel, sessionOf, SESSION_UNKNOWN } from "../lib/sessions";
 import { formatDate } from "../lib/dates";
-import { holdFmt, tradeR } from "../lib/tradeTable";
+import { holdFmtOf, tradeR } from "../lib/tradeTable";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
 import { feeForTrade, priceFromRisk } from "../lib/fees";
@@ -26,16 +26,13 @@ export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
  * and never write themselves onto a trade. A label the trader uses elsewhere
  * joins the same pool, and the inline input still adds anything else.
  */
-const DEFAULT_MISTAKE_TAGS = ["Hesitation Entry", "Early Exit", "FOMO", "Moved Stop", "Overleveraged"];
-const DEFAULT_PSYCHOLOGY_TAGS = ["Confident", "Anxious", "Impatient", "Revenge", "Disciplined"];
-
 export class TradeDetailView extends ItemView {
   plugin: TradebookPlugin;
   trade: Trade | null = null;
   allTrades: Trade[] = [];
   index = -1;
   /** Where this review came from — an account keeps the walk inside that account. */
-  private from: { type: "tradelog" | "account"; accountId?: string } | null = null;
+  private from: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } | null = null;
   /** Setup names available in the picker — registry + names used by notes. */
   setupOptions: string[] = [];
   /** Pending debounced review saves, keyed by field — flushed on switch/close. */
@@ -67,12 +64,18 @@ export class TradeDetailView extends ItemView {
   }
 
   /** The origin to read: the state's, or the one the plugin just set. */
-  private get origin(): { type: "tradelog" | "account"; accountId?: string } {
+  private get origin(): { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } {
     return this.from ?? this.plugin.tradeDetailOrigin ?? { type: "tradelog" as const };
   }
 
-  /** The trades this review walks through: the whole journal, or one account's. */
+  /** The review walks the exact Trade Log result, in its existing order. */
   private async loadScope(): Promise<Trade[]> {
+    const tradeIds = this.origin.type === "tradelog" ? this.origin.tradeIds : undefined;
+    if (tradeIds) {
+      const expanded = await this.plugin.loadTradesExpanded();
+      const byId = new Map(expanded.map((trade) => [trade.id, trade]));
+      return tradeIds.map((id) => byId.get(id)).filter((trade): trade is Trade => !!trade);
+    }
     const all = await this.plugin.loadTrades();
     const accountId = this.origin.type === "account" ? this.origin.accountId : "";
     if (!accountId) return all;
@@ -102,7 +105,7 @@ export class TradeDetailView extends ItemView {
   async setState(state: Record<string, unknown>): Promise<void> {
     const id = state.tradeId as string | null;
     if (!id) return;
-    const from = state.from as { type: "tradelog" | "account"; accountId?: string } | undefined;
+      const from = state.from as { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } | undefined;
     if (from) this.from = from;
     const trades = await this.loadScope();
     this.allTrades = trades;
@@ -145,7 +148,7 @@ export class TradeDetailView extends ItemView {
   async onOpen(): Promise<void> {
     if (!this.trade) {
       // Try to restore from view state (survives Obsidian reload)
-      let saved: { tradeId?: string; from?: { type: "tradelog" | "account"; accountId?: string } } | undefined;
+      let saved: { tradeId?: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } } | undefined;
       try { saved = (this.leaf as any).getViewState?.()?.state; } catch { /* */ }
       if (saved?.from) this.from = saved.from;
       const savedId = saved?.tradeId;
@@ -354,7 +357,7 @@ export class TradeDetailView extends ItemView {
       : "—";
     heroMetric("P&L", fmtMoney2(t.pnl), heroTone);
     heroMetric("Points", heroPtsStr, (heroPts ?? 0) >= 0 ? "pos" : "neg");
-    heroMetric("Hold Time", holdFmt(t.entryTime, t.exitTime));
+    heroMetric("Hold Time", holdFmtOf(t));
 
     // Two-column layout
     const cols = body.createDiv({ cls: "tj-td-cols" });
@@ -2017,7 +2020,7 @@ export class TradeDetailView extends ItemView {
         ...(!opts.hidePnl ? [{ label: "P&L", value: `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`, color: pnl >= 0 ? "#34d17a" : "#ff5d48" }] : []),
         { label: "Points", value: pts.toFixed(2), color: "#dcddde" },
         { label: "R-Multiple", value: `${rm.toFixed(2)}R`, color: "#dcddde" },
-        { label: "Hold Time", value: holdFmt(t.entryTime, t.exitTime), color: "#dcddde" },
+        { label: "Hold Time", value: holdFmtOf(t), color: "#dcddde" },
       ];
       const kpiCount = kpis.length;
       const kpiW = (W - PAD * 2) / kpiCount;

@@ -61,6 +61,24 @@ export function reflow(
   return compactVertical(placed);
 }
 
+/** Adapt a saved grid to the viewport without mutating its stored coordinates. */
+export function layoutForColumns(
+  layout: GridItem[],
+  fromCols: number,
+  toCols: number,
+  minOf?: (id: string) => { w: number; h: number } | undefined,
+): GridItem[] {
+  if (fromCols === toCols) return layout.map((item) => ({ ...item }));
+  if (toCols < fromCols) return reflow(layout, toCols, minOf);
+  const ratio = toCols / fromCols;
+  const scaled = layout.map((item) => {
+    const min = minOf?.(item.i);
+    const w = Math.min(toCols, Math.max(min?.w ?? 1, Math.round(item.w * ratio)));
+    return { ...item, x: clamp(Math.round(item.x * ratio), 0, toCols - w), w };
+  });
+  return compactVertical(scaled);
+}
+
 export const GRID_COLS = 24;
 export const ROW_PX = 44;
 export const GAP = 12;
@@ -79,24 +97,24 @@ export function gridRows(layout: GridItem[]): number {
   return layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
 }
 
-function placeUp(sorted: GridItem[], exemptId?: string): GridItem[] {
-  const placed: GridItem[] = [];
-  for (const it of sorted) {
-    if (it.static || it.i === exemptId) {
-      placed.push({ ...it });
-      continue;
-    }
-    const cur = { ...it };
-    let y = 0;
-    for (let guard = 0; guard < 500; guard++) {
-      const blockers = placed.filter((p) => collides({ ...cur, y }, p));
-      if (blockers.length === 0) break;
-      y = Math.max(...blockers.map((p) => p.y + p.h));
-    }
-    cur.y = y;
-    placed.push(cur);
+function placeAtFirstFreeRow(item: GridItem, placed: GridItem[], fromY: number): GridItem {
+  const next = { ...item, y: Math.max(0, fromY) };
+  for (let guard = 0; guard < 10000; guard++) {
+    const blockers = placed.filter((other) => collides(next, other));
+    if (!blockers.length) return next;
+    next.y = Math.max(next.y + 1, ...blockers.map((other) => other.y + other.h));
   }
-  return placed;
+  return next;
+}
+
+function placeUp(sorted: GridItem[], exemptId?: string): GridItem[] {
+  // Fixed and exempt cards are obstacles from the start of compaction.
+  const fixed = sorted.filter((item) => item.static || item.i === exemptId).map((item) => ({ ...item }));
+  const placed = [...fixed];
+  for (const item of sorted.filter((candidate) => !candidate.static && candidate.i !== exemptId)) {
+    placed.push(placeAtFirstFreeRow(item, placed, 0));
+  }
+  return placed.sort((a, b) => a.y - b.y || a.x - b.x || a.i.localeCompare(b.i));
 }
 
 /** Compact all items upward (classic vertical compaction, rgl default). */
@@ -115,55 +133,72 @@ export function compactExcept(layout: GridItem[], exemptId: string): GridItem[] 
   return placeUp(sorted, exemptId);
 }
 
-/**
- * Simulate dragging `id` to grid cell (nx, ny).
- * Conflicting cards are pushed below the dragged card, then everything else
- * compacts upward around it (live "widget" feel).
- */
-export function moveItem(layout: GridItem[], id: string, nx: number, ny: number): GridItem[] {
+/** Move one item, cascade collisions down, then return the exact visible layout. */
+export function moveItem(layout: GridItem[], id: string, nx: number, ny: number, compact = true, cols = GRID_COLS): GridItem[] {
   const l = layout.map((it) => ({ ...it }));
   const idx = l.findIndex((it) => it.i === id);
   if (idx < 0) return l;
-  const it = l[idx];
-  if (it.static) return l;
-  it.x = clamp(nx, 0, GRID_COLS - it.w);
-  it.y = Math.max(0, ny);
-  it.moved = true;
-  let guard = 0;
-  while (guard++ < 500) {
-    const blockers = l.filter((o) => o !== it && collides(it, o));
-    if (blockers.length === 0) break;
-    for (const o of blockers) o.y = it.y + it.h;
-  }
-  return compactExcept(l, id);
+  const target = l[idx];
+  if (target.static) return l;
+  target.x = clamp(nx, 0, cols - target.w);
+  target.y = Math.max(0, ny);
+  target.moved = true;
+  return resolveItemLayout(l, id, compact);
 }
 
-/** Simulate resizing `id` to (nw, nh), keeping its top-left corner fixed. */
+/** Resize one item, cascading collisions with the same policy as drag. */
 export function resizeItem(
   layout: GridItem[],
   id: string,
   nw: number,
   nh: number,
-  min?: { w: number; h: number }
+  min?: { w: number; h: number },
+  compact = true,
+  cols = GRID_COLS
 ): GridItem[] {
   const l = layout.map((it) => ({ ...it }));
   const it = l.find((x) => x.i === id);
   if (!it || it.static) return l;
-  const minW = Math.min(min?.w ?? 1, GRID_COLS - it.x);
-  it.w = clamp(nw, minW, GRID_COLS - it.x);
+  const minW = Math.min(min?.w ?? 1, cols - it.x);
+  it.w = clamp(nw, minW, cols - it.x);
   it.h = Math.max(min?.h ?? 1, nh);
   it.moved = true;
-  return compactExcept(l, id);
+  return resolveItemLayout(l, id, compact);
+}
+
+/** Keep the edited item in its requested cell and cascade each collision once. */
+export function resolveItemLayout(layout: GridItem[], id: string, compact = true): GridItem[] {
+  const source = layout.map((item) => ({ ...item }));
+  const target = source.find((item) => item.i === id);
+  if (!target) return source;
+  if (target.static) return compact ? compactVertical(source) : source;
+
+  const fixed = source.filter((item) => item.i !== id && item.static);
+  const placed: GridItem[] = fixed.map((item) => ({ ...item }));
+  const resolvedTarget = placeAtFirstFreeRow(target, placed, target.y);
+  placed.push(resolvedTarget);
+
+  const rest = source
+    .filter((item) => item.i !== id && !item.static)
+    .sort((a, b) => a.y - b.y || a.x - b.x || a.i.localeCompare(b.i));
+  for (const item of rest) placed.push(placeAtFirstFreeRow(item, placed, item.y));
+
+  // Keep the manipulated item anchored to the requested pointer cell. Compact
+  // its neighbors around it, not the target itself: the preview cannot snap the
+  // dragged/resized card away from the cell the user chose.
+  return compact
+    ? compactExcept(placed, id)
+    : placed.sort((a, b) => a.y - b.y || a.x - b.x || a.i.localeCompare(b.i));
 }
 
 /** Place a new widget in the first free cell (top-left scan, like css dense packing). */
-export function placeNew(layout: GridItem[], i: string, w: number, h: number): GridItem[] {
+export function placeNew(layout: GridItem[], i: string, w: number, h: number, cols = GRID_COLS): GridItem[] {
   const l = layout.map((it) => ({ ...it }));
   if (l.some((x) => x.i === i)) return l;
-  const newItem: GridItem = { i, x: 0, y: 0, w, h };
+  const newItem: GridItem = { i, x: 0, y: 0, w: clamp(w, 1, cols), h: Math.max(1, h) };
   let y = 0;
   outer: for (;;) {
-    for (let x = 0; x + w <= GRID_COLS; x++) {
+    for (let x = 0; x + w <= cols; x++) {
       if (!l.some((p) => collides({ ...newItem, x, y }, p))) {
         newItem.x = x;
         newItem.y = y;

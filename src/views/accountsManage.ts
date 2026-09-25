@@ -171,9 +171,9 @@ class AccountsManageModal extends Modal {
    */
   private copyStartFor(acc: PropAccount, mode: string, custom: string): string {
     if (mode === "all") return COPY_ALL_START;
-    if (mode === "start") return acc.createdAt || todayIso();
-    if (mode === "custom") return custom || todayIso();
-    return todayIso();
+    if (mode === "start") return acc.createdAt || todayIso(this.plugin.settings.timeZone);
+    if (mode === "custom") return custom || todayIso(this.plugin.settings.timeZone);
+    return todayIso(this.plugin.settings.timeZone);
   }
 
   /** The same choice, said back in words — shown under each copier's name. */
@@ -183,7 +183,7 @@ class AccountsManageModal extends Modal {
     if (mode === "start") {
       return acc ? `copies from ${fmt(this.copyStartFor(acc, mode, custom))} — this account's start` : "since each account was created";
     }
-    if (mode === "custom") return `copies from ${fmt(custom || todayIso())}`;
+    if (mode === "custom") return `copies from ${fmt(custom || todayIso(this.plugin.settings.timeZone))}`;
     return "starts copying today";
   }
 
@@ -205,7 +205,7 @@ class AccountsManageModal extends Modal {
       mode,
       (id) => {
         onMode(id);
-        if (id === "custom" && !custom) onDate(todayIso());
+        if (id === "custom" && !custom) onDate(todayIso(this.plugin.settings.timeZone));
         this.render();
       },
       { placeholder: "Copy from…", title: "When this account began copying" }
@@ -213,8 +213,9 @@ class AccountsManageModal extends Modal {
     attachTip(dd, { title: "Copy from", sub: this.copyStartNote(acc, mode, custom) });
     if (mode === "custom") {
       mountDateField(host, {
-        value: custom || todayIso(),
+        value: custom || todayIso(this.plugin.settings.timeZone),
         format: this.plugin.settings.dateFormat,
+        zone: this.plugin.settings.timeZone,
         onChange: (iso) => onDate(iso),
       });
     }
@@ -437,10 +438,10 @@ class AccountsManageModal extends Modal {
         m.copyRole = "copier";
         m.copyBaseId = lead.id;
         m.copyMultiplier = 1;
-        startCopying(m, lead.id, 1, this.copyStartFor(m, this.newCopyFrom, this.newCopyFromDate));
+        startCopying(m, lead.id, 1, this.copyStartFor(m, this.newCopyFrom, this.newCopyFromDate), this.plugin.settings.timeZone);
         copiers++;
       }
-      closeCopyPeriods(lead);
+      closeCopyPeriods(lead, this.plugin.settings.timeZone);
       this.newOpen = false;
       this.newLeaderId = "";
       this.newMemberIds = [];
@@ -582,16 +583,16 @@ class AccountsManageModal extends Modal {
           }
           const nextAcc = all.find((a) => a.id === next.id);
           if (!nextAcc) return;
-          const from = todayIso();
+          const from = todayIso(this.plugin.settings.timeZone);
           for (const m of members) {
             const mult = m.copyMultiplier ?? 1;
             // Re-link from scratch: nothing from the old group leaks into the
             // new one, and the ratio is written into the config history.
-            unlinkCopier(m);
+            unlinkCopier(m, this.plugin.settings.timeZone);
             m.copyRole = "copier";
             m.copyBaseId = nextAcc.id;
             m.copyMultiplier = mult;
-            startCopying(m, nextAcc.id, mult, from);
+            startCopying(m, nextAcc.id, mult, from, this.plugin.settings.timeZone);
           }
           const name = leader.copyGroupName;
           const colour = leader.copyGroupColor;
@@ -650,11 +651,11 @@ class AccountsManageModal extends Modal {
             this.render();
             return;
           }
-          unlinkCopier(target);
+          unlinkCopier(target, this.plugin.settings.timeZone);
           target.copyRole = "copier";
           target.copyBaseId = leader.id;
           target.copyMultiplier = 1;
-          startCopying(target, leader.id, 1, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate));
+          startCopying(target, leader.id, 1, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate), this.plugin.settings.timeZone);
           this.addPickedId = "";
           this.addCopyFrom = "start";
           this.addCopyFromDate = "";
@@ -692,7 +693,7 @@ class AccountsManageModal extends Modal {
       // startCopying, not openCopyPeriod: the new ratio is written into the
       // account's own config history from today, which is what the copy engine
       // actually reads. Legs already generated keep the ratio they were made with.
-      startCopying(m, leader.id, v, todayIso());
+      startCopying(m, leader.id, v, todayIso(this.plugin.settings.timeZone), this.plugin.settings.timeZone);
       await this.apply();
       this.render();
     });
@@ -710,7 +711,7 @@ class AccountsManageModal extends Modal {
       sub: "Take it out of the group. It keeps every trade it copied and the stretches it ran — link it to another group, or make it a leader, whenever you want.",
     });
     off.addEventListener("click", async () => {
-      unlinkCopier(m);
+      unlinkCopier(m, this.plugin.settings.timeZone);
       await this.apply();
       new Notice(`${m.name} is out of the group. It keeps every trade it copied.`);
       this.render();
@@ -735,12 +736,12 @@ class AccountsManageModal extends Modal {
    */
   private detachAccount(acc: PropAccount): void {
     const accounts = this.plugin.settings.propAccounts ?? [];
-    for (const m of accounts.filter((a) => a.copyBaseId === acc.id)) unlinkCopier(m);
+    for (const m of accounts.filter((a) => a.copyBaseId === acc.id)) unlinkCopier(m, this.plugin.settings.timeZone);
     if (acc.copyRole === "base") {
       acc.copyGroupName = undefined;
       acc.copyGroupColor = undefined;
     }
-    unlinkCopier(acc);
+    unlinkCopier(acc, this.plugin.settings.timeZone);
   }
 
   // ----------------------------------------------------------------- types ----

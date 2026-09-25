@@ -5,8 +5,9 @@ import { futuresSpec, FUTURES_SYMBOLS } from "../futures";
 import { mountDateField } from "../lib/dates";
 import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
-import { fmtMoney2, isDateStr, todayStr, zoneShortLabel } from "../tz";
-import { holdFmt } from "../lib/tradeTable";
+import { fmtMoney2, isDateStr, todayKey, zoneShortLabel } from "../tz";
+import { holdFmtOf } from "../lib/tradeTable";
+import { ManualPin, pinManualInstants } from "../lib/instant";
 import { netPnl, priceFromRisk } from "../lib/fees";
 import { sessionOf } from "../lib/sessions";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
@@ -18,10 +19,10 @@ export interface AddTradePanelOptions {
   onCancel?: () => void;
 }
 
-function createDefaultManualTrade(): Trade {
+function createDefaultManualTrade(journalZone = ""): Trade {
   return {
     id: "",
-    date: todayStr(),
+    date: todayKey(journalZone),
     entryTime: "09:30:00",
     exitTime: "09:45:00",
     symbol: "NQ",
@@ -108,7 +109,7 @@ export class AddTradePanel {
   }
 
   private newManualTrade(): Trade {
-    const t = createDefaultManualTrade();
+    const t = createDefaultManualTrade(this.plugin.settings.timeZone);
     const st = this.plugin.settings;
     if (st.defaultSymbol) t.symbol = st.defaultSymbol;
     if (st.defaultQty) t.quantity = st.defaultQty;
@@ -153,8 +154,9 @@ export class AddTradePanel {
     // ---- Date ----
     const fDate = field("Date");
     mountDateField(fDate.createDiv({ cls: "tj-add-ctl" }), {
-      value: t.date || todayStr(),
+      value: t.date || todayKey(this.plugin.settings.timeZone),
       format: this.plugin.settings.dateFormat,
+      zone: this.plugin.settings.timeZone,
       onChange: (v) => {
         t.date = v;
       },
@@ -371,7 +373,7 @@ export class AddTradePanel {
       vPnl.className = "tj-add-strip-v " + (t.pnl >= 0 ? "pos" : "neg");
       vPts.setText(`${t.pnlPoints >= 0 ? "+" : ""}${t.pnlPoints.toFixed(2)}`);
       vPts.className = "tj-add-strip-v";
-      vHold.setText(holdFmt(t.entryTime, t.exitTime));
+      vHold.setText(holdFmtOf(t));
       vHold.className = "tj-add-strip-v";
       vNet.setText(fmtMoney2(net));
       vNet.className = "tj-add-strip-v " + (net >= 0 ? "pos" : "neg");
@@ -648,6 +650,21 @@ export class AddTradePanel {
   // ================================================================
   // SAVE
   // ================================================================
+
+  /** Why a hand-written time could not be pinned, in trader's language. */
+  private pinMessage(pin: Exclude<ManualPin, { status: "ok" } | { status: "no-zone" }>): string {
+    const zone = zoneShortLabel(pin.zone) || pin.zone;
+    const when = `${pin.issue.date} ${pin.issue.time || ""}`.trim();
+    const field = pin.field === "entry" ? "Entry" : "Exit";
+    if (pin.status === "gap") {
+      return `${field} time ${when} does not exist in ${zone} — the clock jumps forward that night. Move the time and save again.`;
+    }
+    if (pin.status === "ambiguous") {
+      return `${field} time ${when} happens twice in ${zone} — the clock goes back that night. Move it by a minute so there is one instant.`;
+    }
+    return `${field} time ${when} could not be read as a date and time.`;
+  }
+
   async doSave(btn: HTMLElement): Promise<void> {
     if (!this.manualTrades.length) {
       new Notice("Nothing to save yet.");
@@ -666,6 +683,29 @@ export class AddTradePanel {
       if (!(t.entryPrice > 0) || !(t.exitPrice > 0)) {
         new Notice("Fill the entry and exit prices.");
         return;
+      }
+      // Pin the canonical instants in the journal zone. A wall clock with no
+      // single instant that night (the hour the clock jumped over, or the one it
+      // played twice) is refused here — the journal does not round it into a
+      // plausible UTC and then keep it as if it were true.
+      const pin = pinManualInstants(t.date, t.entryTime, t.exitTime, this.plugin.settings.timeZone);
+      if (pin.status === "gap" || pin.status === "ambiguous" || pin.status === "invalid") {
+        new Notice(this.pinMessage(pin));
+        return;
+      }
+      if (pin.status === "ok") {
+        t.entryInstant = pin.entryInstant;
+        t.exitInstant = pin.exitInstant;
+        t.instantSource = pin.source;
+        t.sourceZone = pin.zone;
+      } else {
+        // No journal zone: the wall clock is kept exactly as typed and no
+        // instant is recorded at all. Absence is honest; a UTC we cannot stand
+        // behind is not.
+        delete t.entryInstant;
+        delete t.exitInstant;
+        delete t.instantSource;
+        delete t.sourceZone;
       }
       const spec = futuresSpec(t.symbol);
       const points = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;

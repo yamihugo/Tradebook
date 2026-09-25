@@ -3,7 +3,7 @@ import type TradebookPlugin from "../main";
 import { mountDateField } from "../lib/dates";
 import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
-import { fmtMoney, todayStr } from "../tz";
+import { fmtMoney, todayKey } from "../tz";
 import { allocateProportional, tradeFeeKeys } from "../lib/fees";
 import type { Trade } from "../types";
 
@@ -97,7 +97,7 @@ class FeeAdjustModal extends Modal {
     const first = this.accountTrades()
       .map((t) => t.date)
       .sort()[0];
-    return first ?? todayStr();
+    return first ?? todayKey(this.plugin.settings.timeZone);
   }
 
   /**
@@ -110,7 +110,7 @@ class FeeAdjustModal extends Modal {
       .map((t) => t.date)
       .sort()
       .slice(-1)[0];
-    return last ?? todayStr();
+    return last ?? todayKey(this.plugin.settings.timeZone);
   }
 
   /** This account's trades, resolved by id so a renamed account never slips out. */
@@ -190,7 +190,7 @@ class FeeAdjustModal extends Modal {
       haveVal.createEl("input", {
         type: "number",
         cls: "tj-payout-input",
-        attr: { placeholder: this.journalBalance.toFixed(2) },
+        attr: { placeholder: "Enter actual balance" },
       })
     );
     // Clicking anywhere on the row is clicking the field: the box is only as
@@ -237,11 +237,12 @@ class FeeAdjustModal extends Modal {
     paint();
     if (hadFocus) window.setTimeout(() => haveInput.focus(), 0);
 
-    let when = todayStr();
+    let when = todayKey(this.plugin.settings.timeZone);
     const dateVal = this.row(form, "Date");
     mountDateField(dateVal, {
       value: when,
       format: this.plugin.settings.dateFormat,
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => (when = iso),
     });
 
@@ -264,6 +265,7 @@ class FeeAdjustModal extends Modal {
     mountDateField(windowBox, {
       value: this.from,
       format: this.plugin.settings.dateFormat,
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => {
         this.from = iso;
         this.render();
@@ -273,6 +275,7 @@ class FeeAdjustModal extends Modal {
     mountDateField(windowBox, {
       value: this.to,
       format: this.plugin.settings.dateFormat,
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => {
         this.to = iso;
         this.render();
@@ -359,7 +362,7 @@ class FeeAdjustModal extends Modal {
         Math.round(diff * 100) - slices.reduce((s, x) => s + Math.round(x.amount * 100), 0);
       await this.plugin.registerFeeAdjustment(
         this.accountId,
-        when || todayStr(),
+        when || todayKey(this.plugin.settings.timeZone),
         diff,
         noteInput.value.trim() || undefined,
         slices.length ? { from: this.from, to: this.to } : undefined,

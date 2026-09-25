@@ -1,5 +1,6 @@
 import { ItemView, Notice, TFile, normalizePath } from "obsidian";
 import type TradebookPlugin from "../main";
+import { zoneWallParts } from "../tz";
 
 export const PRINT_QUEUE_VIEW_TYPE = "tradebook-print-queue";
 
@@ -164,8 +165,9 @@ export class PrintQueueView extends ItemView {
       img.src = p.thumb;
 
       const info = item.createDiv({ cls: "tj-pq-info" });
-      const d = new Date(p.ts);
-      const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+      // The queue time is an instant: render it in the Journal Timezone, like
+      // every other clock in the plugin — the host zone decides nothing.
+      const time = zoneWallParts(new Date(p.ts), this.plugin.settings.timeZone).time.slice(0, 5);
       info.createDiv({ cls: "tj-pq-label", text: p.file.name || `Print ${time}` });
       info.createDiv({ cls: "tj-pq-time", text: `${time} · ${(p.file.size / 1024).toFixed(0)} KB` });
 

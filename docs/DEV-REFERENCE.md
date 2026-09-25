@@ -130,7 +130,7 @@ Wertheimer (1923) · Okabe & Ito (2008) · ColorBrewer · Bringhurst · Brown (2
 - Funções pequenas e focadas; nomes claros; código autoexplicativo.
 - Sem código morto, sem estilos mortos, sem comentários obsoletos.
 - Validar todos os inputs; nunca expor segredos; princípio do menor privilégio.
-- Testar o caminho feliz **e** os erros; correr o smoke (181 PASS) e o audit antes de dar
+- Testar o caminho feliz **e** os erros; correr o smoke (188 PASS) e o audit antes de dar
   algo por feito.
 - Se uma regra for violada por engano, corrigir e registar em `PROJECT-SPEC.md` §7.
 
@@ -143,9 +143,17 @@ repro-vault.js · nan-sweep.js · rules-check.js · sim-check.js · session-chec
 pass-check.js · cards-check.js · manage-check.js · wizard-check.js · numbers-check.js
 accmodal-check.js · datefmt-check.js · trends-check.js · tip-check.js · tradelog-check.js
 fills-check.js · filters-check.js · backup-check.js · onboarding-check.js · payouts-check.js
-rename-plan.js · rename-apply.js · folder-check.js · tradelog-perf.js
+rename-plan.js · rename-apply.js · folder-check.js · tradelog-perf.js · financial-check.js
 ```
 
 Screenshots/artefactos: `layout-shot.js <out>` · `modal-shot.js` · `tradelog-shot.js`.
 **Escrever artefactos em `/home/hugo/tj-out/`** — `/tmp` é um tmpfs pequeno.
-O full gate é `node smoke.js /home/hugo/trading-journal-smoke` → **181 PASS / 0 FAIL**.
+O full gate é `node smoke.js /home/hugo/trading-journal-smoke` → **188 PASS / 0 FAIL**.
+
+**Scripts do repo (`source/tools/`)** — correm a partir da raiz do repo, fora do harness:
+
+```
+ux-audit.mjs                 → violações normativas de UX (gate)
+periods-check.mjs            → períodos/âmbito (transpile TS em memória)
+trade-log-safety-check.cjs   → integridade do frontmatter e âmbito da selecção
+```

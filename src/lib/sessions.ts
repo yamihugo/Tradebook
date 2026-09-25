@@ -1,5 +1,11 @@
 import type { Trade } from "../types";
-import { toZoneTime } from "../tz";
+import { toZoneTime, zoneWallParts } from "../tz";
+import { entryInstantDate } from "./instant";
+
+/** The market the session cut is measured in — US futures are quoted in ET.
+ *  This is the one place a zone is hardcoded on purpose: sessions are market
+ *  semantics, not journal representation. */
+const MARKET_ZONE = "America/New_York";
 
 /**
  * Multi-session market classification for futures.
@@ -96,8 +102,19 @@ export function sessionOf(trade: Trade, zone: string): SessionKey | "" {
   // A manual classification wins until it is cleared back to Auto-detect.
   const override = String(trade.sessionOverride ?? "").trim();
   if (override) return override as SessionKey;
-  if (!/^\d{1,2}:\d{2}/.test(String(trade.entryTime ?? "").trim())) return "";
-  const ny = toZoneTime(trade.date, trade.entryTime ?? "", zone);
+
+  // The entry's New York wall clock. With a canonical instant the note's own
+  // zone is irrelevant — the instant already says when it happened, and the
+  // cut is ET whichever zone the journal is set to. Without one, the recorded
+  // time is read in the zone the caller says the note was written in.
+  const instant = entryInstantDate(trade);
+  let ny: string;
+  if (instant) {
+    ny = zoneWallParts(instant, MARKET_ZONE).time;
+  } else {
+    if (!/^\d{1,2}:\d{2}/.test(String(trade.entryTime ?? "").trim())) return "";
+    ny = toZoneTime(trade.date, trade.entryTime ?? "", zone);
+  }
   const mins = minutesOf(ny);
   if (!Number.isFinite(mins)) return "";
 

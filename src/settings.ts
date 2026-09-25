@@ -1,28 +1,20 @@
-import { App, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type TradebookPlugin from "./main";
 import { DEFAULT_ACCOUNT_RULES } from "./futures";
-import { resolveAccountView } from "./lib/accountRules";
-import { freeNumeric } from "./lib/numeric";
-import { firmLabel } from "./lib/firmLogos";
-import { SCOPE_OPTIONS, kpiCard } from "./ui";
 import { TIMEZONE_OPTIONS, detectSystemZone } from "./tz";
 import { attachTip } from "./lib/tip";
 import { THEMES } from "./themes";
-import { openAccountWizard } from "./views/accountWizard";
 import { openRenamePreview } from "./views/renamePreview";
 import { buildDiagnostics } from "./lib/diagnostics";
 import { openBackupSummary } from "./views/backupRestore";
 import { summariseBackup } from "./lib/backup";
 import { HOME_DEFAULT } from "./views/dashboard";
 
-type SettingsTabId = "root" | "journal" | "tradelog" | "appearance" | "timezone" | "accounts" | "advanced";
+type SettingsTabId = "root" | "journal" | "tradelog" | "appearance" | "accounts" | "advanced";
 
 export class SettingsTab extends PluginSettingTab {
   plugin: TradebookPlugin;
-  titleText: TextComponent | null = null;
   active: SettingsTabId = "root";
-  /** A single editor at a time (account id) — keeps the UI clean. */
-  editingRulesFor: string | null = null;
 
   constructor(app: App, plugin: TradebookPlugin) {
     super(app, plugin);
@@ -40,7 +32,7 @@ export class SettingsTab extends PluginSettingTab {
   }
 
   private renderRoot(containerEl: HTMLElement): void {
-    // Super-basic, always visible
+    containerEl.createEl("h3", { text: "Quick settings" });
     const basics = containerEl.createDiv({ cls: "tj-set-basics" });
     new Setting(basics)
       .setName("Currency")
@@ -57,7 +49,7 @@ export class SettingsTab extends PluginSettingTab {
       });
     new Setting(basics)
       .setName("Your name")
-      .setDesc("Used in the briefing greeting, e.g. 'Good morning, Alex'.")
+      .setDesc("Used in the Home greeting, e.g. 'Good morning, Alex'.")
       .addText((text) =>
         text
           .setPlaceholder("Your name")
@@ -84,12 +76,11 @@ export class SettingsTab extends PluginSettingTab {
 
     // Sections (drill-down)
     const sections: { id: SettingsTabId; title: string; desc: string }[] = [
-      { id: "journal", title: "Journal", desc: "Analytics layout, behaviour, formatting and support." },
+      { id: "journal", title: "Journal & setup", desc: "Journal location, identity, time zone, formatting and startup behaviour." },
       { id: "tradelog", title: "Trade Log", desc: "Default period, columns and layout." },
-      { id: "appearance", title: "Appearance", desc: "Themes, colours, animations and privacy." },
-      { id: "timezone", title: "Time zone", desc: "Market hours and how days are grouped." },
-      { id: "accounts", title: "Accounts", desc: "Prop accounts, rules, groups and mappings." },
-      { id: "advanced", title: "Advanced", desc: "Folder, maintenance, backup, import/export and reset." },
+      { id: "appearance", title: "Appearance & privacy", desc: "Themes, colour, motion, chart labels and privacy." },
+      { id: "accounts", title: "Account setup & classification", desc: "Automatic account rules, persistent mappings and legacy groups." },
+      { id: "advanced", title: "Advanced tools & support", desc: "Maintenance, diagnostics, backup and support." },
     ];
     for (const sec of sections) {
       const row = containerEl.createDiv({ cls: "tj-set-row" });
@@ -106,10 +97,9 @@ export class SettingsTab extends PluginSettingTab {
 
   private renderSection(containerEl: HTMLElement): void {
     const titles: Record<string, string> = {
-      journal: "Journal",
+      journal: "Journal & setup",
       tradelog: "Trade Log",
-      appearance: "Appearance",
-      timezone: "Time zone",
+      appearance: "Appearance & privacy",
       accounts: "Accounts",
       advanced: "Advanced",
     };
@@ -123,7 +113,6 @@ export class SettingsTab extends PluginSettingTab {
     if (this.active === "journal") this.renderJournal(content);
     else if (this.active === "tradelog") this.renderTradeLogSettings(content);
     else if (this.active === "appearance") this.renderAppearance(content);
-    else if (this.active === "timezone") this.renderTimezone(content);
     else if (this.active === "advanced") this.renderAdvanced(content);
     else this.renderAccounts(content);
   }
@@ -132,16 +121,17 @@ export class SettingsTab extends PluginSettingTab {
 
   // ---------------------------------------------------------------- Main
   renderJournal(containerEl: HTMLElement): void {
-    containerEl.createEl("h3", { text: "Briefing" });
+    containerEl.createEl("h3", { text: "Home" });
     new Setting(containerEl)
-      .setName("Briefing layout")
-      .setDesc("Briefing's curated narrative. Press 'Edit' on Briefing to rearrange it. Resetting restores the six default blocks.")
+      .setName("Home layout")
+      .setDesc("Home's curated journal view. Press 'Edit' on Home to rearrange it. Resetting restores the default blocks.")
       .addButton((btn) =>
-        btn.setButtonText("Reset Briefing").onClick(async () => {
+        btn.setButtonText("Reset Home").onClick(async () => {
           this.plugin.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
+          this.plugin.settings.homeGridCols = 24;
           await this.plugin.saveSettings();
           await this.plugin.reloadAllViews();
-          new Notice("Briefing layout reset to the default.");
+          new Notice("Home layout reset to the default.");
         })
       );
 
@@ -213,8 +203,8 @@ export class SettingsTab extends PluginSettingTab {
 
     containerEl.createEl("h3", { text: "Behaviour" });
     new Setting(containerEl)
-      .setName("Open Briefing on startup")
-      .setDesc("Automatically open the Briefing view when the plugin loads.")
+      .setName("Open Home on startup")
+      .setDesc("Automatically open Home when the plugin loads.")
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.openHomeOnStartup === true).onChange(async (v) => {
           this.plugin.settings.openHomeOnStartup = v;
@@ -232,6 +222,23 @@ export class SettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    this.renderTimezone(containerEl);
+
+    containerEl.createEl("h3", { text: "Journal folder" });
+    containerEl.createEl("p", {
+      text: "Trade notes are stored under <year>/<month>/trades and screenshots under <year>/attachments. Changing this root does not move existing notes.",
+      cls: "setting-item-description",
+    });
+    new Setting(containerEl)
+      .setName("Journal folder")
+      .setDesc("Root folder (relative to vault) for trade notes and screenshots.")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.tradesFolder).onChange(async (v) => {
+          this.plugin.settings.tradesFolder = v.trim();
+          await this.plugin.saveSettings();
+        })
+      );
   }
 
   // ------------------------------------------------------------- Trading
@@ -471,21 +478,6 @@ export class SettingsTab extends PluginSettingTab {
           new Notice("Trade index rebuilt.");
         })
       );
-    containerEl.createEl("h3", { text: "Journal folder" });
-    containerEl.createEl("p", {
-      text: "Your journal's root folder. Trades are saved under <year>/<month>/trades inside it; screenshots under <year>/attachments. Changing this does not move existing notes.",
-      cls: "setting-item-description",
-    });
-    new Setting(containerEl)
-      .setName("Journal folder")
-      .setDesc("Root folder (relative to vault) for trade notes and screenshots.")
-      .addText((text) =>
-        text.setValue(this.plugin.settings.tradesFolder).onChange(async (v) => {
-          this.plugin.settings.tradesFolder = v.trim();
-          await this.plugin.saveSettings();
-        })
-      );
-
     // Getting started: the same tour a brand-new journal opens on first load.
     containerEl.createEl("h3", { text: "Getting started" });
     containerEl.createEl("p", {
@@ -582,7 +574,9 @@ export class SettingsTab extends PluginSettingTab {
       .addButton((b) =>
         b.setButtonText("Reset").setWarning().onClick(async () => {
           this.plugin.settings.dashboardLayout = [];
+          this.plugin.settings.dashboardGridCols = 24;
           this.plugin.settings.homeLayout = HOME_DEFAULT.map((t) => ({ ...t }));
+          this.plugin.settings.homeGridCols = 24;
           this.plugin.settings.tradeLog = {};
           this.plugin.settings.tradeLogColOrder = undefined;
           this.plugin.settings.privacyMode = false;
@@ -633,10 +627,31 @@ export class SettingsTab extends PluginSettingTab {
   }
 
   renderAccounts(containerEl: HTMLElement): void {
+    containerEl.createEl("p", {
+      text: "Account identity and firm rules are managed from each account's dashboard. Create and manage accounts from the Accounts page.",
+      cls: "setting-item-description",
+    });
+
+    containerEl.createEl("h3", { text: "Portfolio totals" });
+    new Setting(containerEl)
+      .setName("Exclude demo accounts from portfolio totals")
+      .setDesc("Demo accounts stay visible on the Accounts page but are left out of portfolio capital, Net P&L, growth, withdrawals and trade counts.")
+      .addToggle((tg) =>
+        tg.setValue(this.plugin.settings.excludeDemosFromPortfolio !== false).onChange(async (v) => {
+          this.plugin.settings.excludeDemosFromPortfolio = v;
+          await this.plugin.saveSettings();
+          await this.plugin.reloadAllViews();
+        })
+      );
+
+    // Keyword classification and persistent broker-name mappings have no
+    // contextual replacement yet. Keep both controls, and their stored fields,
+    // available until their destination is agreed.
+    containerEl.createEl("h3", { text: "Automatic account classification" });
     const details = containerEl.createEl("details", { cls: "tj-rule-group-details" });
-    details.createEl("summary", { text: "Advanced — account type classification rules" });
+    details.createEl("summary", { text: "Edit account type keywords" });
     details.createEl("p", {
-      text: "Automatic: order matters (first match wins). Accounts are classified as live → funded → eval → demo based on keywords in the account name. Do not edit unless necessary.",
+      text: "Order matters: the first matching keyword classifies an account as live, funded, eval or demo. Leave unchanged unless your broker uses different account names.",
       cls: "setting-item-description",
     });
     (() => {
@@ -662,136 +677,30 @@ export class SettingsTab extends PluginSettingTab {
       }
     })();
 
-    new Setting(containerEl)
-      .setName("Exclude demo accounts from portfolio totals")
-      .setDesc(
-        "Demo accounts stay visible on the Accounts page but are left out of the portfolio totals (capital, Net P&L, growth, withdrawals and trade counts)."
-      )
-      .addToggle((tg) =>
-        tg.setValue(this.plugin.settings.excludeDemosFromPortfolio !== false).onChange(async (v) => {
-          this.plugin.settings.excludeDemosFromPortfolio = v;
-          await this.plugin.saveSettings();
-          this.plugin.reloadAllViews();
-        })
-      );
-
-    // NOTE: the Accounts page view options (grouping, order, firm logo, which
-    // types show) now live in the page itself: Accounts → Manage. One place
-    // for them, so the two can never disagree.
-
-    containerEl.createEl("h3", { text: "Account Configuration" });
-    containerEl.createEl("p", {
-      text: "Add each account with the rules your firm publishes — target, drawdown, daily loss, consistency. The journal only reports on them; it never blocks a trade. Each account gets its own dashboard automatically.",
-      cls: "setting-item-description",
-    });
-    this.renderAccountConfig(containerEl);
-  }
-
-  renderAccountConfig(containerEl: HTMLElement): void {
-    const plugin = this.plugin;
-
-    // The wizard is the only way in: one flow, one place for the rules.
-    new Setting(containerEl)
-      .setName("Add account")
-      .setDesc("Guided setup: type, name and balance, the rules your firm publishes, then review.")
-      .addButton((b) =>
-        b.setButtonText("Open wizard").setCta().onClick(() => {
-          openAccountWizard(this.plugin, { onDone: () => this.display() });
-        })
-      );
-
-    // Account list (edit scope / rules / remove)
-    const list = containerEl.createEl("div", { cls: "tj-account-list" });
-    const accounts = plugin.settings.propAccounts;
-    if (accounts.length === 0) {
-      list.createDiv({ cls: "tj-empty", text: "No accounts yet — add one above and it gets its own dashboard." });
-    } else {
-      for (const acc of accounts) {
-        const view = resolveAccountView(acc);
-        const size = view.rules;
-        const card = list.createEl("div", { cls: "tj-account-card" });
-        const head = card.createEl("div", { cls: "tj-account-head" });
-        head.createEl("div", { cls: "tj-account-name", text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
-        const meta = head.createEl("div", { cls: "tj-account-meta" });
-        meta.createEl("span", { text: [firmLabel(acc.firmId), size.posSize].filter(Boolean).join(" — ") });
-        const typeChip = meta.createEl("span", { cls: `tj-acct-chip ${acc.type}` });
-        typeChip.textContent = acc.type;
-        const kpis = card.createEl("div", { cls: "tj-kpis" });
-        kpiCard(kpis, "Profit Target", size.target ? `$${size.target.toLocaleString()}` : "None", size.target ? "pos" : "neutral");
-        kpiCard(kpis, "Max Loss (trail)", size.maxLoss ? `$${size.maxLoss.toLocaleString()}` : "None", size.maxLoss ? "neg" : "neutral");
-        kpiCard(kpis, "Daily Loss", size.dailyLoss ? `$${size.dailyLoss.toLocaleString()}` : "None", size.dailyLoss ? "neg" : "neutral");
-        kpiCard(kpis, "Consistency", size.consistency ? `${size.consistency}%` : "None", "neutral");
-        const actions = card.createEl("div", { cls: "tj-account-actions" });
-        actions.createEl("button", { text: "Open dashboard ›", cls: "tj-btn tj-add-trade" }).addEventListener("click", () => {
-          void plugin.openAccountDashboard(undefined, acc.id);
-        });
-        const rulesBtn = actions.createEl("button", { text: "Edit rules", cls: "tj-btn tj-mini" });
-        attachTip(rulesBtn, { title: "Edit rules", sub: "Override this account's firm rules: target, drawdown, daily loss, consistency." });
-        rulesBtn.addEventListener("click", () => {
-          this.editingRulesFor = this.editingRulesFor === acc.id ? null : acc.id;
-          this.display();
-        });
-        const typeEdit = actions.createEl("select", { cls: "dropdown", attr: { "aria-label": "Change account type" } });
-        attachTip(typeEdit, { title: "Account type", sub: "Which section of the Accounts page it lands in." });
-        const TYPE_LABELS: [string, string][] = [
-          ["eval", "Eval"],
-          ["funded", "Funded"],
-          ["live", "Live"],
-          ["personal", "Personal"],
-          ["demo", "Demo"],
-          ["unknown", "Other"],
-        ];
-        for (const [id, label] of TYPE_LABELS) {
-          const opt = typeEdit.createEl("option", { value: id, text: label });
-          if (id === acc.type) opt.setAttr("selected", "selected");
-        }
-        typeEdit.value = acc.type;
-        typeEdit.addEventListener("change", async () => {
-          acc.type = typeEdit.value as any;
-          await plugin.saveSettings();
-          await plugin.reloadAllViews();
-          this.display();
-        });
-        actions.createEl("button", { text: "Remove", cls: "tj-mini tj-del" }).addEventListener("click", async () => {
-          plugin.settings.propAccounts = plugin.settings.propAccounts.filter((a) => a.id !== acc.id);
-          // Clean orphan mappings so no bound account points to a removed account.
-          for (const [name, id] of Object.entries(plugin.settings.accountMappings || {})) {
-            if (id === acc.id) delete plugin.settings.accountMappings[name];
-          }
-          await plugin.saveSettings();
-          await plugin.reloadAllViews();
-          this.display();
-        });
-
-        if (this.editingRulesFor === acc.id) {
-          this.renderRuleEditor(card, acc, view.firmDefault, size);
-        }
-      }
-    }
-
+    containerEl.createEl("h3", { text: "Persistent account mappings" });
     void this.renderMappings(containerEl);
+
+    containerEl.createEl("h3", { text: "Trade Log account groups" });
     this.renderAccountGroups(containerEl);
 
-    // Archived accounts section
-    const archived = plugin.settings.archivedAccounts || [];
+    // Account archive deletion has no matching action on the Accounts page yet,
+    // so retain that legacy access without changing its existing semantics.
+    const archived = this.plugin.settings.archivedAccounts || [];
     if (archived.length > 0) {
-      containerEl.createEl("h3", { text: "Archived Accounts (Past Evals)" });
+      containerEl.createEl("h3", { text: "Remove archived account records" });
+      containerEl.createEl("p", {
+        text: "Archived accounts can be restored from the Accounts page. Removing an archived record is still available here until a contextual replacement exists.",
+        cls: "setting-item-description",
+      });
       const archList = containerEl.createEl("div", { cls: "tj-account-list" });
       for (const acc of archived) {
         const card = archList.createEl("div", { cls: "tj-account-card tj-archived-card" });
         const head = card.createEl("div", { cls: "tj-account-head" });
         head.createEl("div", { cls: "tj-account-name", text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
         const actions = card.createEl("div", { cls: "tj-account-actions" });
-        actions.createEl("button", { text: "Restore", cls: "tj-btn tj-mini" }).addEventListener("click", async () => {
-          plugin.settings.archivedAccounts = plugin.settings.archivedAccounts.filter((a) => a.id !== acc.id);
-          plugin.settings.propAccounts.push(acc);
-          await plugin.saveSettings();
-          await plugin.reloadAllViews();
-          this.display();
-        });
         actions.createEl("button", { text: "Delete", cls: "tj-mini tj-del" }).addEventListener("click", async () => {
-          plugin.settings.archivedAccounts = plugin.settings.archivedAccounts.filter((a) => a.id !== acc.id);
-          await plugin.saveSettings();
+          this.plugin.settings.archivedAccounts = this.plugin.settings.archivedAccounts.filter((a) => a.id !== acc.id);
+          await this.plugin.saveSettings();
           this.display();
         });
       }
@@ -861,75 +770,6 @@ export class SettingsTab extends PluginSettingTab {
         this.display();
       });
     }
-  }
-
-  renderRuleEditor(card: HTMLElement, acc: any, baseSize: any, size: any): void {
-    const plugin = this.plugin;
-    const editor = card.createDiv({ cls: "tj-rule-editor" });
-    editor.createEl("h4", { text: `Edit rules — ${acc.name}` });
-    editor.createEl("p", {
-      cls: "setting-item-description",
-      text: "Changes apply only to this account and are saved to your vault. Empty a field to use the firm's default.",
-    });
-
-    const fields: { key: "target" | "maxLoss" | "dailyLoss" | "consistency"; label: string; base: number }[] = [
-      { key: "target", label: "Profit Target ($)", base: baseSize?.target ?? 0 },
-      { key: "maxLoss", label: "Max Loss ($)", base: baseSize?.maxLoss ?? 0 },
-      { key: "dailyLoss", label: "Daily Loss Limit ($)", base: baseSize?.dailyLoss ?? 0 },
-      { key: "consistency", label: "Consistency (%)", base: baseSize?.consistency ?? 0 },
-    ];
-    for (const f of fields) {
-      new Setting(editor)
-        .setName(f.label)
-        .setDesc(`Firm default: ${f.base ? (f.key === "consistency" ? f.base + "%" : "$" + f.base.toLocaleString()) : "None"}`)
-        .addText((text) => {
-          const current = acc.rules?.[f.key];
-          text.inputEl.type = "number";
-          freeNumeric(text.inputEl);
-          text.inputEl.placeholder = f.base ? String(f.base) : "0";
-          if (current !== undefined) text.setValue(String(current));
-          text.onChange(async (v) => {
-            const num = parseFloat(v);
-            const invalid = Number.isNaN(num) || num < 0 || (f.key === "consistency" && num > 100);
-            if (invalid || num === f.base) {
-              delete acc.rules?.[f.key];
-            } else {
-              acc.rules = acc.rules || {};
-              acc.rules[f.key] = num;
-            }
-            await plugin.saveSettings();
-          });
-        });
-    }
-    new Setting(editor)
-      .setName("Position size cap")
-      .setDesc(`Firm default: ${baseSize?.posSize || "—"}`)
-      .addText((text) => {
-        if (acc.rules?.posSize) text.setValue(acc.rules.posSize);
-        text.onChange(async (v) => {
-          const val = v.trim();
-          if (!val) delete acc.rules?.posSize;
-          else {
-            acc.rules = acc.rules || {};
-            acc.rules.posSize = val;
-          }
-          await plugin.saveSettings();
-        });
-      });
-    const foot = editor.createDiv({ cls: "tj-rule-editor-foot" });
-    foot.createEl("button", { text: "Reset all to firm defaults", cls: "tj-btn" }).addEventListener("click", async () => {
-      delete acc.rules;
-      await plugin.saveSettings();
-      await plugin.reloadAllViews();
-      this.editingRulesFor = null;
-      this.display();
-    });
-    foot.createEl("button", { text: "Done", cls: "mod-cta" }).addEventListener("click", async () => {
-      await plugin.saveSettings();
-      await plugin.reloadAllViews();
-      this.editingRulesFor = null;
-      this.display();
-    });
   }
 
   async renderMappings(root: HTMLElement): Promise<void> {

@@ -5,10 +5,12 @@ import { resolveAccountView } from "../lib/accountRules";
 import { firmLabel } from "../lib/firmLogos";
 import { clamp, openPluginSettings as openSettings, renderAppShell } from "../ui";
 import { attachTip } from "../lib/tip";
-import { fmtMoney, isFiniteNumber, todayKey, toZoneDate } from "../tz";
+import { fmtMoney, isFiniteNumber, todayKey } from "../tz";
+import { tradeDayInZone } from "../lib/instant";
 import { renderLineChart } from "../lib/lineChart";
 import { computeAccountMetrics, AccountMetrics } from "../lib/accountMetrics";
 import { netPnl } from "../lib/fees";
+import { tradeCostCoverage } from "../lib/money";
 import { analyticsTrades } from "../lib/scope";
 import { mountDropdown } from "../lib/dropdown";
 import { BAR_SLOTS, MINI_SLOTS, layoutFor } from "../lib/cardSlots";
@@ -75,7 +77,7 @@ interface AccStats {
   withdrawn: number;
   /** Money put in (deposits), which also sits in the balance. */
   deposited: number;
-  /** What is actually in the account: size + net − payouts paid + deposits. */
+  /** Recorded account value: size + Net trading + cashflows and signed adjustments. */
   value: number;
   target: number;
   maxLoss: number;
@@ -198,7 +200,7 @@ export class AccountsListView extends ItemView {
   }
 
   private dayKeyOf(t: Trade): string {
-    return toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
+    return tradeDayInZone(t, this.plugin.settings.timeZone);
   }
 
   private todayKey(): string {
@@ -322,9 +324,14 @@ export class AccountsListView extends ItemView {
     const id = (this.plugin.settings.accountsChartPeriod ?? "all") as ChartPeriod;
     const def = CHART_PERIODS.find((p) => p.id === id) ?? CHART_PERIODS[0];
     if (!def.months) return { id: def.id, label: def.label, from: "" };
-    const d = new Date();
-    d.setMonth(d.getMonth() - def.months);
-    return { id: def.id, label: def.label, from: d.toISOString().slice(0, 10) };
+    const today = todayKey(this.plugin.settings.timeZone);
+    const [year, month, day] = today.split("-").map(Number);
+    const targetMonth = new Date(Date.UTC(year, month - 1 - def.months, 1));
+    const targetYear = targetMonth.getUTCFullYear();
+    const targetIndex = targetMonth.getUTCMonth();
+    const lastDay = new Date(Date.UTC(targetYear, targetIndex + 1, 0)).getUTCDate();
+    const start = new Date(Date.UTC(targetYear, targetIndex, Math.min(day, lastDay)));
+    return { id: def.id, label: def.label, from: start.toISOString().slice(0, 10) };
   }
 
   private renderStrip(main: HTMLElement, all: PropAccount[], stats: Map<string, AccStats>): void {
@@ -333,15 +340,13 @@ export class AccountsListView extends ItemView {
     const demoCount = all.length - portfolio.length;
     const firms = new Set(portfolio.map((a) => firmLabel(a.firmId) || a.firmId));
 
-    // Capital = nominal buying power of the real accounts (not inflated by P&L).
+    // Reference capital is the sum of each included account's original size.
     const capital = portfolio.reduce((s, a) => s + (a.size || 0), 0);
     const w = this.chartWindow();
     // Totals follow the chart window. The account cards do not: an account's
     // state (drawdown, target, eligibility) is always its whole life.
     const flat = portfolio.flatMap((a) => this.tradesFor(a));
     const windowTrades = w.from ? flat.filter((t) => t.date >= w.from) : flat;
-    const net = windowTrades.reduce((s, t) => s + netPnl(t), 0);
-    const growth = capital > 0 ? (net / capital) * 100 : 0;
     // A copied trade lives in every account it reached. Count it once: gather
     // the real accounts' trades and dedupe by copyBaseKey. Money stays summed.
     const trades = analyticsTrades(windowTrades).unique.length;
@@ -356,8 +361,10 @@ export class AccountsListView extends ItemView {
           .reduce((t, p) => t + Math.abs(p.amount), 0),
       0,
     );
-    const funded = portfolio.filter((a) => a.type === "funded" || a.type === "live" || a.type === "personal");
-
+    const payoutCount = portfolio.reduce(
+      (s, a) => s + this.plugin.payoutsFor(a.id).filter((p) => !w.from || p.date >= w.from).length,
+      0,
+    );
     /** Sub-line bits, so "which window" is never a guess. */
     const sub = (...bits: string[]) => bits.filter(Boolean).join(" · ");
     const windowNote = w.from ? w.label.toLowerCase() : "";
@@ -376,18 +383,23 @@ export class AccountsListView extends ItemView {
     };
 
     const accountSub = demoCount
-      ? `${portfolio.length} real · ${demoCount} demo`
-      : `${all.length} account${all.length === 1 ? "" : "s"} · ${firms.size} firm${firms.size === 1 ? "" : "s"}`;
-    cell("Accounts", String(all.length), accountSub);
-    // The money that is actually still in the accounts: size + P&L − payouts
-    // paid + deposits. "Capital" stops being the headline because a payout is
-    // money that left; the nominal size stays visible underneath.
+      ? `${portfolio.length} included · ${demoCount} demo excluded`
+      : `${portfolio.length} included · ${firms.size} firm${firms.size === 1 ? "" : "s"}`;
+    // This is the current journal-recorded value, not a live broker snapshot.
     const inAccounts = portfolio.reduce((s, a) => s + (stats.get(a.id)?.value ?? a.size), 0);
-    cell("In accounts", fmtMoney(inAccounts), sub(`on ${fmtMoney(capital)} capital`, w.from ? "all time" : ""), "", "What is really in your real accounts: size + realised P&L − payouts + deposits. Always all-time, whatever the chart shows.");
-    cell("Net P&L", fmtMoney(net), sub(demoCount ? "excl. demo" : "all accounts", windowNote), net >= 0 ? "tj-pos" : "tj-neg", "Real money only. Follows the chart window.");
-    cell("Growth", `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`, sub("on capital", windowNote), growth >= 0 ? "tj-pos" : "tj-neg", "Net P&L over your capital.");
-    cell("Payouts", withdrawn ? fmtMoney(withdrawn) : "$0", sub(funded.length ? `${funded.length} funded` : "none yet", windowNote), withdrawn > 0 ? "tj-pos" : "", "Money you took out. Follows the chart window.");
-    cell("Trades", String(trades), sub(`across ${portfolio.length} account${portfolio.length === 1 ? "" : "s"}`, windowNote), "", "Every decision counts once, however many accounts copied it. Real accounts only.");
+    const accountValueChange = inAccounts - capital;
+    const accountValueChangePct = capital > 0 ? (accountValueChange / capital) * 100 : 0;
+    cell("Account Capital", fmtMoney(capital), sub("configured sizes", "included accounts"), "", "Total configured capital across included accounts.");
+    cell(
+      "Remaining Account P&L",
+      fmtMoney(accountValueChange),
+      sub("current recorded value · all time"),
+      accountValueChange >= 0 ? "tj-pos" : "tj-neg",
+      "Result remaining in your accounts after recorded trading results, fees, payouts and adjustments.",
+    );
+    cell("Accounts Included", String(portfolio.length), accountSub, "", `Only active accounts in the current portfolio population. ${this.plugin.settings.excludeDemosFromPortfolio === false ? "Demo accounts are included." : "Demo accounts are excluded."}`);
+    cell("Paid Out", withdrawn ? fmtMoney(withdrawn) : "$0", sub(`${payoutCount} recorded payout${payoutCount === 1 ? "" : "s"}`, windowNote), withdrawn > 0 ? "tj-pos" : "", "Recorded historical payouts: money already withdrawn from accounts. They reduce current account balances but do not reduce trading P&L or establish trader income/withdrawable eligibility. Follows the selected window.");
+    cell("Trades", String(trades), sub(`across ${portfolio.length} account${portfolio.length === 1 ? "" : "s"}`, windowNote), "", "Every trade counts once, however many accounts copied it. Real accounts only.");
 
     if (demoCount) {
       main.createDiv({ cls: "tj-acct-strip-note", text: "Demo accounts are excluded from these totals — open the Demo card below to see its numbers." });
@@ -441,13 +453,20 @@ export class AccountsListView extends ItemView {
   }
 
   /**
-   * Portfolio curve — realised P&L net of cash flows: minus payouts, plus
-   * deposits. Starts at zero, green above / red below, with payouts and
-   * deposits marked on the line and an underwater (drawdown) shade.
+   * Account movement — net trade results plus dated account events. Starts at
+   * zero for the selected window, with each event category marked separately.
    */
   private renderPortfolioChart(main: HTMLElement, all: PropAccount[]): void {
     const portfolio = this.portfolioAccounts(all);
     const w = this.chartWindow();
+    const chartLegs = portfolio.flatMap((account) => this.tradesFor(account)).filter((trade) => !w.from || trade.date >= w.from);
+    const incompleteLegs = chartLegs.filter((trade) => {
+      const coverage = tradeCostCoverage(trade);
+      return !coverage.commission || !coverage.fees;
+    }).length;
+    const costNote = incompleteLegs
+      ? ` Cost fields are incomplete on ${incompleteLegs} trade leg${incompleteLegs === 1 ? "" : "s"}.`
+      : " Net trading results include recorded costs.";
     const card = main.createDiv({ cls: "tj-acct-chartcard" });
 
     // Title on the left; the value and the window grouped on the right of the
@@ -455,12 +474,12 @@ export class AccountsListView extends ItemView {
     // stays completely free for the curve.
     const head = card.createDiv({ cls: "tj-acct-chart-head" });
     const k = head.createDiv({ cls: "tj-acct-chart-k" });
-    k.createSpan({ text: "Net P&L across accounts" });
+    k.createSpan({ text: "Account Movement" });
     const i = k.createSpan({ cls: "tj-info-dot" });
     setIcon(i, "info");
     attachTip(i, {
-      title: "Net P&L across accounts",
-      sub: "Real money only — payouts leave the account, deposits arrive. Dashed grey: the same window just before this one.",
+      title: "Account Movement",
+      sub: `Recorded account change in this window, including trading and cash movements. Dashed line: previous period's trading results.${costNote}`,
     });
 
     const headR = head.createDiv({ cls: "tj-acct-chart-headr" });
@@ -488,36 +507,49 @@ export class AccountsListView extends ItemView {
     for (const { list } of perAccount) {
       for (const t of list) allDays.set(t.date, (allDays.get(t.date) ?? 0) + netPnl(t));
     }
-    if (!allDays.size) {
-      card.createDiv({ cls: "tj-empty", text: "No trades yet — add trades to see the portfolio curve." });
-      return;
-    }
-
     const inWindow = (d: string) => !w.from || d >= w.from;
 
-    // Cash flows that belong to the accounts shown in this chart.
+    // Cash flows and balance adjustments belonging to the accounts shown here.
     const ids = new Set(portfolio.map((a) => a.id));
-    const flows: { date: string; amount: number }[] = [];
+    type EventKind = "payout" | "deposit" | "adjustment";
+    const events: Array<{ date: string; amount: number; kind: EventKind }> = [];
     for (const p of this.plugin.settings.payouts ?? []) {
-      if (ids.has(p.accountId) && inWindow(p.date)) flows.push({ date: p.date, amount: -Math.abs(p.amount) });
+      if (ids.has(p.accountId) && inWindow(p.date)) events.push({ date: p.date, amount: -Math.abs(p.amount), kind: "payout" });
     }
     for (const d of this.plugin.settings.deposits ?? []) {
-      if (ids.has(d.accountId) && inWindow(d.date)) flows.push({ date: d.date, amount: Math.abs(d.amount) });
+      if (ids.has(d.accountId) && inWindow(d.date)) events.push({ date: d.date, amount: Math.abs(d.amount), kind: "deposit" });
     }
-    const flowByDay = new Map<string, number>();
-    for (const f of flows) flowByDay.set(f.date, (flowByDay.get(f.date) ?? 0) + f.amount);
+    for (const a of this.plugin.settings.feeAdjustments ?? []) {
+      if (ids.has(a.accountId) && inWindow(a.date) && Number.isFinite(a.amount)) {
+        events.push({ date: a.date, amount: a.amount, kind: "adjustment" });
+      }
+    }
+    const movementByDay = new Map<string, number>();
+    const eventsByDay = new Map<string, Map<EventKind, { amount: number; count: number }>>();
+    for (const event of events) {
+      movementByDay.set(event.date, (movementByDay.get(event.date) ?? 0) + event.amount);
+      let byKind = eventsByDay.get(event.date);
+      if (!byKind) {
+        byKind = new Map();
+        eventsByDay.set(event.date, byKind);
+      }
+      const bucket = byKind.get(event.kind) ?? { amount: 0, count: 0 };
+      bucket.amount += event.amount;
+      bucket.count++;
+      byKind.set(event.kind, bucket);
+    }
 
-    // The window starts at zero: the value you read is the P&L made inside it,
-    // not the level the account happened to be at when it opened.
+    // The window starts at zero: this is movement during the window, not the
+    // nominal account sizes or the balances at its start.
     const allTradeDays = [...allDays.keys()].sort();
     const tradeDays = allTradeDays.filter(inWindow);
-    const dates = [...new Set([...tradeDays, ...flowByDay.keys()])].sort();
+    const dates = [...new Set([...tradeDays, ...movementByDay.keys()])].sort();
     if (!dates.length) {
-      card.createDiv({ cls: "tj-empty", text: `No trading days in the ${w.label.toLowerCase()}.` });
+      card.createDiv({ cls: "tj-empty", text: `No account activity in the ${w.label.toLowerCase()}.` });
       return;
     }
     let run = 0;
-    const values = dates.map((d) => (run += (allDays.get(d) ?? 0) + (flowByDay.get(d) ?? 0)));
+    const values = dates.map((d) => (run += (allDays.get(d) ?? 0) + (movementByDay.get(d) ?? 0)));
 
     const last = values[values.length - 1] ?? 0;
 
@@ -527,16 +559,19 @@ export class AccountsListView extends ItemView {
     let g = 0;
     const ghost = tail.map((d) => (g += allDays.get(d) ?? 0));
 
-    // Payout / deposit dots pinned on the curve.
+    // One marker per date and event category keeps coincident events discoverable.
     const idxOf = new Map(dates.map((d, di) => [d, di]));
-    const markers = flows
-      .slice()
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map((f) => ({
-        index: idxOf.get(f.date) ?? 0,
-        kind: (f.amount >= 0 ? "in" : "out") as "in" | "out",
-        title: `${f.amount >= 0 ? "Deposit" : "Payout"} ${fmtMoney(Math.abs(f.amount))} · ${f.date}`,
-      }));
+    const markers = [...eventsByDay.entries()].flatMap(([date, byKind]) =>
+      [...byKind.entries()].map(([kind, event]) => {
+        const label = kind === "adjustment" ? "Balance adjustment" : kind === "deposit" ? "Deposit" : "Payout";
+        const count = event.count > 1 ? ` · ${event.count} events` : "";
+        return {
+          index: idxOf.get(date) ?? 0,
+          kind: kind === "adjustment" ? "adjustment" as const : kind === "deposit" ? "in" as const : "out" as const,
+          title: `${label} ${kind === "adjustment" ? fmtMoney(event.amount) : fmtMoney(Math.abs(event.amount))}${count} · ${date}`,
+        };
+      })
+    );
 
     // The value lives up in the header (next to the window chip), so the plot is
     // left entirely to the curve.
@@ -555,19 +590,25 @@ export class AccountsListView extends ItemView {
       baseLine: 0,
       fadeFloor: 0,
       markers,
-      // The chart sums every account, so the payout line sums them too: two
-      // accounts paying out on the same day read as one number for that day.
       hoverLines: (i) => {
-        const flow = flowByDay.get(dates[i] ?? "") ?? 0;
+        const byKind = eventsByDay.get(dates[i] ?? "");
         const rows: Array<[string, string, string]> = [];
-        if (flow < 0) rows.push(["Payout", fmtMoney(Math.abs(flow)), "tj-cash"]);
-        if (flow > 0) rows.push(["Deposit", fmtMoney(flow), "tj-pos"]);
+        const payout = byKind?.get("payout");
+        const deposit = byKind?.get("deposit");
+        const adjustment = byKind?.get("adjustment");
+        if (payout) rows.push(["Payout", fmtMoney(Math.abs(payout.amount)), "tj-cash"]);
+        if (deposit) rows.push(["Deposit", fmtMoney(deposit.amount), "tj-pos"]);
+        if (adjustment) rows.push([
+          adjustment.count > 1 ? `Balance adjustments (${adjustment.count})` : "Balance adjustment",
+          fmtMoney(adjustment.amount),
+          "tj-cost",
+        ]);
         return rows;
       },
-      secondary: ghost.length > 1 ? [{ values: ghost, color: "#8a8a8a", width: 1.2, dash: true, label: "previous" }] : [],
+      secondary: ghost.length > 1 ? [{ values: ghost, color: "#8a8a8a", width: 1.2, dash: true, label: "previous Net P&L only" }] : [],
     });
 
-    if (ghost.length > 1 || flows.length) {
+    if (ghost.length > 1 || events.length) {
       const footer = card.createDiv({ cls: "tj-acct-chart-legend" });
       const item = (color: string, text: string, shape: "dot" | "dash" = "dot") => {
         const sp = footer.createSpan();
@@ -585,9 +626,10 @@ export class AccountsListView extends ItemView {
         }
         sp.createSpan({ text });
       };
-      if (ghost.length > 1) item("#8a8a8a", "previous period", "dash");
-      if (flows.some((f) => f.amount > 0)) item("#34d17a", "deposit");
-      if (flows.some((f) => f.amount < 0)) item("#d9a441", "payout");
+      if (ghost.length > 1) item("#8a8a8a", "previous-period Net P&L only", "dash");
+      if (events.some((event) => event.kind === "deposit")) item("#34d17a", "deposit");
+      if (events.some((event) => event.kind === "payout")) item("#d9a441", "payout");
+      if (events.some((event) => event.kind === "adjustment")) item("var(--tj-fg-3)", "balance adjustment");
     }
   }
 
@@ -855,9 +897,9 @@ export class AccountsListView extends ItemView {
     const net = counted.reduce((s, a) => s + (stats.get(a.id)?.net ?? 0), 0);
     if (sec.heroId) {
       const copiers = Math.max(0, accs.length - 1);
-      return `Leader + ${copiers} copier${copiers === 1 ? "" : "s"} · ${fmtMoney(total)} · ${fmtMoney(net)}`;
+      return `Leader + ${copiers} copier${copiers === 1 ? "" : "s"} · Balance ${fmtMoney(total)} · Net ${fmtMoney(net)}`;
     }
-    return `${fmtMoney(total)} · ${fmtMoney(net)}`;
+    return `Balance ${fmtMoney(total)} · Net ${fmtMoney(net)}`;
   }
 
   /**
@@ -917,7 +959,18 @@ export class AccountsListView extends ItemView {
       });
     }
     sh.createSpan({ cls: "tj-acct-h1-line" });
-    sh.createSpan({ cls: "tj-acct-h1-m", text: this.sectionMeta(sec, stats) });
+    const meta = sh.createSpan({ cls: "tj-acct-h1-m", text: this.sectionMeta(sec, stats) });
+    if (!onlyDemos) {
+      const legs = this.portfolioAccounts(sec.accounts).flatMap((account) => this.tradesFor(account));
+      const incomplete = legs.filter((trade) => {
+        const coverage = tradeCostCoverage(trade);
+        return !coverage.commission || !coverage.fees;
+      }).length;
+      attachTip(meta, {
+        title: "Account balance and Net trading result",
+        sub: `Balance includes Net trading results plus payouts, deposits and signed balance adjustments; it is not a live broker snapshot or a withdrawable amount.${!legs.length ? " No trade legs are recorded in these accounts." : incomplete ? ` Cost fields are incomplete on ${incomplete} trade leg${incomplete === 1 ? "" : "s"}; missing costs are not confirmed zero.` : " Recorded commission and fee fields are present."}`,
+      });
+    }
     if (sec.children) {
       for (const child of sec.children) this.renderSection(sect, child, stats, true);
       return;
@@ -1002,7 +1055,16 @@ export class AccountsListView extends ItemView {
     const pctOfSize = ((st.net / (acc.size || 1)) * 100).toFixed(1);
     bal.createDiv({
       cls: "tj-acct-bal-g " + (st.net < 0 ? "tj-neg" : "tj-pos"),
-      text: `${st.net ? fmtMoney(st.net) : "$0"} · ${st.net < 0 ? "" : "+"}${pctOfSize}%`,
+      text: `Net ${st.net ? fmtMoney(st.net) : "$0"} · ${st.net < 0 ? "" : "+"}${pctOfSize}%`,
+    });
+    const accountLegs = this.tradesFor(acc);
+    const incomplete = accountLegs.filter((trade) => {
+      const coverage = tradeCostCoverage(trade);
+      return !coverage.commission || !coverage.fees;
+    }).length;
+    attachTip(bal, {
+      title: "Net account trading result and balance",
+      sub: `The lower figure is Net trading P&L; its percentage is Net trading P&L / original account-size reference. The top figure is the recorded account balance, including payouts, deposits and signed balance adjustments—not live broker equity or withdrawable profit.${!accountLegs.length ? " No trade legs are recorded." : incomplete ? ` Cost fields are incomplete on ${incomplete} trade leg${incomplete === 1 ? "" : "s"}; missing costs are not confirmed zero.` : " Recorded commission and fee fields are present."}`,
     });
 
     const tags = tile.createDiv({ cls: "tj-acct-tile-tags" });

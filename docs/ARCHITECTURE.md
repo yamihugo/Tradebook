@@ -54,7 +54,8 @@ do broadcast de pernas para não escrever a mesma trade duas vezes. O tipo do fi
 lido pelo **header**, nunca pelo nome: `csvKind()` (`csv.ts`) devolve `cash` · `orders` ·
 `fills` · `unknown`; um ficheiro que não é Orders/Fills diz-se, não se ignora.
 | `lib/copy.ts` | motor de copy trading (`buildLeg`, `generateLegs`, `deleteLegs`, períodos, `legBaseKey`, `unlinkCopier` — desliga uma conta do grupo sem apagar o histórico: fecha o período e limpa a config, guarda `copyPeriods`/`copyConfigHistory`). O **símbolo é decidido aqui**: `buildLeg` só espelha em micros quando `baseQty × ratio < 1` e o símbolo tem micro (exposição preservada); fora disso fica o símbolo do líder |
-| `lib/scope.ts` | `analyticsTrades` — dinheiro vs trade única |
+| `lib/scope.ts` | fundação da selecção: `analyticsTrades` (dinheiro vs trade única), `accountResolver`/`accountScope` (quem entra: conta seleccionada, portfolio, demos, arquivadas) e `journalDayKey` (o que é um dia) |
+| `lib/instant.ts` | tempo canónico: **valor civil** (`CivilDate`/`CivilTime`, o que o trader lê) vs **instante** (`InstantIso`, `…Z`, o que a plataforma gravou) — `parseInstant` (`Z`/`offset` vencem a zona de origem, fracção incluída; naive só na zona declarada), `instantFromWall` (offset pedido a um instante de segundos inteiros, fracção somada no candidato, três candidatas ±1 dia com verificação por round-trip → `ok`/`gap`/`ambiguous`), `pinManualInstants` (mesmo contrato para entradas manuais, com wrap de meio-noite) e `isValidZone`; **nunca** o relógio do SO. Gravação: `entry_instant`/`exit_instant`/`source_zone`/`instant_source` (`offset` · `source-zone` · `system-zone` · `journal-zone`) e `fills[].instant` |
 | `lib/fills.ts` | parciais (`fillSet`, `fillIndex`, `fillLabel`, `toneClass`, `applyFillsToTrade`) |
 | `lib/review.ts` | completude da review (`reviewStatus`, `reviewScore`, `isReviewed`) |
 | `lib/trends.ts` | "estou a melhorar?" metade vs metade |
@@ -71,20 +72,95 @@ lido pelo **header**, nunca pelo nome: `csvKind()` (`csv.ts`) devolve `cash` · 
 | `lib/backup.ts` | formato + build/apply de backup |
 | `lib/diagnostics.ts` | snapshot de bug report em texto |
 | `lib/tradeTable.ts` | tabela-ledger partilhada (Trade Log + widgets de conta) |
-| `lib/money.ts` | base monetária única (`netTotal`, `grossWin`/`grossLoss`, `profitFactor`, `expectancy`, `avgWin`/`avgLoss`, `largestWin`/`largestLoss`, `bestDay`/`worstDay`, `moneyStats`) |
+| `lib/money.ts` | helpers financeiros Gross/Net; `summarizeFinancials` resolve scope antes de agregar, soma elegíveis por perna, agrupa por decisão lógica e expõe médias/PF coerentes, dias e cobertura de custos |
+| `lib/periods.ts` | janelas de período (`periodDataBounds`, `previousPeriodBounds`, `dateWithinPeriod`) e a tradução da janela para o dia de mercado (`tradingDayAtJournalDateStart/End`, `periodDayBounds`) — o filtro de período e os buckets partilham o mesmo domínio de dias |
 | `lib/process.ts` | sinais de processo transversais (`computeProcessSignals`, `revengeStats`, `streakStats`) — só trades + `dayKey`, sem regras de conta |
-| `lib/score.ts` | Trading Score puro (`computeScore`) — radar de 6 eixos que consome `process`/`money` em vez de re-derivar |
+| `lib/score.ts` | Trading Score v1 puro (`computeScore`) — cinco eixos iguais e nullable (Performance · Risk · Execution · Process · Consistency), média completa/provisória; `recentScoreWindow` aplica o cutoff as-of, dedupe de decisão e limite de 30 do Home |
 
 ### Base monetária (contrato)
 
-**money = net; classification = gross sign.** Todo o valor em dólares que responde a
-"quanto ganhei?" lê `netPnl` (gross − comissão − fees): totais, médias, extremos, fatores.
-A **classificação** win/loss/streak continua a usar o **sinal do gross** (`t.pnl`), porque
-um trade é ganho ou perda pelo resultado da negociação, não pelos custos. `grossWin`/
-`grossLoss` em `lib/money.ts` guardam essas somas de classificação. A win-rate canónica
-exclui break-even do denominador (`wins / (wins + losses)`), igual a `accountMetrics`.
-Qualquer widget novo que mostre dinheiro deve delegar em `lib/money.ts`, nunca somar
-`t.pnl` à mão.
+**Gross** é o resultado de trading antes de custos registados; **Net** é o resultado depois
+de comissão e fees registadas. Net é a base monetária primária de Home/Analytics. Gross
+permanece acessível como referência explícita (incluindo Gross Profit Factor).
+
+**Win, loss e breakeven sem qualificador são o sinal do Net da decisão agregada em scope.**
+`Win Rate = Net positivas ÷ (Net positivas + Net negativas)`; decisões com Net zero ficam de
+fora do denominador e leem `—` quando nada decidiu. A classificação acontece **depois** de
+somar as pernas elegíveis da decisão, nunca por perna: a mesma decisão pode ganhar numa conta
+e perder no portfolio — é correcto, e as duas leituras ficam visíveis. **Streaks**
+(`lib/process.ts`) e as divisões de *hold* continuam a classificar pelo sinal Gross e dizem-no
+("Gross-sign"); Profit Factor, médias Net, dias Net e maiores resultados usam o Net. Médias por
+decisão mantêm todas as decisões no denominador; cópias somam as pernas elegíveis em scope, mas
+uma decisão entra uma vez. O toggle `includeCopiesInPortfolioAnalytics` afeta
+contagens/classificações que podem contar pernas, nunca muda uma métrica monetária rotulada por
+decisão. Custo desconhecido é **cobertura incompleta assinalada**, nunca um fallback silencioso
+para Gross.
+
+### Uma população financeira partilhada (fase 1)
+
+Todos os números-base leem **um** `FinancialSummary` (`lib/money.ts` → `summarizeFinancials`),
+alimentado pelas duas entradas que `lib/scope.ts` detém:
+
+- **Quem entra** — `accountScope()`: a conta seleccionada; senão o portfolio (demos de fora,
+  salvo selecção explícita ou `excludeDemosFromPortfolio === false`). Contas arquivadas ficam
+  de fora de qualquer número financeiro, sempre.
+- **O que é um dia** — `journalDayKey()`: data registada + hora de entrada lidas na zona do
+  journal e expressas como dia de mercado (New York). **O filtro de período usa a mesma
+  chave** (`periodDayBounds`, `lib/periods.ts`), para que um trade nunca caia dentro do
+  período e fora do dia em que foi contado.
+
+| Número | Lê |
+|---|---|
+| Net P&L e a curva cumulativa da Home | `summary.net.total` · `summary.net.byDay` |
+| Closed trades | `summary.decisionCount` (decisões elegíveis agregadas) |
+| Win Rate | `summary.net.winRate` |
+| Net Profit Factor | `summary.net.profitFactor` |
+| Avg Net Result per Trade | `summary.net.averagePerDecision` |
+
+O movimento registado da conta (payouts, depósitos, ajustes assinados) **não** entra nesta
+população: é o contrato do Accounts (`remainingAccountPnl`, `homeAccountMovement`), não é
+trading P&L. `tests/selection.test.mjs` fixa o contrato.
+
+Accounts list e Account Dashboard mantêm Net para trading result, saldo, equity, target e
+regras. Gross PF é usado onde o painel declara Gross PF; métricas de consistência, drawdown,
+cashflows e ajustes conservam as suas fórmulas de conta. FeeAdjustment e cashflows não
+entram no Gross/Net de trades. O valor de conta registado é `size + Net trades − payouts +
+deposits + signed FeeAdjustments`; não é um snapshot do broker nem uma afirmação de withdrawable
+profit. Trade Log, Trade Detail, Import e Strategies mantêm as suas distinções próprias.
+
+### Shared Gross / Net primitives (Phase 1)
+
+`lib/money.ts` also exports `MoneyBasis`, `tradeMoney()`, and
+`summarizeFinancials()`. `summarizeFinancials()` resolves an explicit account scope
+before eligibility, deduplicates repeated account legs, aggregates Gross and Net
+over the same logical-decision groups, and returns separate per-decision and
+per-account-leg averages plus day maps using an injected journal-day key.
+Decision identity uses `copy.logicalDecisionKey()` (`copyBaseKey`, then base note
+id); an unlinked copy or id-less trade is kept separate rather than grouped by a
+collision-prone content guess.
+`Trade.costCoverage` is parser-derived runtime metadata (never serialized): a
+missing historical commission/fee field is not certified as a zero. Net values
+still use the observed amounts, so callers must check the returned coverage before
+presenting them as fully known. Account `FeeAdjustment` records and cashflows are
+not accepted by these trading-result helpers. Generated copy legs mark costs
+unknown: their zero defaults are not platform-confirmed fees. The Markdown writer
+omits zero-valued cost fields, so an ordinary saved zero cannot be distinguished
+from a missing legacy value; an explicitly present zero can only be known when the
+frontmatter contains that key.
+
+Phase 3 migration status: Home/Analytics monetary performance values default to Net;
+Gross Profit Factor remains an explicit secondary widget. Accounts foregrounds configured
+Account Capital and Remaining Account P&L (recorded account value minus configured capital);
+historical Net Trading P&L and Paid Out remain distinct. Individual account balance is computed
+from configured size, Net trade results and dated payout/deposit/adjustment events; it is not a
+live broker snapshot. Legacy helpers stay only where their account/rule unit has been reviewed.
+
+Phase 1 of the Home/Analytics revamp — the shared financial foundation — is in place: one
+`accountScope` + `journalDayKey` feed one `FinancialSummary`, and the metric widgets
+(`m.netpnl`, `m.trades`, `m.winrate`, `m.wintrades`, `m.losstrades`, `m.expectancy`,
+`m.profitfactor`, `m.avgwin`, `m.avgloss`, `m.avgrr`, `m.bestday`, `m.worstday`) read it
+instead of recomputing a population. Surfaces still on their own Gross-sign or per-trade
+population are listed in `BACKLOG-AND-HISTORY.md`.
 
 ## Data attributes como contrato
 

@@ -3,7 +3,7 @@ import type TradebookPlugin from "../main";
 import { mountDateField } from "../lib/dates";
 import { freeNumeric } from "../lib/numeric";
 import { attachTip } from "../lib/tip";
-import { fmtMoney, fmtMoneyCompact } from "../tz";
+import { fmtMoney, fmtMoneyCompact, todayKey } from "../tz";
 
 /**
  * The payout page, as a modal: what you have taken out of this account, and the
@@ -102,7 +102,7 @@ class PayoutsModal extends Modal {
     // surface — a box inside a box is what made this look unfinished.
     const form = contentEl.createDiv({ cls: "tj-payout-fields" });
 
-    let when = this.todayKey();
+    let when = todayKey(this.plugin.settings.timeZone);
     const dateVal = this.row(form, "Date");
     // No `tj-payout-input` here: that width is for the plain inputs, and on the
     // date field it squeezed the value out of sight. The date keeps its own
@@ -110,6 +110,7 @@ class PayoutsModal extends Modal {
     mountDateField(dateVal, {
       value: when,
       format: this.plugin.settings.dateFormat,
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => (when = iso),
     });
 
@@ -118,7 +119,7 @@ class PayoutsModal extends Modal {
       amountVal.createEl("input", {
         type: "number",
         cls: "tj-payout-input",
-        attr: { placeholder: "1,000" },
+        attr: { placeholder: "Enter payout amount" },
       })
     );
 
@@ -151,7 +152,7 @@ class PayoutsModal extends Modal {
       }
       this.error = "";
       const amount = Math.round(parsed);
-      await this.plugin.registerPayout(this.accountId, when || this.todayKey(), amount, noteInput.value.trim() || undefined);
+      await this.plugin.registerPayout(this.accountId, when || todayKey(this.plugin.settings.timeZone), amount, noteInput.value.trim() || undefined);
       new Notice(`Logged ${fmtMoney(amount)} paid out of ${this.accountName()}.`);
       this.refresh();
     });
@@ -187,10 +188,5 @@ class PayoutsModal extends Modal {
         this.refresh();
       });
     }
-  }
-
-  private todayKey(): string {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 }

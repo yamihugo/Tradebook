@@ -10,6 +10,7 @@
  */
 
 import type { Trade } from "../types";
+import { entryInstantDate, exitInstantDate, holdMinutesOf } from "./instant";
 import { reviewStatus } from "./review";
 
 /** "HH:MM" (or "HH:MM:SS") into minutes from midnight, or null. */
@@ -17,6 +18,33 @@ const minutesOf = (t: string): number | null => {
   const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t || "");
   return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0) : null;
 };
+
+/** What "a day" is here: the caller's day key (the journal's), or — for callers
+ *  that have none — the date the note itself records. */
+type DayKey = (t: Trade) => string;
+const recordedDay: DayKey = (t) => t.date;
+
+/** Oldest first: by instant when a note carries one, else the recorded clock. */
+function chronological(trades: Trade[]): Trade[] {
+  return [...trades].sort((a, b) => {
+    const ia = entryInstantDate(a)?.getTime();
+    const ib = entryInstantDate(b)?.getTime();
+    if (ia !== undefined && ib !== undefined && ia !== ib) return ia - ib;
+    return (a.date + (a.entryTime ?? "")).localeCompare(b.date + (b.entryTime ?? ""));
+  });
+}
+
+/** Minutes from one trade's exit to the next trade's entry: real elapsed time
+ *  when both notes carry instants, the recorded clock otherwise. */
+function reentryMinutes(prev: Trade, cur: Trade): number | null {
+  const from = exitInstantDate(prev);
+  const to = entryInstantDate(cur);
+  if (from && to) return (to.getTime() - from.getTime()) / 60000;
+  const out = minutesOf(prev.exitTime);
+  const inn = minutesOf(cur.entryTime);
+  if (out === null || inn === null) return null;
+  return inn >= out ? inn - out : null;
+}
 
 export interface ProcessSignals {
   tradeCount: number;
@@ -45,18 +73,17 @@ export interface ProcessSignals {
  * Revenge: a re-entry within 15 minutes of a loss on the SAME symbol, or any
  * trade the trader explicitly flagged as a mistake right after a loss.
  */
-export function revengeStats(trades: Trade[]): { count: number; rate: number } {
-  const ordered = [...trades].sort((a, b) =>
-    (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || ""))
-  );
+export function revengeStats(trades: Trade[], dayKey: DayKey = recordedDay): { count: number; rate: number } {
+  const ordered = chronological(trades);
   let count = 0;
   for (let i = 1; i < ordered.length; i++) {
     const prev = ordered[i - 1];
     const cur = ordered[i];
-    if (prev.pnl >= 0 || prev.date !== cur.date) continue;
-    const out = minutesOf(prev.exitTime);
-    const inn = minutesOf(cur.entryTime);
-    const quick = out !== null && inn !== null && inn >= out && inn - out <= 15;
+    // "Right after" means the same day (the caller's day key) and a gap the
+    // clock really had — read from the instants when the notes carry them.
+    if (prev.pnl >= 0 || dayKey(prev) !== dayKey(cur)) continue;
+    const gap = reentryMinutes(prev, cur);
+    const quick = gap !== null && gap >= 0 && gap <= 15;
     const sameSymbol = (prev.symbol || "") === (cur.symbol || "");
     const flagged = (cur.mistake || "").trim().length > 0;
     if ((quick && sameSymbol) || flagged) count += 1;
@@ -70,9 +97,7 @@ export function streakStats(trades: Trade[]): { current: number; bestWin: number
   let worstLoss = 0;
   let curWin = 0;
   let curLoss = 0;
-  for (const t of [...trades].sort((a, b) =>
-    (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || ""))
-  )) {
+  for (const t of chronological(trades)) {
     if (t.pnl > 0) {
       curWin += 1;
       curLoss = 0;
@@ -84,8 +109,7 @@ export function streakStats(trades: Trade[]): { current: number; bestWin: number
     }
     // break-even: pause the run (do not reset) — matches common journal behaviour
   }
-  const lastNonFlat = [...trades]
-    .sort((a, b) => (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || "")))
+  const lastNonFlat = chronological(trades)
     .filter((t) => t.pnl !== 0)
     .pop();
   const current = lastNonFlat ? (lastNonFlat.pnl > 0 ? curWin : -curLoss) : 0;
@@ -139,17 +163,15 @@ export function computeProcessSignals(trades: Trade[], dayKey: (t: Trade) => str
   const maxTradesInDay = daysWithTrades ? Math.max(...byDay.values()) : 0;
   const tradesPerDay = daysWithTrades ? tradeCount / daysWithTrades : 0;
 
-  const ordered = [...trades].sort((a, b) =>
-    (a.date + (a.entryTime || "")).localeCompare(b.date + (b.entryTime || ""))
-  );
+  const ordered = chronological(trades);
 
-  const revenge = revengeStats(trades);
+  const revenge = revengeStats(trades, dayKey);
 
-  // impulsive: finished within 1 minute
+  // impulsive: finished within 1 minute — the instants when there are any, so
+  // the answer does not depend on how the note spells its clock.
   const fastCount = trades.filter((t) => {
-    const a = minutesOf(t.entryTime);
-    const b = minutesOf(t.exitTime);
-    return a !== null && b !== null && b - a >= 0 && b - a < 1;
+    const minutes = holdMinutesOf(t);
+    return minutes !== null && minutes >= 0 && minutes < 1;
   }).length;
 
   // tilt: opened right after two consecutive losses

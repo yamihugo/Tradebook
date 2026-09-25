@@ -124,7 +124,7 @@ export class TradebookSidebarView extends ItemView {
 
   private navItems(): NavItem[] {
     return [
-      { id: "home", label: "Briefing", icon: "home", fn: () => this.plugin.openHome(), category: "OVERVIEW" },
+      { id: "home", label: "Home", icon: "home", fn: () => this.plugin.openHome(), category: "OVERVIEW" },
       { id: "dashboard", label: "Analytics", icon: "grip", fn: () => this.plugin.openDashboard(), category: "OVERVIEW" },
       { id: "tradelog", label: "Trade Log", icon: "folder-tree", fn: () => this.plugin.openTradeLog(), category: "OVERVIEW" },
       { id: "setups", label: "Strategies", icon: "target", fn: () => this.plugin.openSetups(), category: "OVERVIEW" },

@@ -42,7 +42,7 @@ import type { DashItem } from "./views/dashboard";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
 import { openAddTradeModal } from "./views/addTradeModal";
 import { openImportCsvModal } from "./views/importUi";
-import { TradeLogView, TRADE_LOG_VIEW_TYPE } from "./views/tradeLogView";
+import { TradeLogView, TRADE_LOG_VIEW_TYPE, type TradeLogNav } from "./views/tradeLogView";
 import { AccountsListView, ACCOUNTS_LIST_VIEW_TYPE } from "./views/accountsListView";
 import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView";
 import { TradebookSidebarView, TRADEBOOK_SIDEBAR_VIEW_TYPE } from "./views/sidebarView";
@@ -55,6 +55,7 @@ import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
 import { allocatedKeys, netPnl } from "./lib/fees";
 import { reviewStatus } from "./lib/review";
 import { BRAND_ICON_ID, BRAND_ICON_SVG } from "./lib/brand";
+import { dateInZone, type PeriodId } from "./lib/periods";
 
 export interface ThemeSettings {
   /** Chosen preset id (see themes.ts). */
@@ -93,6 +94,9 @@ export interface TradebookSettings {
   homeLayout?: DashItem[];
   /** Grid resolution the saved layout coordinates were written for. */
   gridCols: number;
+  /** Column domains are stored per page so edits at narrow widths round-trip. */
+  homeGridCols?: number;
+  dashboardGridCols?: number;
   /** Master switch for UI animations (count-ups, transitions). */
   animations: boolean;
   /** Show the date axis under the P&L charts. */
@@ -258,6 +262,7 @@ const DEFAULT_SETTINGS: TradebookSettings = {
   dashboardTitle: "",
   dashboardLayout: [],
   gridCols: 12,
+  homeGridCols: 24,
   animations: true,
   chartDates: true,
   tradeLog: {},
@@ -339,6 +344,14 @@ export interface RenamePlan {
 
 export default class TradebookPlugin extends Plugin {
   settings: TradebookSettings;
+  /** Home period is session-only; it deliberately never enters data.json. */
+  briefingPeriodState: { period: PeriodId; customFrom: string; customTo: string; calendarMonth: string; calendarManual: boolean } = {
+    period: "all",
+    customFrom: "",
+    customTo: "",
+    calendarMonth: "",
+    calendarManual: false,
+  };
   /** In-memory print queue for the Add Trade workflow. Not persisted. */
   printQueue: QueuedPrint[] = [];
   printQueueVersion = 0;
@@ -348,6 +361,15 @@ export default class TradebookPlugin extends Plugin {
   }
 
   async onload() {
+    // Never restore the Home period from plugin settings/workspace state.
+    // Reinitializing here also covers a host that reloads this instance.
+    this.briefingPeriodState = {
+      period: "all",
+      customFrom: "",
+      customTo: "",
+      calendarMonth: "",
+      calendarManual: false,
+    };
     await this.loadSettings();
     addIcon(BRAND_ICON_ID, BRAND_ICON_SVG);
 
@@ -371,7 +393,7 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
-    this.addRibbonIcon("grip", "Tradebook — Briefing", () => {
+    this.addRibbonIcon("grip", "Tradebook — Home", () => {
       this.openHome();
     });
     this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
@@ -386,7 +408,7 @@ export default class TradebookPlugin extends Plugin {
 
     this.addCommand({
       id: "open-home",
-      name: "Open Briefing",
+      name: "Open Home",
       callback: () => this.openHome(),
     });
     this.addCommand({
@@ -434,6 +456,25 @@ export default class TradebookPlugin extends Plugin {
     });
 
     this.addSettingTab(new SettingsTab(this.app, this));
+
+    // Keep the parsed-trade index in step with edits made outside the plugin.
+    const vault: any = this.app.vault;
+    if (vault && typeof vault.on === "function" && typeof this.registerEvent === "function") {
+      const invalidate = (file: any): void => {
+        if (file?.path && this.isTradeNotePath(file.path)) {
+          this._tradeCache.delete(file.path);
+          this.scheduleReloadAllViews();
+        }
+      };
+      this.registerEvent(vault.on("modify", invalidate));
+      this.registerEvent(vault.on("create", invalidate));
+      this.registerEvent(vault.on("delete", invalidate));
+      this.registerEvent(vault.on("rename", (file: any, oldPath: string) => {
+        if (oldPath) this._tradeCache.delete(oldPath);
+        invalidate(file);
+      }));
+    }
+
     // Workspace APIs are optional — some mock/host environments may lack them.
     if (typeof (this.app.workspace as any).onLayoutReady === "function") {
       (this.app.workspace as any).onLayoutReady(async () => {
@@ -441,6 +482,11 @@ export default class TradebookPlugin extends Plugin {
           await this.runMigrations();
         } catch (err) {
           console.error("[tradebook] settings migration failed:", err);
+        }
+        try {
+          await this.loadTradeCache();
+        } catch (err) {
+          console.warn("[tradebook] trade index load failed:", err);
         }
         try {
           await this.runAccountMaintenance();
@@ -552,16 +598,47 @@ export default class TradebookPlugin extends Plugin {
     await this.app.workspace.revealLeaf(leaf);
   }
 
+  /**
+   * Open/reveal a dashboard in its own main-area tab, reusing the tab if that
+   * page is already open. Keeping Home and Analytics alive means switching
+   * between them never tears a view down and rebuilds it from scratch.
+   */
+  private async openViewTab(viewType: string): Promise<void> {
+    const inMainArea = (leaf: any): boolean => {
+      try {
+        if (!leaf) return false;
+        if (typeof leaf.getRoot === "function") return leaf.getRoot() === this.app.workspace.rootSplit;
+        return !!leaf.contentEl;
+      } catch {
+        return false;
+      }
+    };
+    const existing = this.app.workspace.getLeavesOfType(viewType).filter(inMainArea);
+    if (existing.length) {
+      await this.app.workspace.revealLeaf(existing[0]);
+      return;
+    }
+    const leaf: any = this.app.workspace.getLeaf("tab");
+    await leaf.setViewState({ type: viewType, active: true });
+    await this.app.workspace.revealLeaf(leaf);
+  }
+
   async openDashboard(leaf?: any) {
-    const target = leaf ?? this.getJournalLeaf();
-    await target.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
-    await this.app.workspace.revealLeaf(target);
+    if (leaf) {
+      await leaf.setViewState({ type: DASHBOARD_VIEW_TYPE, active: true });
+      await this.app.workspace.revealLeaf(leaf);
+      return;
+    }
+    await this.openViewTab(DASHBOARD_VIEW_TYPE);
   }
 
   async openHome(leaf?: any) {
-    const target = leaf ?? this.getJournalLeaf();
-    await target.setViewState({ type: HOME_VIEW_TYPE, active: true });
-    await this.app.workspace.revealLeaf(target);
+    if (leaf) {
+      await leaf.setViewState({ type: HOME_VIEW_TYPE, active: true });
+      await this.app.workspace.revealLeaf(leaf);
+      return;
+    }
+    await this.openViewTab(HOME_VIEW_TYPE);
   }
 
   async openSetups(leaf?: any) {
@@ -621,12 +698,23 @@ export default class TradebookPlugin extends Plugin {
       period?: string;
       customFrom?: string;
       customTo?: string;
+      dateBounds?: { start: string; end: string; label: string };
       accountId?: string | null;
       accountType?: string;
     }
   ) {
     const view = await this.scopedTradeLogView();
     if (view && typeof view.scopeFromBreakdown === "function") view.scopeFromBreakdown(label, test, scope);
+  }
+
+  /**
+   * Explicit, widget-driven navigation into the Trade Log: reset stale filters,
+   * apply the source scope (period/account/class) and the action filter. Manual
+   * `openTradeLog()` keeps the user's previous Trade Log untouched.
+   */
+  async openTradeLogView(nav: TradeLogNav) {
+    const view = await this.scopedTradeLogView();
+    if (view && typeof view.navigate === "function") view.navigate(nav);
   }
 
   /**
@@ -705,16 +793,21 @@ export default class TradebookPlugin extends Plugin {
   }
 
   /** Where the trade detail was opened from (so "Back" returns there). */
-  tradeDetailOrigin: { type: "tradelog" | "account"; accountId?: string } = { type: "tradelog" };
+  tradeDetailOrigin: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } = { type: "tradelog" };
 
-  async openTradeDetail(trade: { id: string; from?: { type: "tradelog" | "account"; accountId?: string } }) {
+  async openTradeDetail(trade: { id: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } }) {
     this.tradeDetailOrigin = trade.from ?? { type: "tradelog" };
     const trades = await this.loadTradesExpanded();
     let full = trades.find((t) => t.id === trade.id);
     // Virtual legs have no file — open their base trade instead.
     if (full && isVirtualLeg(full)) {
       const base = trades.find((t) => !isLeg(t) && legBaseKey(t) === legBaseKey(full!));
-      if (base) full = base;
+      if (base) {
+        full = base;
+        if (this.tradeDetailOrigin.type === "tradelog" && this.tradeDetailOrigin.tradeIds) {
+          this.tradeDetailOrigin.tradeIds = this.tradeDetailOrigin.tradeIds.map((id) => id === trade.id ? base.id : id);
+        }
+      }
     }
     const resolved = full ?? (trade as any);
     const target = this.getJournalLeaf();
@@ -1073,6 +1166,77 @@ export default class TradebookPlugin extends Plugin {
 
   /** Load all trade notes from the configured folder into Trade objects. */
   private _tradeCache = new Map<string, { mtime: number; trade: Trade }>();
+  private _cacheSaveTimer = 0;
+  private _reloadTimer = 0;
+
+  /** Where the persisted parsed-trade index lives (a cache, safe to delete). */
+  private tradeCachePath(): string {
+    return normalizePath(`${this.getTradesFolder()}/_tradebook/cache/trades.json`);
+  }
+
+  private isTradeNotePath(path: string): boolean {
+    const folder = this.getTradesFolder();
+    if (!path.endsWith(".md")) return false;
+    if (!path.startsWith(folder + "/")) return false;
+    if (path.startsWith(`${folder}/_tradebook/`) || path.startsWith(`${folder}/library/`)) return false;
+    return true;
+  }
+
+  /**
+   * Load the on-disk index so opening a dashboard does not have to read and
+   * parse every trade note. Entries carry the file mtime; anything changed on
+   * disk is re-read on the next `loadTrades()`.
+   */
+  async loadTradeCache(): Promise<void> {
+    const adapter: any = this.app.vault.adapter;
+    const path = this.tradeCachePath();
+    try {
+      if (typeof adapter?.exists !== "function" || !(await adapter.exists(path))) return;
+      const raw = await adapter.read(path);
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== 1 || !parsed.entries || typeof parsed.entries !== "object") return;
+      for (const [key, entry] of Object.entries<any>(parsed.entries)) {
+        if (entry && typeof entry.mtime === "number" && entry.trade && this.isTradeNotePath(key)) {
+          this._tradeCache.set(key, { mtime: entry.mtime, trade: entry.trade as Trade });
+        }
+      }
+    } catch (err) {
+      console.warn("[tradebook] trade index load failed:", err);
+    }
+  }
+
+  private scheduleSaveTradeCache(): void {
+    if (this._cacheSaveTimer) return;
+    this._cacheSaveTimer = window.setTimeout(() => {
+      this._cacheSaveTimer = 0;
+      void this.saveTradeCache();
+    }, 1500);
+  }
+
+  private async saveTradeCache(): Promise<void> {
+    const adapter: any = this.app.vault.adapter;
+    const path = this.tradeCachePath();
+    const dir = normalizePath(`${this.getTradesFolder()}/_tradebook/cache`);
+    try {
+      if (!adapter || typeof adapter.write !== "function") return;
+      if (typeof adapter.mkdir === "function" && !(await adapter.exists(dir))) await adapter.mkdir(dir);
+      const entries: Record<string, { mtime: number; trade: Trade }> = {};
+      for (const [key, value] of this._tradeCache) entries[key] = value;
+      await adapter.write(path, JSON.stringify({ version: 1, entries }));
+    } catch (err) {
+      console.warn("[tradebook] trade index save failed:", err);
+    }
+  }
+
+  /** Coalesce vault-write reactions into one refresh a moment later. */
+  scheduleReloadAllViews(): void {
+    if (typeof window === "undefined") return;
+    if (this._reloadTimer) window.clearTimeout(this._reloadTimer);
+    this._reloadTimer = window.setTimeout(() => {
+      this._reloadTimer = 0;
+      void this.reloadAllViews();
+    }, 250);
+  }
 
 
   /**
@@ -1480,9 +1644,14 @@ export default class TradebookPlugin extends Plugin {
     }
 
     const first = [...days].sort()[0];
-    const journalAgeDays = first
-      ? Math.max(0, Math.round((Date.now() - new Date(first + "T00:00:00").getTime()) / 86400000))
-      : 0;
+    // Journal age in calendar days: earliest recorded day to today in the
+    // Journal Timezone, both as civil days — no host-zone midnight in between.
+    const today = dateInZone(this.settings.timeZone);
+    const dayMs = (iso: string): number => Date.parse(`${iso}T00:00:00Z`);
+    const journalAgeDays =
+      first && Number.isFinite(dayMs(first)) && Number.isFinite(dayMs(today))
+        ? Math.max(0, Math.round((dayMs(today) - dayMs(first)) / 86400000))
+        : 0;
     const n = trades.length || 1;
     const copyAccounts = accounts.filter((a) => a.copyRole === "copier" || a.copyRole === "base").length;
 
@@ -1728,6 +1897,7 @@ export default class TradebookPlugin extends Plugin {
     }
 
     const files = this.journalNoteFiles();
+    let changed = false;
 
     for (const f of files) {
       const mtime = f.stat ? f.stat.mtime : 0;
@@ -1737,6 +1907,7 @@ export default class TradebookPlugin extends Plugin {
         // Unchanged file: reuse the parsed trade instead of re-reading/parsing.
         t = { ...cached.trade };
       } else {
+        changed = true;
         const content = await this.app.vault.cachedRead(f);
         const partial = parseTradeFromMarkdown(content);
         // Discovery is by frontmatter `type`, not by folder. Notes written
@@ -1768,7 +1939,14 @@ export default class TradebookPlugin extends Plugin {
 
     // Prune entries for files that no longer exist.
     const live = new Set(files.map((f) => f.path));
-    for (const key of [...this._tradeCache.keys()]) if (!live.has(key)) this._tradeCache.delete(key);
+    for (const key of [...this._tradeCache.keys()]) {
+      if (!live.has(key)) {
+        this._tradeCache.delete(key);
+        changed = true;
+      }
+    }
+    // Persist only when something actually changed, and coalesce bursts.
+    if (changed) this.scheduleSaveTradeCache();
 
     return trades;
   }

@@ -23,6 +23,7 @@ function fillLines(t: Trade): string[] {
   for (const f of fills) {
     out.push(`  - side: ${f.side === "sell" ? "sell" : "buy"}`);
     out.push(`    time: "${f.time ?? ""}"`);
+    if (f.instant) out.push(`    instant: "${f.instant}"`);
     out.push(`    qty: ${f.qty}`);
     out.push(`    price: ${f.price}`);
     if (Number.isFinite(f.pnl)) out.push(`    pnl: ${f.pnl}`);
@@ -97,6 +98,13 @@ export function tradeToMarkdown(t: Trade): string {
     t.fillId ? `fill_id: ${quoteYaml(t.fillId)}` : null,
     t.notes ? `notes: ${quoteYaml(t.notes)}` : null,
     t.timezone ? `timezone: "${t.timezone}"` : null,
+    // Canonical instants + their provenance. Written only when they exist: a
+    // note that predates the contract keeps its honest absence instead of a
+    // fabricated UTC (see `lib/instant.ts`).
+    t.entryInstant ? `entry_instant: "${t.entryInstant}"` : null,
+    t.exitInstant ? `exit_instant: "${t.exitInstant}"` : null,
+    t.sourceZone ? `source_zone: "${t.sourceZone}"` : null,
+    t.instantSource ? `instant_source: "${t.instantSource}"` : null,
     t.sessionOverride ? `session_override: ${quoteYaml(t.sessionOverride)}` : null,
     `screenshot: ${quoteYaml(t.screenshot ?? "")}`,
     ...screenshotsLines(t),
@@ -294,6 +302,7 @@ function parseFills(fm: string): TradeFill[] {
     if (!cur) return;
     if (key === "side") cur.side = value === "sell" ? "sell" : "buy";
     else if (key === "time") cur.time = value;
+    else if (key === "instant") cur.instant = value;
     else if (key === "qty") cur.qty = parseFloat(value);
     else if (key === "price") cur.price = parseFloat(value);
     else if (key === "pnl") cur.pnl = parseFloat(value);
@@ -396,6 +405,12 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     pnlPoints: parseFloat(get("pnl_points")),
     commission: parseFloat(get("commission")) || 0,
     fees: parseFloat(get("fees")) || 0,
+    // Missing legacy fields are not evidence of a confirmed zero charge. This
+    // presence metadata is runtime-only; the original fields remain untouched.
+    costCoverage: {
+      commission: has("commission") && Number.isFinite(parseFloat(get("commission"))),
+      fees: has("fees") && Number.isFinite(parseFloat(get("fees"))),
+    },
     entryTime: get("entry_time"),
     exitTime: get("exit_time"),
     fills: parseFills(fm),
@@ -407,6 +422,10 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     fillId: get("fill_id"),
     notes: get("notes"),
     timezone: get("timezone"),
+    entryInstant: get("entry_instant") || undefined,
+    exitInstant: get("exit_instant") || undefined,
+    sourceZone: get("source_zone") || undefined,
+    instantSource: (get("instant_source") || undefined) as Trade["instantSource"],
     sessionOverride: get("session_override") || get("sessionOverride") || undefined,
     screenshot: get("screenshot"),
     screenshots: parseScreenshots(fm),

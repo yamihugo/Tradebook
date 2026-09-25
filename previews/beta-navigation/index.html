@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Tradebook · Beta navigation prototypes</title>
+  <style>
+    :root { color-scheme: dark; --bg:#17191c; --panel:#1e2024; --panel-2:#25282d; --ink:#e5e6e8; --muted:#a9adb4; --quiet:#858b94; --line:#383c43; --accent:#c8a76a; --accent-soft:#c8a76a22; --green:#71bd91; --red:#e17a70; --shadow:0 14px 42px #0005; font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    :root[data-theme="light"] { color-scheme:light; --bg:#f2f1ee; --panel:#fff; --panel-2:#f7f6f3; --ink:#25272a; --muted:#565c63; --quiet:#737981; --line:#d8d9d8; --accent:#8b6933; --accent-soft:#8b693319; --green:#327a51; --red:#ad443c; --shadow:0 14px 42px #17212a1c; }
+    * { box-sizing:border-box; } body { margin:0; color:var(--ink); background:var(--bg); } button { color:inherit; font:inherit; }
+    button:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    .prototype { min-height:100vh; } .toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:10; }
+    .eyebrow { color:var(--accent); font-size:11px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; } .toolbar strong { margin-right:auto; }
+    .tool, .switch { min-height:36px; border:1px solid var(--line); background:var(--panel-2); border-radius:9px; padding:6px 11px; cursor:pointer; }
+    .switch[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+    .viewport { min-height:calc(100vh - 61px); display:flex; padding:18px; gap:14px; } .host { width:100%; min-width:0; min-height:760px; border:1px solid var(--line); border-radius:16px; overflow:hidden; display:flex; background:var(--bg); box-shadow:var(--shadow); }
+    .obsidian-rail { width:54px; flex:none; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; align-items:center; gap:12px; padding:16px 8px; color:var(--quiet); }
+    .obsidian-rail span { width:22px; height:22px; border:1px solid var(--line); border-radius:6px; display:grid; place-items:center; font-size:11px; }
+    .host-pane { display:flex; min-width:0; flex:1; } .sidebar { width:232px; flex:none; background:var(--panel); border-right:1px solid var(--line); padding:16px 12px; display:flex; flex-direction:column; transition:width .22s ease,padding .22s ease; }
+    .sidebar.compact { width:72px; padding-inline:10px; } .brand { min-height:52px; display:flex; align-items:center; gap:10px; padding:2px 8px 14px; border-bottom:1px solid var(--line); margin-bottom:12px; }
+    .logo-wordmark { display:block; width:146px; height:auto; min-width:0; flex:none; object-fit:contain; }
+    .logo-wordmark-light { display:none; }
+    :root[data-theme="light"] .logo-wordmark-dark { display:none; }
+    :root[data-theme="light"] .logo-wordmark-light { display:block; }
+    .mark-placeholder { width:34px; height:34px; border:1px dashed var(--quiet); border-radius:9px; display:grid; place-items:center; color:var(--muted); font-size:9px; text-align:center; }
+    .brand-copy { font-weight:650; font-size:14px; white-space:nowrap; } .mark-placeholder { display:none; } .compact .brand { justify-content:center; padding-inline:0; } .compact .logo-wordmark,.compact .brand-copy { display:none; } .compact .mark-placeholder { display:grid; }
+    .nav-list { display:grid; gap:4px; } .nav-item { width:100%; min-height:42px; display:flex; align-items:center; gap:11px; padding:7px 10px; color:var(--muted); background:transparent; border:1px solid transparent; border-radius:9px; text-align:left; cursor:pointer; }
+    .nav-item:hover,.action:hover { background:var(--panel-2); color:var(--ink); } .nav-item[aria-current="page"] { background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 30%,transparent); color:var(--ink); }
+    .ico { width:19px; height:19px; display:inline-grid; place-items:center; flex:none; color:currentColor; } .ico svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    .nav-label { white-space:nowrap; } .compact .nav-item { justify-content:center; padding:8px; } .compact .nav-label,.compact .action-label,.compact .section-label { display:none; }
+    .section-label { padding:16px 10px 6px; color:var(--quiet); font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
+    .actions { display:grid; gap:3px; border-top:1px solid var(--line); margin-top:14px; padding-top:10px; } .action { display:flex; align-items:center; gap:10px; min-height:38px; padding:6px 10px; text-align:left; color:var(--muted); border:0; border-radius:8px; background:transparent; cursor:pointer; }
+    .collapse { margin-top:auto; min-height:36px; border:1px solid var(--line); border-radius:9px; background:transparent; cursor:pointer; color:var(--muted); } .compact .collapse { padding:0; }
+    .page { position:relative; flex:1; min-width:0; padding:26px clamp(16px,3vw,38px) 56px; overflow:auto; } .page-head { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:22px; }
+    h1 { margin:0; font-size:25px; line-height:1.2; letter-spacing:-.02em; } .subtitle { margin:7px 0 0; color:var(--muted); } .date { color:var(--quiet); font-size:12px; }
+    .stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); background:var(--line); gap:1px; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin:0 0 16px; }
+    .stat { min-width:0; background:var(--panel); padding:14px; } .stat small { color:var(--muted); display:block; } .stat strong { display:block; margin-top:7px; font-size:21px; font-variant-numeric:tabular-nums; } .pos { color:var(--green); }
+    .content-grid { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(220px,.85fr); gap:14px; } .card { min-width:0; background:var(--panel); border:1px solid var(--line); border-radius:13px; padding:16px; }
+    .card h2 { margin:0 0 12px; font-size:14px; } .chart { height:210px; width:100%; display:block; } .chart-grid { stroke:var(--line); stroke-width:1; } .chart-line { fill:none; stroke:var(--accent); stroke-width:3; } .chart-area { fill:var(--accent); opacity:.1; }
+    .bars { height:162px; display:flex; align-items:end; gap:9px; padding:12px 4px 0; border-bottom:1px solid var(--line); } .bar { flex:1; min-width:8px; border-radius:4px 4px 0 0; background:color-mix(in srgb,var(--accent) 68%,transparent); }
+    .table-wrap { overflow:auto; } table { width:100%; border-collapse:collapse; white-space:nowrap; font-size:12px; } th,td { text-align:left; padding:11px 10px; border-bottom:1px solid var(--line); } th { color:var(--muted); font-weight:550; } td:last-child,th:last-child { text-align:right; } .muted { color:var(--muted); }
+    .floating { position:sticky; bottom:13px; width:max-content; max-width:100%; margin:26px auto 0; padding:7px; border:1px solid color-mix(in srgb,var(--line) 78%,var(--accent)); border-radius:17px; background:color-mix(in srgb,var(--panel) 90%,transparent); box-shadow:var(--shadow); backdrop-filter:blur(18px); z-index:3; }
+    .dock-row { display:flex; align-items:center; justify-content:center; gap:3px; } .dock-logo { display:grid; margin:0 6px 0 2px; } .dock-item { display:grid; justify-items:center; gap:1px; min-width:65px; min-height:49px; padding:5px 7px; border:1px solid transparent; border-radius:11px; color:var(--muted); background:transparent; cursor:pointer; font-size:10px; }
+    .dock-item:hover,.dock-item:focus-visible { color:var(--ink); background:var(--panel-2); } .dock-item[aria-current="page"] { color:var(--ink); background:var(--accent-soft); border-color:color-mix(in srgb,var(--accent) 35%,transparent); } .dock-item .ico { width:20px;height:20px; }
+    .dock-actions { display:flex; align-items:center; border-left:1px solid var(--line); margin-left:4px; padding-left:5px; gap:1px; } .dock-action { min-width:39px; min-height:39px; display:grid; place-items:center; border:0; border-radius:9px; background:transparent; color:var(--muted); cursor:pointer; } .dock-action:hover { color:var(--ink); background:var(--panel-2); }
+    .dock-menu { position:absolute; right:5px; bottom:calc(100% + 9px); width:178px; padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--panel); box-shadow:var(--shadow); } .dock-menu button { width:100%; display:flex; align-items:center; gap:9px; min-height:38px; border:0; border-radius:8px; background:transparent; color:var(--muted); text-align:left; cursor:pointer; } .dock-menu button:hover { background:var(--panel-2); color:var(--ink); }
+    .floating-notice { color:var(--quiet); text-align:center; font-size:11px; margin-top:7px; } .prototype-note { border:1px dashed var(--line); border-radius:10px; padding:10px 12px; color:var(--muted); font-size:12px; margin-bottom:18px; }
+    .narrow .sidebar { width:66px; padding-inline:8px; } .narrow .sidebar:not(.compact) .brand-copy,.narrow .sidebar:not(.compact) .logo-wordmark { display:none; } .narrow .sidebar:not(.compact) .brand { justify-content:center; padding-inline:0; }
+    .narrow .nav-label,.narrow .action-label,.narrow .section-label { display:none; } .narrow .nav-item,.narrow .action { justify-content:center; padding-inline:7px; } .narrow .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .narrow .content-grid { grid-template-columns:1fr; } .narrow .page { padding:18px 14px 50px; } .narrow .dock-row { gap:0; } .narrow .floating { width:100%; padding:5px; } .narrow .dock-item { min-width:0; flex:1; padding-inline:3px; font-size:9px; } .narrow .dock-logo { display:none; } .narrow .dock-actions { margin-left:2px; padding-left:2px; } .narrow .dock-action { min-width:30px; }
+    .small-pane .host { min-height:780px; } .small-pane .obsidian-rail { width:38px; padding-inline:5px; } .small-pane .sidebar { width:54px; padding-inline:5px; } .small-pane .brand-copy,.small-pane .logo-wordmark,.small-pane .nav-label,.small-pane .action-label,.small-pane .section-label { display:none!important; } .small-pane .brand,.small-pane .nav-item,.small-pane .action { justify-content:center; padding-inline:2px; } .small-pane .page { padding:16px 10px 46px; } .small-pane .floating { width:100%; padding:3px; bottom:6px; } .small-pane .dock-item { min-width:0; flex:1; padding:3px 1px; font-size:8px; } .small-pane .dock-actions { margin:0; padding-left:1px; } .small-pane .dock-action { min-width:27px; }
+    [hidden] { display:none!important; } @media(max-width:760px) { .viewport { padding:8px; } .obsidian-rail { display:none; } .sidebar { width:58px; padding-inline:5px; } .sidebar .brand-copy,.sidebar .logo-wordmark,.sidebar .nav-label,.sidebar .action-label,.sidebar .section-label { display:none; } .sidebar .brand,.sidebar .nav-item,.sidebar .action { justify-content:center; padding-inline:2px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .content-grid { grid-template-columns:1fr; } .floating { width:100%; padding:4px; } .dock-item { min-width:0; flex:1; font-size:9px; padding-inline:2px; } .dock-logo { display:none; } .dock-action { min-width:28px; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; animation-iteration-count:1!important; transition-duration:.01ms!important; } }
+  </style>
+</head>
+<body>
+  <main class="prototype">
+    <header class="toolbar">
+      <span class="eyebrow">Non-production preview</span><strong>Tradebook · Beta navigation</strong>
+      <button class="switch" data-concept="expanded" aria-pressed="true">Sidebar · Expanded</button>
+      <button class="switch" data-concept="compact" aria-pressed="false">Sidebar · Compact</button>
+      <button class="switch" data-concept="island" aria-pressed="false">Floating Island</button>
+      <button class="tool" id="theme-toggle" aria-label="Switch dark or light appearance">Light appearance</button>
+      <button class="tool" id="width-toggle" aria-label="Switch wide or narrow preview">Narrow viewport</button>
+      <button class="tool" id="pane-toggle" aria-label="Switch normal or small Obsidian pane">Small pane</button>
+    </header>
+    <div class="viewport" id="viewport"><div class="host"><aside class="obsidian-rail" aria-label="Simulated Obsidian panel"><span>⌂</span><span>▤</span><span>⌕</span><span>⚙</span></aside><div class="host-pane">
+      <aside class="sidebar" id="sidebar" aria-label="Tradebook navigation">
+        <div class="brand"><img class="logo-wordmark logo-wordmark-dark" src="../../assets/brand/TradebookWhiteLogo.png" alt="Tradebook" /><img class="logo-wordmark logo-wordmark-light" src="../../assets/brand/TradebookDarkLogo.png" alt="Tradebook" /><span class="brand-copy">Tradebook</span><span class="mark-placeholder" aria-label="Notebook-only mark asset needed">MARK<br>NEEDED</span></div>
+        <div class="section-label">Journal</div><nav class="nav-list" id="side-nav" aria-label="Pages"></nav>
+        <div class="section-label">Actions</div><div class="actions" id="side-actions"></div>
+        <button class="collapse" id="collapse" aria-label="Collapse Tradebook menu">‹ &nbsp; Collapse menu</button>
+      </aside>
+      <section class="page" id="page" aria-label="Sample Tradebook page">
+        <div class="prototype-note"><strong>Prototype content only.</strong> Sample UI and controls are local to this preview; no vault, settings, routes, workspace leaves, or production data are read or changed.</div>
+        <div class="page-head"><div><h1 id="page-title">Home</h1><p class="subtitle">A clear view of your trading week.</p></div><div class="date">MONDAY, 24 AUG 2026</div></div>
+        <div class="stats"><div class="stat"><small>Net P&amp;L</small><strong class="pos">+$2,840</strong></div><div class="stat"><small>Win rate</small><strong>64.8%</strong></div><div class="stat"><small>Trades</small><strong>42</strong></div><div class="stat"><small>Avg. R</small><strong>+1.24R</strong></div></div>
+        <div class="content-grid"><article class="card"><h2>Equity curve <span class="muted">· selected period</span></h2><svg class="chart" viewBox="0 0 720 210" preserveAspectRatio="none" role="img" aria-label="Synthetic rising equity line chart"><path class="chart-grid" d="M0 40H720 M0 90H720 M0 140H720 M0 190H720"/><path class="chart-area" d="M0 177 L48 150 L96 164 L144 128 L192 139 L240 104 L288 117 L336 75 L384 97 L432 65 L480 78 L528 43 L576 61 L624 26 L672 44 L720 18 L720 210 L0 210Z"/><path class="chart-line" d="M0 177 L48 150 L96 164 L144 128 L192 139 L240 104 L288 117 L336 75 L384 97 L432 65 L480 78 L528 43 L576 61 L624 26 L672 44 L720 18"/></svg><div class="muted">Navigation placement leaves the chart and period controls unobstructed.</div></article>
+          <article class="card"><h2>Daily result</h2><div class="bars" aria-label="Synthetic daily results"><i class="bar" style="height:38%"></i><i class="bar" style="height:56%"></i><i class="bar" style="height:44%"></i><i class="bar" style="height:72%"></i><i class="bar" style="height:61%"></i><i class="bar" style="height:87%"></i><i class="bar" style="height:67%"></i></div><p class="muted">Sample chart; synthetic data only.</p></article>
+          <article class="card table-wrap" style="grid-column:1/-1"><h2>Recent trades</h2><table><thead><tr><th>Date</th><th>Symbol</th><th>Side</th><th>Strategy</th><th>Net P&amp;L</th></tr></thead><tbody><tr><td>24 Aug</td><td>MNQ</td><td>Long</td><td>Opening range</td><td class="pos">+$420</td></tr><tr><td>24 Aug</td><td>MES</td><td>Short</td><td>VWAP reclaim</td><td class="pos">+$185</td></tr><tr><td>21 Aug</td><td>NQ</td><td>Long</td><td>Breakout retest</td><td style="color:var(--red)">−$210</td></tr></tbody></table></article>
+        </div>
+        <div class="floating" id="floating" hidden><nav class="dock-row" id="dock-nav" aria-label="Tradebook navigation"><span class="dock-logo mark-placeholder" aria-label="Notebook-only mark asset needed">MARK</span></nav><div class="dock-menu" id="dock-menu" hidden></div><div class="floating-notice">Dock stays inside Tradebook · page reserves bottom space · scrolls with this content</div></div>
+      </section>
+    </div></div></div>
+  </main>
+  <script>
+    const pages = [
+      ["Home","layout-dashboard"],["Analytics","chart-no-axes-combined"],["Trade Log","rows-3"],["Accounts","wallet-cards"],["Strategies","workflow"]
+    ];
+    const actions = [["Manual Trade","plus"],["Import CSV","file-up"],["Search","search"],["Settings","settings"]];
+    const svg = {
+      "layout-dashboard":"<rect x='3' y='3' width='8' height='8' rx='1'/><rect x='13' y='3' width='8' height='5' rx='1'/><rect x='13' y='10' width='8' height='11' rx='1'/><rect x='3' y='13' width='8' height='8' rx='1'/>",
+      "chart-no-axes-combined":"<path d='M3 3v18h18'/><path d='m19 9-5 5-4-4-3 3'/><path d='M16 9h3v3'/>", "rows-3":"<path d='M8 6h13M8 12h13M8 18h13'/><path d='M3 6h.01M3 12h.01M3 18h.01'/>",
+      "wallet-cards":"<rect x='3' y='5' width='18' height='15' rx='2'/><path d='M3 9h18M7 15h3'/>", "workflow":"<rect x='3' y='3' width='7' height='5' rx='1'/><rect x='14' y='16' width='7' height='5' rx='1'/><rect x='3' y='16' width='7' height='5' rx='1'/><path d='M6.5 8v4h11v4M6.5 12v4'/>",
+      "plus":"<path d='M12 5v14M5 12h14'/>", "file-up":"<path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/><path d='M14 2v6h6M12 18v-6m-3 3 3-3 3 3'/>",
+      "search":"<circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/>", "settings":"<path d='M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z'/><path d='m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.6a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.6-1.4-2.4 1.4-1.1a8 8 0 0 1 0-1.8l-1.4-1.1 1.4-2.4 1.7.6a8 8 0 0 1 1.5-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.5.9l1.7-.6 1.4 2.4-1.4 1.1a8 8 0 0 1-.1 1.7Z'/>",
+      "panel":"<rect x='3' y='3' width='18' height='18' rx='2'/><path d='M9 3v18'/>", "chevron":"<path d='m9 18 6-6-6-6'/>", "menu":"<path d='M4 6h16M4 12h16M4 18h16'/>", "upload":"<path d='M12 16V4m-4 4 4-4 4 4'/><path d='M20 16v4H4v-4'/>", "key":"<circle cx='8' cy='15' r='4'/><path d='m10.8 12.2 8.2-8.2 2 2-2 2 2 2-3 3-2-2-2 2'/>"
+    };
+    function icon(name) { return `<span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24">${svg[name]||svg.panel}</svg></span>`; }
+    const sideNav=document.querySelector('#side-nav'),sideActions=document.querySelector('#side-actions'),dockNav=document.querySelector('#dock-nav');
+    pages.forEach(([label,ic],i)=>{ const side=document.createElement('button'); side.className='nav-item'; side.dataset.page=label; side.setAttribute('aria-current',i===0?'page':'false'); side.setAttribute('aria-label',label); side.title=label; side.innerHTML=icon(ic)+`<span class="nav-label">${label}</span>`; sideNav.append(side);
+      const dock=document.createElement('button'); dock.className='dock-item'; dock.dataset.page=label; dock.setAttribute('aria-current',i===0?'page':'false'); dock.setAttribute('aria-label',label); dock.title=label; dock.innerHTML=icon(ic)+`<span>${label}</span>`; dockNav.append(dock); });
+    actions.forEach(([label,ic])=>{ const b=document.createElement('button'); b.className='action'; b.setAttribute('aria-label',label); b.title=label; b.innerHTML=icon(ic)+`<span class="action-label">${label}</span>`; sideActions.append(b); });
+    const search=document.createElement('button'); search.className='dock-action'; search.setAttribute('aria-label','Search Tradebook entries'); search.title='Search Tradebook entries'; search.innerHTML=icon('search'); dockNav.append(search);
+    const more=document.createElement('button'); more.className='dock-action'; more.id='dock-more'; more.setAttribute('aria-label','More Tradebook actions'); more.setAttribute('aria-expanded','false'); more.textContent='···'; dockNav.append(more);
+    const dockMenu=document.querySelector('#dock-menu');
+    actions.filter(([label])=>label!=='Search').forEach(([label,ic])=>{ const b=document.createElement('button'); b.innerHTML=icon(ic)+`<span>${label}</span>`; b.addEventListener('click',()=>{ dockMenu.hidden=true; more.setAttribute('aria-expanded','false'); }); dockMenu.append(b); });
+    let concept='expanded'; const sidebar=document.querySelector('#sidebar'),floating=document.querySelector('#floating'),viewport=document.querySelector('#viewport');
+    function setConcept(next){ concept=next; sidebar.classList.toggle('compact',next==='compact'); floating.hidden=next!=='island'; sidebar.hidden=next==='island'; document.querySelector('#collapse').hidden=next==='island'; document.querySelector('#collapse').textContent=next==='compact'?'›  Expand menu':'‹  Collapse menu'; document.querySelector('#collapse').setAttribute('aria-label',next==='compact'?'Expand Tradebook menu':'Collapse Tradebook menu'); document.querySelectorAll('[data-concept]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.concept===next))); }
+    document.querySelectorAll('[data-concept]').forEach(b=>b.addEventListener('click',()=>setConcept(b.dataset.concept)));
+    document.querySelector('#collapse').addEventListener('click',()=>setConcept(concept==='compact'?'expanded':'compact'));
+    more.addEventListener('click',()=>{ dockMenu.hidden=!dockMenu.hidden; more.setAttribute('aria-expanded',String(!dockMenu.hidden)); });
+    document.querySelector('#theme-toggle').addEventListener('click',e=>{ const light=document.documentElement.dataset.theme!=='light'; document.documentElement.dataset.theme=light?'light':'dark'; e.currentTarget.textContent=light?'Dark appearance':'Light appearance'; });
+    document.querySelector('#width-toggle').addEventListener('click',e=>{ viewport.classList.toggle('narrow'); e.currentTarget.textContent=viewport.classList.contains('narrow')?'Wide viewport':'Narrow viewport'; });
+    document.querySelector('#pane-toggle').addEventListener('click',e=>{ viewport.classList.toggle('small-pane'); e.currentTarget.textContent=viewport.classList.contains('small-pane')?'Normal pane':'Small pane'; });
+    document.addEventListener('click',e=>{ const item=e.target.closest('[data-page]'); if(!item)return; document.querySelectorAll('[data-page]').forEach(b=>b.setAttribute('aria-current',String(b.dataset.page===item.dataset.page?'page':'false'))); document.querySelector('#page-title').textContent=item.dataset.page; });
+  </script>
+</body>
+</html>

@@ -7,6 +7,10 @@
  * otherwise read as two different mistakes.
  */
 
+/** Suggested labels used by the individual Trade Review and the Trade Log bulk actions. */
+export const DEFAULT_MISTAKE_TAGS = ["Hesitation Entry", "Early Exit", "FOMO", "Moved Stop", "Overleveraged"];
+export const DEFAULT_PSYCHOLOGY_TAGS = ["Confident", "Anxious", "Impatient", "Revenge", "Disciplined"];
+
 /** Trim and collapse internal whitespace: "  FOMO   Entry " -> "FOMO Entry". */
 export function normalizeTag(raw: string): string {
   return (raw ?? "").replace(/\s+/g, " ").trim();

@@ -123,6 +123,16 @@ export function futuresSpec(symbol: string): FuturesSpec {
   return FUTURES_SPECS[rootSymbol(symbol)] ?? UNKNOWN_SPEC;
 }
 
+/** A recognised monetary specification, or null instead of the $1 fallback. */
+export function knownFuturesSpec(symbol: string): FuturesSpec | null {
+  const normalized = (symbol || "").trim().toUpperCase();
+  const root = rootSymbol(normalized);
+  const spec = FUTURES_SPECS[root];
+  if (!spec) return null;
+  const suffix = normalized.slice(root.length);
+  return suffix === "" || /^[FGHJKMNQUVXZ]\d{1,2}$/.test(suffix) ? spec : null;
+}
+
 /** The micro version of a mini, when one exists (NQ → MNQ). */
 export function microOf(symbol: string): string | undefined {
   return futuresSpec(symbol).micro;

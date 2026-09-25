@@ -6,12 +6,12 @@
  * the trade list into buckets and hands back a treemap tile list, so the
  * widgets stay thin and the basis can never drift between them.
  *
- * Basis contract (docs/ARCHITECTURE.md): money is NET (`netPnl`, every leg);
- * win/loss classification is the GROSS sign (the counted list).
+ * Result is Net over eligible in-scope account legs. Counts and win-rate
+ * classifications remain Gross-based under the existing counted population.
  */
 
 import type { Trade } from "../types";
-import { netPnl } from "./fees";
+import { summarizeFinancials } from "./money";
 import type { TreemapTile } from "./chartKit";
 
 interface Bucket {
@@ -20,31 +20,38 @@ interface Bucket {
   wins: number;
 }
 
-/** Fold the trade list into `{ net, count, wins }` buckets keyed by `keyFn`. */
-function bucketize(trades: Trade[], counted: Trade[], keyFn: (t: Trade) => string): Map<string, Bucket> {
+/** Summarize each category independently so copies count once within its bucket. */
+function bucketize(trades: Trade[], keyFn: (t: Trade) => string, population: "trade" | "account leg"): Map<string, Bucket> {
   const map = new Map<string, Bucket>();
-  const bucketOf = (k: string): Bucket => {
-    const b = map.get(k) ?? { net: 0, count: 0, wins: 0 };
-    map.set(k, b);
-    return b;
-  };
-  // Money over every leg; counts over the logical (counted) list.
+  const groups = new Map<string, Trade[]>();
   for (const t of trades) {
     const k = keyFn(t);
-    if (k) bucketOf(k).net += netPnl(t);
-  }
-  for (const t of counted) {
-    const k = keyFn(t);
     if (!k) continue;
-    const b = bucketOf(k);
-    b.count += 1;
-    if (t.pnl > 0) b.wins += 1;
+    const rows = groups.get(k) ?? [];
+    rows.push(t);
+    groups.set(k, rows);
+  }
+  for (const [key, rows] of groups) {
+    const accountKey = (t: Trade): string => String(t.account ?? "").trim().toLocaleLowerCase() || "unassigned";
+    const summary = summarizeFinancials(rows, {
+      scope: {
+        kind: "all-included-accounts",
+        accountIdOf: accountKey,
+        includedAccountIds: new Set(rows.map(accountKey)),
+      },
+      dayKey: (t) => t.date,
+    });
+    map.set(key, {
+      net: summary.net.total,
+      count: population === "trade" ? summary.decisionCount : summary.eligibleLegCount,
+      wins: population === "trade" ? summary.gross.positiveDecisionCount : summary.gross.positiveAccountLegCount,
+    });
   }
   return map;
 }
 
-const winSub = (b: Bucket): string =>
-  `${b.count} trade${b.count === 1 ? "" : "s"} · ${b.count ? Math.round((b.wins / b.count) * 100) : 0}% win`;
+const winSub = (b: Bucket, population: "trade" | "account leg"): string =>
+  `${b.count} ${population}${b.count === 1 ? "" : "s"} · ${b.count ? Math.round((b.wins / b.count) * 100) : 0}% Gross-sign win rate`;
 
 export interface DimensionTilesOpts {
   /** Display label for a key; defaults to the key itself. */
@@ -53,6 +60,7 @@ export interface DimensionTilesOpts {
   orderOf?: (key: string) => number;
   /** Money formatter; defaults to a plain number. */
   formatMoney?: (v: number) => string;
+  countPopulation?: "trade" | "account leg";
 }
 
 /**
@@ -62,11 +70,12 @@ export interface DimensionTilesOpts {
  */
 export function dimensionTiles(
   trades: Trade[],
-  counted: Trade[],
+  _counted: Trade[],
   keyFn: (t: Trade) => string,
   opts: DimensionTilesOpts = {}
 ): TreemapTile[] {
-  const map = bucketize(trades, counted, keyFn);
+  const population = opts.countPopulation ?? "trade";
+  const map = bucketize(trades, keyFn, population);
   const label = opts.labelOf ?? ((k) => k);
   const fmt = opts.formatMoney ?? ((v) => String(v));
 
@@ -76,7 +85,7 @@ export function dimensionTiles(
     net: b.net,
     count: b.count,
     wins: b.wins,
-    tip: { title: label(k), value: fmt(b.net), sub: winSub(b) },
+    tip: { title: label(k), value: fmt(b.net), sub: winSub(b, population) },
   }));
 
   if (opts.orderOf) {

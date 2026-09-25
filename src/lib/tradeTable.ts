@@ -15,6 +15,10 @@ import { futuresSpec } from "../futures";
 import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass } from "./fills";
 import { legBaseKey } from "./copy";
 import { netPnl } from "./fees";
+import { holdMinutesOf, tradeDayInZone, tradeEntryTimeInZone } from "./instant";
+
+/** The Journal Timezone a row is read in. Empty means "as recorded". */
+const zoneOf = (plugin?: TradebookPlugin): string => plugin?.settings?.timeZone ?? "";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -63,16 +67,34 @@ export function normalizeOrderType(raw?: string): string | undefined {
  * read as wall clock; an exit earlier than the entry wrapped past midnight.
  * Empty times (older notes have none) read as an em dash, never as midnight.
  */
-export function holdFmt(entryTime?: string, exitTime?: string): string {
-  const seconds = heldSeconds(entryTime, exitTime);
-  if (seconds === null) return "—";
-  const diff = seconds;
-  if (diff < 60) return `${diff}s`;
-  const h = Math.floor(diff / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  const s = diff % 60;
+function fmtDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
   if (h > 0) return s ? `${h}h ${m}m ${s}s` : m ? `${h}h ${m}m` : `${h}h`;
   return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+/** How long the trade was held, from the recorded clock (a fill row's own
+ *  span, or a note with no instants): an exit earlier than the entry wrapped
+ *  past midnight. Empty times read as an em dash, never as midnight. */
+export function holdFmt(entryTime?: string, exitTime?: string): string {
+  const seconds = heldSeconds(entryTime, exitTime);
+  return seconds === null ? "—" : fmtDuration(seconds);
+}
+
+/**
+ * How long a trade was held: `15s`, `1m 30s`, `2h 4m 9s`.
+ *
+ * From the canonical instants when the note has them — a hold that crosses
+ * midnight or a DST change is the time it really took — and from the recorded
+ * clock (with its midnight wrap) otherwise. No entry/exit to read: a dash, never
+ * a guess at midnight.
+ */
+export function holdFmtOf(t: Trade): string {
+  const minutes = holdMinutesOf(t);
+  return minutes === null ? "—" : fmtDuration(Math.round(minutes * 60));
 }
 
 /** Parse a wall-clock HH:MM(:SS) into seconds since midnight (null when absent). */
@@ -242,10 +264,13 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     id: "date",
     label: "Time",
     align: "left",
-    sortValue: (t) => `${t.date}${t.entryTime ?? ""}`,
+    sortValue: (t, plugin) => `${tradeDayInZone(t, zoneOf(plugin))}${tradeEntryTimeInZone(t, zoneOf(plugin))}`,
     firstDir: "asc",
     render: (td, t, plugin, ctx) => {
-      const time = (t.entryTime || "").trim();
+      // The row shows the day and the clock the instant is *in* — the same
+      // values the day header above it and the period filter use.
+      const day = tradeDayInZone(t, zoneOf(plugin));
+      const time = tradeEntryTimeInZone(t, zoneOf(plugin)).trim();
       // No time recorded (imported fills have none): show a dash. An empty cell
       // reads as if the column were missing, and the eye then pairs the symbol
       // with the time header.
@@ -253,7 +278,7 @@ export const TRADE_COLUMNS: TradeColumn[] = [
         td.setText("—");
         return;
       }
-      td.setText(ctx.compactDate ? `${compactDateLabel(t.date)}, ${time}` : ctx.groupByDay ? time : `${formatDate(t.date, plugin.settings.dateFormat)} ${time}`.trim());
+      td.setText(ctx.compactDate ? `${compactDateLabel(day)}, ${time}` : ctx.groupByDay ? time : `${formatDate(day, plugin.settings.dateFormat)} ${time}`.trim());
     },
   },
   {
@@ -365,7 +390,7 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     align: "right",
     sortValue: (t) => heldSeconds(t.entryTime, t.exitTime),
     firstDir: "desc",
-    render: (td, t) => td.setText(holdFmt(t.entryTime, t.exitTime)),
+    render: (td, t) => td.setText(holdFmtOf(t)),
   },
   {
     id: "r",
@@ -385,7 +410,7 @@ export const TRADE_COLUMNS: TradeColumn[] = [
   },
   {
     id: "pnl",
-    label: "P&L",
+    label: "P&L (Gross)",
     align: "right",
     sortValue: (t) => (Number.isFinite(t.pnl) ? t.pnl : null),
     firstDir: "desc",
@@ -537,7 +562,10 @@ function sortTrades(rows: TradeRow[], sort: TradeSort | null, plugin: TradebookP
     const d = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
     // A stable tie-break on the clock: two trades with the same P&L stay in the
     // order they happened instead of shuffling on every redraw.
-    const clock = `${a.rep.date}${a.rep.entryTime ?? ""}`.localeCompare(`${b.rep.date}${b.rep.entryTime ?? ""}`);
+    const zone = zoneOf(plugin);
+    const clock = `${tradeDayInZone(a.rep, zone)}${tradeEntryTimeInZone(a.rep, zone)}`.localeCompare(
+      `${tradeDayInZone(b.rep, zone)}${tradeEntryTimeInZone(b.rep, zone)}`
+    );
     return (d !== 0 ? d : clock) * sign;
   });
   return [...known, ...unknown];
@@ -545,9 +573,12 @@ function sortTrades(rows: TradeRow[], sort: TradeSort | null, plugin: TradebookP
 
 /** Newest day first; inside a day, the order the session actually happened. */
 function groupDays(rows: TradeRow[], sort: TradeSort | null = null, plugin?: TradebookPlugin): DayGroup[] {
+  // The header of each group is the journal's day — the same key the period
+  // filter uses, so a day opens exactly the rows it shows.
+  const zone = zoneOf(plugin);
   const map = new Map<string, TradeRow[]>();
   for (const t of rows) {
-    const key = t.rep.date ?? "";
+    const key = tradeDayInZone(t.rep, zone);
     const bucket = map.get(key);
     if (bucket) bucket.push(t);
     else map.set(key, [t]);
@@ -564,8 +595,31 @@ function groupDays(rows: TradeRow[], sort: TradeSort | null = null, plugin?: Tra
       rows:
         sort && plugin
           ? sortTrades(rows, sort, plugin)
-          : rows.slice().sort((a, b) => (a.rep.entryTime ?? "").localeCompare(b.rep.entryTime ?? "")),
+          : // Inside a day, the order the session actually happened — read from
+            // the instant, so a row never sits above one that came before it.
+            rows
+              .slice()
+              .sort((a, b) =>
+                tradeEntryTimeInZone(a.rep, zone).localeCompare(tradeEntryTimeInZone(b.rep, zone))
+              ),
     }));
+}
+
+/** The row order presented by the ledger, shared with filtered review navigation. */
+export function orderedTradeRows(
+  trades: Trade[],
+  sort: TradeSort | null,
+  plugin: TradebookPlugin,
+  groupByDay = false
+): TradeRow[] {
+  const rows = tradeRows(trades);
+  if (groupByDay) return groupDays(rows, sort, plugin).flatMap((group) => group.rows);
+  if (sort) return sortTrades(rows, sort, plugin);
+  // Newest first, read from the instant: the same day and clock every group
+  // header and every cell shows.
+  const zone = zoneOf(plugin);
+  const stamp = (r: TradeRow): string => `${tradeDayInZone(r.rep, zone)}${tradeEntryTimeInZone(r.rep, zone)}`;
+  return rows.slice().sort((a, b) => stamp(b).localeCompare(stamp(a)));
 }
 
 /** `Tue 8 Sep` — from the trade's own date, so it always matches the row below it. */
@@ -778,7 +832,11 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
               ? sortTrades(rows.slice(), opts.sort, plugin)
               : rows
                   .slice()
-                  .sort((a, b) => `${b.rep.date}${b.rep.entryTime ?? ""}`.localeCompare(`${a.rep.date}${a.rep.entryTime ?? ""}`)),
+                  .sort((a, b) =>
+                    `${tradeDayInZone(b.rep, zoneOf(plugin))}${tradeEntryTimeInZone(b.rep, zoneOf(plugin))}`.localeCompare(
+                      `${tradeDayInZone(a.rep, zoneOf(plugin))}${tradeEntryTimeInZone(a.rep, zoneOf(plugin))}`
+                    )
+                  ),
           },
         ];
 
@@ -834,7 +892,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
           // inside the table, so the columns stay in step with the header.
           const cell = row.createEl("td", { cls: "tj-tbl-rail" });
           const dot = cell.createEl("i", { cls: (t.pnl ?? 0) < 0 ? "loss" : "" });
-          const facts = [t.entryTime || "no time", fmtMoney(t.pnl ?? 0)];
+          const facts = [tradeEntryTimeInZone(t, zoneOf(plugin)).trim() || "no time", fmtMoney(t.pnl ?? 0)];
           if (i === 0) facts.push("First of the session");
           if (i === group.rows.length - 1) facts.push("Last of the session");
           attachTip(dot, { title: facts[0], sub: facts.slice(1).join(" · ") });
@@ -858,5 +916,5 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
 // Test hook (see lib/fills.ts): the ledger is rendered by two views, so the
 // harness drives it directly instead of going through a whole page.
 if (typeof window !== "undefined") {
-  (window as any).__tjTradeTable = { renderTradeTable, holdFmt, tradeR };
+  (window as any).__tjTradeTable = { renderTradeTable, holdFmt, tradeR, orderedTradeRows };
 }

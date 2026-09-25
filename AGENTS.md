@@ -32,7 +32,7 @@ it and the normative docs every chat. They are mandatory, not suggestions.
 ## House conventions
 
 - **Build:** `npm run build` (tsc -noEmit + esbuild production). Must exit 0.
-- **Smoke:** `cd ~/trading-journal-smoke && cp <src>/main.js . && cp <src>/styles.css . && node smoke.js /home/hugo/trading-journal-smoke` → 181 PASS / 0 FAIL.
+- **Smoke:** `cd ~/trading-journal-smoke && cp <src>/main.js . && cp <src>/styles.css . && node smoke.js /home/hugo/trading-journal-smoke` → 188 PASS / 0 FAIL.
 - **Audit:** `node tools/ux-audit.mjs` → must report no normative violations.
 - **Deploy:** copy `main.js`, `styles.css`, `manifest.json` to
   `<vault>/.obsidian/plugins/tradebook/`. **Never** copy `data.json`. Verify md5 both
@@ -44,12 +44,12 @@ it and the normative docs every chat. They are mandatory, not suggestions.
 - Keep `docs/QA-CHECKLIST.md` current — it is the living QA record.
 - Read `docs/RELEASE-AND-DISTRIBUTION.md` before touching versions, tags or the tutorial.
 - No dead code, no dead CSS.
-- Harness scripts (24) and artefacts (`/home/hugo/tj-out/`): see `docs/DEV-REFERENCE.md` §Harness.
+- Harness scripts (25) and artefacts (`/home/hugo/tj-out/`): see `docs/DEV-REFERENCE.md` §Harness.
 
 ## Definition of done (no task ends without this)
 
 1. `npm run build` exits 0.
-2. Smoke: **181 PASS / 0 FAIL**.
+2. Smoke: **188 PASS / 0 FAIL**.
 3. `node tools/ux-audit.mjs`: **0** normative violations.
 4. If the change is user-visible: deployed with md5 verified, and Ctrl+R requested.
 5. Docs updated in the canonical `docs/` and recorded in `PROJECT-SPEC.md` §7 when the

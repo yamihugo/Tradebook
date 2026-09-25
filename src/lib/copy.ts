@@ -15,6 +15,7 @@ import type TradebookPlugin from "../main";
 import { CopyConfigEntry, PropAccount, Trade, TradeFill } from "../types";
 import { futuresSpec } from "../futures";
 import { deleteTradeFile, saveTrade, setTradeFields, tradeKey } from "../storage";
+import { todayKey } from "../tz";
 import { fillSet, tradePoints } from "./fills";
 
 /** mini ↔ micro mapping used by "cross order". */
@@ -51,6 +52,20 @@ export function legBaseKey(t: Trade): string {
   // as `id`, which is the identity we actually have; a copy carries `copyBaseKey`
   // and still collapses with the trade it mirrors.
   return t.copyBaseKey || t.id || tradeKey(t);
+}
+
+/**
+ * Identity safe for financial grouping. Unlike `legBaseKey`, this deliberately
+ * omits the content-based legacy fallback: without a copyBaseKey or a base-note
+ * id, two same-minute decisions cannot safely be assumed to be one decision.
+ * An unlinked copy leg is identifiable as a note, but not as its base decision.
+ */
+export function logicalDecisionKey(t: Trade): string | null {
+  const copyKey = String(t.copyBaseKey ?? "").trim();
+  if (copyKey) return copyKey;
+  if (isLeg(t)) return null;
+  const id = String(t.id ?? "").trim();
+  return id || null;
 }
 
 /** The copy configuration in effect for a given date (never looks ahead). */
@@ -105,11 +120,11 @@ export function isActiveCopier(account: PropAccount, baseAccountId: string, date
   return effectiveCopyConfig(account, date) !== null;
 }
 
-/** Today as YYYY-MM-DD in the machine's own calendar. */
-export function todayIso(): string {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+/** Today as YYYY-MM-DD. `zone` is the Journal Timezone: today *there*, so copy
+ *  periods open and close on the journal's calendar and never on this
+ *  machine's. An empty zone means "as recorded" and falls back to the host date. */
+export function todayIso(zone = ""): string {
+  return todayKey(zone);
 }
 
 /** The day before an ISO date — used to close a period without overlapping. */
@@ -129,17 +144,18 @@ export function openCopyPeriod(
   account: PropAccount,
   baseId: string,
   multiplier: number,
-  start: string
+  start: string,
+  zone = ""
 ): void {
-  const today = todayIso();
+  const today = todayIso(zone);
   const periods = account.copyPeriods ?? [];
   account.copyPeriods = periods.map((p) => (p.end ? p : { ...p, end: dayBefore(today) }));
   account.copyPeriods.push({ start, end: undefined, baseId, multiplier });
 }
 
 /** Stop copying: close whatever is open. Existing legs stay exactly as they are. */
-export function closeCopyPeriods(account: PropAccount): void {
-  const today = todayIso();
+export function closeCopyPeriods(account: PropAccount, zone = ""): void {
+  const today = todayIso(zone);
   const periods = account.copyPeriods ?? [];
   if (!periods.length) return;
   account.copyPeriods = periods.map((p) => (p.end ? p : { ...p, end: dayBefore(today) }));
@@ -154,8 +170,8 @@ export function closeCopyPeriods(account: PropAccount): void {
  * an account that left a 0.5x micro group must not seed its next one with 0.5.
  * Legs already generated are written and stay.
  */
-export function unlinkCopier(account: PropAccount): void {
-  closeCopyPeriods(account);
+export function unlinkCopier(account: PropAccount, zone = ""): void {
+  closeCopyPeriods(account, zone);
   account.copyRole = undefined;
   account.copyBaseId = undefined;
   account.copyMultiplier = undefined;
@@ -175,8 +191,14 @@ export function unlinkCopier(account: PropAccount): void {
  * refused for a trade on 1 September, because the legacy configuration window
  * opens on the day the account was created.
  */
-export function startCopying(account: PropAccount, baseId: string, multiplier: number, from: string): void {
-  openCopyPeriod(account, baseId, multiplier, from);
+export function startCopying(
+  account: PropAccount,
+  baseId: string,
+  multiplier: number,
+  from: string,
+  zone = ""
+): void {
+  openCopyPeriod(account, baseId, multiplier, from, zone);
   const entry: CopyConfigEntry = {
     from,
     ratio: multiplier,
@@ -312,7 +334,7 @@ function legFills(base: Trade, legSymbol: string, legQty: number, legCost: numbe
       const points =
         Number.isFinite(f.pnl) && f.qty > 0 && baseSpec.pointValue ? (f.pnl as number) / (baseSpec.pointValue * f.qty) : NaN;
       const pnl = Number.isFinite(points) ? round2(points * spec.pointValue * qty) : undefined;
-      out.push({ side: f.side, time: f.time, qty, price: f.price, pnl, fees });
+      out.push({ side: f.side, time: f.time, instant: f.instant, qty, price: f.price, pnl, fees });
     });
   }
   return out.length ? out : undefined;
@@ -366,6 +388,13 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     // The leg happened at the same wall-clock instant as its leader, so it
     // carries the same zone — otherwise a copy would read in the wrong clock.
     timezone: base.timezone,
+    // …and the same canonical instants: the executions are the leader's own,
+    // only the account differs. Without them a leg would be the one note in the
+    // group with no timeline to speak of.
+    entryInstant: base.entryInstant,
+    exitInstant: base.exitInstant,
+    sourceZone: base.sourceZone,
+    instantSource: base.instantSource,
     symbol,
     account: account.name,
     accountType: account.type,
@@ -377,6 +406,8 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     target: base.target ?? 0,
     commission,
     fees,
+    // Generated copy legs are a model and carry no broker-confirmed costs.
+    costCoverage: { commission: false, fees: false },
     pnl,
     pnlPoints: hasPoints ? round2(basePoints) : 0,
     setup: base.setup,

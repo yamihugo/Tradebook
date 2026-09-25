@@ -267,6 +267,41 @@ list lives in `UI-CATALOG.md` §6.0; the **Accounts page is the reference implem
 of our own screens, that is a defect, not a style. When we choose a look here, it is the look
 for everything.
 
+### 6.2 One financial population
+
+Every headline money and result number reads **one** `FinancialSummary`
+(`src/lib/money.ts` → `summarizeFinancials`), fed by the two inputs the shared foundation
+owns (`src/lib/scope.ts`):
+
+- **Who is in** — `accountScope()`: the selected account; otherwise the portfolio (demos out
+  unless one is explicitly selected or `excludeDemosFromPortfolio` is off). Archived accounts
+  are out of every financial number, always.
+- **What a day is** — `journalDayKey()`: the recorded date plus entry time read in the
+  journal's zone and expressed as the market (New York) day. **Period membership and day
+  bucketing use this same key** (`periodDayBounds`, `src/lib/periods.ts`), so a trade can
+  never sit inside a period and outside the bucket it was counted in.
+
+| Number | Reads |
+|---|---|
+| Net P&L and the cumulative curve | `summary.net.total` · `summary.net.byDay` |
+| Closed trades | `summary.decisionCount` — eligible aggregated decisions |
+| Win Rate | `summary.net.winRate` |
+| Net Profit Factor | `summary.net.profitFactor` |
+| Avg Net Result per Trade | `summary.net.averagePerDecision` |
+
+**Classification.** Unqualified *win*, *loss* and *breakeven* are the sign of the **Net**
+result of the aggregated decision in scope — positive, negative or zero — decided only after
+the eligible legs are summed. Win Rate = Net positives ÷ (Net positives + Net negatives);
+Net-zero decisions stay out of the denominator and read `—` when nothing decided. The same
+decision may be a win in one account and a loss in the portfolio — that is correct, and both
+readings are visible. **Gross exists only under an explicit "Gross" name**, and a missing cost
+is reported as incomplete coverage, never a silent fallback to Gross.
+
+**Out of this population, on purpose.** Recorded account movement (payouts, deposits, signed
+adjustments) is the Accounts contract, not trading P&L. Streaks, hold-time splits,
+Breakdown's win rate and Gross-based R keep their own stated bases and must say which one.
+`tests/selection.test.mjs` pins the contract.
+
 ---
 
 ## 7. Checklist before a release
@@ -287,6 +322,9 @@ cd ~/trading-journal-smoke && cp "<source>/main.js" . && cp "<source>/styles.css
 - [ ] Colour is never the only signal (§2.2).
 - [ ] The page uses the canonical surface recipe — segmented strip, card, chips (§6.1,
       `UI-CATALOG.md` §6.0). No page-specific card skin.
+- [ ] Any headline money/result number comes from the one `FinancialSummary` (§6.2); any
+      unqualified win/loss/breakeven is Net sign of the aggregated decision; any Gross number
+      says "Gross".
 
 ---
 

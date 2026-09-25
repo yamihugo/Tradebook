@@ -234,7 +234,7 @@ class GettingStartedModal extends Modal {
     step.createEl("p", { cls: "tj-start-text", text: "Where everything lives:" });
     const list = step.createEl("ul", { cls: "tj-start-list" });
     for (const line of [
-      "Briefing — the read on your trading: P&L, streaks, best hours and what needs reviewing.",
+      "Home — a read on your trading: P&L, streaks, best hours and what needs reviewing.",
       "Trade Log — the ledger, with filters, bulk edits and the review state of every trade.",
       "Accounts — a card per account, the rules, and Manage for copy groups and page settings.",
       "Strategies — register the names you trade under; each one keeps its own note.",

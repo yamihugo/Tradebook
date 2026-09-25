@@ -74,7 +74,7 @@ upload in §4 is only a fallback if CI is unavailable.
 ## 4. Release checklist
 
 1. `npm run build` → exit 0.
-2. Smoke: 181 PASS / 0 FAIL. Audit: `node tools/ux-audit.mjs` → no violations.
+2. Smoke: 188 PASS / 0 FAIL. Audit: `node tools/ux-audit.mjs` → no violations.
 3. Bump the version on **both** branches: `npm version <x.y.z> --no-git-tag-version`
    (it updates `manifest.json`, `package.json` and `versions.json` together). Pre-release
    suffixes for test/beta: `0.5.0-test.1`, `0.5.0-beta.1`.

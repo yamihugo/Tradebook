@@ -2,7 +2,7 @@ import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { csvKind, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
 import type { CashCosts } from "../csv";
-import type { ImportCosts, PropAccount, Trade } from "../types";
+import type { ImportCosts, PropAccount, TimeIssues, Trade } from "../types";
 import { TIMEZONE_OPTIONS, detectSystemZone, fmtMoney2, zoneShortLabel } from "../tz";
 import { isActiveCopier } from "../lib/copy";
 import { formatDate } from "../lib/dates";
@@ -26,6 +26,8 @@ interface ParsedFile {
   skipped: number;
   unfilled: number;
   unpaired: number;
+  /** Rows left out because their timestamp has no single instant (never guessed). */
+  timeIssues?: TimeIssues;
   warnings: string[];
   accountsSeen: { name: string; type: string }[];
   /** Present when the platform's cash history came with the trades file. */
@@ -430,12 +432,15 @@ class ImportCsvModal extends Modal {
   private async parseTrades(): Promise<void> {
     if (!this.bodyEl || !this.tradesText) return;
     const body = this.bodyEl;
-    const sourceZone = this.plugin.settings.importZone || detectSystemZone();
+    const importZone = this.plugin.settings.importZone;
     const result = parseTradeovateCsv(
       this.tradesText,
       this.plugin.getAccountRules(),
       {
-        sourceZone,
+        sourceZone: importZone || detectSystemZone(),
+        // "This computer" (the default) is the reader's answer, not the file's:
+        // the note must not later read it as a zone the export declared.
+        systemSource: !importZone,
         journalZone: this.plugin.settings.timeZone,
       },
       this.cashCosts ?? undefined
@@ -469,6 +474,7 @@ class ImportCsvModal extends Modal {
       skipped: result.skipped,
       unfilled: result.unfilled,
       unpaired: result.unpaired,
+      timeIssues: result.timeIssues,
       warnings: result.warnings,
       accountsSeen: result.accountsSeen.map((a) => ({ name: a.name, type: String(a.type) })),
       costs: result.costs,
@@ -924,6 +930,26 @@ class ImportCsvModal extends Modal {
       attachTip(pill, {
         title: "Rows unreadable",
         sub: "A row missing a column. Nothing was written from it.",
+      });
+    }
+    // A row whose wall clock has no single instant is a different fact from an
+    // unreadable one: it was read, and refused. Say which hour refused it.
+    const issues = this.parsed.timeIssues;
+    const timeCount = issues ? issues.gap + issues.ambiguous + issues.noZone : 0;
+    if (issues && timeCount) {
+      const pill = top.createSpan({
+        cls: "tj-import-pill is-warn",
+        text: `${timeCount} timestamp${timeCount === 1 ? "" : "s"} not pinned`,
+      });
+      const parts: string[] = [];
+      if (issues.gap) parts.push(`${issues.gap} in a DST gap`);
+      if (issues.ambiguous) parts.push(`${issues.ambiguous} in a repeated hour`);
+      if (issues.noZone) parts.push(`${issues.noZone} with no zone chosen`);
+      attachTip(pill, {
+        title: "Timestamps left out",
+        sub: `These rows read fine but have no single instant (${parts.join(
+          ", "
+        )}), so nothing was written from them rather than a guessed one. Check "Time files are in" above if the file's times are naive.`,
       });
     }
 

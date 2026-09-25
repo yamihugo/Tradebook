@@ -1,27 +1,28 @@
 // Individual metric widgets — one metric per widget (Journalit style).
 //
-// Each metric is a pure function of the filtered trade list. The money basis is
-// net (see lib/money.ts and docs/ARCHITECTURE.md): a dollar RESULT reads netPnl
-// (gross minus costs); win/loss CLASSIFICATION uses the gross sign of `t.pnl`.
-// The canonical win rate excludes break-even from the denominator.
+// Each metric is a pure function of the filtered trade list, but the financial
+// metrics are a function of ONE FinancialSummary — the shared population in
+// lib/money.ts. Result metrics read `summary.net`: Net P&L, Closed trades,
+// Win Rate, Net Profit Factor and Avg Net Result per Trade all come from the
+// same scope, the same eligibility rule and the same Net classification of each
+// aggregated decision (docs/UX-GUIDELINES.md §0). Gross stays available only
+// under an explicit "Gross" name.
 //
-// `dayKey` (optional) lets day-based metrics follow the journal's timezone; it
-// defaults to the trade's own date.
+// `dayKey` (optional) lets day-based metrics follow the journal's day key; it
+// defaults to the trade's recorded date. `zone` is the Journal Timezone, which
+// hour-of-day metrics need to place an entry's canonical instant on the clock.
 
 import type { Trade } from "../types";
 import { fmtMoney2 } from "../tz";
+import { holdMinutesOf, tradeHourInZone } from "./instant";
 import { netPnl } from "./fees";
 import { streakStats } from "./process";
+import { accountResolver, accountScope } from "./scope";
 import {
-  netTotal,
-  expectancy,
-  avgWin,
-  avgLoss,
-  profitFactor,
-  largestWin,
-  largestLoss,
-  bestDay,
-  worstDay,
+  summarizeFinancials,
+  FinancialSummary,
+  largestNetWin,
+  largestNetLoss,
 } from "./money";
 
 export interface MetricResult {
@@ -35,7 +36,9 @@ export type DayKey = (t: Trade) => string;
 export interface MetricDef {
   id: string;
   label: string;
-  compute: (trades: Trade[], dayKey?: DayKey) => MetricResult;
+  /** `zone` is the Journal Timezone: hour-of-day metrics read the entry instant
+   *  in it. Metrics that do not need it ignore the argument. */
+  compute: (trades: Trade[], dayKey?: DayKey, financials?: FinancialSummary, zone?: string) => MetricResult;
 }
 
 const dateKey: DayKey = (t) => t.date;
@@ -45,12 +48,16 @@ const pct = (v: number): string => `${v.toFixed(1)}%`;
 const moneyAbs = (v: number): string =>
   `$${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-// Classification counts (gross sign) — used by win-rate and the W/L metrics.
-function winCount(trades: Trade[]): number {
-  return trades.filter((t) => t.pnl > 0).length;
-}
-function lossCount(trades: Trade[]): number {
-  return trades.filter((t) => t.pnl < 0).length;
+// Classification counts for the metrics that still carry a Gross contract are
+// declared where they live (streaks, hold-time splits); the result metrics
+// below classify through the shared Net summary instead.
+
+/** A standalone metric population is treated as one anonymous account scope. */
+export function summarizeMetricTrades(trades: Trade[], dayKey: DayKey = dateKey): FinancialSummary {
+  return summarizeFinancials(trades, {
+    scope: accountScope(trades, { resolve: accountResolver() }),
+    dayKey,
+  });
 }
 
 function byDate(trades: Trade[]): Trade[] {
@@ -83,12 +90,9 @@ function sharpe(trades: Trade[]): number | null {
 }
 
 function holdMinutes(t: Trade): number | null {
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t.entryTime || "");
-  const x = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t.exitTime || "");
-  if (!m || !x) return null;
-  const s = parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0);
-  const e = parseInt(x[1], 10) * 60 + parseInt(x[2], 10) + (x[3] ? parseInt(x[3], 10) / 60 : 0);
-  return e >= s ? e - s : null;
+  // Real elapsed time when both instants exist (a hold across midnight or a DST
+  // change is measured, not wrapped); the recorded clock otherwise.
+  return holdMinutesOf(t);
 }
 function avgHold(trades: Trade[]): string {
   const mins: number[] = [];
@@ -109,25 +113,26 @@ function avgHold(trades: Trade[]): string {
 
 // Hour buckets on the NET result. (No lib/money.ts equivalent yet; the Timing
 // widget will absorb best/worst hour in Phase D.)
-function hourBuckets(trades: Trade[]): Map<number, number> {
+function hourBuckets(trades: Trade[], zone = ""): Map<number, number> {
   const m = new Map<number, number>();
   for (const t of trades) {
-    const hh = /^(\d{1,2}):/.exec(t.entryTime || "");
-    if (!hh) continue;
-    const h = parseInt(hh[1], 10);
+    // The hour the entry falls in, read in the Journal Timezone from the
+    // canonical instant — not the hour string printed on the note.
+    const h = tradeHourInZone(t, zone);
+    if (h === null) continue;
     m.set(h, (m.get(h) ?? 0) + netPnl(t));
   }
   return m;
 }
-function bestHour(trades: Trade[]): { h: number; v: number } | null {
-  const m = hourBuckets(trades);
+function bestHour(trades: Trade[], zone?: string): { h: number; v: number } | null {
+  const m = hourBuckets(trades, zone);
   if (!m.size) return null;
   let best: { h: number; v: number } | null = null;
   for (const [h, v] of m) if (!best || v > best.v) best = { h, v };
   return best;
 }
-function worstHour(trades: Trade[]): { h: number; v: number } | null {
-  const m = hourBuckets(trades);
+function worstHour(trades: Trade[], zone?: string): { h: number; v: number } | null {
+  const m = hourBuckets(trades, zone);
   if (!m.size) return null;
   let worst: { h: number; v: number } | null = null;
   for (const [h, v] of m) if (!worst || v < worst.v) worst = { h, v };
@@ -140,23 +145,31 @@ function fmtHour(h: number): string {
 }
 
 export const METRICS: MetricDef[] = [
-  { id: "m.netpnl", label: "P&L", compute: (t) => {
-    const v = netTotal(t);
+  { id: "m.netpnl", label: "Net P&L", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.total;
     return { value: money(v), tone: v >= 0 ? "pos" : "neg" };
   }},
-  { id: "m.winrate", label: "Win Rate", compute: (t) => {
-    const decided = winCount(t) + lossCount(t);
-    if (!decided) return { value: "—", tone: "neutral" };
-    const v = (winCount(t) / decided) * 100;
-    return { value: pct(v), tone: v >= 50 ? "pos" : "neg" };
+  { id: "m.winrate", label: "Win Rate", compute: (t, dayKey, financials) => {
+    // The Net contract: positive ÷ decided aggregated decisions, breakevens out.
+    const rate = (financials ?? summarizeMetricTrades(t, dayKey)).net.winRate;
+    if (rate === null) return { value: "—", tone: "neutral" };
+    const percent = rate * 100;
+    return { value: pct(percent), tone: percent >= 50 ? "pos" : "neg" };
   }},
-  { id: "m.trades", label: "Total Trades", compute: (t) => ({ value: `${t.length}`, tone: "neutral" }) },
+  { id: "m.trades", label: "Closed trades", compute: (t, dayKey, financials) => ({
+    value: `${(financials ?? summarizeMetricTrades(t, dayKey)).decisionCount}`,
+    tone: "neutral" as const,
+  }) },
   { id: "m.maxdd", label: "Max Trade Drawdown", compute: (t) => {
     const v = maxDrawdown(t);
     return { value: v > 0 ? `-${moneyAbs(v)}` : "—", tone: v > 0 ? "neg" : "neutral" };
   }},
-  { id: "m.profitfactor", label: "Profit Factor", compute: (t) => {
-    const v = profitFactor(t);
+  { id: "m.profitfactor", label: "Net Profit Factor", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.profitFactor;
+    return { value: v === Infinity ? "∞" : v.toFixed(2), tone: v >= 1 ? "pos" : "neg" };
+  }},
+  { id: "m.grossprofitfactor", label: "Gross Profit Factor", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).gross.profitFactor;
     return { value: v === Infinity ? "∞" : v.toFixed(2), tone: v >= 1 ? "pos" : "neg" };
   }},
   { id: "m.sharpe", label: "Sharpe Ratio", compute: (t) => {
@@ -164,26 +177,27 @@ export const METRICS: MetricDef[] = [
     if (v === null) return { value: "—", tone: "neutral" };
     return { value: v.toFixed(2), tone: v >= 0 ? "pos" : "neg" };
   }},
-  { id: "m.expectancy", label: "Expectancy", compute: (t) => {
-    const decided = winCount(t) + lossCount(t);
-    if (!decided) return { value: "—", tone: "neutral" };
-    const v = expectancy(t);
+  { id: "m.expectancy", label: "Avg Net Result per Trade", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.averagePerDecision;
+    if (v === null) return { value: "—", tone: "neutral" };
     return { value: money(v), tone: v >= 0 ? "pos" : "neg" };
   }},
-  { id: "m.bestday", label: "Best Day", compute: (t, dayKey) => {
-    const v = bestDay(t, dayKey ?? dateKey);
+  { id: "m.bestday", label: "Best Net Day", compute: (t, dayKey, financials) => {
+    const days = (financials ?? summarizeMetricTrades(t, dayKey)).net.byDay;
+    const v = days.size ? Math.max(...days.values()) : 0;
     return { value: v > 0 ? money(v) : "—", tone: v > 0 ? "pos" : "neutral" };
   }},
-  { id: "m.worstday", label: "Worst Day", compute: (t, dayKey) => {
-    const v = worstDay(t, dayKey ?? dateKey);
+  { id: "m.worstday", label: "Worst Net Day", compute: (t, dayKey, financials) => {
+    const days = (financials ?? summarizeMetricTrades(t, dayKey)).net.byDay;
+    const v = days.size ? Math.min(...days.values()) : 0;
     return { value: v < 0 ? money(v) : "—", tone: v < 0 ? "neg" : "neutral" };
   }},
-  { id: "m.largestwin", label: "Largest Win", compute: (t) => {
-    const v = largestWin(t);
+  { id: "m.largestwin", label: "Largest Net Win · Leg", compute: (t) => {
+    const v = largestNetWin(t);
     return { value: v > 0 ? money(v) : "—", tone: "pos" };
   }},
-  { id: "m.largestloss", label: "Largest Loss", compute: (t) => {
-    const v = largestLoss(t);
+  { id: "m.largestloss", label: "Largest Net Loss · Leg", compute: (t) => {
+    const v = largestNetLoss(t);
     return { value: v < 0 ? money(v) : "—", tone: "neg" };
   }},
   { id: "m.winstreak", label: "Longest Win Streak", compute: (t) => {
@@ -194,18 +208,26 @@ export const METRICS: MetricDef[] = [
     const v = streakStats(t).worstLoss;
     return { value: `${v}`, tone: v > 0 ? "neg" : "neutral" };
   }},
-  { id: "m.wintrades", label: "Winning Trades", compute: (t) => ({ value: `${winCount(t)}`, tone: "pos" }) },
-  { id: "m.losstrades", label: "Losing Trades", compute: (t) => ({ value: `${lossCount(t)}`, tone: "neg" }) },
-  { id: "m.avgwin", label: "Avg Win", compute: (t) => {
-    const v = avgWin(t);
-    return { value: v > 0 ? money(v) : "—", tone: "pos" };
+  { id: "m.wintrades", label: "Winning Trades", compute: (t, dayKey, financials) => ({
+    value: `${(financials ?? summarizeMetricTrades(t, dayKey)).net.positiveDecisionCount}`,
+    tone: "pos" as const,
+  }) },
+  { id: "m.losstrades", label: "Losing Trades", compute: (t, dayKey, financials) => ({
+    value: `${(financials ?? summarizeMetricTrades(t, dayKey)).net.negativeDecisionCount}`,
+    tone: "neg" as const,
+  }) },
+  { id: "m.avgwin", label: "Avg Net Win per Trade", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.averageWinPerDecision;
+    return { value: v !== null && v > 0 ? money(v) : "—", tone: "pos" };
   }},
-  { id: "m.avgloss", label: "Avg Loss", compute: (t) => {
-    const v = avgLoss(t);
-    return { value: v > 0 ? `-${moneyAbs(v)}` : "—", tone: "neg" };
+  { id: "m.avgloss", label: "Avg Net Loss per Trade", compute: (t, dayKey, financials) => {
+    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.averageLossPerDecision;
+    return { value: v !== null && v > 0 ? `-${moneyAbs(v)}` : "—", tone: "neg" };
   }},
-  { id: "m.avgrr", label: "Avg RR (Payoff)", compute: (t) => {
-    const aw = avgWin(t), al = avgLoss(t);
+  { id: "m.avgrr", label: "Net Trade Payoff Ratio", compute: (t, dayKey, financials) => {
+    const summary = financials ?? summarizeMetricTrades(t, dayKey);
+    const aw = summary.net.averageWinPerDecision ?? 0;
+    const al = summary.net.averageLossPerDecision ?? 0;
     if (!al) return { value: aw > 0 ? "∞" : "—", tone: "neutral" };
     const v = aw / al;
     return { value: v.toFixed(2), tone: v >= 1 ? "pos" : "neg" };
@@ -213,13 +235,13 @@ export const METRICS: MetricDef[] = [
   { id: "m.holdtime", label: "Avg Hold Time", compute: (t) => ({ value: avgHold(t), tone: "neutral" }) },
   { id: "m.winhold", label: "Avg Win Hold Time", compute: (t) => ({ value: avgHold(t.filter((x) => x.pnl > 0)), tone: "pos" }) },
   { id: "m.losshold", label: "Avg Loss Hold Time", compute: (t) => ({ value: avgHold(t.filter((x) => x.pnl < 0)), tone: "neg" }) },
-  { id: "m.besthour", label: "Best Hour", compute: (t) => {
-    const b = bestHour(t);
+  { id: "m.besthour", label: "Best Hour", compute: (t, _d, _f, zone) => {
+    const b = bestHour(t, zone);
     if (!b) return { value: "—", tone: "neutral" };
     return { value: fmtHour(b.h), tone: "pos" };
   }},
-  { id: "m.worsthour", label: "Worst Hour", compute: (t) => {
-    const w = worstHour(t);
+  { id: "m.worsthour", label: "Worst Hour", compute: (t, _d, _f, zone) => {
+    const w = worstHour(t, zone);
     if (!w) return { value: "—", tone: "neutral" };
     return { value: fmtHour(w.h), tone: "neg" };
   }},

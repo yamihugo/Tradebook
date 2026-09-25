@@ -2,21 +2,25 @@ import { ItemView, Modal, Notice, setIcon, TFile } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
+import { dateInZone } from "../lib/periods";
 import { renderAppShell, accountFilters } from "../ui";
 import { reviewStatus, hasPrint, hasText } from "../lib/review";
-import { updateTradeFields } from "../storage";
+import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import { analyticsTrades } from "../lib/scope";
 import { sessionOf } from "../lib/sessions";
+import { eligibleTradeIds, tradeSelectionScopeKey } from "../lib/tradeSelection";
 import { mountDropdown } from "../lib/dropdown";
 import type { DropdownItem } from "../lib/dropdown";
+import { DEFAULT_MISTAKE_TAGS, DEFAULT_PSYCHOLOGY_TAGS, normalizeTags } from "../lib/tags";
 import {
   DEFAULT_TRADE_LOG_ORDER,
   TRADE_COLUMNS,
   renderTradeTable,
   tradeR,
   tradeRows,
+  orderedTradeRows,
   TradeSort,
   resolveOrder,
 } from "../lib/tradeTable";
@@ -80,6 +84,29 @@ interface TradeLogStats {
   missingPrint: number;
 }
 
+/**
+ * An explicit, widget-driven navigation into the Trade Log. It carries the scope
+ * the source was reading in (period, account/class) and the action's own filter,
+ * so the destination shows the SAME data the user clicked. Ordinary navigation
+ * (`openTradeLog`) does not use this and keeps the user's previous Trade Log.
+ */
+export interface TradeLogNav {
+  scope?: {
+    /** Grid period id ("1m" is mapped to "thismonth"). */
+    period?: string;
+    customFrom?: string;
+    customTo?: string;
+    /** Exact source-view bounds for presets the ledger does not expose directly. */
+    dateBounds?: { start: string; end: string; label: string };
+    accountId?: string | null;
+    accountType?: string;
+  };
+  review?: "all" | "pending" | "complete";
+  quality?: string[];
+  lens?: { label: string; test: (t: Trade) => boolean };
+  ids?: string[];
+}
+
 export class TradeLogView extends ItemView {
   plugin: TradebookPlugin;
   trades: Trade[] = [];
@@ -117,6 +144,9 @@ export class TradeLogView extends ItemView {
   period = "all";
   customFrom = "";
   customTo = "";
+  /** Transient label/bounds for a contextual period not in the ledger shortcuts. */
+  private scopedPeriodLabel = "";
+  private scopedPeriodBounds: { start: string; end: string } | null = null;
   search = "";
   setupFilters: string[] = [];
   limit = 50;
@@ -142,7 +172,11 @@ export class TradeLogView extends ItemView {
   /** Shift-click needs to know where the last click landed and in what order. */
   private _lastPicked: string | null = null;
   private _renderedIds: string[] = [];
+  /** Filter population the current selection belongs to (sort/page size excluded). */
+  private _selectionScope = "";
   private _drawerKeyCleanup: (() => void) | null = null;
+  /** A tag menu is body-level; keep its global listeners scoped to the view. */
+  private _bulkTagCleanup: (() => void) | null = null;
   /** Drag listeners live on the document; hold their remover so a mid-drag close cannot leak. */
   private _dragCleanup: (() => void) | null = null;
   private _focusTimer = 0;
@@ -317,52 +351,66 @@ export class TradeLogView extends ItemView {
     this.render();
   }
 
-  filterByDay(dateKey: string): void {
-    this.period = "custom";
-    this.customFrom = dateKey;
-    this.customTo = dateKey;
-    this._skipPersist = true;
-    this.render();
-  }
-
   /**
-   * Scoped open: show one account's trades. Deliberately not persisted — the
-   * ribbon opens the log whole; only the journey from an account is narrowed.
+   * The one explicit navigation into the ledger from another view. It DROPS
+   * every stale destination filter first (search text, quality/review chips,
+   * direction, …), then applies the source scope and the action filter — so the
+   * destination always represents the same data the user clicked, never a
+   * leftover from a previous visit. Scoped navigations are not persisted as the
+   * user's manual Trade Log preferences.
    */
-  filterByAccount(accountId: string): void {
-    this.accountFilters = accountId ? [accountId] : [];
-    this._skipPersist = true;
-    this.render();
-  }
-
-  /**
-   * Scoped open: exactly these trades (used right after an import). The period
-   * is reset too: imported trades are often older than "Today", and a stale
-   * window would hide them behind an invisible filter.
-   */
-  filterByTradeIds(ids: string[]): void {
-    this.idFilter = ids ? [...ids] : [];
-    if (this.idFilter.length) {
+  navigate(nav: TradeLogNav): void {
+    this.clearFilters();
+    const scope = nav.scope ?? {};
+    // "1m" is the grid's id for the current month; the ledger calls it thismonth.
+    const periodMap: Record<string, string> = { "1m": "thismonth" };
+    this.scopedPeriodLabel = scope.dateBounds?.label ?? "";
+    this.scopedPeriodBounds = scope.dateBounds ? { start: scope.dateBounds.start, end: scope.dateBounds.end } : null;
+    this.period = periodMap[scope.period ?? ""] ?? scope.period ?? "all";
+    if (this.period === "custom") {
+      this.customFrom = this.scopedPeriodBounds?.start ?? scope.customFrom ?? "";
+      this.customTo = this.scopedPeriodBounds?.end ?? scope.customTo ?? "";
+    } else if (this.scopedPeriodBounds) {
+      this.customFrom = this.scopedPeriodBounds.start;
+      this.customTo = this.scopedPeriodBounds.end;
+    }
+    if (scope.accountId) this.accountFilters = [scope.accountId];
+    if (scope.accountType && scope.accountType !== "all") this.accountTypeFilter = scope.accountType;
+    if (nav.review) this.reviewFilter = nav.review;
+    if (nav.quality && nav.quality.length) this.qualityFilters = [...nav.quality];
+    if (nav.lens) this.lens = { label: nav.lens.label, test: nav.lens.test };
+    if (nav.ids && nav.ids.length) {
+      this.idFilter = [...nav.ids];
       this.period = "all";
       this.customFrom = "";
       this.customTo = "";
+      this.scopedPeriodLabel = "";
+      this.scopedPeriodBounds = null;
     }
     this._skipPersist = true;
     this.render();
   }
 
-  filterByReview(status: "all" | "pending" | "complete"): void {
-    this.reviewFilter = status;
-    this._skipPersist = true;
-    this.render();
+  /** Scoped open: a single day (used by the Calendar). */
+  filterByDay(dateKey: string): void {
+    this.navigate({ scope: { period: "custom", customFrom: dateKey, customTo: dateKey } });
+  }
+
+  /** Scoped open: show one account's trades (used from an account page / trade). */
+  filterByAccount(accountId: string): void {
+    this.navigate({ scope: { accountId } });
+  }
+
+  /** Scoped open: exactly these trades (used right after an import). */
+  filterByTradeIds(ids: string[]): void {
+    this.navigate({ ids });
   }
 
   /**
    * Scoped open from a Home/Dashboard breakdown tile: the tile's own predicate
-   * (label + test) plus the scope the trader was reading the grid in — period,
-   * dates, account and account class. So "NQ in This Month" arrives as NQ *and*
-   * This Month, and "NQ in All Time" arrives as just NQ. A view, not a
-   * preference: it is not persisted (the chip still makes it visible/removable).
+   * (label + test) plus the scope the grid was read in — period, dates, account
+   * and account class. So "NQ in This Month" arrives as NQ *and* This Month, and
+   * "NQ in All Time" arrives as just NQ.
    */
   scopeFromBreakdown(
     label: string,
@@ -371,21 +419,12 @@ export class TradeLogView extends ItemView {
       period?: string;
       customFrom?: string;
       customTo?: string;
+      dateBounds?: { start: string; end: string; label: string };
       accountId?: string | null;
       accountType?: string;
     }
   ): void {
-    this.clearFilters();
-    // "1m" is the grid's id for the current month; the ledger calls it thismonth.
-    const periodMap: Record<string, string> = { "1m": "thismonth" };
-    this.period = periodMap[scope.period ?? ""] ?? scope.period ?? "all";
-    this.customFrom = this.period === "custom" ? (scope.customFrom ?? "") : "";
-    this.customTo = this.period === "custom" ? (scope.customTo ?? "") : "";
-    if (scope.accountId) this.accountFilters = [scope.accountId];
-    if (scope.accountType && scope.accountType !== "all") this.accountTypeFilter = scope.accountType;
-    this.lens = { label, test };
-    this._skipPersist = true;
-    this.render();
+    this.navigate({ scope, lens: { label, test } });
   }
 
   filtered(opts?: { skipAttention?: boolean }): Trade[] {
@@ -549,59 +588,76 @@ export class TradeLogView extends ItemView {
    * The date window a period means, or null for "all time". Weeks run Monday to
    * Sunday; a month is the calendar month, so the numbers match the calendar the
    * trader already looks at.
+   *
+   * The window is anchored on **today in the Journal Timezone** and computed on
+   * a UTC calendar — never on the host zone's date, so Today/Yesterday/This week
+   * read the same on any machine and follow the journal's zone.
    */
   private periodRange(): { start: string; end: string } | null {
-    const now = new Date();
-    const ymd = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const monday = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() || 7) - 1));
-    let start: Date | null = null;
-    let end: Date | null = null;
+    if (this.scopedPeriodBounds) return this.scopedPeriodBounds;
+    const [y, m, d] = dateInZone(this.plugin.settings.timeZone).split("-").map(Number);
+    if (!y || !m || !d) return null;
+    const now = Date.UTC(y, m - 1, d);
+    const dayMs = 86400000;
+    const ymd = (t: number): string => new Date(t).toISOString().slice(0, 10);
+    const weekday = new Date(now).getUTCDay(); // 0 = Sunday
+    const monday = now - ((weekday + 6) % 7) * dayMs;
+    const monthStart = Date.UTC(y, m - 1, 1);
+    const quarterStart = Date.UTC(y, Math.floor((m - 1) / 3) * 3, 1);
+    let start: number | null = null;
+    let end: number | null = null;
     switch (this.period) {
       case "today":
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        end = start;
+        start = now;
+        end = now;
         break;
-      case "yesterday": {
-        const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        start = y;
-        end = y;
+      case "yesterday":
+        start = now - dayMs;
+        end = now - dayMs;
         break;
-      }
       case "thisweek":
-        start = monday(now);
+        start = monday;
+        end = now;
         break;
-      case "lastweek": {
-        const m = monday(now);
-        start = new Date(m.getFullYear(), m.getMonth(), m.getDate() - 7);
-        end = new Date(m.getFullYear(), m.getMonth(), m.getDate() - 1);
+      case "lastweek":
+        start = monday - 7 * dayMs;
+        end = monday - dayMs;
         break;
-      }
       // "1m" is what an earlier build stored for This Month; keep reading it.
       case "thismonth":
       case "1m":
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        start = monthStart;
+        end = now;
         break;
       case "lastmonth":
-        start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        end = new Date(now.getFullYear(), now.getMonth(), 0);
+        start = Date.UTC(y, m - 2, 1);
+        end = Date.UTC(y, m - 1, 0); // day 0 of month m = last day of m-1
         break;
       case "thisquarter":
-        start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+        start = quarterStart;
+        end = now;
         break;
       case "thisyear":
-        start = new Date(now.getFullYear(), 0, 1);
+        start = Date.UTC(y, 0, 1);
+        end = now;
         break;
       case "custom":
         return { start: this.customFrom, end: this.customTo };
       default:
         return null;
     }
-    return { start: start ? ymd(start) : "", end: end ? ymd(end) : "" };
+    return { start: start === null ? "" : ymd(start), end: end === null ? "" : ymd(end) };
   }
 
   render(): void {
     const root = this.contentEl;
+    const selectionScope = this.selectionScopeKey();
+    if (this._selectionScope && this._selectionScope !== selectionScope) {
+      this.selected.clear();
+      this._lastPicked = null;
+    }
+    this._selectionScope = selectionScope;
+    this.closeBulkTagMenu();
     root.empty();
     root.addClass("tj-tradelog");
     // If the drawer is not being drawn, its Escape listener must not survive this render.
@@ -638,8 +694,9 @@ export class TradeLogView extends ItemView {
 
     const actions = head.createDiv({ cls: "tj-acct-header-actions" });
 
+    const activeCount = this.activeFilters().length;
     const fbtn = actions.createEl("button", {
-      cls: "tj-filterbtn" + (this.filtersOpen ? " is-active" : ""),
+      cls: "tj-filterbtn" + (this.filtersOpen || activeCount > 0 ? " is-active" : ""),
       attr: { type: "button" },
     });
     fbtn.createSpan({ cls: "tj-sr-only", text: "Filters" });
@@ -688,7 +745,6 @@ export class TradeLogView extends ItemView {
       this.render();
     });
 
-    const activeCount = this.activeFilters().length;
     if (activeCount > 0) fbtn.createSpan({ cls: "tj-filterbtn-count", text: String(activeCount) });
     if (this.columnsOpen) this.renderColumnsPopover(head);
 
@@ -795,7 +851,16 @@ export class TradeLogView extends ItemView {
       onRowClick: (t) => {
         // Remember the row, so coming back from the trade lands on it again.
         this.anchor = t.id || "";
-        void this.plugin.openTradeDetail(t);
+        void this.plugin.openTradeDetail({
+          id: t.id || "",
+          from: {
+            type: "tradelog",
+            tradeIds: orderedTradeRows(s.list, this.sort, this.plugin, true)
+              .map((row) => row.rep)
+              .map((trade) => trade.id)
+              .filter(Boolean),
+          },
+        });
       },
       onReorder: (next) => {
         // next = visible columns in new order. Rebuild the full shared order
@@ -846,14 +911,16 @@ export class TradeLogView extends ItemView {
     const row = main.createDiv({ cls: "tj-attention" });
     let any = false;
     const label = row.createSpan({ cls: "tj-attn-label", text: "Needs attention" });
-    const chip = (text: string, active: boolean, tip: string, onClick: () => void) => {
+    const chip = (count: number, meaning: string, active: boolean, tip: string, onClick: () => void) => {
       any = true;
       const b = row.createEl("button", {
-        cls: "tj-attn-chip" + (active ? " is-on" : ""),
+        cls: "tj-attn-shortcut" + (active ? " is-on" : ""),
         attr: { type: "button" },
       });
-      b.createSpan({ text });
-      attachTip(b, { title: text, sub: tip });
+      b.setAttr("aria-pressed", String(active));
+      b.createSpan({ cls: "tj-attn-count", text: String(count) });
+      b.createSpan({ cls: "tj-attn-copy", text: meaning });
+      attachTip(b, { title: `${count} ${meaning}`, sub: tip });
       b.addEventListener("click", () => {
         onClick();
         this.render();
@@ -861,7 +928,8 @@ export class TradeLogView extends ItemView {
     };
     if (s.pending > 0) {
       chip(
-        `${s.pending} to review`,
+        s.pending,
+        "to review",
         this.reviewFilter === "pending",
         "Missing screenshot, strategy, review or rating. Click to show only those.",
         () => (this.reviewFilter = this.reviewFilter === "pending" ? "all" : "pending")
@@ -869,7 +937,8 @@ export class TradeLogView extends ItemView {
     }
     if (s.missingSetup > 0) {
       chip(
-        `${s.missingSetup} missing a strategy`,
+        s.missingSetup,
+        "missing strategy",
         this.qualityFilters.includes("nosetup"),
         "Trades you have not filed under a strategy yet. Click to show only those.",
         () => this.toggleQuality("nosetup")
@@ -877,7 +946,8 @@ export class TradeLogView extends ItemView {
     }
     if (s.missingPrint > 0) {
       chip(
-        `${s.missingPrint} missing a screenshot`,
+        s.missingPrint,
+        "missing screenshot",
         this.qualityFilters.includes("noprint"),
         "Trades with no chart attached yet. Click to show only those.",
         () => this.toggleQuality("noprint")
@@ -920,6 +990,7 @@ export class TradeLogView extends ItemView {
   private syncSelection(): void {
     if (this._bulkHost) {
       this._bulkHost.empty();
+      this.closeBulkTagMenu();
       if (this.selectMode) this.renderBulkBar(this._bulkHost);
     }
     for (const id of this._renderedIds) {
@@ -936,14 +1007,15 @@ export class TradeLogView extends ItemView {
    */
   private renderBulkBar(host: HTMLElement): void {
     const bar = host.createDiv({ cls: "tj-tl-bulk" });
-    const empty = this.selected.size === 0;
+    const eligible = this.eligibleSelectedIds();
+    const empty = eligible.size === 0;
     bar.createSpan({
       cls: "tj-tl-bulk-count",
-      text: this.selected.size > 0 ? `${this.selected.size} selected` : "None selected",
+      text: eligible.size > 0 ? `${eligible.size} selected` : "None selected",
     });
 
-    const act = (label: string, cls: string, fn: () => void, disabled = false) => {
-      const b = bar.createEl("button", { cls: "tj-tl-bulkbtn " + cls, text: label, attr: { type: "button" } });
+    const act = (parent: HTMLElement, label: string, cls: string, fn: () => void, disabled = false) => {
+      const b = parent.createEl("button", { cls: "tj-tl-bulkbtn " + cls, text: label, attr: { type: "button" } });
       if (disabled) {
         b.setAttr("disabled", "true");
         b.addClass("is-disabled");
@@ -951,8 +1023,13 @@ export class TradeLogView extends ItemView {
         b.addEventListener("click", fn);
       }
     };
-    act("Select all", "tj-ghost", () => {
+    const selectionGroup = bar.createDiv({ cls: "tj-tl-bulkgroup" });
+    act(selectionGroup, "Select all", "tj-ghost", () => {
       for (const t of this.filtered()) if (t.id) this.selected.add(t.id);
+      this.syncSelection();
+    });
+    act(selectionGroup, "Clear", "tj-ghost", () => {
+      this.selected.clear();
       this.syncSelection();
     });
 
@@ -972,7 +1049,8 @@ export class TradeLogView extends ItemView {
       .map((n) => ({ id: n, label: n }));
     setupItems.push({ id: "__none__", label: "No strategy", note: "Clear the strategy on the selected trades" });
     setupItems.push({ id: "__new__", label: "＋ New strategy…", note: "Saved to Strategies" });
-    const setupHost = bar.createSpan({ cls: "tj-tl-bulkpick" });
+    const editGroup = bar.createDiv({ cls: "tj-tl-bulkgroup is-separated" });
+    const setupHost = editGroup.createSpan({ cls: "tj-tl-bulkpick" });
     mountDropdown(
       setupHost,
       setupItems,
@@ -995,7 +1073,7 @@ export class TradeLogView extends ItemView {
     );
     if (empty) setupHost.addClass("is-disabled");
 
-    const rateHost = bar.createSpan({ cls: "tj-tl-bulkpick" });
+    const rateHost = editGroup.createSpan({ cls: "tj-tl-bulkpick" });
     mountDropdown(
       rateHost,
       [1, 2, 3, 4, 5].map((n) => ({ id: String(n), label: "★".repeat(n), note: `Set rating to ${n}` })),
@@ -1005,15 +1083,194 @@ export class TradeLogView extends ItemView {
     );
     if (empty) rateHost.addClass("is-disabled");
 
-    act("Mark reviewed", "", () => void this.bulkField({ reviewed: true }), empty);
-    act("Add mistake", "", () => this.inlineInput(bar, "Mistake", (v) => void this.bulkAddMistake(v)), empty);
-    act("Duplicate", "", () => void this.bulkDuplicate(), empty);
-    act("Delete", "tj-del", () => this.confirmBulkDelete(), empty);
+    const tagPicker = (
+      parent: HTMLElement,
+      key: "psychology_tags" | "mistake_tags",
+      placeholder: string,
+      defaults: string[],
+    ) => {
+      const seen = new Set(defaults.map((label) => label.toLowerCase()));
+      const extras: string[] = [];
+      for (const trade of this.trades) {
+        for (const label of trade[key] ?? []) {
+          const clean = (label || "").trim();
+          if (clean && !seen.has(clean.toLowerCase())) {
+            seen.add(clean.toLowerCase());
+            extras.push(clean);
+          }
+        }
+      }
+      const picker = parent.createSpan({ cls: "tj-tl-bulkpick" });
+      this.renderBulkTagPicker(picker, key, placeholder, [...defaults, ...extras.sort((a, b) => a.localeCompare(b))]);
+      if (empty) picker.addClass("is-disabled");
+    };
 
-    act("Clear", "tj-ghost", () => {
-      this.selected.clear();
-      this.syncSelection();
+    tagPicker(editGroup, "psychology_tags", "Psychology…", DEFAULT_PSYCHOLOGY_TAGS);
+    tagPicker(editGroup, "mistake_tags", "Execution…", DEFAULT_MISTAKE_TAGS);
+
+    const actionsGroup = bar.createDiv({ cls: "tj-tl-bulkgroup is-separated" });
+    act(actionsGroup, "Mark reviewed", "", () => void this.bulkField({ reviewed: true }), empty);
+    act(actionsGroup, "Duplicate", "", () => void this.bulkDuplicate(), empty);
+    const destructiveGroup = bar.createDiv({ cls: "tj-tl-bulkgroup is-separated is-destructive" });
+    act(destructiveGroup, "Delete", "tj-del", () => this.confirmBulkDelete(), empty);
+  }
+
+  /** Render a staged multi-select tag menu. Opening it never changes a trade. */
+  private renderBulkTagPicker(
+    host: HTMLElement,
+    key: "psychology_tags" | "mistake_tags",
+    placeholder: string,
+    options: string[],
+  ): void {
+    const trigger = host.createEl("button", {
+      cls: "tj-mg-dd-btn tj-tl-bulk-tag-trigger",
+      attr: { type: "button", "aria-expanded": "false" },
     });
+    trigger.createSpan({ cls: "tj-mg-dd-val is-placeholder", text: placeholder });
+    trigger.createSpan({ cls: "tj-mg-dd-chev", text: "▾" });
+    attachTip(trigger, { title: placeholder.replace(/…$/, ""), sub: "Choose tags, then explicitly add or remove them on the selected trades." });
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this._bulkTagCleanup) this.closeBulkTagMenu();
+      else this.openBulkTagMenu(trigger, key, placeholder, options);
+    });
+  }
+
+  private closeBulkTagMenu(): void {
+    this._bulkTagCleanup?.();
+    this._bulkTagCleanup = null;
+  }
+
+  private openBulkTagMenu(
+    trigger: HTMLElement,
+    key: "psychology_tags" | "mistake_tags",
+    title: string,
+    options: string[],
+  ): void {
+    this.closeBulkTagMenu();
+    const doc = trigger.ownerDocument;
+    const win = doc.defaultView ?? window;
+    const menu = doc.body.createDiv({ cls: "tj-mg-dd-list is-portal tj-tl-bulk-tags" });
+    const header = menu.createDiv({ cls: "tj-tl-bulk-tags-head" });
+    header.createSpan({ cls: "tj-tl-bulk-tags-title", text: key === "psychology_tags" ? "Psychology state" : "Execution mistakes" });
+    const count = header.createSpan({ cls: "tj-tl-bulk-tags-count", text: "0 selected" });
+    menu.createDiv({ cls: "tj-tl-bulk-tags-note", text: "Other tags on these trades will be kept." });
+
+    const picked = new Set<string>();
+    const list = menu.createDiv({ cls: "tj-tl-bulk-tags-list" });
+    const paintCount = () => {
+      count.setText(`${picked.size} selected`);
+      add.disabled = picked.size === 0 || this.eligibleSelectedIds().size === 0;
+      remove.disabled = picked.size === 0 || this.eligibleSelectedIds().size === 0;
+      add.toggleClass("is-disabled", add.disabled);
+      remove.toggleClass("is-disabled", remove.disabled);
+    };
+    for (const tag of options) {
+      const row = list.createEl("label", { cls: "tj-tl-bulk-tag-option" });
+      const checkbox = row.createEl("input", { type: "checkbox", attr: { "aria-label": tag } });
+      row.createSpan({ cls: "tj-tl-bulk-tag-label", text: tag });
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) picked.add(tag);
+        else picked.delete(tag);
+        paintCount();
+      });
+    }
+    const actions = menu.createDiv({ cls: "tj-tl-bulk-tags-actions" });
+    const add = actions.createEl("button", { cls: "tj-tl-bulk-tags-apply", text: "Add selected", attr: { type: "button" } });
+    const remove = actions.createEl("button", { cls: "tj-tl-bulk-tags-remove", text: "Remove selected", attr: { type: "button" } });
+    paintCount();
+    add.addEventListener("click", () => {
+      const values = [...picked];
+      if (!values.length || !this.eligibleSelectedIds().size) return;
+      this.closeBulkTagMenu();
+      void this.bulkChangeTags(key, values, "add");
+    });
+    remove.addEventListener("click", () => {
+      const values = [...picked];
+      if (!values.length || !this.eligibleSelectedIds().size) return;
+      this.closeBulkTagMenu();
+      void this.bulkChangeTags(key, values, "remove");
+    });
+
+    const place = () => {
+      if (!trigger.isConnected) {
+        this.closeBulkTagMenu();
+        return;
+      }
+      const rect = trigger.getBoundingClientRect();
+      const width = Math.min(300, win.innerWidth - 16);
+      const left = Math.max(8, Math.min(rect.left, win.innerWidth - width - 8));
+      const height = menu.offsetHeight || 300;
+      const top = rect.bottom + height + 8 <= win.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - height - 6);
+      menu.style.width = `${width}px`;
+      menu.style.left = `${Math.round(left)}px`;
+      menu.style.top = `${Math.round(top)}px`;
+    };
+    const onOutside = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && (menu.contains(target) || trigger.contains(target))) return;
+      this.closeBulkTagMenu();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.closeBulkTagMenu();
+        trigger.focus();
+      }
+    };
+    menu.addEventListener("mousedown", (event) => event.stopPropagation());
+    menu.addEventListener("click", (event) => event.stopPropagation());
+    doc.body.appendChild(menu);
+    trigger.setAttr("aria-expanded", "true");
+    doc.addEventListener("mousedown", onOutside, true);
+    doc.addEventListener("keydown", onKey, true);
+    win.addEventListener("resize", place);
+    win.addEventListener("scroll", place, true);
+    place();
+    this._bulkTagCleanup = () => {
+      doc.removeEventListener("mousedown", onOutside, true);
+      doc.removeEventListener("keydown", onKey, true);
+      win.removeEventListener("resize", place);
+      win.removeEventListener("scroll", place, true);
+      trigger.setAttr("aria-expanded", "false");
+      menu.remove();
+    };
+  }
+
+  /** Add or intentionally remove chosen review tags on selected trades only. */
+  private async bulkChangeTags(
+    key: "psychology_tags" | "mistake_tags",
+    labels: string[],
+    action: "add" | "remove",
+  ): Promise<void> {
+    let n = 0;
+    const eligible = this.eligibleSelectedIds();
+    const wanted = new Set(labels.map((label) => label.toLowerCase()));
+    for (const id of eligible) {
+      const trade = this.trades.find((item) => item.id === id);
+      const file = this.app.vault.getAbstractFileByPath(id);
+      if (!trade || !(file instanceof TFile)) continue;
+      const current = normalizeTags(trade[key] ?? []);
+      const next = action === "add"
+        ? normalizeTags([...current, ...labels])
+        : current.filter((item) => !wanted.has(item.toLowerCase()));
+      if (next.length === current.length && next.every((item, index) => item === current[index])) continue;
+      try {
+        if (key === "mistake_tags") {
+          await setTradeMistakeTags(this.app, file, next);
+          if (action === "add" && trade.mistakesAcknowledged) await updateTradeFields(this.app, file, { mistakes_acknowledged: false });
+        } else {
+          await updateTradeArrayFields(this.app, file, { psychology_tags: next });
+          if (action === "add" && trade.psychologyAcknowledged) await updateTradeFields(this.app, file, { psychology_acknowledged: false });
+        }
+        n++;
+      } catch (err) {
+        console.error("[tradebook] bulk tag update failed", err);
+      }
+    }
+    new Notice(`${n} trade(s) updated.`);
+    this.selected.clear();
+    await this.refresh();
   }
 
   /** A one-line input in the bulk bar — never a browser prompt. */
@@ -1044,32 +1301,10 @@ export class TradeLogView extends ItemView {
     this._focusTimer = window.setTimeout(() => input.focus(), 0);
   }
 
-  /** Add mistakes without losing the one already on the note. */
-  private async bulkAddMistake(value: string): Promise<void> {
-    const val = value.trim();
-    if (!val) return;
-    let n = 0;
-    for (const t of this.trades) {
-      if (!t.id || !this.selected.has(t.id)) continue;
-      const file = this.app.vault.getAbstractFileByPath(t.id);
-      if (!(file instanceof TFile)) continue;
-      const already = (t.mistake || "").trim();
-      if (already) continue;
-      try {
-        await updateTradeFields(this.app, file, { mistake: val });
-        n++;
-      } catch (err) {
-        console.error("[tradebook] bulk mistake failed", err);
-      }
-    }
-    new Notice(n ? `Mistake added to ${n} trade(s).` : "Nothing to change — they already have one.");
-    this.selected.clear();
-    await this.refresh();
-  }
-
   private async bulkDuplicate(): Promise<void> {
     let n = 0;
-    for (const id of this.selected) {
+    const eligible = this.eligibleSelectedIds();
+    for (const id of eligible) {
       const file = this.app.vault.getAbstractFileByPath(id);
       if (file instanceof TFile) {
         try {
@@ -1090,7 +1325,8 @@ export class TradeLogView extends ItemView {
 
   private async bulkField(fields: Record<string, string | number | boolean>): Promise<void> {
     let n = 0;
-    for (const id of this.selected) {
+    const eligible = this.eligibleSelectedIds();
+    for (const id of eligible) {
       const file = this.app.vault.getAbstractFileByPath(id);
       if (file instanceof TFile) {
         try {
@@ -1112,7 +1348,8 @@ export class TradeLogView extends ItemView {
    */
   /** Delete asks in our own dialog — a browser confirm is not our surface. */
   private confirmBulkDelete(): void {
-    const count = this.selected.size;
+    const count = this.eligibleSelectedIds().size;
+    if (!count) return;
     new ConfirmModal(this.app, {
       title: "Delete these trades?",
       body: `${count} note${count === 1 ? "" : "s"} will be removed from the vault. Obsidian moves them to its trash when "Files & Links → Deleted files" is set to trash; otherwise the delete is permanent.`,
@@ -1123,7 +1360,8 @@ export class TradeLogView extends ItemView {
 
   private async bulkDelete(): Promise<void> {
     let n = 0;
-    for (const id of this.selected) {
+    const eligible = this.eligibleSelectedIds();
+    for (const id of eligible) {
       const file = this.app.vault.getAbstractFileByPath(id);
       if (file instanceof TFile) {
         try {
@@ -1206,7 +1444,14 @@ export class TradeLogView extends ItemView {
       out.push({ label: `R: ${words[this.rFilter]}`, clear: () => (this.rFilter = "all") });
     }
     if (this.period !== "all") {
-      out.push({ label: `Period: ${periodLabel(this.period)}`, clear: () => (this.period = "all") });
+      out.push({
+        label: `Period: ${this.scopedPeriodLabel || periodLabel(this.period)}`,
+        clear: () => {
+          this.period = "all";
+          this.scopedPeriodLabel = "";
+          this.scopedPeriodBounds = null;
+        },
+      });
     }
     return out;
   }
@@ -1230,10 +1475,43 @@ export class TradeLogView extends ItemView {
     this.period = "all";
     this.customFrom = "";
     this.customTo = "";
+    this.scopedPeriodLabel = "";
+    this.scopedPeriodBounds = null;
     this.search = "";
     this.setupFilters = [];
     this.excludeDemos = false;
     this.limit = 50;
+  }
+
+  /** A selection survives visual renders, sorting and pagination, not a new population. */
+  private selectionScopeKey(): string {
+    return tradeSelectionScopeKey({
+      symbol: this.symbolFilter,
+      accounts: this.accountFilters,
+      accountExclude: this.accountExclude,
+      group: this.groupFilter,
+      ids: this.idFilter,
+      direction: this.directionFilter,
+      result: this.resultFilter,
+      mistakes: this.mistakeFilters,
+      review: this.reviewFilter,
+      session: this.sessionFilter,
+      accountType: this.accountTypeFilter,
+      lens: this.lens?.label ?? "",
+      quality: this.qualityFilters,
+      r: this.rFilter,
+      period: this.period,
+      customFrom: this.customFrom,
+      customTo: this.customTo,
+      search: this.search,
+      setups: this.setupFilters,
+      excludeDemos: this.excludeDemos,
+    });
+  }
+
+  /** Resolve selected rows against the full current filtered population. */
+  private eligibleSelectedIds(): Set<string> {
+    return eligibleTradeIds(this.filtered(), this.selected);
   }
 
   renderPeriodBar(root: HTMLElement): void {
@@ -1246,6 +1524,8 @@ export class TradeLogView extends ItemView {
       });
       b.addEventListener("click", () => {
         this.period = id;
+        this.scopedPeriodLabel = "";
+        this.scopedPeriodBounds = null;
         this.render();
       });
     }
@@ -1255,8 +1535,11 @@ export class TradeLogView extends ItemView {
         value: this.customFrom,
         format: this.plugin.settings.dateFormat,
         className: "tj-input",
+        zone: this.plugin.settings.timeZone,
         onChange: (v) => {
           this.customFrom = v;
+          this.scopedPeriodLabel = "";
+          this.scopedPeriodBounds = null;
           this.render();
         },
       });
@@ -1265,8 +1548,11 @@ export class TradeLogView extends ItemView {
         value: this.customTo,
         format: this.plugin.settings.dateFormat,
         className: "tj-input",
+        zone: this.plugin.settings.timeZone,
         onChange: (v) => {
           this.customTo = v;
+          this.scopedPeriodLabel = "";
+          this.scopedPeriodBounds = null;
           this.render();
         },
       });
@@ -1295,7 +1581,10 @@ export class TradeLogView extends ItemView {
     const info = top.createSpan({ cls: "tj-tl-accinfo" });
     const input = top.createEl("input", { cls: "tj-tl-accsearch", attr: { type: "search", placeholder: "Find an account…" } });
     input.value = this.accQuery;
-    const tools = field.createDiv({ cls: "tj-tl-acctools" });
+    const toolsWrap = field.createDiv({ cls: "tj-tl-acctools-wrap" });
+    toolsWrap.createDiv({ cls: "tj-tl-acc-section-label", text: "Account-wide actions" });
+    const tools = toolsWrap.createDiv({ cls: "tj-tl-acctools" });
+    field.createDiv({ cls: "tj-tl-acc-section-label tj-tl-acc-list-label", text: "Individual accounts" });
     const list = field.createDiv({ cls: "tj-tl-acclist" });
     const all = this.plugin.settings.propAccounts;
 
@@ -1320,7 +1609,10 @@ export class TradeLogView extends ItemView {
       }
       for (const a of rows) {
         const on = picked.includes(a.id);
-        const row = list.createDiv({ cls: "tj-tl-accrow" + (on ? " on" : "") + (a.n ? "" : " is-quiet") });
+        const row = list.createEl("button", {
+          cls: "tj-tl-accrow" + (on ? " on" : "") + (a.n ? "" : " is-quiet"),
+          attr: { type: "button", "aria-pressed": String(on) },
+        });
         row.createSpan({ cls: "tj-tl-accbox", text: on ? "\u2713" : "" });
         row.createSpan({ cls: "tj-tl-accname", text: a.name });
         row.createSpan({ cls: "tj-tl-accn", text: a.n ? String(a.n) : "\u2014" });
@@ -1512,10 +1804,12 @@ export class TradeLogView extends ItemView {
     this._drawerKeyCleanup?.();
     this._drawerKeyCleanup = () => document.removeEventListener("keydown", onKey);
 
-    const drawer = shell.createEl("aside", { cls: "tj-tl-drawer" });
+    const drawer = shell.createEl("aside", { cls: "tj-tl-drawer", attr: { "aria-label": "Trade filters" } });
 
     const head = drawer.createDiv({ cls: "tj-tl-drawerhead" });
     head.createSpan({ cls: "tj-tl-drawer-title", text: "Filters" });
+    const activeCount = this.activeFilters().length;
+    head.createSpan({ cls: "tj-tl-drawer-count", text: activeCount ? `${activeCount} active` : "No filters" });
     const close = head.createEl("button", { cls: "tj-tl-drawer-x", attr: { type: "button" } });
     close.createSpan({ cls: "tj-sr-only", text: "Close filters" });
     setIcon(close, "x");
@@ -1548,7 +1842,11 @@ export class TradeLogView extends ItemView {
       }
       for (const [v, t] of options) {
         const on = values.includes(v);
-        const b = row.createEl("button", { cls: "tj-tl-opt" + (on ? " on" : ""), text: t, attr: { type: "button" } });
+        const b = row.createEl("button", {
+          cls: "tj-tl-opt" + (on ? " on" : ""),
+          text: t,
+          attr: { type: "button", "aria-pressed": String(on) },
+        });
         b.addEventListener("click", () => onPick(v, on));
       }
     };
@@ -1566,6 +1864,7 @@ export class TradeLogView extends ItemView {
     let g = section("What I traded");
     this.accountPicker(g);
     const mode = g.createDiv({ cls: "tj-tl-mode" });
+    mode.createSpan({ cls: "tj-tl-acc-section-label", text: "Selection mode" });
     const seg = mode.createDiv({ cls: "tj-tl-incl" });
     for (const [id, label] of [["include", "Include"], ["exclude", "Exclude"]] as const) {
       const on = (id === "exclude") === this.accountExclude;
@@ -1580,7 +1879,7 @@ export class TradeLogView extends ItemView {
     const demoBtn = demoRow.createEl("button", {
       cls: "tj-tl-opt" + (this.excludeDemos ? " on" : ""),
       text: "Exclude demo accounts",
-      attr: { type: "button" },
+      attr: { type: "button", "aria-pressed": String(this.excludeDemos) },
     });
     demoBtn.addEventListener("click", () => {
       this.excludeDemos = !this.excludeDemos;
@@ -1637,6 +1936,7 @@ export class TradeLogView extends ItemView {
     if (this._focusTimer) window.clearTimeout(this._focusTimer);
     this._drawerKeyCleanup?.();
     this._drawerKeyCleanup = null;
+    this.closeBulkTagMenu();
     // A drag in flight holds document listeners; drop them with the view.
     this._dragCleanup?.();
     this._dragCleanup = null;

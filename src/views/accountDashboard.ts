@@ -10,11 +10,13 @@ import { mountDropdown } from "../lib/dropdown";
 import { ACCOUNT_SIZES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { firmLabel } from "../lib/firmLogos";
 import { attachTooltip, kpiCard, openPluginSettings as openSettings, renderAppShell } from "../ui";
-import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey, toZoneDate } from "../tz";
+import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey } from "../tz";
+import { tradeDayInZone } from "../lib/instant";
 import { renderLineChart } from "../lib/lineChart";
 import { formatDate, mountDateField } from "../lib/dates";
-import { computeAccountMetrics, computeDrawdownEpisodes } from "../lib/accountMetrics";
+import { computeAccountMetrics } from "../lib/accountMetrics";
 import { netPnl } from "../lib/fees";
+import { tradeCostCoverage } from "../lib/money";
 import { sessionLabel, sessionRank } from "../lib/sessions";
 import { renderTradeTable, resolveOrder, DEFAULT_ACCOUNT_ORDER } from "../lib/tradeTable";
 import type { TradeSort } from "../lib/tradeTable";
@@ -109,7 +111,7 @@ export class AccountDashboardView extends ItemView {
   }
 
   dayKey(t: Trade): string {
-    return toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
+    return tradeDayInZone(t, this.plugin.settings.timeZone);
   }
 
   todayKey(): string {
@@ -263,6 +265,7 @@ export class AccountDashboardView extends ItemView {
       value: startedValue,
       format: this.plugin.settings.dateFormat,
       className: "tj-as-nameinput",
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => (startedValue = iso),
     });
 
@@ -326,6 +329,9 @@ export class AccountDashboardView extends ItemView {
         card.createDiv({ cls: "tj-wz-type-l", text: t.label });
         card.createDiv({ cls: "tj-wz-type-d", text: t.desc });
         card.addEventListener("click", () => {
+          if (selectedType !== t.id) {
+            for (const key of Object.keys(ruleState) as Array<keyof AccountRules>) delete ruleState[key];
+          }
           selectedType = t.id;
           renderTypes();
           syncAutoName();
@@ -364,7 +370,7 @@ export class AccountDashboardView extends ItemView {
     // Draft rules: every control writes here, so a type change can rebuild the
     // pane without losing what was typed.
     const ruleState: AccountRules = { ...(acc.rules ?? {}) };
-    if (ruleState.maxLossType === undefined) ruleState.maxLossType = "eod-trailing";
+    if (ruleState.maxLossType === undefined) ruleState.maxLossType = acc.type === "personal" ? "static" : "eod-trailing";
 
     const ruleAffix = (
       label: string,
@@ -430,11 +436,25 @@ export class AccountDashboardView extends ItemView {
       rulesPane.empty();
       const t = selectedType;
       rulesPane.createDiv({ cls: "tj-as-section", text: "Rules" });
-      if (!isPropType(t as AccountType)) {
+      if (t === "demo") {
         rulesPane.createDiv({
           cls: "tj-as-hint",
-          text: "A personal or demo account has no prop rules. There is nothing to track here.",
+          text: "Demo accounts have no configured account limits by default.",
         });
+        return;
+      }
+      if (t === "personal") {
+        rulesPane.createDiv({ cls: "tj-as-hint", text: "Set a personal loss limit or floor if you want the journal to track one." });
+        ruleAmount("Personal loss limit", "maxLoss");
+        const ddF = rulesPane.createDiv({ cls: "tj-wz-field" });
+        ddF.createEl("label", { text: "Loss-floor type", cls: "tj-wz-label" });
+        mountDropdown(ddF, DD_TYPES.map((d) => ({ id: d.id, label: d.label })), ruleState.maxLossType ?? "static", (id) => {
+          ruleState.maxLossType = id as AccountRules["maxLossType"];
+          renderRules();
+        });
+        if (ruleState.maxLossType !== "static" && ruleState.maxLossType !== "eod-trailing-open") {
+          ruleAffix("Locks above balance (optional)", { prefix: "$" }, ruleState.ddLockOffset, (v) => (ruleState.ddLockOffset = v));
+        }
         return;
       }
       rulesPane.createDiv({
@@ -557,20 +577,20 @@ export class AccountDashboardView extends ItemView {
       }
       // Rules — the draft the pane edited. Only prop accounts carry them; a
       // personal/demo account saves none, so switching type clears the old ones.
-      if (isPropType(selectedType as AccountType)) {
+      if (isPropType(selectedType as AccountType) || selectedType === "personal") {
         const rules: AccountRules = {};
-        if (ruleState.target) rules.target = ruleState.target;
-        if (ruleState.targetPct) rules.targetPct = ruleState.targetPct;
+        if (selectedType !== "personal" && ruleState.target) rules.target = ruleState.target;
+        if (selectedType !== "personal" && ruleState.targetPct) rules.targetPct = ruleState.targetPct;
         if (ruleState.maxLoss) rules.maxLoss = ruleState.maxLoss;
         if (ruleState.maxLossPct) rules.maxLossPct = ruleState.maxLossPct;
-        if (ruleState.dailyLoss) rules.dailyLoss = ruleState.dailyLoss;
-        if (ruleState.consistency) rules.consistency = ruleState.consistency;
+        if (selectedType !== "personal" && ruleState.dailyLoss) rules.dailyLoss = ruleState.dailyLoss;
+        if (selectedType !== "personal" && ruleState.consistency) rules.consistency = ruleState.consistency;
         if (ruleState.consistencyBasis) rules.consistencyBasis = ruleState.consistencyBasis;
         if (ruleState.maxLossType) rules.maxLossType = ruleState.maxLossType;
         if (ruleState.ddLockOffset) rules.ddLockOffset = ruleState.ddLockOffset;
         if (ruleState.posSize) rules.posSize = ruleState.posSize;
-        if (ruleState.minDays) rules.minDays = ruleState.minDays;
-        if (ruleState.dailyLossNote) rules.dailyLossNote = ruleState.dailyLossNote;
+        if (selectedType !== "personal" && ruleState.minDays) rules.minDays = ruleState.minDays;
+        if (selectedType !== "personal" && ruleState.dailyLossNote) rules.dailyLossNote = ruleState.dailyLossNote;
         acc.rules = Object.keys(rules).length ? rules : undefined;
       } else {
         acc.rules = undefined;
@@ -670,6 +690,15 @@ export class AccountDashboardView extends ItemView {
     this.renderCopyBar(main, acc);
 
     const scoped = this.scoped();
+    const missingCostLegs = scoped.filter((trade) => {
+      const coverage = tradeCostCoverage(trade);
+      return !coverage.commission || !coverage.fees;
+    }).length;
+    const netCoverageNote = !scoped.length
+      ? " No trades are recorded in this account history."
+      : missingCostLegs
+      ? ` Cost fields are incomplete on ${missingCostLegs} trade leg${missingCostLegs === 1 ? "" : "s"}; Net uses recorded cost amounts only, so missing costs are not confirmed zero.`
+      : " Recorded commission and fee fields are present.";
     const byDay = new Map<string, { net: number; gross: number; count: number; wins: number }>();
     for (const t of scoped) {
       const key = this.dayKey(t);
@@ -719,8 +748,9 @@ export class AccountDashboardView extends ItemView {
     const todayNet = byDay.get(this.todayKey())?.net ?? 0;
     const tradeCount = scoped.length;
     const winCount = scoped.filter((t) => t.pnl > 0).length;
-    const targetReached = size.target > 0 ? net >= size.target : false;
-    const targetPct = size.target > 0 ? Math.min(100, (net / size.target) * 100) : 0;
+    const targetApplies = acc.type === "eval";
+    const targetReached = targetApplies && size.target > 0 ? net >= size.target : false;
+    const targetPct = targetApplies && size.target > 0 ? Math.min(100, (net / size.target) * 100) : 0;
 
     // Eval passed. Two states, and the difference matters: the celebration is
     // shown ONCE; the quiet band is the memory of it, so an eval that comes back
@@ -838,6 +868,8 @@ export class AccountDashboardView extends ItemView {
       ddLockOffset: size.ddLockOffset,
       ddNoLock: size.maxLossType === "eod-trailing-open",
       ddStatic: size.maxLossType === "static",
+      ddRuleKnown: !!size.maxLossType,
+      ddIntraday: size.maxLossType === "intraday-trailing",
       dailyLoss: size.dailyLoss,
       consistency: size.consistency,
       consistencyBasis: size.consistencyBasis,
@@ -850,9 +882,6 @@ export class AccountDashboardView extends ItemView {
         ...this.plugin.feeAdjustmentsFor(acc.id).map((a) => ({ date: a.date, amount: a.amount })),
       ],
     });
-
-    // ---- Drawdown episodes ----
-    const ddAnalysis = computeDrawdownEpisodes(series.map((s) => ({ date: s.date, balance: acc.size + s.cum })), acc.size);
 
     // ---------- Discipline (shown on the back of the hero card) ----------
     const renderDisciplineCard = (host: HTMLElement) => {
@@ -901,7 +930,7 @@ export class AccountDashboardView extends ItemView {
       scoreFill.style.width = `${Math.max(2, Math.min(100, score))}%`;
       scoreFill.style.background = band;
       scoreRow.createDiv({ cls: "tj-acc-dscore-num", text: String(score) });
-      attachTip(scoreTrack, { title: "Discipline score", sub: "A model of your process — mistakes, reviews, stops, journal completeness, strategy tags and rating. Nothing is enforced." });
+      attachTip(scoreTrack, { title: "Discipline score", sub: "Model of recorded process fields; informational, not a trading verdict." });
       const cols = host.createDiv({ cls: "tj-acc-mcols" });
       const habits = cols.createDiv({ cls: "tj-acc-mcol" });
       const behaviour = cols.createDiv({ cls: "tj-acc-mcol" });
@@ -925,9 +954,9 @@ export class AccountDashboardView extends ItemView {
       behaviour.createDiv({ cls: "tj-acc-mgroup", text: "Behaviour" });
       dRow(behaviour, "Trades / day", M.tradesPerDay ? M.tradesPerDay.toFixed(1) : "—", "", "Average trades per active day.");
       dRow(behaviour, "Max / day", String(M.maxTradesInDay), "", "Most trades taken in a single day.");
-      dRow(behaviour, "Revenge trades", `${M.revengeCount} (${M.revengeRate.toFixed(0)}%)`, M.revengeCount > 0 ? "tj-warn" : "", "Re-entered within 15 minutes of a loss on the same symbol, or a trade you flagged as a mistake right after a loss.");
-      dRow(behaviour, "After two losses (tilt)", String(M.afterTwoLosses), M.afterTwoLosses > 0 ? "tj-warn" : "", "Trades opened right after two consecutive losses (tilt).");
-      dRow(behaviour, "Trades < 1 min", `${M.fastTradesPct.toFixed(0)}%`, M.fastTradesPct > 20 ? "tj-warn" : "", "Trades closed in under a minute (impulsive entries).");
+      dRow(behaviour, "Revenge trades", `${M.revengeCount} (${M.revengeRate.toFixed(0)}%)`, M.revengeCount > 0 ? "tj-warn" : "", "Entered within 15 minutes of a same-symbol loss, or flagged as a mistake after a loss.");
+      dRow(behaviour, "After two losses (tilt)", String(M.afterTwoLosses), M.afterTwoLosses > 0 ? "tj-warn" : "", "Trades opened after two consecutive losses.");
+      dRow(behaviour, "Trades < 1 min", `${M.fastTradesPct.toFixed(0)}%`, M.fastTradesPct > 20 ? "tj-warn" : "", "Trades held for under a minute.");
       dRow(behaviour, "Streak now", M.streakCurrent === 0 ? "—" : `${Math.abs(M.streakCurrent)} ${M.streakCurrent > 0 ? "wins" : "losses"}`, M.streakCurrent < 0 ? "tj-neg" : M.streakCurrent > 0 ? "tj-pos" : "", "Current win/loss streak.");
       dRow(behaviour, "Best / worst streak", `${M.streakWinBest}W / ${M.streakLossWorst}L`, "", "Longest winning and losing runs.");
     };
@@ -967,7 +996,11 @@ export class AccountDashboardView extends ItemView {
     const eqCard = heroLeft.createDiv({ cls: "tj-acc-eqcard" });
     const eqHead = eqCard.createDiv({ cls: "tj-acc-eqhead" });
     const eqTitleRow = eqHead.createDiv({ cls: "tj-acc-eqtitlerow" });
-    eqTitleRow.createDiv({ cls: "tj-acc-k", text: "Equity" });
+    const eqTitle = eqTitleRow.createDiv({ cls: "tj-acc-k", text: "Account Balance" });
+    attachTip(eqTitle, {
+      title: "Recorded account balance",
+      sub: `Configured size plus recorded trading and cash movements. Not live broker equity.${netCoverageNote}`,
+    });
     // Streak dots (last 20 trading days) — top right, same line as title
     if (days.length > 0) {
       const eqRight = eqTitleRow.createDiv({ cls: "tj-acc-eqright" });
@@ -988,10 +1021,6 @@ export class AccountDashboardView extends ItemView {
     eqVal.createSpan({
       cls: "tj-acc-big",
       text: `$${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-    });
-    eqVal.createSpan({
-      cls: "tj-acc-growth " + (net >= 0 ? "tj-pos" : "tj-neg"),
-      text: `${fmtMoney(net)} (${acc.size ? ((net / acc.size) * 100).toFixed(1) : "0"}%)`,
     });
     const eqChart = eqCard.createDiv({ cls: "tj-acc-eqchart" });
     if (series.length) {
@@ -1019,7 +1048,7 @@ export class AccountDashboardView extends ItemView {
         baseline: acc.size,
         baseLine: acc.size,
         fadeFloor: acc.size,
-        targetLine: size.target ? acc.size + size.target : undefined,
+        targetLine: targetApplies && size.target ? acc.size + size.target : undefined,
         ddLine: ddLevels.length === balances.length ? ddLevels : undefined,
         dayDeltas: [0, ...series.map((s2) => s2.net)],
         // A cash day is marked by what it was: a payout (gold), a deposit (green)
@@ -1040,7 +1069,7 @@ export class AccountDashboardView extends ItemView {
           if (flow < 0) rows2.push(["Payout", fmtMoney(Math.abs(flow)), "tj-cash"]);
           if (flow > 0) rows2.push(["Deposit", fmtMoney(flow), "tj-pos"]);
           const adj = s2 ? adjustByDay.get(s2.date) ?? 0 : 0;
-          if (adj !== 0) rows2.push(["Fees corrected", fmtMoney(adj), "tj-cost"]);
+          if (adj !== 0) rows2.push(["Balance adjustment", fmtMoney(adj), "tj-cost"]);
           if (ddLevels.length) rows2.push(["Drawdown level", fmtMoney(ddLevels[i] ?? 0), ""]);
           if (size.target) rows2.push(["Target", fmtMoney(acc.size + size.target), "tj-pos"]);
           return rows2;
@@ -1067,89 +1096,93 @@ export class AccountDashboardView extends ItemView {
     const backHead = back.createDiv({ cls: "tj-acc-riskhead" });
     backHead.createDiv({ cls: "tj-acc-k", text: "Discipline · habits & behaviour" });
     const riskHead = front.createDiv({ cls: "tj-acc-riskhead" });
-    riskHead.createDiv({ cls: "tj-acc-k", text: "Key metrics" });
+    const targetRange = acc.type === "eval" && size.target > 0;
+    riskHead.createDiv({ cls: "tj-acc-k", text: targetRange ? "Risk and target" : "Account risk" });
     const riskChart = front.createDiv({ cls: "tj-acc-riskchart" });
     const riskDials = riskChart.createDiv({ cls: "tj-acc-riskdials" });
     mkDonut(riskDials, "Win rate", M.winRate, "");
     mkDonut(riskDials, "Day win rate", M.dayWinRate, "");
     const barCol = riskChart.createDiv({ cls: "tj-acc-riskbarcol" });
-    // labels + values ABOVE the bar so the bar can run full width
-    const barHead = barCol.createDiv({ cls: "tj-acc-barhead" });
-    const ddSide = barHead.createDiv({ cls: "tj-acc-riskside" });
-    ddSide.createDiv({ cls: "tj-acc-riskside-v", text: size.maxLoss ? `-$${size.maxLoss.toLocaleString()}` : "—" });
-    const tgtSide = barHead.createDiv({ cls: "tj-acc-riskside tj-acc-riskside-right" });
-    tgtSide.createDiv({ cls: "tj-acc-riskside-v tj-pos", text: size.target ? `+$${size.target.toLocaleString()}` : "—" });
+    if (size.maxLoss > 0) {
+      const summary = barCol.createDiv({ cls: "tj-acc-risk-summary" });
+      const riskStat = (label: string, value: string, tone = "") => {
+        const stat = summary.createDiv({ cls: "tj-acc-risk-stat" });
+        stat.createSpan({ cls: "tj-acc-risk-stat-k", text: label });
+        stat.createSpan({ cls: `tj-acc-risk-stat-v ${tone}`.trim(), text: value });
+      };
+      const riskApplies = acc.type === "funded" || acc.type === "live" || acc.type === "personal";
+      riskStat(riskApplies ? "Loss allowance" : "Evaluation loss limit", `−${fmtMoney(size.maxLoss)}`);
+      riskStat("Current floor", M.drawdownFloor === null ? "Unavailable" : fmtMoney(M.drawdownFloor));
+      riskStat("Used", M.drawdownUsed === null ? "Unavailable" : fmtMoney(M.drawdownUsed), M.drawdownUsed === null ? "" : M.drawdownUsed > 0 ? "tj-neg" : "tj-pos");
+      riskStat("Room to floor", M.drawdownRoom === null ? "Unavailable" : fmtMoney(M.drawdownRoom));
+      if (targetRange) riskStat("Profit target", `+${fmtMoney(size.target)}`, "tj-pos");
 
-    const track = barCol.createDiv({ cls: "tj-acc-risktrack" });
-    const span = (size.maxLoss || 0) + (size.target || 0);
-    if (span > 0) {
-      const zeroPct = ((size.maxLoss || 0) / span) * 100;
-      const posPct = Math.max(1, Math.min(99, (((size.maxLoss || 0) + net) / span) * 100));
-      const zl = track.createDiv({ cls: "tj-acc-zone tj-acc-zone-loss" });
-      zl.style.width = `${zeroPct}%`;
-      const zr = track.createDiv({ cls: "tj-acc-zone tj-acc-zone-gain" });
-      zr.style.left = `${zeroPct}%`;
-      const mid = track.createDiv({ cls: "tj-acc-zone-mid" });
-      mid.style.left = `${zeroPct}%`;
-      const mk = track.createDiv({ cls: "tj-acc-marker" });
-      mk.style.left = `calc(${posPct}% - 1px)`;
-      // The firm's trailing drawdown floor as a thin tick on the same bar: once
-      // the peak carries it past the starting loss limit, only here does it show.
-      const floorLevel = balance - M.ddRemaining;
-      const floorPct = ((size.maxLoss + (floorLevel - acc.size)) / span) * 100;
-      if (size.maxLoss && floorPct > 1 && floorPct < 99) {
-        const ddTick = track.createDiv({ cls: "tj-acc-marker-dd" });
-        ddTick.style.left = `calc(${floorPct}% - 1px)`;
-      }
-      track.addClass("tj-tip-anchor");
-      track.addEventListener("mouseenter", () => {
-        const ddPct = size.maxLoss ? Math.round((M.ddToLimit / size.maxLoss) * 100) : 0;
-        showTip(
-          {
-            title: "Key metrics",
-            value: fmtMoney(net),
-            tone: net >= 0 ? "pos" : "neg",
-            sub: `${ddPct}% of max loss used · buffer ${fmtMoney(Math.max(0, M.buffer))}`,
-          },
-          "tj-acc-risktip"
-        );
-      });
-      track.addEventListener("mousemove", (e) => moveTip(e));
-      track.addEventListener("mouseleave", () => killTip());
-    }
-    const riskAxis = barCol.createDiv({ cls: "tj-acc-riskaxis" });
-    const axM = riskAxis.createSpan({ text: "$0" });
-    if (span > 0) {
-      axM.style.left = `${((size.maxLoss || 0) / span) * 100}%`;
-      axM.style.transform = "translateX(-50%)";
-    }
-
-    // Drawdown — the firm's number: distance from the peak balance to the floor.
-    if (size.maxLoss) {
-      const ddUsed = Math.max(0, M.ddToLimit);
-      const ddPct = Math.min(100, (ddUsed / size.maxLoss) * 100);
-      const ddStatus = ddPct >= 100 ? "breached" : ddPct >= 75 ? "critical" : ddPct >= 50 ? "warning" : "safe";
-      const ddBox = front.createDiv({ cls: "tj-acc-ddbox" });
-      const ddHead = ddBox.createDiv({ cls: "tj-acc-ddhead" });
-      ddHead.createSpan({ cls: "tj-acc-k", text: "Drawdown used" });
+      const ddKnown = M.drawdownFloor !== null && M.drawdownUsed !== null && M.drawdownRoom !== null;
+      const ddPct = ddKnown ? Math.max(0, (M.drawdownUsed! / size.maxLoss) * 100) : 0;
+      const roomPct = ddKnown ? Math.max(0, (M.drawdownRoom! / size.maxLoss) * 100) : 0;
+      const ddStatus = !ddKnown ? "unknown" : M.drawdownRoom! <= 0 ? "breached" : ddPct >= 75 ? "critical" : ddPct >= 50 ? "warning" : "safe";
+      const ddHead = barCol.createDiv({ cls: "tj-acc-ddhead" });
+      ddHead.createSpan({ cls: "tj-acc-k", text: riskApplies ? "Room to loss floor" : "Evaluation drawdown used" });
       const badge = ddHead.createSpan({ cls: `tj-acc-ddbadge tj-acc-ddbadge-${ddStatus}` });
-      badge.setText(ddStatus === "breached" ? "BREACHED" : ddStatus === "critical" ? "CRITICAL" : ddStatus === "warning" ? "WARNING" : "OK");
-      const ddInfo = ddBox.createDiv({ cls: "tj-acc-ddinfo" });
-      ddInfo.createSpan({ text: `${fmtMoney(ddUsed)} used` });
-      ddInfo.createSpan({ text: `limit: -$${size.maxLoss.toLocaleString()}` });
-      ddInfo.createSpan({ text: `remaining: ${fmtMoney(M.ddRemaining)}` });
+      badge.setText(ddStatus === "unknown" ? "UNAVAILABLE" : ddStatus === "breached" ? "BREACHED" : ddStatus === "critical" ? "CRITICAL" : ddStatus === "warning" ? "WARNING" : "WITHIN LIMIT");
       const ddl = drawdownLabel(size);
-      ddBox.createDiv({ cls: "tj-acc-ddtype", text: `${ddl.label} · ${ddl.lock}` });
-
-      // DD episodes summary line
-      if (ddAnalysis.totalEpisodes > 0) {
-        const ddSummary = ddBox.createDiv({ cls: "tj-acc-ddsummary" });
-        const parts: string[] = [];
-        parts.push(`${ddAnalysis.totalEpisodes} episode${ddAnalysis.totalEpisodes === 1 ? "" : "s"}`);
-        if (ddAnalysis.avgRecoveryDays > 0) parts.push(`avg recovery: ${Math.round(ddAnalysis.avgRecoveryDays)}d`);
-        if (ddAnalysis.pctTimeInDD > 0) parts.push(`time in DD: ${ddAnalysis.pctTimeInDD.toFixed(0)}%`);
-        if (ddAnalysis.currentDD) parts.push(`current: -${ddAnalysis.currentDD.depthPct.toFixed(1)}%`);
-        ddSummary.createSpan({ text: parts.join(" · ") });
+      const ddTip = ddHead.createSpan({ cls: "tj-info-dot" });
+      setIcon(ddTip, "info");
+      attachTip(ddTip, {
+        title: ddKnown ? ddl.label : "Drawdown model unavailable",
+        sub: ddKnown
+          ? `${ddl.lock} Floor movement follows this account's configured rule.`
+          : size.maxLossType === "intraday-trailing"
+            ? "Intraday trailing needs intraday equity history, which this journal does not record."
+            : "Set a drawdown type in account Rules to calculate the floor, used amount and room accurately.",
+      });
+      const track = barCol.createDiv({ cls: `tj-acc-risktrack${ddKnown ? "" : " is-unavailable"}${ddKnown && M.drawdownRoom! <= 0 ? " is-reached" : ""}` });
+      if (riskApplies && ddKnown) {
+        attachTip(track, {
+          title: `${fmtMoney(M.drawdownRoom!)} room to floor`,
+          sub: `Recorded balance ${fmtMoney(M.balance)} · floor ${fmtMoney(M.drawdownFloor!)}. Bar compares room with the configured ${fmtMoney(size.maxLoss)} loss allowance; amounts above it remain uncapped in the label. Journal record, not a verified liquidation threshold.`,
+        });
+      }
+      if (ddKnown && acc.type === "eval") {
+        const floor = acc.size - size.maxLoss;
+        const ceiling = acc.size + size.target;
+        const span = Math.max(1, ceiling - floor);
+        const zeroPct = ((acc.size - floor) / span) * 100;
+        const balancePct = Math.max(0, Math.min(100, ((M.balance - floor) / span) * 100));
+        track.addClass("is-evaluation");
+        const evalTrack = track;
+        const positive = evalTrack.createDiv({ cls: "tj-acc-eval-positive" });
+        positive.style.left = `${zeroPct}%`;
+        positive.style.width = `${Math.max(0, 100 - zeroPct)}%`;
+        const negative = evalTrack.createDiv({ cls: "tj-acc-eval-negative" });
+        negative.style.left = "0";
+        negative.style.width = `${zeroPct}%`;
+        const zero = evalTrack.createDiv({ cls: "tj-acc-eval-zero" });
+        zero.style.left = `${zeroPct}%`;
+        const progress = evalTrack.createDiv({ cls: "tj-acc-eval-progress" });
+        progress.style.left = `${balancePct}%`;
+        attachTip(progress, {
+          title: `Recorded balance ${fmtMoney(M.balance)}`,
+          sub: `Starting balance ${fmtMoney(acc.size)} · floor ${fmtMoney(M.drawdownFloor!)} · target ${fmtMoney(ceiling)}.`,
+        });
+      } else if (ddKnown) {
+        const visualPct = riskApplies ? roomPct : ddPct;
+        const fill = track.createDiv({ cls: `tj-acc-risk-used${visualPct === 0 ? " is-zero" : ""}` });
+        fill.style.width = `${Math.min(100, visualPct)}%`;
+        fill.style.background = M.drawdownRoom! <= 0 ? "var(--tj-tone-bad)" : riskApplies ? roomPct <= 25 ? "var(--tj-tone-bad)" : roomPct <= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-good)" : ddPct >= 75 ? "var(--tj-tone-bad)" : ddPct >= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-good)";
+      } else {
+        track.createSpan({ cls: "tj-acc-risk-empty", text: "Drawdown calculation unavailable" });
+      }
+      const riskAxis = barCol.createDiv({ cls: "tj-acc-riskaxis" });
+      riskAxis.createSpan({ text: `${fmtMoney(M.drawdownRoom ?? 0)} room to floor` });
+      riskAxis.createSpan({ text: `Floor ${fmtMoney(M.drawdownFloor ?? 0)}` });
+    } else {
+      const unavailable = barCol.createDiv({ cls: "tj-acc-risk-summary" });
+      unavailable.createDiv({ cls: "tj-acc-risk-empty", text: "No maximum-loss limit configured" });
+      if (targetRange) {
+        const targetStat = unavailable.createDiv({ cls: "tj-acc-risk-stat" });
+        targetStat.createSpan({ cls: "tj-acc-risk-stat-k", text: "Evaluation target" });
+        targetStat.createSpan({ cls: "tj-acc-risk-stat-v tj-pos", text: `+${fmtMoney(size.target)}` });
       }
     }
 
@@ -1171,14 +1204,13 @@ export class AccountDashboardView extends ItemView {
 
     limitsCol.createDiv({ cls: "tj-acc-mgroup", text: "Limits" });
     const todayTrades = scoped.filter((t) => this.dayKey(t) === this.todayKey()).length;
-    mRow(limitsCol, "Today", todayTrades ? `${fmtMoney(M.todayNet)} · ${todayTrades}` : "—", M.todayNet < 0 ? "tj-neg" : M.todayNet > 0 ? "tj-pos" : "", "Today's net P&L and trades.");
-    if (size.maxLoss) mRow(limitsCol, "Max-loss buffer", fmtMoney(M.ddRemaining), M.ddRemaining > 0 ? "tj-warn" : "tj-neg", "Room between the real balance and the loss floor. A payout lowers it.");
-    if (size.target) mRow(limitsCol, "Target progress", `${targetPct.toFixed(0)}%`, "", "How close you are to the profit target.");
-    if (size.target && M.daysToTarget !== null) mRow(limitsCol, "Days to target", `~${M.daysToTarget}`, "", "At your current daily pace.");
-    if (size.dailyLoss) mRow(limitsCol, "Daily room", fmtMoney(M.dailyLossRemaining), M.dailyLossRemaining > 0 ? "" : "tj-neg", "How much you can still lose today before the daily loss limit.");
-    if (size.dailyLoss) mRow(limitsCol, "Worst day vs limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Your worst day compared to the daily loss limit.");
-    if (size.consistency > 0) {
-      mRow(limitsCol, "Consistency", `${M.consistencyPct.toFixed(0)}% / ${size.consistency}%`, M.consistencyPct <= size.consistency ? "tj-pos" : "tj-neg", M.impliedTarget > size.target ? `Biggest day needs $${M.impliedTarget.toLocaleString()} total profit to satisfy the rule.` : "Best day stays within the limit.");
+    mRow(limitsCol, "Today", todayTrades ? `${fmtMoney(M.todayNet)} · ${todayTrades}` : "—", M.todayNet < 0 ? "tj-neg" : M.todayNet > 0 ? "tj-pos" : "", `Today's Net trading result.${netCoverageNote}`);
+    if (targetApplies && size.target) mRow(limitsCol, "Target progress", `${targetPct.toFixed(0)}%`, "", "Net trading result toward the evaluation target.");
+    if (targetApplies && size.target && M.daysToTarget !== null) mRow(limitsCol, "Days to target", `~${M.daysToTarget}`, "", "Estimate from current average Net pace.");
+    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Daily room", fmtMoney(M.dailyLossRemaining), M.dailyLossRemaining > 0 ? "" : "tj-neg", "Daily loss limit minus today's Net losses.");
+    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Worst day vs limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Worst recorded Net loss day ÷ daily limit.");
+    if (size.consistency > 0 && (acc.type === "eval" || acc.type === "funded")) {
+      mRow(limitsCol, "Consistency", `${M.consistencyPct.toFixed(0)}% / ${size.consistency}%`, M.consistencyPct <= size.consistency ? "tj-pos" : "tj-neg", M.impliedTarget > size.target ? `Biggest day needs ${fmtMoney(M.impliedTarget)} total profit to satisfy the rule.` : "Best day stays within the limit.");
     }
     const minDays = size.minDays ?? 0;
     if (minDays > 0 && (acc.type === "eval" || acc.type === "funded")) {
@@ -1188,21 +1220,21 @@ export class AccountDashboardView extends ItemView {
         acc.type === "funded" ? "Payout winning days" : "Passing days",
         `${M.winDays} of ${minDays} days`,
         M.winDays >= minDays ? "tj-pos" : "",
-        `A model of the rule — days that closed positive. Some firms also ask for a minimum per day, which the journal does not impose. ${
+        `Model: days that closed positive. ${
           daysLeft > 0 ? `${daysLeft} to go.` : "Requirement met."
         }`,
       );
     }
-    if (size.maxLoss) mRow(limitsCol, "Max trading drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Deepest peak-to-trough drawdown.");
+    if (size.maxLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Max trading drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Largest peak-to-trough Net trading decline.");
     if (M.avgRiskMoney) mRow(limitsCol, "Avg risk / trade", `${fmtMoney(M.avgRiskMoney)} · ${M.avgRiskR.toFixed(2)}R`, "", "Average risk per trade.");
 
     perfCol.createDiv({ cls: "tj-acc-mgroup", text: "Performance" });
-    mRow(perfCol, "Profit factor", Number.isFinite(M.profitFactor) ? M.profitFactor.toFixed(2) : M.profitFactor > 0 ? "∞" : "—", "", "Gross profit ÷ gross loss.");
-    mRow(perfCol, "Expectancy", fmtMoney(M.expectancy), M.expectancy >= 0 ? "tj-pos" : "tj-neg", "Average P&L per trade.");
-    mRow(perfCol, "Avg win / loss", M.avgLoss ? `${fmtMoney(M.avgWin)} / ${fmtMoney(-M.avgLoss)}` : fmtMoney(M.avgWin), "", "Average winning vs losing trade.");
+    mRow(perfCol, "Gross profit factor", Number.isFinite(M.profitFactor) ? M.profitFactor.toFixed(2) : M.profitFactor > 0 ? "∞" : "—", "", "Gross winning results divided by gross losing results.");
+    mRow(perfCol, "Net result per trade", fmtMoney(M.expectancy), M.expectancy >= 0 ? "tj-pos" : "tj-neg", "Average Net result per recorded trade.");
+    mRow(perfCol, "Avg win / loss", M.avgLoss ? `${fmtMoney(M.avgWin)} / ${fmtMoney(-M.avgLoss)}` : fmtMoney(M.avgWin), "", "Average positive and negative Net trade results.");
     mRow(perfCol, "Reached 1R", M.pctGE1R ? `${M.pctGE1R.toFixed(0)}%` : "—", "", "How often a trade reached at least 1R.");
-    mRow(perfCol, "Best day", fmtMoney(M.bestDay), "tj-pos", "Best single day.");
-    mRow(perfCol, "Worst day", fmtMoney(M.worstDay), "tj-neg", "Worst single day.");
+    mRow(perfCol, "Best Net day", fmtMoney(M.bestDay), "tj-pos", "Highest daily Net trading result.");
+    mRow(perfCol, "Worst Net day", fmtMoney(M.worstDay), "tj-neg", "Lowest daily Net trading result.");
     mRow(perfCol, "Biggest win", M.largestWin ? fmtMoney(M.largestWin) : "—", "tj-pos", "Largest single winning trade.");
     mRow(perfCol, "Biggest loss", M.largestLoss ? fmtMoney(M.largestLoss) : "—", "tj-neg", "Largest single losing trade.");
 
@@ -1262,13 +1294,8 @@ export class AccountDashboardView extends ItemView {
         host.createDiv({ cls: "tj-empty", text: "No data." });
         return;
       }
-      const totalNet = rows.reduce((a, [, b]) => a + b.net, 0);
       const totalTrades = rows.reduce((a, [, b]) => a + b.count, 0) || 1;
       const maxAbs = Math.max(...rows.map(([, b]) => Math.abs(b.net)), 1);
-
-      // header
-      const head = host.createDiv({ cls: "tj-acc-bhead" });
-      head.createSpan({ text: `${rows.length} ${rows.length === 1 ? "group" : "groups"} · ${totalTrades} trades` });
 
       // compact treemap: tile width ∝ trades, colour ∝ result
       const MAXT = 6;
@@ -1398,7 +1425,6 @@ export class AccountDashboardView extends ItemView {
       // table. The account page is the same surface, just scoped to one account.
       const panel = host.createDiv({ cls: "tj-panel" });
       const head = panel.createDiv({ cls: "tj-acct-h1" });
-      head.createSpan({ cls: "tj-acct-h1-dot" });
       head.createSpan({ cls: "tj-acct-h1-t", text: "Trades" });
       const count = head.createSpan({ cls: "tj-acct-h1-c" });
       head.createSpan({ cls: "tj-acct-h1-line" });
@@ -1482,10 +1508,13 @@ export class AccountDashboardView extends ItemView {
         const w = WIDGETS.find((x) => x.id === id);
         if (!w) continue;
         if (w.available && !w.available()) continue;
-        const card = grid.createDiv({ cls: "tj-acc-widget" });
+        const isTradesWidget = id === "trades";
+        const card = grid.createDiv({ cls: isTradesWidget ? "tj-acc-widget-trades" : "tj-acc-widget" });
         card.style.gridColumn = `span ${w.span}`;
-        const head = card.createDiv({ cls: "tj-acc-wh" });
-        head.createDiv({ cls: "tj-acc-k", text: w.title });
+        if (!isTradesWidget) {
+          const head = card.createDiv({ cls: "tj-acc-wh" });
+          head.createDiv({ cls: "tj-acc-k", text: w.title });
+        }
         w.render(card);
       }
     };
@@ -1691,6 +1720,7 @@ export class AccountDashboardView extends ItemView {
       value: depositDate,
       format: this.plugin.settings.dateFormat,
       className: "tj-input",
+      zone: this.plugin.settings.timeZone,
       onChange: (iso) => (depositDate = iso),
     });
     row.createEl("label", { text: "Amount ($)" });

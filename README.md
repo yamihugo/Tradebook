@@ -4,29 +4,30 @@ A local trading journal for [Obsidian](https://obsidian.md), built for **futures
 
 > **Status:** active development — current beta line `0.5.x`. Everything stays inside your vault: no cloud, no account, no subscription. See `docs/` for the roadmap.
 
-## Install (beta via BRAT)
+## Install the beta
 
-Tradebook is in beta, so it installs through **[BRAT](https://tfthacker.com/BRAT)** (Beta Reviewers Auto-update Tool). Takes about two minutes.
+The repository documents **[BRAT](https://tfthacker.com/BRAT)** as the beta installation path. The repository currently has the beta version line `0.5.x`; this README does not assert that a particular GitHub beta release is published or available to install.
 
-1. **Install Obsidian** (`1.4.0` or newer) from [obsidian.md](https://obsidian.md) and open the vault you want to keep your journal in.
-2. **Install BRAT.** In Obsidian open *Settings → Community plugins → Browse*, search for **BRAT**, install it, then click **Enable**.
-3. **Add Tradebook to BRAT.** Open *Settings → BRAT → Add beta plugin*, paste this repository's URL and click **Add plugin**:
-   ```
-   https://github.com/yamihugo/Tradebook
-   ```
-4. **Enable Tradebook.** Go to *Settings → Community plugins* and turn **Tradebook** on. If it is not in the list, click the refresh icon next to *Installed plugins*.
-5. **Open the journal** from the ribbon (the grip icon) or with the **Tradebook: Open home** command in the command palette (`Ctrl/Cmd+P`).
+1. Install [Obsidian](https://obsidian.md) **1.4.0 or newer** and open the vault for your journal.
+2. In *Settings → Community plugins → Browse*, install and enable **BRAT**.
+3. In *Settings → BRAT → Add beta plugin*, enter the repository URL `https://github.com/yamihugo/Tradebook` and add Tradebook.
+4. Enable **Tradebook** in *Settings → Community plugins*.
+5. Open **Home** from the Tradebook ribbon icon or the command palette.
 
-BRAT keeps it up to date: when a new beta is published, run BRAT's **Check for updates** / **Update all** action.
+For a specific beta tag, use BRAT's documented frozen/pinned-version option when that control is available in your installed BRAT version. The tag must have a published release. Manual installation and update steps are in the [Beta installation and update guide](docs/BETA-TESTING.md).
 
-> Updating the plugin never touches your trades or settings — see [Data safety](#data-safety).
+The plugin ID is `tradebook`. Manual installs use `.obsidian/plugins/tradebook/` and need `main.js`, `manifest.json` and `styles.css` from the same release; never replace `data.json` when updating.
 
 ## First steps
 
-1. **Pick where trades are stored** — *Settings → Tradebook → Trades folder* (default `Tradebook/trades`).
-2. **Add your accounts** — *Settings → Tradebook → Account configuration*. Each account gets a colour and its own dashboard.
-3. **Import or add a trade** — use the ribbon **Import Tradovate CSV** (drop an export from Reports → *Executions/Fills*) or **Add Trade** to paste CSV / type a trade by hand.
-4. **Review** — open the **Dashboard**; the *Needs review* list collects every trade still missing a review or a setup screenshot.
+1. **Confirm the journal root.** The default root is `Tradebook`; trades are stored under `<root>/<year>/<month>/trades/` and screenshots under `<root>/<year>/attachments/`. See the important warning below before changing it.
+2. **Create accounts** on the **Accounts** page using **Add account**. The first-run tour opens automatically for a new journal and can be reopened from *Settings → Advanced* or the command palette.
+3. **Optionally name strategies.** Strategies are optional during setup; a trade can be recorded without one.
+4. **Add or import a trade.** Use **Add Trade** to enter one manually, or import a supported Tradovate Orders/Fills CSV and explicitly choose its destination account.
+5. **Complete Review.** Open a trade from a row in **Trade Log** (or from a trade list on an account page) to open **Trade Detail**. Review fields can be edited there; Home also has a queue for trades needing attention.
+
+> [!warning] Journal root — changing it does not move notes
+> Changing the configured journal root **does not move or delete existing notes**. If you already have a journal, select its actual current root. If the configured root points somewhere else, Tradebook may appear empty even though your notes remain in the vault. Do not choose a different root as a way to reorganize an existing journal.
 
 ## Requirements
 
@@ -40,6 +41,12 @@ BRAT keeps it up to date: when a new beta is published, run BRAT's **Check for u
 - **Uninstalling** deletes the plugin folder, including `data.json`. Back it up first using the plugin's **Export**.
 - Your trades are plain Markdown notes in your vault — a plugin update never puts them at risk.
 
+Before beta update testing, use *Settings → Advanced → Backup → Export everything* and keep a private copy of the vault as well if screenshots must be included. The Tradebook backup includes settings and trade notes; screenshots are separate files in the vault.
+
+### Resetting preferences
+
+The command named **Reset all settings** resets a defined subset of preferences: layouts, Trade Log view preferences, privacy mode, startup/tab behavior, date/time display preferences, and default symbol/quantity. It **does not delete trade notes or accounts**, and it does not reset every stored setting. It is not a factory reset.
+
 Tradebook is fully local: it makes **no network requests** and sends **no telemetry**. Your trades, accounts and settings live only in your Obsidian vault.
 
 ## Features
@@ -48,8 +55,8 @@ Tradebook is fully local: it makes **no network requests** and sends **no teleme
 - **Automatic round-trip pairing** — fills are matched with FIFO inventory per account/symbol; realized P&L (in dollars) is computed on exit.
 - **Account classification** — accounts are automatically split into **funded → eval → demo** using configurable keywords (Topstep/TDF/Apex etc.), editable in Settings.
 - **Visual dashboard** — KPI cards, a cumulative P&L line chart, daily & hourly win/loss blocks, daily P&L calendar heatmap, symbol breakdown, and recent trades (click to open the note). Cards can be re-ordered, resized, and shown/hidden in edit mode.
-- **Prop accounts** — configure each account (firm + program + size) in *Account configuration*; every account gets its own auto-generated dashboard with the real limits (profit target, trailing max loss, daily loss, consistency), and the equity chart is drawn against your starting balance.
-- **Needs review list** — every trade missing a review or a setup screenshot is listed. Use the checkboxes + *Select all* and bulk actions (`Mark reviewed`, `Mark print added`).
+- **Accounts** — create accounts from the Accounts page; each account has its own dashboard and user-configured rules.
+- **Review** — the Home queue and Trade Log report decisions that still need attention; open a row to edit its Review fields in Trade Detail.
 - **Review notes** — one markdown note per trade with a small table and `## Notes` + `## Screenshots` sections ready for your workflow.
 - **Add Trade modal** — manually enter a trade, or paste a Tradovate CSV and attach setup / print / review *before* saving.
 - **Mobile-ready** — layouts and tables scroll gracefully on phones.
@@ -83,6 +90,7 @@ npm run build          # tsc --noEmit + esbuild production -> main.js
 `main.js`, `manifest.json` and `styles.css` are emitted into the project root — copy them into `<vault>/.obsidian/plugins/tradebook/`. Firm logos are embedded in `main.js`, so there is no `assets/` folder to copy.
 
 See `KNOWN-LIMITATIONS.md` for what is deliberately modelled rather than measured.
+For beta installation, updates, backups and a safe bug-report template, see [`docs/BETA-TESTING.md`](docs/BETA-TESTING.md).
 
 ## Changelog
 

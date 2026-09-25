@@ -100,18 +100,34 @@ export function zoneShortLabel(zone: string): string {
   }
 }
 
+/**
+ * Cached zone formatters. Constructing an `Intl.DateTimeFormat` is costly, and
+ * the journal converts a wall-clock on every trade read — building one per call
+ * (and four per zone conversion) was the single biggest cost in a dashboard render.
+ */
+const _zoneFmt = new Map<string, Intl.DateTimeFormat>();
+function zoneFormatter(zone: string, withSeconds: boolean): Intl.DateTimeFormat {
+  const key = `${zone}|${withSeconds ? "s" : "m"}`;
+  let fmt = _zoneFmt.get(key);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      ...(withSeconds ? { second: "2-digit" } : {}),
+    });
+    _zoneFmt.set(key, fmt);
+  }
+  return fmt;
+}
+
 /** Offset in ms between the given IANA zone and UTC for a specific instant. */
 export function tzOffsetMs(date: Date, zone: string): number {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const fmt = zoneFormatter(zone, true);
   const parts: Record<string, string> = {};
   for (const p of fmt.formatToParts(date)) parts[p.type] = p.value;
   const hour = parseInt(parts.hour || "0", 10) % 24;
@@ -144,15 +160,7 @@ export function localToUtc(dateStr: string, timeStr: string, zone: string): Date
 /** Convert a UTC instant to wall-clock parts in `zone`. */
 export function toZone(instant: Date, _zone: string, targetZone = "America/New_York"): { date: string; time: string } {
   // `instant` is already a UTC point — format it straight in the target zone.
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: targetZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const fmt = zoneFormatter(targetZone, false);
   const parts: Record<string, string> = {};
   for (const p of fmt.formatToParts(instant)) parts[p.type] = p.value;
   let hour = parseInt(parts.hour || "0", 10) % 24;
@@ -165,16 +173,7 @@ export function toZone(instant: Date, _zone: string, targetZone = "America/New_Y
 
 /** Like `toZone`, but keeps the seconds — the CSV importer writes HH:MM:SS. */
 export function zoneWallParts(instant: Date, zone: string): { date: string; time: string } {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const fmt = zoneFormatter(zone, true);
   const parts: Record<string, string> = {};
   for (const p of fmt.formatToParts(instant)) parts[p.type] = p.value;
   let hour = parseInt(parts.hour || "0", 10) % 24;
@@ -285,17 +284,23 @@ export function todayStr(d = new Date()): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Convert a trade's recorded (local) date+time to the NY date. */
-export function toZoneDate(date: string, time: string, zone: string): string {
-  return zone ? toZone(new Date(localToUtc(date, time, zone)), zone).date : date;
-}
-
-/** Convert a trade's recorded (local) date+time to the NY time (HH:MM). */
+/** Convert a trade's recorded (local) date+time to the **market (New York)** time (HH:MM). */
 export function toZoneTime(date: string, time: string, zone: string): string {
   return zone ? toZone(new Date(localToUtc(date, time, zone)), zone).time : time;
 }
 
-/** Today's key in the user's configured zone (NY date). */
+/**
+ * Today's calendar date in `zone`: the current instant rendered there.
+ *
+ * Deliberately not the host zone's date and not an ET date — Today/Yesterday,
+ * period presets and the date pickers all anchor on this one number, so the
+ * journal's notion of "today" follows the Journal Timezone and nothing else.
+ */
 export function todayKey(zone: string): string {
-  return toZoneDate(todayStr(), "12:00", zone);
+  if (!zone) return todayStr();
+  try {
+    return zoneWallParts(new Date(), zone).date;
+  } catch {
+    return todayStr();
+  }
 }

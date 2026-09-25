@@ -59,8 +59,11 @@ export function parseDateInput(text: string, fmt?: string): string {
 export interface DateFieldOpts {
   value: string;
   format?: string;
+  /** Journal Timezone: the calendar's "today" is today there, never here. */
+  zone: string;
   onChange: (iso: string) => void;
   className?: string;
+  calendarZIndex?: number;
 }
 
 /**
@@ -85,6 +88,8 @@ export function mountDateField(host: HTMLElement, opts: DateFieldOpts): HTMLInpu
     openCalendar(wrap, {
       value: parseDateInput(input.value, opts.format) || opts.value || "",
       onPick: commit,
+      zIndex: opts.calendarZIndex,
+      zone: opts.zone,
     });
   };
 

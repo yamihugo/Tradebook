@@ -31,12 +31,12 @@ export const MINI_CATALOG: SlotDef[] = [
   { id: "dayWin", label: "Day win", hint: "Share of trading days that closed positive" },
   { id: "withdrawn", label: "Paid out", hint: "Money taken out of the account, in payouts" },
   { id: "avgR", label: "Avg R", hint: "Average result per trade in multiples of the risk taken" },
-  { id: "profitFactor", label: "Profit factor", hint: "Money won for every unit lost" },
+  { id: "profitFactor", label: "Gross PF", hint: "Gross winning results divided by gross losing results" },
   { id: "toTarget", label: "To target", hint: "Days still needed at the current pace" },
   { id: "last", label: "Last trade", hint: "How long since the account traded" },
   { id: "symbols", label: "Symbols", hint: "How many instruments the account traded" },
   { id: "hold", label: "Hold time", hint: "Average time in market for winning trades" },
-  { id: "expectancy", label: "Expectancy", hint: "Average result per trade, in money" },
+  { id: "expectancy", label: "Net / trade", hint: "Average Net account result per recorded trade, including gross breakeven" },
 ];
 
 /** Two bars, always — a card without progress reads as a static balance. */

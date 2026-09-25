@@ -47,16 +47,25 @@ o trabalho das firms é o trabalho das firms. O que ficou é só o que faz o **v
 
 - **O registo do payout**: `Payout { id, accountId, date, amount, note }`. Formulário e tabela com
   **Date · Amount · Note** — marca-se o dia em que o dinheiro caiu. Sem estados, sem splits, sem caps.
-- **A balance real de uma conta** = `size + net das trades − payouts + depósitos`. O cartão, a célula
-  *In accounts* da strip e o número grande da página da conta mostram **isto** (o net P&L fica à parte:
-  um diz o que fizeste, o outro diz o que tens).
-- **Drawdown over the real balance** — decision: «se tu tirares um payout, na prop firm ficas
+- **O valor de conta registado** = `current configured size + Net das trades − payouts + depósitos + FeeAdjustments assinados`.
+  Cada fonte entra uma vez: fees registadas na trade já estão dentro do Net; um custo órfão ou
+  correção não atribuída a uma trade entra como ajuste datado; allocations guardadas são metadados
+  e não voltam a mover o saldo. Os cartões individuais e o número grande **Account Balance** da
+  página da conta mostram esta estimativa registada, não um snapshot/live equity do broker. A strip
+  das Accounts mostra separadamente **Account Capital** e o **Remaining Account P&L** versus esse
+  capital. Net trading P&L fica separado: diz o resultado de trading, não o dinheiro atual na conta.
+- **Drawdown over the recorded account balance** — decision: «se tu tirares um payout, na prop firm ficas
   mais próximo do drawdown porque já não tens tanto dinheiro lá». O motor recebe os `cashflows`
   (payouts negativos, depósitos positivos), o floor vem do **pico da balance** e `ddToLimit` é o número
   que a firm vê. Efeito no simulador: balance `50.300 → 49.600` e distância ao limite `1.700 → 2.400`,
   **com o net P&L parado em +300**.
 - **As métricas de performance nunca levam cash-flows** (net P&L, win rate, expectancy, profit factor,
   R). É a regra que todos os produtos sérios seguem, e a nossa.
+- **Change vs Account Size** é `Total Account Balance − soma dos account sizes atualmente configurados`, e inclui
+  Net trading, payouts, depósitos e ajustes assinados. O modelo não guarda história imutável do size,
+  logo não pode prometer a diferença face ao size originalmente criado se este foi editado. É mudança
+  do valor de conta registado, não lucro retido nem montante withdrawable. O **Paid Out** é o total histórico registado de dinheiro
+  retirado; não o adicionamos ao saldo nem ao Net trading P&L, e não inferimos rendimento pessoal.
 
 **Saiu (não é nosso):** rotas de payout por firm, `qualifying days`, `day threshold`, `per payout` /
 caps, `profit since last payout`, `cycleNet` / `cycleConsistencyPct`, o campo `PropAccount.payoutPath`,

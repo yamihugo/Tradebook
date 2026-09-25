@@ -1,5 +1,8 @@
 import type { Trade } from "../types";
-import { futuresSpec } from "../futures";
+import { entryInstantDate, exitInstantDate, holdMinutesOf } from "./instant";
+import { knownFuturesSpec } from "../futures";
+import { logicalDecisionKey } from "./copy";
+import { isEligibleFinancialLeg, summarizeFinancials } from "./money";
 
 /**
  * Trends — "am I getting better?"
@@ -54,42 +57,58 @@ export interface Trends {
 
 /** Minutes of "HH:MM", or null when the string is not a time. */
 const minutesOfTime = (s: unknown): number | null => {
-  const m = String(s ?? "").match(/^(\d{1,2}):(\d{2})/);
-  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+  const m = String(s ?? "").match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  const second = m[3] === undefined ? 0 : Number(m[3]);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  return hour * 60 + minute + second / 60;
 };
 
-/** Absolute minutes for a moment (date + time), so gaps across midnight work. */
+/** Absolute minutes for a moment (date + time), so gaps across midnight work.
+ *  The floor is a UTC calendar date: the same scale on every machine, with no
+ *  host-zone offset folded in. */
 const absMinutes = (date: string, time: unknown): number | null => {
-  const day = Date.parse(`${date}T00:00:00`);
+  const [y, m, d] = String(date).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const day = Date.UTC(y, m - 1, d);
   if (Number.isNaN(day)) return null;
-  return day / 60000 + (minutesOfTime(time) ?? 0);
+  const minute = minutesOfTime(time);
+  return minute === null ? null : day / 60000 + minute;
 };
 
-/** When the trade was entered / left, in absolute minutes. */
-const entryAbs = (t: Trade): number | null => (t.date ? absMinutes(t.date, t.entryTime) : null);
+/** When the trade was entered / left, in absolute minutes: the canonical
+ *  instants when the note has them, the recorded clock otherwise. */
+const entryAbs = (t: Trade): number | null => {
+  const instant = entryInstantDate(t);
+  if (instant) return instant.getTime() / 60000;
+  return t.date ? absMinutes(t.date, t.entryTime) : null;
+};
 
 const exitAbs = (t: Trade): number | null => {
+  const instant = exitInstantDate(t);
+  if (instant) return instant.getTime() / 60000;
   const entry = entryAbs(t);
   if (entry === null) return null;
   const out = minutesOfTime(t.exitTime);
-  return out === null ? entry : entry - (minutesOfTime(t.entryTime) ?? 0) + out;
+  const inTime = minutesOfTime(t.entryTime);
+  if (out === null || inTime === null) return null;
+  const elapsed = out >= inTime ? out - inTime : out + 1440 - inTime;
+  return entry + elapsed;
 };
 
-const holdMinutes = (t: Trade): number | null => {
-  const from = minutesOfTime(t.entryTime);
-  const to = minutesOfTime(t.exitTime);
-  if (from === null || to === null) return null;
-  const diff = to - from;
-  // A trade that closes after midnight is the same trade, not a negative one.
-  return diff >= 0 ? diff : diff + 1440;
-};
+/** Minutes held: real elapsed time from the instants, recorded clock else. */
+const holdMinutes = (t: Trade): number | null => holdMinutesOf(t);
 
 const rMultiple = (t: Trade): number | null => {
   const stop = Number(t.stopLoss);
   const entry = Number(t.entryPrice);
-  if (!Number.isFinite(stop) || !Number.isFinite(entry) || stop <= 0) return null;
-  const qty = Number.isFinite(t.quantity) && t.quantity > 0 ? t.quantity : 1;
-  const risk = Math.abs(entry - stop) * futuresSpec(t.symbol).pointValue * qty;
+  const qty = Number(t.quantity);
+  const spec = knownFuturesSpec(t.symbol);
+  if (!spec || !Number.isFinite(stop) || !Number.isFinite(entry) || entry <= 0 || stop <= 0 || !Number.isFinite(qty) || qty <= 0) return null;
+  if (t.direction === "long" ? stop >= entry : t.direction === "short" ? stop <= entry : true) return null;
+  const risk = Math.abs(entry - stop) * spec.pointValue * qty;
   if (!(risk > 0)) return null;
   return t.pnl / risk;
 };
@@ -97,14 +116,10 @@ const rMultiple = (t: Trade): number | null => {
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
 /** Every metric a trend row can hold, computed over one side of the split. */
-const measure = (trades: Trade[]): Record<string, number | null> => {
+const measure = (trades: Trade[], financials: ReturnType<typeof summarizeFinancials>): Record<string, number | null> => {
   const n = trades.length;
-  const net = trades.reduce((s, t) => s + t.pnl, 0);
-  const wins = trades.filter((t) => t.pnl > 0);
-  const losses = trades.filter((t) => t.pnl < 0);
-  const grossWin = wins.reduce((s, t) => s + t.pnl, 0);
-  const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
-  const decided = wins.length + losses.length;
+  const wins = financials.decisions.filter((decision) => decision.gross > 0).length;
+  const losses = financials.decisions.filter((decision) => decision.gross < 0).length;
 
   const rs = trades.map(rMultiple).filter((r): r is number => r !== null);
   const holds = trades.map(holdMinutes).filter((h): h is number => h !== null);
@@ -124,10 +139,10 @@ const measure = (trades: Trade[]): Record<string, number | null> => {
   }
 
   return {
-    expectancy: n ? net / n : null,
+    expectancy: financials.net.averagePerDecision,
     r: mean(rs),
-    winRate: decided ? (wins.length / decided) * 100 : null,
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : wins.length ? Infinity : null,
+    winRate: wins + losses ? (wins / (wins + losses)) * 100 : null,
+    profitFactor: financials.net.profitFactor,
     mistakeRate: n ? (mistakes / n) * 100 : null,
     revengeRate: n ? (revenge / n) * 100 : null,
     hold: mean(holds),
@@ -135,12 +150,12 @@ const measure = (trades: Trade[]): Record<string, number | null> => {
 };
 
 const ROWS: Array<{ id: string; label: string; unit: TrendRow["unit"]; betterWhen: TrendRow["betterWhen"] }> = [
-  { id: "expectancy", label: "Expectancy per trade", unit: "money", betterWhen: "up" },
+  { id: "expectancy", label: "Avg Net Result per Trade", unit: "money", betterWhen: "up" },
   { id: "r", label: "Average R", unit: "r", betterWhen: "up" },
-  { id: "winRate", label: "Win rate", unit: "percent", betterWhen: "up" },
-  { id: "profitFactor", label: "Profit factor", unit: "factor", betterWhen: "up" },
+  { id: "winRate", label: "Gross-sign win rate", unit: "percent", betterWhen: "up" },
+  { id: "profitFactor", label: "Net Profit Factor", unit: "factor", betterWhen: "up" },
   { id: "mistakeRate", label: "Tagged mistakes", unit: "percent", betterWhen: "down" },
-  { id: "revengeRate", label: "Revenge trades", unit: "percent", betterWhen: "down" },
+  { id: "revengeRate", label: "Quick re-entry after loss", unit: "percent", betterWhen: "down" },
   { id: "hold", label: "Average hold", unit: "minutes", betterWhen: null },
 ];
 
@@ -150,17 +165,45 @@ const ROWS: Array<{ id: string; label: string; unit: TrendRow["unit"]; betterWhe
  */
 export function computeTrends(trades: Trade[], opts: { window?: number; minSample?: number } = {}): Trends {
   const minSample = opts.minSample ?? MIN_SAMPLE;
-  const clean = trades
-    .filter((t) => Number.isFinite(t.pnl) && !!t.date)
-    .sort((a, b) => (a.date + (a.entryTime ?? "")).localeCompare(b.date + (b.entryTime ?? "")));
+  const groups = new Map<string, { representative: Trade; legs: Trade[] }>();
+  let anonymous = 0;
+  for (const trade of trades.filter(isEligibleFinancialLeg)) {
+    const durable = logicalDecisionKey(trade);
+    const key = durable ?? `unidentified:${String(trade.id ?? "") || anonymous++}`;
+    const current = groups.get(key);
+    if (current) {
+      current.legs.push(trade);
+      if (current.representative.isCopiedTrade && !trade.isCopiedTrade) current.representative = trade;
+    } else groups.set(key, { representative: trade, legs: [trade] });
+  }
+  const clean = [...groups.values()].sort((a, b) => {
+    // Chronological by instant when both notes carry one; the recorded clock
+    // (date then time) decides otherwise.
+    const ia = entryInstantDate(a.representative)?.getTime();
+    const ib = entryInstantDate(b.representative)?.getTime();
+    if (ia !== undefined && ib !== undefined && ia !== ib) return ia - ib;
+    return (a.representative.date + (a.representative.entryTime ?? "")).localeCompare(
+      b.representative.date + (b.representative.entryTime ?? "")
+    );
+  });
 
   const half = Math.floor(clean.length / 2);
   const window = Math.min(opts.window ?? DEFAULT_WINDOW, half);
   const before = window > 0 ? clean.slice(clean.length - window * 2, clean.length - window) : [];
   const after = window > 0 ? clean.slice(clean.length - window) : [];
+  const summaryFor = (groups: typeof clean) => {
+    const legs = groups.flatMap((group) => group.legs);
+    const accountKey = (t: Trade): string => String(t.account ?? "").trim().toLocaleLowerCase() || "unassigned";
+    return summarizeFinancials(legs, {
+      scope: { kind: "all-included-accounts", accountIdOf: accountKey, includedAccountIds: new Set(legs.map(accountKey)) },
+      dayKey: (t) => t.date,
+    });
+  };
+  const beforeTrades = before.map((group) => group.representative);
+  const afterTrades = after.map((group) => group.representative);
 
-  const a = measure(before);
-  const b = measure(after);
+  const a = measure(beforeTrades, summaryFor(before));
+  const b = measure(afterTrades, summaryFor(after));
   const rows: TrendRow[] = ROWS.map((row) => {
     const bv = a[row.id] ?? null;
     const av = b[row.id] ?? null;
@@ -178,13 +221,13 @@ export function computeTrends(trades: Trade[], opts: { window?: number; minSampl
     coverage: [
       {
         metric: "r",
-        have: clean.filter((t) => rMultiple(t) !== null).length,
+        have: clean.filter((group) => rMultiple(group.representative) !== null).length,
         total: clean.length,
         needs: "a stop loss and an entry price",
       },
       {
         metric: "hold",
-        have: clean.filter((t) => holdMinutes(t) !== null).length,
+        have: clean.filter((group) => holdMinutes(group.representative) !== null).length,
         total: clean.length,
         needs: "an entry time and an exit time",
       },

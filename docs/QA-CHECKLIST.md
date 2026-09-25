@@ -3,7 +3,7 @@ title: QA Checklist & Fix Log
 project: Tradebook
 type: qa
 status: living
-updated: 2026-09-19
+updated: 2026-09-25
 tags:
   - tradebook
   - qa
@@ -11,6 +11,12 @@ tags:
 ---
 
 # QA Checklist & Fix Log
+
+## 2026-09-24 — Accounts: risk range, drawdown and tooltips
+- [x] Evaluation-only target range; funded/live bar reports drawdown used against configured max loss; personal/demo accounts do not get a synthetic target range.
+- [x] Endpoints and marker use resolved target/loss rules and account metrics; drawdown floor tooltip identifies static/trailing/lock behaviour.
+- [x] Drawdown history is one concise line with secondary history in a tooltip; Movement, Limits and Performance tips shortened.
+- [x] Added financial regression coverage for funded, eval, personal, static live, open trailing and payout-adjusted drawdown configurations.
 
 > [!info] Propósito
 > Registar **todos os micro/macro fixes** feitos, para depois corrermos os testes
@@ -2227,6 +2233,19 @@ fica (o account picker ainda o usa). Um erro de `tsc` na chamada `act("Clear", �
 corrigido.
 
 **Prova de gate.** `npm run build` exit 0 · smoke **142 PASS / 0 FAIL** ·
+
+## §2.84 Trade Log — estados ghost e navegação filtrada do review (24 Set)
+
+- [x] Ações Needs attention sem fundo, borda ou contorno visual em estado normal,
+  hover e selecionado; hover/seleção comunicam-se pela tinta accent.
+- [x] Opções dos filtros sem preenchimentos retangulares; grupos separados por hairlines
+  e seleções por tinta accent + sublinhado.
+- [x] Abrir uma linha passa ao Trade Review os IDs do resultado filtrado, já deduplicados
+  e pela mesma função de ordenação do ledger (`orderedTradeRows`). Pesquisa, filtros
+  combinados, período e scope de conta estão incorporados antes do handoff; setas e contador
+  só recebem esse conjunto.
+- [ ] Navegação end-to-end no harness/vault: pendente. O `tradelog-check.js` local não
+  conseguiu renderizar a tabela (0 trades); repetir quando o harness tiver trades de Review.
 `node tools/ux-audit.mjs` só a dívida de base (contrast 0; literal px 3 off-scale;
 parent-relative 0; off-scale weights 0; tight line-heights 0; small targets 5 —
 `.tj-td-status-dot`, `.tj-td-review-dot`, `.tj-start-dot`, `.tj-export-checkbox`,
@@ -2941,5 +2960,331 @@ Breakdown no topo direito; Trading Score & Radar (e Discipline) adaptativos.
 - `npm run build` 0 · smoke **178 PASS / 0 FAIL** · `ux-audit` sem violações.
 - Deploy vault-dev md5 verificado (`main.js 42e90fcc…`, `styles.css 232eae38…`); `data.json` não copiado.
 
+## §2.99 Trading Score v1 — cinco eixos + Recent Score (23 Set 2026)
 
+**Contrato:** Performance · Risk · Execution · Process · Consistency, 20% cada.
+Ausência de evidência é `null`, nunca zero/perfeito; parcial lê `Provisional · X/5 axes`.
+A Briefing usa até 30 decisões deduplicadas, terminadas no cutoff as-of; a Analytics
+continua a usar o período seleccionado.
+
+### Prova automática
+
+- [x] `score-check.js`: **47/47 PASS** — ordem/pesos, fórmulas e limites, `null`, full/provisional,
+      menos de 20 decisões/8 dias, coverage de ratings/stops, spec desconhecida,
+      ausência de perdas, custos no PF net, cópias, cutoffs históricos e futuro.
+- [x] `Today` sem trades e com histórico: Recent Score presente; `m.trades` continua 0.
+- [x] Radar com cinco spokes; `Experience` ausente; N/A muted e fora do plot.
+- [x] `npm run build` → exit 0.
+- [x] Smoke → **188 PASS / 0 FAIL**.
+- [x] `node tools/ux-audit.mjs` → `no normative violations found`.
+
+### Prova visual pendente
+
+- [ ] Briefing: scope `Last N decisions · through D MMM YYYY` e filtros de conta/tipo.
+- [ ] Analytics: scope do período seleccionado, sem janela automática de 30.
+- [ ] Eixos N/A não parecem score zero; hover e foco explicam observado/coverage/reason.
+- [ ] Score completo e provisional cabem nos tamanhos reduzidos guardados.
+- [ ] Tema claro/escuro, resize e layouts personalizados mantêm-se coerentes.
+- Não houve deploy nem alteração da vault nesta passagem.
+
+## §2.100 Accounts — fee adjustments na curva Account Movement (24 Set 2026)
+
+O gráfico da overview passa a acumular, uma vez por data, trade net + payouts negativos +
+deposits positivos + todos os `FeeAdjustment.amount` assinados das contas incluídas. As
+corrections alocadas a trades continuam a ser metadados/modelo para o Trade Detail; não
+voltam a entrar na curva por via de slices. Payout, deposit e balance adjustment mantêm
+categorias separadas no hover; marcadores agregam por data e categoria e o ajuste usa tinta
+neutral. A overview já não exige uma trade na janela para desenhar eventos financeiros.
+
+O título passa a **Account Movement**; a tooltip identifica a soma cumulativa de net trading
+results, cashflows e balance adjustments, rebaseada a zero no início da janela. O card
+`Net P&L` e o `In accounts` continuam separados e inalterados.
+
+- [x] `cash-check.js`: payouts e depósitos mantêm comportamento; adjustments positivos/negativos,
+  corrections múltiplas no dia, custo importado, tooltip/legenda neutral e remoção reconciliam.
+- [x] Janela selecionada inclui evento-only sem trades; evento fora da janela não entra.
+- [x] Demos excluídos por omissão e archived fora da carteira; eventos de contas visíveis somam.
+- [x] Allocations não duplicam o montante; header da overview e hover diário fecham no mesmo total.
+- [x] `npm run build` 0 · smoke **188 PASS / 0 FAIL** · `cash-check.js` PASS · audit sem violações.
+
+## §2.101 Shared financial primitives — Phase 1 (24 Set 2026)
+
+`money.ts` fornece cálculo explícito Gross/Net por perna e um agregador partilhado
+que aplica o scope de contas antes de agrupar decisões copiadas. Decisões contam uma
+vez no denominador; o montante soma as pernas elegíveis do scope. A média por perna
+é exposta com nome distinto. A cobertura de commission/fees é separada do valor:
+um campo ausente não significa custo confirmado igual a zero. Cashflows e
+`FeeAdjustment` não são entrada destas funções.
+
+- [x] `financial-check.js` **30/30 PASS**: bases Gross/Net, break-even, decisão copiada,
+  scope por conta/allow-list, leg vs decision, fills, IDs duplicados/ausentes,
+  coverage de custos, ajustes fora do P&L, dias e populações vazias/inválidas.
+- [x] `cash-check.js` confirma que os eventos Account Movement e allocations
+  continuam separados e sem regressão.
+- [x] `npm run build` 0 · smoke **188 PASS / 0 FAIL** · score-check **47/47** ·
+  `ux-audit` sem violações.
+- Phase 1 não migra os valores/rótulos dos consumidores existentes.
+
+## §2.102 Financial Phase 2 — Gross/Net consumers (24 Set 2026, superseded by §2.103)
+
+- **Briefing/Analytics**: Cumulative/Long/Short P&L, Calendar, heatmap, Breakdown,
+  Best/Worst Day, Gross PF, Gross result/win/loss per decision e Trends usam a base
+  Gross e os helpers financeiros partilhados. Money soma legs elegíveis no scope;
+  decisões agrupam cópias uma vez. Calendar/heatmap e Breakdown nomeiam a unidade
+  de contagem; `includeCopiesInPortfolioAnalytics` não altera valores por decisão.
+- **Net compounds preservados**: Max Trade Drawdown, Sharpe e Net Win/Loss Payoff
+  mantêm o resultado Net; as tooltips identificam base/população. Win/loss, win-rate,
+  streaks e Gross-based R/classificações adjacentes não foram mudados.
+- **Accounts**: Net mantém-se em P&L, balance, equity, progresso e regras. Gross PF
+  está nomeado como tal. Expectancy da conta passou a Net total / trades registados,
+  incluindo gross breakevens. Consistency, thresholds, dias da regra, cashflows,
+  fee adjustments, depósitos, payouts e o fluxo Account Movement permanecem intactos;
+  a comparação tracejada é explicitamente Net-only.
+- **Cobertura**: tooltips de Net qualificam as legs com comissão/fees ausentes;
+  valores continuam visíveis e calculados pelos montantes registados. O writer ainda
+  omite custos iguais a zero, pelo que notas antigas e pernas modeladas não provam
+  custo zero; uma alteração ao contrato do writer exige uma fase própria, sem backfill
+  ou correções automáticas.
+- [x] `financial-check.js` **50/50 PASS**: Gross/Net PF coerentes, custos que mudam
+  classificação Net, breakeven, média por decisão/perna, cópias/scope, toggle de cópias,
+  Calendar, Breakdown, Trends, cobertura e separação de cashflows.
+- [x] `cash-check.js` **CASH OK**; smoke **188 PASS / 0 FAIL**; `score-check.js` **47/47**;
+  `nav-check.js` **NAV CHECK OK**.
+- [x] `npm run build` EXIT 0 · `ux-audit` **no normative violations found** ·
+  `git diff --check` EXIT 0.
+
+## §2.105 Home — rename da página (24 Set 2026)
+
+- [x] Navegação, ribbon, command palette, título da view, Settings, onboarding e README apresentam **Home**.
+- [x] `tradebook-home-view`, `open-home`, `homeLayout`, período de sessão e conteúdo da página permanecem inalterados.
+- [x] `npm run build` 0 · smoke **188 PASS / 0 FAIL** · UX audit sem violações normativas.
+
+
+## §2.103 Financial Phase 3 — Net truth and account-value reconciliation (24 Set 2026)
+
+- **Accounts overview**: the main Account Capital / In Accounts value is the sum of configured
+  sizes for the included accounts, not their current balance. Main Remaining Account P&L is
+  all-time current recorded account value minus that capital: Net trade results − payouts +
+  deposits + signed FeeAdjustments, each once. The recorded current account value and historical
+  Net Trading P&L are secondary details under the main result/tooltip; period Net P&L remains
+  clearly separated. No immutable original-size history or broker balance snapshots are stored.
+  The old Net return formula remains available as secondary window Net P&L / configured sizes.
+  Demo/archive/active inclusion follows current portfolio settings.
+- **Account Dashboard**: headline now says Account Balance and names the journal's event-based
+  formula. The separate Net result and its return/reference denominator are labelled; no
+  rule, target, consistency, drawdown threshold, payout formula or correction allocation changed.
+- **Briefing/Analytics**: Net is primary for money, charts, calendar, heatmap, Breakdown,
+  decision averages, largest results, PF and Trends. Gross PF remains a separately named
+  secondary metric. Gross-sign win-rate/streaks and Gross-based R classifications are preserved.
+  Net PF and Net win/loss averages classify by Net sign. Payouts/deposits/adjustments are not
+  trading P&L; eligible copied legs sum for money, logical decisions count once when labelled
+  per decision.
+- **Reconciliation supplied with request**: reference capital `$100,000`; recorded balance
+  `$102,797.24`; movement from reference `+$2,797.24`; Net trading P&L `+$7,078.94`; paid out
+  `$4,000`. If all four are the same All Time population, known Net plus payout movement is
+  `+$3,078.94`, so net deposits plus signed balance adjustments must be `-$281.70`. If the
+  chart was on a trailing window, the figures have different windows (balance is all-time); the
+  screenshot does not identify that range. No event rows were supplied, so the residual cannot
+  be attributed or the real-vault total independently verified. No balancing record was invented.
+- **Cost persistence**: a literal `commission: 0` / `fees: 0` in a note is known; the regular
+  writer omits zero fields, so a saved editor default/zero cannot remain explicitly known on
+  reload. This phase leaves storage unchanged to avoid certifying unknown/manual/copy costs.
+  A future additive writer flag or explicit-known-zero contract needs approval; existing notes
+  will not be rewritten. Copied-leg zero defaults stay unknown.
+- [x] `financial-check.js` **56/56 PASS**: Net sign classification and PF, gross-positive/net-negative
+  trade, Gross breakeven costs, copied decision legs with different charges, per-decision averages,
+  scope, Trends, Calendar, Breakdown and explicit/missing cost coverage.
+- [x] `cash-check.js` **CASH OK**: synthetic personal/funded/demo/archived portfolio reconciles
+  account and portfolio balances; payouts, deposits, signed/allocated corrections, event-only
+  windows, Account Movement and all new overview labels; supplied screenshot values reconcile to
+  a `-$281.70` residual only under a shared All Time window, with no source rows to identify it.
+- [x] Smoke **188 PASS / 0 FAIL** · `score-check.js` **47/47 PASS** · `nav-check.js` **NAV CHECK OK**.
+- [x] `tools/trade-log-safety-check.cjs`: storage frontmatter/body integrity and selection-scope
+  regressions both PASS (synthetic/in-memory only).
+- [x] `npm run build` EXIT 0 · `ux-audit` **no normative violations found** ·
+  `git diff --check` EXIT 0.
+
+
+## §2.106 Home revamp fase 1 — uma população financeira comum (25 Set 2026)
+
+**Pedido**: sem redesenhar a Home, por baixo dos números actuais uma única base que Net P&L,
+Closed trades, Win Rate, Net Profit Factor, Avg Net Result e a curva cumulativa partilhem —
+com classificação win/loss/breakeven por decisão agregada em scope.
+
+**Contrato fechado com o trader**: "win", "loss" e "breakeven" sem qualificador são o sinal
+do **Net** registado da decisão no scope escolhido; `Win Rate = Net positivas ÷ (Net
+positivas + Net negativas)`, Net-zero fora do denominador e `—` quando nada decidiu; a
+classificação acontece depois de agregar as pernas elegíveis; a mesma decisão pode ganhar numa
+conta e perder no portfolio — correcto, e ambas as leituras ficam visíveis; Gross só sob nome
+"Gross"; custo desconhecido = cobertura incompleta assinalada, nunca fallback para Gross.
+
+**Implementação**
+- `lib/scope.ts` ganha `accountResolver`/`accountScope` (quem entra) e `journalDayKey` (o que é
+  um dia); `lib/periods.ts` ganha `tradingDayAtJournalDateStart/End` e `periodDayBounds`.
+- `lib/money.ts`: `decisionsByDay` classifica pelo sinal **Net**; `DecisionMoney.representative`;
+  `BasisAggregate.winRate` por base; `logicalTrades`/`eligibleLegs`.
+- `lib/metrics.ts`: `summarizeMetricTrades` passa por `accountScope`; `m.winrate` lê `net.winRate`;
+  `m.trades` de "Total Trades" para **"Closed trades"** (decisões elegíveis agregadas);
+  `m.wintrades`/`m.losstrades` contam decisões Net.
+- `views/dashboard.ts`: `financialsFor`/`accountScopeFor` como fonte única; `filteredTrades`,
+  `previousPeriodTrades` e `analyticsComparisonTrades` julgam a pertença pela mesma chave de dia;
+  o cartão Home `m.netpnl` deixa de ser "Remaining Account P&L" e passa a **Net Trading P&L** com
+  a curva da mesma população (classes `tj-home-recorded-*` → `tj-home-netpnl*`); o anel Win Rate
+  da Home usa `financials.net`; tooltips reescritas; `PER_TRADE_METRICS` reduzido aos metrics que
+  leem a lista.
+- Heatmap e Calendar: contagens e win rate pelo sinal Net (breakevens fora da taxa, `—` quando
+  nada decidiu); as tooltips deixam de dizer "Gross-sign".
+- `m.netpnl` mantém o guarda `id !== "m.netpnl"` — continua sem "vs prev".
+
+**Verificação**
+- [x] `npm run build` EXIT 0.
+- [x] `node --test tests/*.test.mjs` **47/47** — inclui o novo `tests/selection.test.mjs` (9 casos:
+  âmbito portfolio/demo/arquivada/conta seleccionada, Net vs Gross a inverter a classificação,
+  breakeven, `—` sem decisões, decisão copiada que ganha numa conta e perde no portfolio,
+  cobertura de custos incompleta, linhas inelegíveis, dia/período/timezone, bucket Net por dia).
+- [x] Smoke **213 PASS / 0 FAIL** (label "Remaining Account P&L" → "Net P&L").
+- [x] `financial-check.js` **56/56** · `score-check.js` **49/49** · `review-check` OK ·
+  `nav-check` OK · `payouts-check` OK.
+- [x] `tools/ux-audit.mjs` **no normative violations found**.
+- [x] `numbers-check`/`tradelog-check`/`datefmt-check`/`session-check`/`trends-check` falham como
+  no baseline (drift de harness/vault, pré-existente, documentado em `PROJECT-SPEC.md` §7).
+- [x] Deploy vault-dev md5 ok (`main.js 73b12fc682bf155dcbe40e323a22f1ed`,
+  `styles.css 568988b1d1f280287c852e9861df5838`, `manifest.json de3e553879381ec7212c5d3470c11eb6`),
+  `data.json` intacto (`4bcea975…`).
+
+**Comportamentos que mudaram (esperados)**
+1. Win Rate (Home e métrica `m.winrate`) passa a Net-por-decisão; era Gross-por-trade.
+2. `m.trades`/"Closed trades" passa a contar decisões agregadas, não linhas contadas.
+3. `m.wintrades`/`m.losstrades` passam a contar decisões Net, não vitórias/derrotas Gross.
+4. O cartão da Home passa a Net Trading P&L e a curva é a mesma população — payouts, depósitos
+   e ajustes saíram do número (continuam no Accounts).
+5. Calendar/heatmap classificam pelo Net e a taxa de vitória exclui breakevens.
+6. O filtro de período usa a chave de dia de mercado (`journalDayKey` + `periodDayBounds`);
+   na zona New York por omissão é identidade, noutros fusos deixa de haver trade dentro do
+   período e fora do bucket.
+
+**Consumidores Gross restantes**: `BACKLOG-AND-HISTORY.md` §11 (account metrics, donut Win rate
+da conta, cartão Win da lista, streaks, `m.winhold`/`m.losshold`, Breakdown, Trends, Score gate,
+filtro Result do Trade Log).
+
+## §2.107 Fundação temporal fase 1 — instantes canónicos + zona de origem (25 Set 2026)
+
+**Pedido**: só a base — schema para instantes canónicos de entrada/saída/fills, zona de origem
+e provenance, distinção valor civil vs instante, **um** parser DST-seguro, e gravação por
+imports novos e por criação manual. **Sem** migração das notas antigas, **sem** mudar
+Calendar/Trade Log/Accounts/Home, **sem** mexer isoladamente em `tz.ts`.
+
+**Contrato**
+- Valor civil = o que se lê e edita; instante `…Z` = o que a plataforma gravou. Um nunca é o
+  outro.
+- `Z`/`±HH:MM` vencem qualquer zona declarada; naive só é lido na zona que o leitor diz que o
+  ficheiro usou; naive sem zona = `need-zone`, **nunca** o relógio do SO.
+- Hora inexistente = `gap`; hora repetida = `ambiguous` (com ambas as candidatas). Nenuma é
+  arredondada: a linha fica de fora e é contada.
+- Notas antigas mantêm ausência honesta (`undefined`), nunca um UTC fabricado.
+
+**Implementação**
+- `src/lib/instant.ts` (novo): `CivilDate`/`CivilTime`/`InstantIso`, `isCivilDate`,
+  `isCivilTime`, `nextCivilDate`, `isValidZone`, `instantFromWall` (candidatas ±1 dia + round-trip
+  em `zoneWallParts`), `parseInstant`, `secondsOfDay`, `pinManualInstants`/`ManualPin`.
+- `src/types.ts`: `InstantSource`, `TimeIssues`, `ParsedResult.timeIssues`,
+  `Trade.entryInstant/exitInstant/sourceZone/instantSource`, `TradeFill.instant`,
+  `Execution.timestampSource`.
+- `src/csv.ts`: `parseTimestamp` **removido** → `parseInstant`; `timeIssues` por linha;
+  `pairRoundTrips` passa a receber `zones` e grava `entryInstant`/`exitInstant`/`fills[].instant`
+  + `instantSource`/`sourceZone`; aviso "Timestamps left out rather than guessed: …".
+- `src/storage.ts`: `entry_instant`/`exit_instant`/`source_zone`/`instant_source` e
+  `fills[].instant` escritos e lidos.
+- `src/lib/copy.ts`: `buildLeg` copia os quatro campos; `legFills` deixa de os deitar fora.
+- `src/views/addTradePanel.ts`: `pinManualInstants` no `doSave`, bloqueio com Notice precisa
+  (`gap`/`ambiguous`/`invalid`), sem journal zone apaga os instantes em vez de os inventar.
+- `src/views/importUi.ts`: `timeIssues` no `Parsed` + pill `is-warn` "N timestamps not pinned"
+  (tip com motivo) na review — CSS existente, nenhuma regra nova.
+
+**Verificação**
+- [x] `npm run build` EXIT 0.
+- [x] `node --test tests/*.test.mjs` **61/61** — inclui o novo `tests/temporal-foundation.test.mjs`
+  (14 casos: civil vs instante; offset/`Z` com fração; inverno+verão NY e Lisboa; semanas em que
+  só os EUA (15 Mar) ou só a UE (30 Out) mudaram; `gap` NY 8 Mar e Lisboa 29 Mar; `ambiguous`
+  NY 1 Nov e Lisboa 25 Out com as duas candidatas; `need-zone`; dois `process.env.TZ` (Auckland e
+  Los Angeles) sem efeito; wrap de meio-noite; pin manual ok/gap/ambíguo/sem zona/data inválida;
+  CSV com 3 trades recusados, 1 `skipped`, 1 `unfilled` e contagens exactas; CSV sem zona = só o
+  `Z` importa; round-trip do frontmatter; nota legada sem os campos).
+- [x] Smoke **213 PASS / 0 FAIL**.
+- [x] `tools/ux-audit.mjs` **no normative violations found**.
+- [x] `git diff --check` 0.
+- [x] Deploy vault-dev md5 ok (`main.js 27b9fc1e67dfb23e397960ccc1c6c42d`,
+  `styles.css 568988b1d1f280287c852e9861df5838`, `manifest.json de3e553879381ec7212c5d3470c11eb6`),
+  `data.json` intacto (`b8765d8b…`); Ctrl+R pedido ao utilizador.
+
+**Comportamentos que mudam (esperados)**
+1. Import: linhas com hora impossível ou repetida deixam de ser "unreadable" — aparecem como
+   "N timestamps not pinned", com o motivo na pill, e não entram no trade count.
+2. Import sem *Time files are in*: só os `Z`/offset são importados, o resto é recusado com aviso.
+3. Manual: gravar uma hora dentro de um gap/ambiguidade é recusado com uma mensagem que diz
+   qual e porque.
+4. Notas novas ganham `entry_instant`/`exit_instant`/`source_zone`/`instant_source`; as antigas
+   não mudam.
+
+**Decisões registadas (fora desta fase)**: migração dos `trade.timezone` sem `source_zone`;
+consumidores a lerem `entryInstant` em vez de `entryTime` na zona do journal; `tz.ts`
+`toZone()`/`localToUtc()`; `importZone: "" → detectSystemZone()` (mantido — proverança gravada,
+decisão a propor); manual não escreve `timezone` (escreve `source_zone` + `instant_source`).
+
+## §2.108 Temporal Foundation 1.1 — sub-segundos e provenance de "This computer" (25 Set 2026)
+
+**Pedido**: corrigir só os dois blockers da auditoria read-only, **antes** de qualquer migração
+de notas ou de consumidores. Sem migração, sem mexer em Calendar/Home/Trade Log/Accounts/`toZone()`
+e sem remover `trade.timezone`.
+
+**B1 — fracções sub-segundo em stamps naive.** `tzOffsetMs` (`tz.ts`) reconstrói o offset com
+`Date.UTC(...)` truncado a segundos; `instantFromWall` pedia-o a um instant que ainda levava a
+fração, por isso o offset saía deslocado em `ms`: `.123` virava `.246`, e `.500`/`.900` arrastavam
+um segundo inteiro, o round-trip falhava e o resultado era um **`gap` falso — a linha era
+descartada e o aviso mentia** ("o relógio saltou"). Correcção (`lib/instant.ts`): o offset passa a
+ser pedido a um instant de segundos inteiros (`utcBase`) e a fração é somada **no candidato**
+(`utcBase − off + ms`), que fica dentro do mesmo segundo testado pelo round-trip. Preservação
+exacta de `.123`/`.500`/`.900`/`.750`, também em `Asia/Kathmandu` (+5:45).
+
+**B4 — "This computer" não é uma declaração da fonte.** A opção continua válida e explícita na
+dropdown (`importUi.ts`), mas já não é gravada como se a plataforma tivesse declarado a zona:
+`CsvImportZones` ganha `systemSource` (o importador passa `systemSource: !importZone`),
+`Execution.timestampSource` distingue `system-zone` de `source-zone` ao nível da linha e
+`pairRoundTrips` escolhe o primeiro não-offset. **Novo valor de `InstantSource`:
+`system-zone`** = instante pinado numa zona real e reproduzível, escolhida pelo leitor, **não**
+dita pelo ficheiro. `source_zone` continua gravado (a leitura é reproduzível); `offset` e
+`journal-zone` ficam como estavam. Notas antigas e manuais não mudam.
+
+**Testes — `tests/temporal-foundation.test.mjs` 14 → 25 (todos verdes)**
+- sub-segundos: naive NY `.123`/`.500`/`.900`/`.750`, Lisboa `.060`, Kathmandu `.500`; offset/Z
+  `.123` e `+05:30 .456`; fração a chegar ao `entryInstant` e ao `fills[].instant` via CSV.
+- offset explícito em gap (8 Mar `02:30 −05:00`, `07:30Z`) e em replay (1 Nov `01:30 −04:00` vs
+  `−05:00` → dois instantes distintos, naive continua `ambiguous`).
+- Lord Howe (transição de 30 min): gap 4 Out `02:15`, replay 5 Abr `01:45` com as duas candidatas.
+- 45 min: Kathmandu `09:15Z`, Chatham `01:15Z`.
+- recusas: data impossível, hora 25, zona desconhecida, tempo/data não representados —
+  `invalid` com a razão certa, nunca reparados.
+- provenance: zona nomeada → `source-zone`; `systemSource` → `system-zone` com o mesmo instante;
+  ficheiro misto (`Z` + naive) nunca `offset`, em ambos os modos; tudo-`offset` continua `offset`.
+- `journalZone: ""`: instantes idênticos sob dois `process.env.TZ`, `timezone` ausente.
+- copy: `buildLeg` transporta os 4 campos + `timezone` e as fills com `instant` (inclui a
+  fração) e `isCopiedTrade`.
+
+**Verificação**
+- [x] `npm run build` EXIT 0.
+- [x] Testes temporais `node --test tests/temporal-foundation.test.mjs` **25/25**.
+- [x] Suite completa `node --test tests/*.test.mjs` **72/72**.
+- [x] Smoke **213 PASS / 0 FAIL**.
+- [x] `git diff --check` 0.
+- [x] `tools/ux-audit.mjs` **no normative violations found**.
+- [x] `financial-check` 56/56 · `score-check` 49/49 · `review-check` OK · `payouts-check` OK ·
+  `nav-check` OK (nenhuma regressão nos gates existentes).
+- [x] Deploy vault-dev md5 ok (`main.js a63d176b0628cd9bbbd44763ab9cb5bb`,
+  `styles.css 568988b1d1f280287c852e9861df5838`, `manifest.json de3e553879381ec7212c5d3470c11eb6`),
+  `data.json` intacto (`b8765d8b…`); Ctrl+R pedido ao utilizador.
+
+**Continua pendente** (registo, sem tocar): B2 — fills ordenados só pela hora civil
+(`csv.ts:588`, `lib/fills.ts:117`) partem um trade que atravessa a meia-noite; B3 — `inferred()`
+em `lib/fills.ts` não herda `instant`; `trade.timezone` escrito e nunca lido;
+consumidores; `toZone()`/`localToUtc()`.
 

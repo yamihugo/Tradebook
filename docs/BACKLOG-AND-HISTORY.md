@@ -133,7 +133,7 @@
 | Rolling average widget (10/20/30/50) | ⬜ | Fase 2. |
 | Setup/Strategy Performance widget | ⬜ | Depende das estratégias. |
 | Trade Review widget | ✅ | "Needs Review". |
-| Trading Score (game-like) | ✅ | "Trading Score & Radar". |
+| Trading Score | ✅ | v1 com cinco eixos honestos e nullable; sem unlock/gameificação; Home usa as últimas 30 decisões as-of, Analytics usa o período seleccionado. |
 | Animations: count-up + morph + toggle global | ✅ | Feito. |
 | Animations: toggles por-animação | ⬜ | Registado. |
 | R-multiples / risk-based RR | ⬜ | Precisa de campo Stop Loss por trade. |
@@ -180,6 +180,68 @@ de performance **nunca** incluem cash-flows.
 - `DEFAULT_TILES` ainda refere o tile `recent` (filtrado, mas é lixo de dados).
 - Picker de **hora** nos formulários a confirmar (data já resolvida).
 - Confirmar agrupamento por firm/size na Main dashboard.
+
+---
+
+## 11. Home revamp — fase 1 feita; consumidores por migrar
+
+**Feito (fase 1 — fundação comum).** Uma única população
+(`accountScope` + `journalDayKey` → `summarizeFinancials`) alimenta Net P&L, Closed trades,
+Win Rate, Net Profit Factor, Avg Net Result per Trade e a curva cumulativa da Home.
+Win/loss/breakeven sem qualificador = **sinal do Net da decisão agregada em scope**; o filtro
+de período e os buckets de dia partilham a mesma chave. Ver `ARCHITECTURE.md` §"Uma população
+financeira partilhada", `UX-GUIDELINES.md` §6.2 e `tests/selection.test.mjs`.
+
+**Na mesma população, mas com base própria declarada (não é dívida):** Gross Profit Factor;
+`remainingAccountPnl` (Remaining Account P&L, cabeçalho da Analytics) e `homeAccountMovement`
+(Recorded Account Value / Accounts) — movimento registado, contrato do Accounts.
+
+**Ainda na sua própria população ou classificação Gross — a migrar na fase seguinte:**
+
+| Onde | O que |
+|---|---|
+| `lib/accountMetrics.ts` | `winRate`/`winCount`/`lossCount` e as vitórias do dia leem `t.pnl > 0` (Gross); o `profitFactor` devolvido é `grossProfitFactor` |
+| `views/accountDashboard.ts:1101` | donut **"Win rate"** sem qualificador, com a base Gross |
+| `views/accountsListView.ts` `statsFor()` | chip **"Win"** e win rate do cartão, contagem Gross (comentário explícito no código) |
+| `lib/process.ts` | `streakStats` / `revengeStats` classificam pelo sinal Gross de `t.pnl` (dito no cabeçalho e no tooltip de `m.winstreak`/`m.lossstreak`) |
+| `lib/metrics.ts` | `m.winhold` / `m.losshold` — "Avg Win/Loss Hold Time" parte de `t.pnl > 0` / `t.pnl < 0` |
+| `lib/breakdown.ts` | `winSub()` — "% Gross-sign win rate" por bucket (lê `summary.gross.*`) |
+| `lib/trends.ts` | linha "Gross-sign win rate" (lê `decision.gross`) |
+| `lib/score.ts` | gate "no decided results" conta `t.pnl !== 0` (Gross); o PF que mostra é Net |
+| `views/tradeLogView.ts:471` | filtro **Result** win/loss por sinal de `t.pnl` |
+| `widgets/performanceCalendarWidget.ts` | scope próprio (todas as contas da lista, sem a regra de demos/arquivadas) apesar de usar o mesmo `summarizeFinancials` |
+
+**Regra para decidir a migração:** o contrato só exige Net onde a palavra for *win/loss/
+breakeven* sem qualificador **e** o número for um resultado. Onde já diz "Gross-sign" ou
+"Gross profit factor", está correcto; migrar é mudança de produto, não correcção.
+
+---
+
+## 12. Fundação temporal — fases 1 + 1.1 feitas; consumidores e restantes decisões por fechar
+
+**Feito (fase 1 + 1.1).** `lib/instant.ts` separa valor civil de instante e lê qualquer
+timestamp por uma só regra (`Z`/offset → zona de origem → `need-zone`, com `gap`/`ambiguous`
+reportados, nunca o relógio do SO). Imports novos, entradas manuais e pernas de copy gravam
+`entry_instant`, `exit_instant`, `source_zone`, `instant_source` e `fills[].instant`. A **1.1**
+corrigiu os dois blockers da auditoria: fracções sub-segundo em stamps naive (`tzOffsetMs`
+truncava a segundos — `.123` saía `.246` e `.500`/`.900` eram falsos `gap` com perda de linhas) e
+a provenance de **This computer** (`instant_source: system-zone` distingue a zona do computador
+de uma zona declarada pelo ficheiro). Ver `QA-CHECKLIST.md` §2.107/§2.108 e `ARCHITECTURE.md`
+(linha `lib/instant.ts`).
+
+**Por fechar / por decidir:**
+
+| Onde | O que |
+|---|---|
+| `views/*` (Calendar, Trade Log, Accounts, Home, Trade Detail) | leem `entryTime`/`exitTime` na **zona do journal**; devem passar a `entryInstant`/`exitInstant` quando existirem, e civil-for-visualização |
+| `tz.ts` `toZone()`/`localToUtc()` | deixam de ser o caminho de leitura quando os consumidores migrarem; **nunca** parchear `toZone()` só por si |
+| `csv.ts` `normStamp` | chaves de custo perdem a fracção e o offset em formato US (`.500`/`+05:30`); corrigir **antes de reimportar/casar Cash History** (caminhos distintos) |
+| `importZone` (`""` → `detectSystemZone()`) | as notas dizem `system-zone`. Decidir se, a longo prazo, "This computer" passa a `need-zone` puro |
+| `csv.ts:588` + `lib/fills.ts:117` | fills ordenados só pela hora civil — um trade que atravessa a meia-noite é **gravado** fora de ordem; há `fill.instant` para ordenar |
+| `lib/fills.ts` `inferred()` | fills sintéticos não herdam `instant` do trade |
+| `trade.timezone` | escrito e nunca lido; nos importados vale a zona do journal (≠ `source_zone`) — nunca escrever `source_zone` a partir dele |
+| `addTradePanel.ts` | manual não escreve `timezone` (só `source_zone` + `instant_source`) — confirmar se passa a escrever `timezone` = journal zone |
+| Payouts / depósits / ajustes | **eventos de data civil**: não ganham instante UTC à meia-noite (decisão de arquitectura, mantida) |
 
 ---
 

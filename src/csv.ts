@@ -1,7 +1,8 @@
-import { AccountType, Execution, ImportCosts, OrphanCost, ParsedResult, Trade, TradeFill } from "./types";
+import { AccountType, Execution, ImportCosts, InstantSource, OrphanCost, ParsedResult, TimeIssues, Trade, TradeFill } from "./types";
 import { AccountRule, classifyAccount, futuresSpec, rootSymbol } from "./futures";
-import { localToUtc, zoneWallParts } from "./tz";
-import { pointsOf } from "./lib/fills";
+import { zoneWallParts } from "./tz";
+import { parseInstant } from "./lib/instant";
+import { pointsOf, compareFills } from "./lib/fills";
 
 function parseFloatSafe(v: string | undefined | null): number {
   if (v === undefined || v === null) return 0;
@@ -16,54 +17,6 @@ function firstNonEmpty(row: Record<string, string>, keys: string[]): string {
     if (v && String(v).trim() !== "") return String(v).trim();
   }
   return "";
-}
-
-function parseTimestamp(s: string, sourceZone?: string): Date | null {
-  if (!s) return null;
-  const clean = String(s).split(".")[0].trim();
-  const m = clean.match(
-    /^(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?\s*(.*)$/
-  );
-  if (!m) return null;
-  let [, a, b, c, hh, mm, ss, suffix] = m;
-  let year: number, month: number, day: number;
-  const aNum = parseInt(a, 10);
-  const cNum = parseInt(c, 10);
-  if (aNum > 1000) {
-    year = aNum;
-    month = parseInt(b, 10);
-    day = parseInt(c, 10);
-  } else {
-    year = cNum < 100 ? 2000 + cNum : cNum;
-    month = aNum;
-    day = parseInt(b, 10);
-  }
-
-  // 12-hour clock: "2:30 PM" is 14:30, not 02:30.
-  let hour = parseInt(hh, 10);
-  if (/pm/i.test(suffix || "") && hour < 12) hour += 12;
-  if (/am/i.test(suffix || "") && hour === 12) hour = 0;
-
-  // A timestamp that names its own zone (Z or ±HH:MM) is a true instant —
-  // trust it rather than guessing a source zone.
-  if (suffix && /(z|[+-]\d{1,2}:?\d{2})\s*$/i.test(suffix.trim())) {
-    const d = new Date(clean.replace(" ", "T"));
-    if (!isNaN(d.getTime())) return d;
-  }
-
-  // Naive timestamp (the common case): interpret it in the source zone when we
-  // know it, so the instant is pinned regardless of the machine's own zone.
-  if (sourceZone) {
-    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    const timeStr = `${String(hour).padStart(2, "0")}:${String(parseInt(mm, 10)).padStart(2, "0")}:${String(
-      ss ? parseInt(ss, 10) : 0
-    ).padStart(2, "0")}`;
-    const d = localToUtc(dateStr, timeStr, sourceZone);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  const date = new Date(year, month - 1, day, hour, parseInt(mm, 10), ss ? parseInt(ss, 10) : 0, 0);
-  return isNaN(date.getTime()) ? null : date;
 }
 
 export function countRows(csvText: string): number {
@@ -141,8 +94,16 @@ const FILL_KEYS = {
 };
 
 export interface CsvImportZones {
-  /** Zone the export was written in (naive timestamps only). */
+  /** Zone the export was written in (naive stamps only), when the file or the
+   *  reader named a zone for it. */
   sourceZone?: string;
+  /**
+   * True when that zone is **this computer's**, not the file's — the reader took
+   * the "This computer" option (or left it as the default). The instant is
+   * still pinned in a real zone, but the note must not claim the platform
+   * declared it, so such rows are recorded as `system-zone`.
+   */
+  systemSource?: boolean;
   /** Zone to record the trade in — the journal's zone. */
   journalZone?: string;
 }
@@ -262,6 +223,9 @@ export function parseTradeovateCsv(
   const executions: Execution[] = [];
   let skipped = 0;
   let unfilled = 0;
+  // Timestamps with no single instant. They are never rounded into one: each is
+  // counted here so the review can say what was left out and why.
+  const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0 };
   // Only ever what the platform charged. Without its cash history there is
   // nothing to charge, and a plausible-looking fee nobody was billed for is
   // exactly the kind of number this journal refuses to print.
@@ -293,7 +257,19 @@ export function parseTradeovateCsv(
     headerKeys.some((h) => h.includes("avgprice"));
 
   for (const row of robj) {
-    const timestamp = parseTimestamp(firstNonEmpty(row, EXEC_KEYS.timestamp), zones?.sourceZone);
+    const rawStamp = firstNonEmpty(row, EXEC_KEYS.timestamp);
+    const stamp = parseInstant(rawStamp, { sourceZone: zones?.sourceZone });
+    const timestamp = stamp.status === "ok" ? stamp.instant : null;
+    // Where a naive stamp was read from. When that zone is this computer's, the
+    // row says so instead of dressing up a choice of the reader as the file's
+    // own zone (see `CsvImportZones.systemSource`).
+    const naiveSource: InstantSource =
+      stamp.status === "ok" && stamp.source === "offset"
+        ? "offset"
+        : zones?.systemSource
+        ? "system-zone"
+        : "source-zone";
+    const timestampSource = stamp.status === "ok" ? naiveSource : undefined;
     const account = firstNonEmpty(row, EXEC_KEYS.account);
     const symbol = firstNonEmpty(row, EXEC_KEYS.symbol);
     let sideRaw = firstNonEmpty(row, EXEC_KEYS.side).toLowerCase();
@@ -305,9 +281,26 @@ export function parseTradeovateCsv(
     // An order ticket that never traded: the export spells out the fill columns
     // and this row left them empty. That is not a malformed row — it is an order
     // that was cancelled or is still working — and calling it one told the
-    // reader their export was broken when it was not.
-    if (hasFillCols && !fillQtyStr && !fillPriceStr && account && symbol && timestamp) {
+    // reader their export was broken when it was not. Judged on the stamp being
+    // there, not on it resolving: a ticket exists whether or not its time can be
+    // pinned to an instant.
+    if (hasFillCols && !fillQtyStr && !fillPriceStr && account && symbol && rawStamp) {
       unfilled++;
+      continue;
+    }
+
+    // A wall clock that does not exist (or exists twice) in the source zone has
+    // no single instant. The row is left out, never guessed.
+    if (stamp.status === "gap") {
+      timeIssues.gap++;
+      continue;
+    }
+    if (stamp.status === "ambiguous") {
+      timeIssues.ambiguous++;
+      continue;
+    }
+    if (stamp.status === "need-zone") {
+      timeIssues.noZone++;
       continue;
     }
 
@@ -360,6 +353,7 @@ export function parseTradeovateCsv(
       orderId: firstNonEmpty(row, EXEC_KEYS.orderId),
       orderType: firstNonEmpty(row, EXEC_KEYS.orderType),
       costKey,
+      timestampSource,
     });
   }
 
@@ -394,7 +388,7 @@ export function parseTradeovateCsv(
     );
   }
 
-  const { trades, openFills, windows } = pairRoundTrips(executions, accountRules, zones?.journalZone);
+  const { trades, openFills, windows } = pairRoundTrips(executions, accountRules, zones);
 
   // The Orders export folds several executions into one row, so a handful of the
   // cash history's cost lines carry a stamp no trade holds. The money is real, so
@@ -415,7 +409,8 @@ export function parseTradeovateCsv(
       const sep = key.lastIndexOf("|");
       const stamp = sep >= 0 ? key.slice(0, sep) : key;
       const contract = sep >= 0 ? key.slice(sep + 1) : "";
-      const ms = parseTimestamp(stamp, zones?.sourceZone)?.getTime() ?? NaN;
+      const orphanStamp = parseInstant(stamp, { sourceZone: zones?.sourceZone });
+      const ms = orphanStamp.status === "ok" ? orphanStamp.instant.getTime() : NaN;
       const root = rootSymbol(contract);
       let target: Trade | null = null;
       if (Number.isFinite(ms)) {
@@ -437,7 +432,7 @@ export function parseTradeovateCsv(
         recordedCost += total;
       } else {
         orphanCosts.push({
-          date: Number.isFinite(ms) ? formatDate(new Date(ms), zones?.journalZone) : "",
+          date: Number.isFinite(ms) ? formatDate(new Date(ms), zones?.journalZone || zones?.sourceZone) : "",
           amount: round2(total),
           contract: contract || root,
         });
@@ -475,14 +470,41 @@ export function parseTradeovateCsv(
     );
   }
 
-  return { trades, warnings, skipped, unfilled, unpaired: openFills, accountsSeen, costs: costSummary };
+  // Why a row with a real timestamp still produced no trade. The reader is told,
+  // because "0 rows imported" with no reason is how a silently dropped hour
+  // becomes a mystery a week later.
+  const timeParts: string[] = [];
+  if (timeIssues.gap) timeParts.push(`${timeIssues.gap} fall in a DST gap (the clock jumped forward)`);
+  if (timeIssues.ambiguous) timeParts.push(`${timeIssues.ambiguous} fall in a repeated hour (the clock went back)`);
+  if (timeIssues.noZone) timeParts.push(`${timeIssues.noZone} carry no zone and none was chosen`);
+  if (timeParts.length) {
+    warnings.push(`Timestamps left out rather than guessed: ${timeParts.join("; ")}.`);
+  }
+
+  const totalIssues = timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone;
+  return {
+    trades,
+    warnings,
+    skipped,
+    unfilled,
+    unpaired: openFills,
+    ...(totalIssues ? { timeIssues } : {}),
+    accountsSeen,
+    costs: costSummary,
+  };
 }
 
 function pairRoundTrips(
   executions: Execution[],
   accountRules: AccountRule[],
-  journalZone?: string
+  zones?: CsvImportZones
 ): { trades: Trade[]; openFills: number; windows: Map<string, { openMs: number; closeMs: number }> } {
+  const journalZone = zones?.journalZone;
+  // The civil values written into the note come from the instant rendered in
+  // the Journal Timezone — or, with the journal zone unset ("as recorded"), in
+  // the zone the file was read in. Never the host clock: the instant is truth,
+  // and the host must not decide how it reads.
+  const civilZone = journalZone || zones?.sourceZone || "";
   const sorted = [...executions].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
   const groups = new Map<string, Execution[]>();
@@ -502,6 +524,15 @@ function pairRoundTrips(
   let openFills = 0;
 
   for (const fills of groups.values()) {
+    // Provenance of this round trip: every stamp named its own zone, or they
+    // were naive and read in a zone we were given — this computer's, or one the
+    // reader named as the file's. Which of the two it was travels with the note,
+    // because only one of them is a statement about the file.
+    const picked = fills.find((f) => f.timestampSource && f.timestampSource !== "offset")?.timestampSource;
+    const instantSource: InstantSource = fills.every((f) => f.timestampSource === "offset")
+      ? "offset"
+      : picked ?? (zones?.systemSource ? "system-zone" : "source-zone");
+    const sourceZone = instantSource === "offset" ? undefined : zones?.sourceZone;
     const lots: { sign: 1 | -1; qty: number; price: number; time: Date }[] = [];
     let pos: {
       dir: "long" | "short";
@@ -547,7 +578,8 @@ function pairRoundTrips(
         tradeFees += fill.fees;
         exitFills.push({
           side: fill.side,
-          time: formatTime(fill.timestamp, journalZone),
+          time: formatTime(fill.timestamp, civilZone),
+          instant: fill.timestamp.toISOString(),
           qty: closedQty,
           price: fill.price,
           pnl: round2(fillGross),
@@ -579,14 +611,22 @@ function pairRoundTrips(
           spec.pointValue,
           entryFills.length > 1 || exitFills.length > 1,
         );
-        const chronological = [...entryFills, ...exitFills].sort((a, b) => (a.time ?? "").localeCompare(b.time ?? ""));
+        // Ordered by the fills' instants (compareFills): a position closed the
+        // next morning keeps its real sequence instead of a clock that wraps.
+        const chronological = [...entryFills, ...exitFills].sort(compareFills);
         const tradeId = `${fill.account}_${fill.symbol}_${pos.openTime.getTime()}_${pos.openPrice}`;
 
         trades.push({
           id: tradeId,
-          date: formatDate(pos.openTime, journalZone),
-          entryTime: formatTime(pos.openTime, journalZone),
-          exitTime: formatTime(fill.timestamp, journalZone),
+          date: formatDate(pos.openTime, civilZone),
+          entryTime: formatTime(pos.openTime, civilZone),
+          exitTime: formatTime(fill.timestamp, civilZone),
+          // The canonical instants: the executions as the platform stamped them,
+          // independent of any zone the note is later read in.
+          entryInstant: pos.openTime.toISOString(),
+          exitInstant: fill.timestamp.toISOString(),
+          instantSource,
+          sourceZone,
           symbol: fill.symbol,
           account: fill.account,
           accountType: fill.accountType,
@@ -636,7 +676,8 @@ function pairRoundTrips(
         tradeFees += fill.fees;
         entryFills.push({
           side: fill.side,
-          time: formatTime(fill.timestamp, journalZone),
+          time: formatTime(fill.timestamp, civilZone),
+          instant: fill.timestamp.toISOString(),
           qty: remaining,
           price: fill.price,
           fees: round2(fillCost * share),

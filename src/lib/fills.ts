@@ -82,11 +82,16 @@ function positionSize(fills: TradeFill[], side: "buy" | "sell"): number {
 function inferred(t: Trade, side: "buy" | "sell", isEntry: boolean): TradeFill {
   const qty = num(t.quantity);
   const price = num(isEntry ? t.entryPrice : t.exitPrice);
+  const canonical = isEntry ? t.entryInstant : t.exitInstant;
   const fill: TradeFill = {
     side: isEntry ? side : side === "buy" ? "sell" : "buy",
     time: isEntry ? t.entryTime : t.exitTime,
     qty,
     price,
+    // The synthetic fill stands for the real event, so it carries that event's
+    // instant — which is what makes a note without a fills block readable in the
+    // same order and duration as one that has them.
+    ...(canonical ? { instant: canonical } : {}),
   };
   if (isEntry || !(price > 0)) return fill;
   const entry = num(t.entryPrice);
@@ -98,6 +103,22 @@ function inferred(t: Trade, side: "buy" | "sell", isEntry: boolean): TradeFill {
     if (fees > 0) fill.fees = round(fees);
   }
   return fill;
+}
+
+/**
+ * Fill order, decided by `fill.instant` when both sides have one.
+ *
+ * A trade that crosses midnight must not be ordered by its clock reading: the
+ * 00:10 exit would sort before the 23:50 entry and the rows (and the peak
+ * position walked from them) would read backwards. Civil time stays as the
+ * fallback for notes that predate the contract, and equal keys keep the note's
+ * own order — `Array#sort` is stable.
+ */
+export function compareFills(a: TradeFill, b: TradeFill): number {
+  const ia = Number(Date.parse(String(a.instant ?? "")));
+  const ib = Number(Date.parse(String(b.instant ?? "")));
+  if (Number.isFinite(ia) && Number.isFinite(ib) && ia !== ib) return ia - ib;
+  return String(a.time ?? "").localeCompare(String(b.time ?? ""));
 }
 
 export function fillSet(t: Trade): FillSet {
@@ -114,7 +135,7 @@ export function fillSet(t: Trade): FillSet {
     ? [inferred(t, side, false)]
     : [];
 
-  const byTime = (a: TradeFill, b: TradeFill) => (a.time ?? "").localeCompare(b.time ?? "");
+  const byTime = compareFills;
   const filled = [...entries, ...exits].sort(byTime);
   const entryQty = sumQty(entries);
   const exitQty = sumQty(exits);

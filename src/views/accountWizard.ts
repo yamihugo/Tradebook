@@ -498,6 +498,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
       value: values.createdAt,
       format: plugin.settings.dateFormat,
       className: "tj-wz-dateinput",
+      zone: plugin.settings.timeZone,
       onChange: (iso) => {
         values.createdAt = iso;
         updateNext();

@@ -11,13 +11,13 @@
  */
 
 import { Trade } from "../types";
+import { holdMinutesOf } from "./instant";
 import { futuresSpec } from "../futures";
 import { computeProcessSignals } from "./process";
 import {
   grossWin,
   grossLoss,
-  profitFactor,
-  expectancy,
+  grossProfitFactor,
   avgWin,
   avgLoss,
   bestDay,
@@ -41,6 +41,10 @@ export interface AccountMetricsInput {
   /** True for a fixed floor ("static"): the limit sits below the STARTING balance
    *  and never moves with the peak. Used by live funded accounts. */
   ddStatic?: boolean;
+  /** Intraday trailing needs intraday equity/high-water marks, not just trade closes. */
+  ddIntraday?: boolean;
+  /** Whether the account's floor model is known from its resolved rules. */
+  ddRuleKnown?: boolean;
   dailyLoss?: number;
   consistency?: number;
   /** How the consistency rule is measured: best day ÷ total profit (default) or ÷ target. */
@@ -92,6 +96,12 @@ export interface AccountMetrics {
   ddToLimit: number;
   /** Dollars between the real balance and the loss floor — the room left. */
   ddRemaining: number;
+  /** Configured drawdown floor, or null when the floor model is unknown. */
+  drawdownFloor: number | null;
+  /** Loss-limit room consumed under the configured floor, or null if unknown. */
+  drawdownUsed: number | null;
+  /** Actual balance distance above the configured floor, or null if unknown. */
+  drawdownRoom: number | null;
   buffer: number;
   todayNet: number;
   dailyLossRemaining: number;
@@ -145,6 +155,101 @@ export interface DrawdownAnalysis {
   totalEpisodes: number;
   avgRecoveryDays: number;
   pctTimeInDD: number;
+}
+
+export interface RecordedAccountMovementInput {
+  trades: Trade[];
+  size: number;
+  dayKey: (trade: Trade) => string;
+  cashflows?: Array<{ date: string; amount: number }>;
+}
+
+export interface RecordedAccountMovement {
+  /** Configured capital plus recorded trading and account cash movements. */
+  balance: number;
+  /** Recorded balance minus configured capital. */
+  change: number;
+  /** Peak recorded balance change over the dated movement series. */
+  peakChange: number;
+  /** Dated account-value changes, including trading, payouts, deposits and adjustments. */
+  days: Array<{ date: string; change: number; cumulative: number }>;
+}
+
+export interface RecordedAccountWindowSource {
+  /** Configured account capital, using the same baseline as the account views. */
+  capital: number;
+  /** Daily movement returned by `computeRecordedAccountMovement`. */
+  days: Array<{ date: string; change: number }>;
+}
+
+export interface RecordedAccountWindow {
+  capital: number;
+  /** Account value immediately before the selected window begins. */
+  openingBalance: number;
+  /** Account value after the last recorded movement in the selected window. */
+  closingBalance: number;
+  /** Opening point followed by each in-window daily close. */
+  points: Array<{ date: string; change: number; balance: number }>;
+}
+
+/**
+ * Window an existing set of recorded account movements without resetting the
+ * account to zero. The opening value is configured capital plus all recorded
+ * movement before `from`; no new balance formula is introduced here.
+ */
+export function windowRecordedAccountMovement(
+  sources: RecordedAccountWindowSource[],
+  from: string | null,
+  to: string,
+): RecordedAccountWindow {
+  const capital = sources.reduce((sum, source) => sum + (Number.isFinite(source.capital) ? source.capital : 0), 0);
+  const byDate = new Map<string, number>();
+  for (const source of sources) {
+    for (const day of source.days) {
+      if (!day.date || day.date > to || !Number.isFinite(day.change)) continue;
+      byDate.set(day.date, (byDate.get(day.date) ?? 0) + day.change);
+    }
+  }
+
+  const dates = [...byDate.keys()].sort();
+  const openingBalance = capital + (from
+    ? dates.filter((date) => date < from).reduce((sum, date) => sum + (byDate.get(date) ?? 0), 0)
+    : 0);
+  const windowDates = dates.filter((date) => !from || date >= from);
+  const startDate = from ?? windowDates[0] ?? to;
+  let balance = openingBalance;
+  const points: RecordedAccountWindow["points"] = [{ date: startDate, change: 0, balance }];
+  for (const date of windowDates) {
+    const change = byDate.get(date) ?? 0;
+    balance += change;
+    points.push({ date, change, balance });
+  }
+  return { capital, openingBalance, closingBalance: balance, points };
+}
+
+/** Shared Accounts-page balance contract: size + Net trades + signed cashflows. */
+export function computeRecordedAccountMovement(input: RecordedAccountMovementInput): RecordedAccountMovement {
+  const tradeByDay = new Map<string, number>();
+  for (const trade of input.trades) {
+    if (!Number.isFinite(trade.pnl) || !trade.date) continue;
+    const date = input.dayKey(trade);
+    tradeByDay.set(date, (tradeByDay.get(date) ?? 0) + netPnl(trade));
+  }
+  const cashByDay = new Map<string, number>();
+  for (const cashflow of input.cashflows ?? []) {
+    if (!cashflow.date || !Number.isFinite(cashflow.amount)) continue;
+    cashByDay.set(cashflow.date, (cashByDay.get(cashflow.date) ?? 0) + cashflow.amount);
+  }
+  const dates = [...new Set([...tradeByDay.keys(), ...cashByDay.keys()])].sort();
+  let cumulative = 0;
+  const days = dates.map((date) => {
+    const change = (tradeByDay.get(date) ?? 0) + (cashByDay.get(date) ?? 0);
+    cumulative += change;
+    return { date, change, cumulative };
+  });
+  const change = cumulative;
+  const peakChange = Math.max(0, ...days.map((day) => day.cumulative));
+  return { balance: input.size + change, change, peakChange, days };
 }
 
 /** Compute drawdown episodes from a daily equity series (date→balance). */
@@ -287,22 +392,15 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // the distance to the loss limit. That is the firm's view of the account, and
   // it is the only reason we record payouts at all. Trading numbers never see
   // these: money leaving is not a loss.
-  const flowByDay = new Map<string, number>();
-  for (const c of input.cashflows ?? []) {
-    if (!c.date || !Number.isFinite(c.amount)) continue;
-    flowByDay.set(c.date, (flowByDay.get(c.date) ?? 0) + c.amount);
-  }
-  const allDays = [...new Set([...dayKeys, ...flowByDay.keys()])].sort();
-  let balanceRun = 0;
-  const balanceSeries: number[] = [];
-  for (const k of allDays) {
-    balanceRun += (byDay.get(k)?.net ?? 0) + (flowByDay.get(k) ?? 0);
-    balanceSeries.push(balanceRun);
-  }
-  const balanceNet = balanceRun;
-  const balance = size + balanceNet;
-  const balancePeak = Math.max(0, ...balanceSeries);
-  const peakBalance = size + balancePeak;
+  const accountMovement = computeRecordedAccountMovement({
+    trades: scoped,
+    size,
+    dayKey: input.dayKey,
+    cashflows: input.cashflows,
+  });
+  const balance = accountMovement.balance;
+  const balancePeak = accountMovement.peakChange;
+  const peakBalance = Math.max(size, size + balancePeak);
   const peak = Math.max(0, ...cumSeries);
   // Floor: trailing EOD drawdown that never rises above break-even.
   // The floor trails the peak until it reaches the lock point: break-even by
@@ -323,6 +421,12 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   const ddToLimit = Math.max(0, peakBalance - balance);
   /** Dollars between the real balance and the floor — the room left before failing. */
   const ddRemaining = maxLoss > 0 ? Math.max(0, balance - floor) : 0;
+  const floorKnown = maxLoss > 0 && input.ddRuleKnown !== false && !input.ddIntraday;
+  const drawdownFloor = floorKnown ? floor : null;
+  const drawdownRoom = floorKnown ? Math.max(0, balance - floor) : null;
+  // A locked trailing floor can leave more room than the original max-loss.
+  // In that state no portion of the configured limit is currently consumed.
+  const drawdownUsed = drawdownRoom === null ? null : Math.max(0, maxLoss - drawdownRoom);
   let maxDrawdown = 0;
   let runPeak = 0;
   for (const v of cumSeries) {
@@ -383,14 +487,9 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     streakLossWorst,
   } = computeProcessSignals(scoped, input.dayKey);
 
-  const heldMinutes = (t: Trade): number | null => {
-    const a = minutesOf(t.entryTime);
-    const b = minutesOf(t.exitTime);
-    if (a === null || b === null) return null;
-    // Overnight trades wrap past midnight.
-    const d = b >= a ? b - a : b + 1440 - a;
-    return d >= 0 ? d : null;
-  };
+  // Real elapsed time from the canonical instants when the note has them;
+  // the recorded clock (overnight wraps past midnight) otherwise.
+  const heldMinutes = (t: Trade): number | null => holdMinutesOf(t);
   const hold = (list: Trade[]): number => {
     const mins = list
       .map((t) => heldMinutes(t))
@@ -412,8 +511,8 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     grossLoss: grossLoss(scoped),
     totalCommission: scoped.reduce((a, t) => a + (t.commission || 0), 0),
     totalFees: scoped.reduce((a, t) => a + (t.fees || 0), 0),
-    profitFactor: profitFactor(scoped),
-    expectancy: expectancy(scoped),
+    profitFactor: grossProfitFactor(scoped),
+    expectancy: tradeCount ? net / tradeCount : 0,
     avgWin: avgWin(scoped),
     avgLoss: avgLoss(scoped),
     dayWinRate:
@@ -432,6 +531,9 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     balance,
     ddToLimit,
     ddRemaining,
+    drawdownFloor,
+    drawdownUsed,
+    drawdownRoom,
     // Alias of ddRemaining: the old trade-only buffer was the last hybrid of
     // trade net and balance-derived floor. Kept as a field for compatibility.
     buffer: maxLoss > 0 ? Math.max(0, balance - floor) : 0,
@@ -464,4 +566,8 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     streakLossWorst,
     withdrawn,
   };
+}
+
+if (typeof window !== "undefined") {
+  (window as any).__tjAccountMetrics = { computeAccountMetrics };
 }

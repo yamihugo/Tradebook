@@ -22,6 +22,8 @@ const MONTHS = [
   "December",
 ];
 
+import { todayKey } from "../tz";
+
 const WEEKDAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -29,12 +31,21 @@ const isoOf = (y: number, m: number, d: number): string => `${y}-${pad(m + 1)}-$
 const daysInMonth = (y: number, m: number): number => new Date(y, m + 1, 0).getDate();
 /** Monday-based weekday index (0 = Monday). */
 const mondayIndex = (y: number, m: number, d: number): number => (new Date(y, m, d).getDay() + 6) % 7;
+/** An ISO day as a local date, for the grid's calendar arithmetic only. */
+const isoToJs = (iso: string): Date => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
 
 export interface CalendarOpts {
   /** The selected day as ISO (YYYY-MM-DD), or "". */
   value?: string;
   /** Called with the ISO day the trader picked. */
   onPick: (iso: string) => void;
+  /** Optional stacking override when the calendar is opened inside a popover. */
+  zIndex?: number;
+  /** Journal Timezone — "today" and the Today button mean today *there*. */
+  zone: string;
 }
 
 /** The close function of whichever calendar is currently open. */
@@ -53,15 +64,14 @@ export function openCalendar(anchor: HTMLElement, opts: CalendarOpts): () => voi
   const win = doc.defaultView ?? window;
   const selected = opts.value || "";
 
-  const now = new Date();
+  // Today is today in the Journal Timezone — the host zone has no say in it.
+  const todayIso = todayKey(opts.zone);
   const start = /^(\d{4})-(\d{2})-(\d{2})/.exec(selected);
-  const cursor = start
-    ? new Date(+start[1], +start[2] - 1, +start[3])
-    : new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayIso = isoOf(now.getFullYear(), now.getMonth(), now.getDate());
+  const cursor = start ? new Date(+start[1], +start[2] - 1, +start[3]) : isoToJs(todayIso);
 
   const el = doc.createElement("div");
   el.className = "tj-cal";
+  if (opts.zIndex !== undefined) el.style.zIndex = String(opts.zIndex);
   el.setAttribute("role", "dialog");
   el.setAttribute("aria-label", "Calendar");
 

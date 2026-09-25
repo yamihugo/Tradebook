@@ -77,8 +77,8 @@ translúcidos. As restantes páginas adotam-na à vez (ver BACKLOG).
 | Cabeçalho de página | `h1.tj-view-h1` + `p.tj-import-info`; ações `.tj-iconbtn` / `.tj-filterbtn` | Título à esquerda, ações à direita; uma ação primária, no máximo. |
 | Linha de números | `.tj-acct-strip` → `.tj-acct-strip-cell` → `.tj-acct-strip-k` (+`.tj-info-dot`) / `.tj-acct-strip-v` / `.tj-acct-strip-sub` | **Um** cartão segmentado: grelha com `gap:1px` sobre a cor da hairline, cada célula em `background-primary`. `-v` a `--tj-fs-head`/700/tabular. **Cada figura leva um `(i)`.** |
 | Lista / painel | `.tj-panel` (cartão: raio 14, `rgba(255,255,255,.022)`, hairline) → cabeçalho `.tj-acct-h1` (`-dot`/`-t`/`-c`/`-line`) + `.tj-panel-note`; a tabela/lista por baixo | Cabeçalho dentro do cartão: ponto, micro-label, contagem a 700, hairline e a nota à direita. Sem cartão cinzento e nunca um cartão dentro de outro. |
-| Fila de atenção | `.tj-attention` → `.tj-attn-chip` (+`.is-on`), `.tj-attn-none` | Chip em pill da casa (hairline + `rgba(255,255,255,.05)`), tinta do estado `--tj-tone-mid`, sempre com a palavra — nunca só cor. |
-| Gaveta | `.tj-tl-drawer` (cartão irmão: raio 14, `rgba(255,255,255,.022)`, hairline, 320px) | Uma coluna ao lado da lista, não uma gaveta overlaying. |
+| Fila de atenção | `.tj-attention` → `.tj-attn-chip` (+`.is-on`), `.tj-attn-none` | Ações tipográficas, sem fundo nem moldura; hover e seleção mudam apenas a tinta, mantendo sempre a palavra — nunca só cor. |
+| Gaveta | `.tj-tl-drawer` + `.tj-tl-dsec`/`.tj-tl-opt` | Grupos compactos separados por hairlines; opções sem caixas/fills, seleção indicada por tinta accent e sublinhado. |
 | Cabeçalho de grupo | `.tj-acct-h1` (+`.is-sub`) | O mesmo padrão dentro de secções: ponto, label uppercase, pill de contagem, hairline, valor à direita. |
 
 Proibido nesta receita: `#d9a441` literal (usar `--tj-tone-mid`), `background-secondary`
@@ -95,33 +95,53 @@ Dívida conhecida: **o Trade Log adotou A**; **Home e a página da conta** ainda
 | Wrapper de widget | `DashboardView.renderLayout()` | `.tj-card.tj-gridcard`, `data-wid`, `.tj-blend`, `.tj-intro`, `.tj-static`, `.tj-card-header`, `.tj-card-controls`, `.tj-card-del`, `.tj-gridcard-body` |
 | Account tile | `AccountsListView.renderTile()` | `.tj-acct-tile` (+`.is-demo`, `.is-error`) |
 
-### 6.2 Briefing/Analytics (`views/dashboard.ts`) — títulos em `CARD_TITLES`
+### 6.2 Home/Analytics (`views/dashboard.ts`) — títulos em `CARD_TITLES`
 
 | Nome | `data-wid` | Builder |
 |---|---|---|
-| Cumulative P&L | `equity` | `renderEquityBody()` |
-| Long/Short P&L | `longpnl`/`shortpnl` | `renderEquityBody(..., "long"/"short")` |
-| Performance Calendar | `calendar` | `PerformanceCalendarWidget` |
-| Last 6 Months | `heatmap` | `renderHeatmap()` |
+| Cumulative Net P&L | `equity` | `renderEquityBody()` |
+| Long/Short Net P&L | `longpnl`/`shortpnl` | `renderEquityBody(..., "long"/"short")` |
+| Net Performance Calendar | `calendar` | `PerformanceCalendarWidget` — Net across eligible in-scope legs; daily count and win rate classify each logical decision by Net sign (breakevens out of the rate) |
+| Net Trading · Last 6 Months | `heatmap` | `renderHeatmap()` |
 | Best Hours | `besthours` | `renderBestHours()` |
 | Symbol Breakdown | `symbols` | `renderSymbolTable()` |
-| Trading Score & Radar | `score` | `renderScoreRadar()` |
+| Trading Score & Radar | `score` | `renderScoreRadar()` — pentágono fixo; eixo sem dados = spoke/label muted e não entra no plot; footer `Complete · 5/5 axes` ou `Provisional · X/5 axes` + scope temporal |
 | Needs Review | `review` | `renderReviewWidget()` |
 | Trends | `trends` | `renderTrendsWidget()` |
 | Payouts | `payouts` | `renderPayoutsWidget()` |
 | Breakdown | `breakdown` | `renderBreakdownWidget()` — tabs `.tj-bd-tabs`/`.tj-bd-tab` (texto limpo + underline accent no `.on`, como a conta), **um treemap por dimensão** (Symbol · Setup · Type · Day · Hour · Session); tiles clicáveis (`.tj-treemap-tile-click`, `.is-active`) abrem o Trade Log com a lente do bucket + o scope da grelha |
-| Uma por métrica | `m.*` | `renderMetricBody()` — títulos em `METRIC_TITLES` |
+| Uma por métrica | `m.*` | `renderMetricBody()` — Net primary monetary results; Net PF primary and Gross PF explicit secondary comparison |
 
-Métricas (`m.*`): netpnl, winrate, trades, maxdd, profitfactor, sharpe, expectancy,
+Métricas (`m.*`): netpnl, winrate, trades, maxdd, profitfactor, grossprofitfactor, sharpe, expectancy,
 bestday, worstday, largestwin, largestloss, winstreak, lossstreak, wintrades, losstrades,
 avgwin, avgloss, avgrr, holdtime, winhold, losshold, besthour, worsthour.
+
+**Contratos financeiros ativos (Home + Analytics):** Net é primário em P&L, cumulative/
+directional charts, Calendar, heatmap, Breakdown, Best/Worst Day, Average Result, Average
+Win/Loss, Largest Win/Loss, Net PF e Trends. Gross PF fica disponível como referência secundária
+pré-custos. Uma única população (`accountScope` + `journalDayKey` → `summarizeFinancials`) alimenta Net
+P&L, Closed trades, Win Rate, Net PF, Avg Net Result e a curva cumulativa; o filtro de período
+e os buckets de dia usam a mesma chave de dia (`periodDayBounds`). Win, loss e breakeven sem
+qualificador são o sinal do Net da decisão agregada em scope — `Win Rate = Net positivas ÷
+(Net positivas + Net negativas)`, Net-zero fora do denominador e `—` quando nada decidiu.
+Totals e valores por dia/categoria somam legs elegíveis no scope. Métricas por decisão
+agrupam primeiro as legs; as médias mantêm todas as decisões no denominador e Net averages/PF
+classificam pelo sinal Net. Calendar/heatmap contam decisões e classificam win rate pelo sinal
+Net; as contagens do Breakdown são decisões por omissão ou account legs se o setting de cópias
+estiver ligado, e a sua win rate é **Gross-sign** (declarada). **Streaks** e as divisões de
+*hold* mantêm a classificação Gross. Max Trade Drawdown, Sharpe e payoff ratio têm a base identificada
+na tooltip. Accounts separa o valor de conta registado e mudança vs referência de Net Trading P&L
+e Paid Out; a overview destaca **Account Capital** configurado e **Remaining Account P&L** (valor
+registado menos capital) como os dois números principais. Net Trading P&L e valor corrente ficam
+acessíveis como detalhe secundário, com janela/base explícitas. Tooltips identificam eventos,
+cobertura incompleta e ausência de snapshot/live equity. Nenhum número declara lucro withdrawable.
 
 ### 6.3 Outras superfícies (ficheiro → classes-chave)
 
 | Superfície | Ficheiro | Classes-chave |
 |---|---|---|
 | Accounts list | `views/accountsListView.ts` | `.tj-acct-tile` (flex column; `-prog.is-first` com `margin-top:auto` encosta barras+mini ao fundo), `-edge`, `-logo`, `-hd*`, `-bal*`, `-prog*`, `-mini*`, `-strip`, `-comp*`, `-sect`; `.tj-tag*`, `-tag-ico` (coroa Lucide no líder), `.tj-alert*`, `.tj-archived-*` |
-| Account dashboard | `views/accountDashboard.ts` | `.tj-acc-hero`, `-eqcard`, `-riskcard`(flip), `-riskbar*`/`-marker-dd`, `-ddbox`/`-ddtype`, `-mcols`/`-mcol`, `-disc-*`, `-dial`/`-donut`, `-perffacts`, `-btabs`/`-treemap`/`-tile`, `-widgets`/`-widget`, `-cashline`/`.tj-payout-*`, `-passed-banner`/`-band`/`-ring*`, `-copybar`/`-copychip`/`-copychip-ico`; modal de settings da conta (`.tj-acc-settings`/`.tj-as-pane`/`.tj-as-row*`/`.tj-as-hint`) cujos separadores **General** e **Rules** reutilizam os campos do wizard (`.tj-wz-field`/`-label`/`-affix`(+`.is-hidden`)/`-input`/`-untoggle`/`-types`/`-type`/`-disclaimer`) sob `.tj-acc-settings`/`.tj-account-wizard.tj-as-pane`; a lista de trades é o **mesmo painel do Trade Log** (`.tj-panel` + cabeçalho `.tj-acct-h1` com contagem e o chip do filtro), nunca uma tabela nua |
+| Account dashboard | `views/accountDashboard.ts` | `.tj-acc-hero`, `.tj-acc-eqcard` (**Account Balance** = configured size + Net trades + payouts/deposits/adjustments; Net trading result separate), `-riskcard`(flip), `-riskbar*`/`-marker-dd`, `-ddbox`/`-ddtype`, `-mcols`/`-mcol`, `-disc-*`, `-dial`/`-donut`, `-perffacts`, `-btabs`/`-treemap`/`-tile`, `-widgets`/`-widget`, `-cashline`/`.tj-payout-*`, `-passed-banner`/`-band`/`-ring*`, `-copybar`/`-copychip`/`-copychip-ico`; modal de settings da conta (`.tj-acc-settings`/`.tj-as-pane`/`.tj-as-row*`/`.tj-as-hint`) cujos separadores **General** e **Rules** reutilizam os campos do wizard (`.tj-wz-field`/`-label`/`-affix`(+`.is-hidden`)/`-input`/`-untoggle`/`-types`/`-type`/`-disclaimer`) sob `.tj-acc-settings`/`.tj-account-wizard.tj-as-pane`; a lista de trades é o **mesmo painel do Trade Log** (`.tj-panel` + cabeçalho `.tj-acct-h1` com contagem e o chip do filtro), nunca uma tabela nua |
 | Management modal | `views/accountsManage.ts` | `.tj-mg-card`, `-head`, `-new`, `-step`/`-stepnum`/`-steptitle`/`-stepblock`(+`.is-locked`), `-leadgrid`/`-leadcard`(+`.on`)/`-leadcard-nm`/`-leadcard-sub`, `-lockedlead`(+`-nm`/`-sub`), `-copier`(+`.on`)/`-pick`/`-copier-body`/`-copier-nm`/`-copier-sub`, `-tree` (árvore líder→copiers com conectores CSS), `-typelist`/`-typerow` (pill: borda+radius 14), `-vis` (pill de olho `eye`/`eye-off`, 28px), `-row`/`-rowlabel`/`-rowval`, `-secthead`/`-infoico` (o `(i)` que substitui os banners), `-badge`(+`.is-copier`), `.tj-manage-empty`/`-emptytitle` (título calado + frase; sem diagrama), `-del` (lixo 24×24, `.is-armed`), `-confirmslot`/`-confirm`/`-confirm-txt` (disband com dois toques inline), `-act.is-danger`, `-sect`/`-sectitle` (secções do grupo: Change leader junto do líder · Add a copier); dropdown em portal `.tj-mg-dd-list.is-portal` (`fixed`, `z-index` 1100; o botão **repinta** label/chip/`on` no clique). **duas superfícies sem separadores** — `openCopyGroups` · `openAccountsDisplay` abrem a mesma modal em dois modos, pelos três quadrados do header das Contas, agora ordenados **Copy groups (`users`) · Add account (`plus`) · Settings (`sliders-horizontal`, no canto direito)** — Cards saiu e Types vive dentro do Settings |
 | Wizard | `views/accountWizard.ts` | `.tj-wz-type*` (ativo: borda `--interactive-accent` + glow), `-review`, `-sumcard`, `-sumrows`/`-sumrow`/`-sumk`/`-sumv` (tabela chave-valor), `-copynote`, `-secthint`, `-rulegrid` (2 colunas), `-affixhead`/`-affix`/`-affix-pre`/`-affix-suf` (afixos `$`/`%`/`days`), `-untoggle`/`-unbtn` (toggle `$ | %`), `-disclaimer-ico`, `-logogrid`/`-logogroup`/`-logoglbl`/`-logotiles`/`-logotile`(+`.on`)/`-logotile-img`/`-logotile-init`/`-logotile-lbl`/`-logo-own`/`-logocustom`, `-step.off`, `-preset` |
 | Strategies | `views/setupsView.ts` | `.tj-strat-card`, `-item`, `-name`, `-pnl`, `-actions`, `-add`, `-input`, `-untracked`, `-empty`(+`-empty-sub`), `-note`/`-note-ico`/`-note-txt`/`-note-strong` (nota calada do martelo) |
@@ -264,7 +284,8 @@ dashboard da conta e as secções do Management.
 
 `renderLineChart(container, opts)` (`lib/lineChart.ts`) é o único line/area chart: séries
 secundárias/tracejadas, marcadores (payout/deposit), `baseline`/`targetLine`/`ddLine`/`fadeFloor`,
-hover card `.tj-eq-card`. `dayCash` é `{index, kind}` — `.tj-eq-daydot.is-cash.is-out` dourado
+hover card `.tj-eq-card`. `markers` aceita payout (`out`), depósito (`in`) e balance adjustment
+(`adjustment`, neutral), com tooltip própria. `dayCash` é `{index, kind}` — `.tj-eq-daydot.is-cash.is-out` dourado
 (payout), `.is-in` verde (depósito), `.is-cost` neutro `--tj-fg-3` (correção de fees); o hover
 segue a mesma regra (`b.tj-cash` / `b.tj-pos` / `b.tj-cost`). Primitivas SVG em `ui.ts`: `svgLine`,
 `svgPath`, `pathFromPoints`, `renderAreaChart` (clip verde acima/vermelho abaixo),

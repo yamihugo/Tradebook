@@ -16,10 +16,10 @@ export interface SecondarySeries {
   dash?: boolean;
 }
 
-/** A dot pinned on the curve — used for deposits and payouts. */
+/** A dot pinned on the curve — used for deposits, payouts and balance adjustments. */
 export interface ChartMarker {
   index: number;
-  kind: "in" | "out";
+  kind: "in" | "out" | "adjustment";
   title: string;
 }
 
@@ -31,6 +31,8 @@ export interface LineChartOpts {
   key: string;
   format?: string;
   showDates?: boolean;
+  /** Compact sparkline mode: omit axis labels regardless of container size. */
+  compact?: boolean;
   animations?: boolean;
   secondary?: SecondarySeries[];
   /** Reference line (defaults to 0). The area is green above it, red below,
@@ -203,12 +205,12 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
   minV -= pad;
   maxV += pad;
 
-  const showY = h >= 84 && w >= 140;
-  const showX = opts.showDates !== false && h >= 74 && w >= 150 && values.length > 1;
-  const padL = showY ? 38 : 8;
-  const padR = 24;
-  const padT = 10;
-  const padB = showX ? 15 : 6;
+  const showY = !opts.compact && h >= 84 && w >= 140;
+  const showX = !opts.compact && opts.showDates !== false && h >= 74 && w >= 150 && values.length > 1;
+  const padL = opts.compact ? 2 : showY ? 38 : 8;
+  const padR = opts.compact ? 2 : 10;
+  const padT = opts.compact ? 2 : 10;
+  const padB = opts.compact ? 2 : showX ? 15 : 6;
   const plotW = Math.max(10, w - padL - padR);
   const topY = padT;
   const botY = h - padB;
@@ -476,11 +478,15 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     card.style.display = "block";
     const cw = card.offsetWidth || 132;
     const chh = card.offsetHeight || 92;
-    // Viewport coords — the card is body-level and position: fixed.
-    let left = rect.left + cx + 14;
-    if (left + cw > window.innerWidth - 6) left = rect.left + cx - cw - 14;
+    // Viewport coords — the card is body-level and position: fixed. Follow the
+    // pointer directly (not the data point) so it never lags the cursor, and
+    // flip near the edges so it always stays on screen.
+    let left = ev.clientX + 14;
+    if (left + cw > window.innerWidth - 6) left = ev.clientX - cw - 14;
     left = Math.max(4, Math.min(left, Math.max(4, window.innerWidth - cw - 4)));
-    const top = Math.max(4, Math.min(rect.top + cyy - chh / 2, Math.max(4, window.innerHeight - chh - 4)));
+    let top = ev.clientY - chh - 12;
+    if (top < 4) top = ev.clientY + 16;
+    top = Math.max(4, Math.min(top, Math.max(4, window.innerHeight - chh - 4)));
     card.style.left = `${left}px`;
     card.style.top = `${top}px`;
   });

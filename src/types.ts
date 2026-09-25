@@ -1,5 +1,21 @@
 export type AccountType = "demo" | "eval" | "funded" | "live" | "personal" | "unknown";
 
+/**
+ * How a canonical instant was pinned — the provenance written next to it.
+ *
+ * - `offset`: the source stamp named its own zone (`Z` / `±HH:MM`); no
+ *   interpretation was applied.
+ * - `source-zone`: a naive stamp read in `sourceZone`, after a DST check, where
+ *   that zone was **said to be the file's** — either declared by the export or
+ *   chosen as a named zone by the reader.
+ * - `system-zone`: a naive stamp read in *this computer's* zone (the "This
+ *   computer" import option). The instant is pinned and reproducible, but the
+ *   zone is a **choice of the reader**, not something the source told us — so it
+ *   is never written as if the platform had declared it.
+ * - `journal-zone`: a time the trader typed, read in the journal's zone.
+ */
+export type InstantSource = "offset" | "source-zone" | "system-zone" | "journal-zone";
+
 export interface FuturesSpec {
   pointValue: number; // dollar value of 1.0 point movement
   tickSize: number;
@@ -34,6 +50,8 @@ export interface Execution {
    * how a fill finds its real exchange, clearing, NFA and commission lines.
    */
   costKey?: string;
+  /** How this row's timestamp was pinned (see `InstantSource`). */
+  timestampSource?: InstantSource;
 }
 
 /**
@@ -47,6 +65,8 @@ export interface TradeFill {
   side: "buy" | "sell";
   /** Wall clock, as reported: `HH:MM:SS`. */
   time: string;
+  /** Canonical UTC instant of this fill, `…Z`. Present only when it was pinned. */
+  instant?: string;
   qty: number;
   price: number;
   /** Realised P&L of this exit, matched FIFO against the entries (gross, before fees). */
@@ -90,6 +110,8 @@ export interface Trade {
   target?: number;
   commission: number;
   fees: number;
+  /** Parsed frontmatter presence for fees. Runtime metadata only; never written. */
+  costCoverage?: { commission: boolean; fees: boolean };
   /** Gross result (points × pointValue × qty), before commission and fees.
    *  The net is derived, never stored: `pnl - commission - fees` (see `netPnl`). */
   pnl: number;
@@ -103,6 +125,16 @@ export interface Trade {
   /** IANA zone the recorded times are wall-clock in (frozen at import/entry).
    *  Older notes have none and fall back to the journal's zone. */
   timezone?: string;
+  // ---- canonical instants (see `lib/instant.ts`) ----
+  /** Canonical UTC instant of the entry, `YYYY-MM-DDTHH:MM:SS.sssZ`. Absent when
+   *  the note predates the contract or its wall clock could not be pinned. */
+  entryInstant?: string;
+  /** Canonical UTC instant of the exit, same form. */
+  exitInstant?: string;
+  /** Zone the *source* timestamps were written in — provenance, not a reader. */
+  sourceZone?: string;
+  /** How the instants above were pinned (`InstantSource`). */
+  instantSource?: InstantSource;
   /** Manual session classification (newyork|london|asia|off). Absent/empty = auto-detect from entry time. */
   sessionOverride?: string;
   setup: string;
@@ -162,9 +194,21 @@ export interface ParsedResult {
   unfilled: number;
   /** Fills recorded but never closed — an open or partial position. */
   unpaired: number;
+  /** Rows left out because their timestamp has no single instant (never guessed). */
+  timeIssues?: TimeIssues;
   accountsSeen: { name: string; type: AccountType }[];
   /** Present when the platform's cash history came with the file. */
   costs?: ImportCosts;
+}
+
+/** Counts of timestamps the reader refused to invent an instant for. */
+export interface TimeIssues {
+  /** The wall clock does not exist in the source zone (spring-forward gap). */
+  gap: number;
+  /** The wall clock exists twice in the source zone (fall-back replay). */
+  ambiguous: number;
+  /** Naive stamp with no source zone declared. */
+  noZone: number;
 }
 
 /**

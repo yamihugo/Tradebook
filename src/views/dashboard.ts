@@ -1,44 +1,62 @@
 import { ItemView, setIcon, TFile } from "obsidian";
 import type TradebookPlugin from "../main";
-import { Trade } from "../types";
+import { PropAccount, Trade } from "../types";
 import { accountFilters, attachTooltip, kpiCard, renderAppShell, svgLine, svgPath } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
-import { fmtMoney2, fmtMoneyCompact, isFiniteNumber, toZoneDate, toZoneTime } from "../tz";
+import { fmtMoney2, fmtMoneyAbs, fmtMoneyCompact, isFiniteNumber, todayKey, zoneWallParts } from "../tz";
 import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
+import { mountDropdown, type DropdownItem } from "../lib/dropdown";
 import { netPnl } from "../lib/fees";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import {
   clamp as gClamp,
   collides,
-  compactExcept,
   compactVertical,
   GAP,
   GRID_COLS,
   GridItem,
   gridRows,
+  layoutForColumns,
   moveItem as gridMove,
   placeNew,
-  reflow,
   resizeItem as gridResize,
   ROW_PX,
 } from "../lib/grid";
 import { PerformanceCalendarWidget } from "../widgets/performanceCalendarWidget";
+import { renderTradingScore } from "../widgets/tradingScoreWidget";
 import { METRIC_TITLES, metricById } from "../lib/metrics";
-import { analyticsTrades } from "../lib/scope";
+import { holdMinutesOf, tradeHourInZone } from "../lib/instant";
+import { accountResolver, accountScope, analyticsTrades, journalDayKey } from "../lib/scope";
+import { summarizeFinancials, FinancialScope, FinancialSummary } from "../lib/money";
 import { computeTrends, isBetter } from "../lib/trends";
-import { computeScore, SCORE_BAND_TOKEN } from "../lib/score";
-import { renderGauge, renderContinuousBar, renderStatusRow, renderTreemap } from "../lib/chartKit";
+import { computeScore, recentScoreWindow } from "../lib/score";
+import { computeRecordedAccountMovement, windowRecordedAccountMovement } from "../lib/accountMetrics";
+import { typeLabel, typeRank } from "../lib/accountTypes";
+import { renderTreemap } from "../lib/chartKit";
 import { dimensionTiles } from "../lib/breakdown";
-import { normalizeOrderType } from "../lib/tradeTable";
-import { mountDateField } from "../lib/dates";
-import { reviewSummary } from "../lib/review";
-import { computeProcessSignals, streakStats, streakState } from "../lib/process";
+import { normalizeOrderType, tradeRows } from "../lib/tradeTable";
+import { mountDateField, parseDateInput } from "../lib/dates";
+import { hasPrint, reviewStatus } from "../lib/review";
+import { streakStats, streakState } from "../lib/process";
 import { sessionLabel } from "../lib/sessions";
 import { openDayLogModal } from "./dayLogModal";
 import { killTip, guardTips, showTip, moveTip } from "../lib/tip";
 import { renderLineChart } from "../lib/lineChart";
 import { formatDate } from "../lib/dates";
+import {
+  dateInZone,
+  dateWithinPeriod,
+  isValidIsoDate,
+  PeriodBounds,
+  PeriodId,
+  periodAsOf,
+  periodDataBounds,
+  periodDayBounds,
+  previousPeriodBounds,
+  tradingDayAtJournalDateEnd,
+} from "../lib/periods";
+import { dateInComparison, periodComparison } from "../lib/periodComparisons";
 
 export const DASHBOARD_VIEW_TYPE = "tradebook-dashboard-view";
 
@@ -48,6 +66,35 @@ const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","N
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Monday-first order for the weekday widget. */
 const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const SCORE_PERIOD_LABELS: Record<string, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  thisweek: "This Week",
+  lastweek: "Last Week",
+  "1m": "This Month",
+  lastmonth: "Last Month",
+  thisquarter: "This Quarter",
+  lastquarter: "Last Quarter",
+  thisyear: "This Year",
+  lastyear: "Last Year",
+  all: "All Time",
+  custom: "Custom",
+};
+const BRIEFING_SHORTCUTS: Array<[PeriodId, string]> = [
+  ["thisweek", "This Week"],
+  ["lastweek", "Last Week"],
+  ["1m", "This Month"],
+  ["thisquarter", "This Quarter"],
+  ["thisyear", "This Year"],
+  ["all", "All Time"],
+];
+const BRIEFING_MORE_PERIODS: Array<[PeriodId, string]> = [
+  ["today", "Today"],
+  ["yesterday", "Yesterday"],
+  ["lastmonth", "Last Month"],
+  ["lastquarter", "Last Quarter"],
+  ["lastyear", "Last Year"],
+];
 
 /** "9am" / "2pm" from a 24-hour clock. */
 function fmtHourLabel(h: number): string {
@@ -56,10 +103,11 @@ function fmtHourLabel(h: number): string {
   return `${h12}${ampm}`;
 }
 
-/** Entry-time hour bucket (raw wall clock, "9".."23"), or "—" when there is no time. */
-function hourBlockOf(t: Trade): string {
-  const m = /^(\d{1,2}):/.exec(t.entryTime || "");
-  return m ? String(parseInt(m[1], 10)) : "—";
+/** Entry hour ("0".."23") in the Journal Timezone, read from the canonical
+ *  instant — or "—" when the entry has no readable hour. */
+function hourBlockOf(t: Trade, zone: string): string {
+  const h = tradeHourInZone(t, zone);
+  return h === null ? "—" : String(h);
 }
 
 /** Chronological order for raw hour keys. */
@@ -71,20 +119,42 @@ function hourOrder(label: string): number {
 export type DashItem = GridItem;
 
 export const CARD_TITLES: Record<string, string> = {
-  equity: "Cumulative P&L",
-  longpnl: "Long P&L",
-  shortpnl: "Short P&L",
-  calendar: "Performance Calendar",
-  heatmap: "Last 6 Months",
+  equity: "Recorded Account Value",
+  netpnl: "Cumulative Net Trading P&L",
+  longpnl: "Long Net P&L",
+  shortpnl: "Short Net P&L",
+  calendar: "Calendar",
+  heatmap: "Trading Activity",
   breakdown: "Breakdown",
   streaks: "Streaks",
   score: "Trading Score & Radar",
-  discipline: "Discipline",
+  discipline: "Review",
+  focus: "Focus Areas",
+  accounts: "Accounts",
   trends: "Trends",
   payouts: "Payouts",
+  holdtime: "Avg Hold",
   // One widget per metric (the old combined "Key Stats" strip is gone).
   ...METRIC_TITLES,
 };
+
+/**
+ * Home's curated Add widget list, in reading order: the headline numbers first,
+ * then momentum, then time/activity, then accounts and cash, then the review
+ * detail. Existing saved Home widgets remain valid whatever their order.
+ */
+const HOME_WIDGET_MENU = [
+  // Headline
+  "m.netpnl", "m.winrate", "m.profitfactor",
+  // Momentum
+  "score", "streaks", "holdtime",
+  // Activity over time
+  "calendar", "heatmap",
+  // Accounts and cash
+  "accounts", "payouts",
+  // Review detail
+  "focus", "breakdown",
+];
 
 /**
  * Deprecated widget ids → their canonical replacement. Rewritten on load so a
@@ -104,58 +174,65 @@ export const WIDGET_ID_ALIASES: Record<string, string> = {
   session: "breakdown",
 };
 
-/** Home — the designed eight-tile narrative. */
+/** Home — the curated journal-home narrative. */
 export const HOME_DEFAULT: GridItem[] = [
-  { i: "calendar", x: 0, y: 0, w: 24, h: 6 },
-  { i: "heatmap", x: 0, y: 6, w: 12, h: 6 },
-  { i: "score", x: 12, y: 6, w: 12, h: 7 },
-  { i: "breakdown", x: 0, y: 13, w: 12, h: 6 },
-  { i: "discipline", x: 12, y: 13, w: 12, h: 5 },
-  { i: "payouts", x: 0, y: 19, w: 24, h: 4 },
+  { i: "m.netpnl", x: 0, y: 0, w: 8, h: 3 },
+  { i: "m.winrate", x: 8, y: 0, w: 8, h: 3 },
+  { i: "m.profitfactor", x: 16, y: 0, w: 8, h: 3 },
+  { i: "focus", x: 0, y: 3, w: 12, h: 4 },
+  { i: "accounts", x: 12, y: 3, w: 12, h: 4 },
+  { i: "heatmap", x: 0, y: 7, w: 12, h: 5 },
+  { i: "score", x: 12, y: 7, w: 12, h: 5 },
+  { i: "breakdown", x: 0, y: 12, w: 24, h: 4 },
+  { i: "streaks", x: 0, y: 16, w: 24, h: 4 },
 ];
-
-/** Metric widgets the archive seeds, in reading order. */
-const DASHBOARD_METRIC_IDS = [
-  "m.netpnl", "m.winrate", "m.trades", "m.maxdd", "m.profitfactor", "m.sharpe",
-  "m.expectancy", "m.bestday", "m.worstday", "m.largestwin", "m.largestloss",
-  "m.winstreak", "m.lossstreak", "m.wintrades", "m.losstrades", "m.avgwin",
-  "m.avgloss", "m.avgrr", "m.holdtime", "m.winhold", "m.losshold",
-];
-
-/** Dashboard — the rich archive: charts, breakdowns and every metric. */
-export const DASHBOARD_DEFAULT: GridItem[] = (() => {
-  const tiles: GridItem[] = [
-    { i: "longpnl", x: 0, y: 0, w: 8, h: 6 },
-    { i: "shortpnl", x: 8, y: 0, w: 8, h: 6 },
-    { i: "score", x: 16, y: 0, w: 8, h: 6 },
-    { i: "heatmap", x: 0, y: 6, w: 24, h: 4 },
-    { i: "breakdown", x: 0, y: 10, w: 24, h: 6 },
-    { i: "streaks", x: 0, y: 16, w: 24, h: 4 },
-  ];
-  const perRow = 6;
-  DASHBOARD_METRIC_IDS.forEach((id, idx) => {
-    tiles.push({ i: id, x: (idx % perRow) * 4, y: 20 + Math.floor(idx / perRow) * 2, w: 4, h: 2 });
-  });
-  return tiles;
-})();
-
-const NEW_W: Record<string, number> = { equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, breakdown: 12, streaks: 12, discipline: 12, heatmap: 10, trends: 8, payouts: 6 };
-const NEW_H: Record<string, number> = { equity: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, breakdown: 6, streaks: 4, discipline: 4, heatmap: 5, trends: 4, payouts: 3 };
 
 /**
- * Minimum tile size per widget: the engine refuses to draw a smaller box, so
- * fixed content can never be clipped by an undersized card.
- * Canonical widths on the 24-col grid: w8 third · w12 half · w16 two-thirds · w24 full.
+ * Analytics — a concise analysis sequence: period result, Net evolution,
+ * Breakdown, then complementary views. Every other widget and metric remains
+ * available from the Add widget catalogue; saved layouts are never seeded from
+ * this default once the user has chosen a layout.
+ */
+export const DASHBOARD_DEFAULT: GridItem[] = [
+  // Period result: per-decision Net, win classification, Net PF and sample size.
+  { i: "m.expectancy", x: 0, y: 0, w: 6, h: 2 },
+  { i: "m.winrate", x: 6, y: 0, w: 6, h: 2 },
+  { i: "m.profitfactor", x: 12, y: 0, w: 6, h: 2 },
+  { i: "m.trades", x: 18, y: 0, w: 6, h: 2 },
+
+  // Net evolution and the selected period's categorical breakdown.
+  { i: "equity", x: 0, y: 2, w: 24, h: 6 },
+  { i: "breakdown", x: 0, y: 8, w: 24, h: 7 },
+
+  // Deeper analysis follows the primary result and breakdown.
+  { i: "trends", x: 0, y: 15, w: 12, h: 5 },
+  { i: "score", x: 12, y: 15, w: 12, h: 7 },
+  { i: "heatmap", x: 0, y: 22, w: 12, h: 5 },
+  { i: "calendar", x: 12, y: 22, w: 12, h: 7 },
+  { i: "discipline", x: 0, y: 29, w: 12, h: 4 },
+  { i: "streaks", x: 12, y: 29, w: 12, h: 4 },
+];
+
+const NEW_W: Record<string, number> = { equity: 12, netpnl: 12, longpnl: 8, shortpnl: 8, calendar: 12, score: 12, breakdown: 12, streaks: 12, discipline: 12, focus: 12, accounts: 12, heatmap: 10, trends: 8, payouts: 6, holdtime: 6, "m.netpnl": 8, "m.winrate": 8, "m.profitfactor": 8 };
+const NEW_H: Record<string, number> = { equity: 6, netpnl: 6, longpnl: 6, shortpnl: 6, calendar: 6, score: 6, breakdown: 4, streaks: 4, discipline: 4, focus: 4, accounts: 4, heatmap: 5, trends: 4, payouts: 3, holdtime: 3, "m.netpnl": 3, "m.winrate": 3, "m.profitfactor": 3 };
+
+/**
+ * Minimum tile size per widget: the resize floor, kept only as large as the
+ * widget's content genuinely needs so a card can be taken down to a compact
+ * size. Journalit's grid items carry no floor at all (minW/minH = 1) and let
+ * the content adapt; these floors are the smallest *usable* box instead, so a
+ * widget never has to be clipped to hit its own minimum.
+ * Canonical widths on the 24-col grid: w4 sixth · w6 quarter · w8 third · w12 half · w24 full.
  */
 const MIN_W: Record<string, number> = {
-  equity: 12, longpnl: 8, shortpnl: 8, calendar: 12, heatmap: 8,
-  breakdown: 6, streaks: 8, score: 6,
-  discipline: 8, trends: 8, payouts: 12,
+  equity: 4, netpnl: 4, longpnl: 4, shortpnl: 4, calendar: 6, heatmap: 6,
+  breakdown: 4, streaks: 4, score: 4,
+  discipline: 4, focus: 6, accounts: 6, trends: 4, payouts: 4,
 };
 const MIN_H: Record<string, number> = {
-  equity: 3, longpnl: 3, shortpnl: 3, calendar: 5, heatmap: 5,
+  equity: 3, netpnl: 3, longpnl: 3, shortpnl: 3, calendar: 4, heatmap: 3,
   breakdown: 3, streaks: 2, score: 4,
-  discipline: 3, trends: 3, payouts: 2,
+  discipline: 3, focus: 3, accounts: 3, trends: 3, payouts: 2,
 };
 /** Min size for a widget id (metrics and unknown ids fall back to 1×1). */
 const minOf = (id: string): { w: number; h: number } => ({ w: MIN_W[id] ?? 1, h: MIN_H[id] ?? 1 });
@@ -170,6 +247,59 @@ function parseMetricNumber(s: string): number | null {
   if (!/^[+\-]?\$?[\d,]+(\.\d+)?%?$/.test(t)) return null;
   const n = parseFloat(t.replace(/[$,%]/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+const PERCENT_DELTA_METRICS = new Set(["m.winrate"]);
+const COUNT_DELTA_METRICS = new Set([
+  "m.trades", "m.wintrades", "m.losstrades", "m.winstreak", "m.lossstreak",
+]);
+const RATIO_DELTA_METRICS = new Set(["m.profitfactor", "m.grossprofitfactor", "m.avgrr", "m.sharpe"]);
+const DURATION_DELTA_METRICS = new Set(["m.holdtime", "m.winhold", "m.losshold"]);
+
+function parseMetricDuration(value: string): number | null {
+  const pattern = /(\d+(?:\.\d+)?)\s*(h|m|s)/g;
+  let totalMinutes = 0;
+  let consumed = "";
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(value))) {
+    consumed += match[0];
+    const amount = Number(match[1]);
+    totalMinutes += match[2] === "h" ? amount * 60 : match[2] === "s" ? amount / 60 : amount;
+  }
+  return consumed && value.replace(/\s/g, "") === consumed.replace(/\s/g, "") && Number.isFinite(totalMinutes)
+    ? totalMinutes
+    : null;
+}
+
+function comparisonMetricNumber(id: string, value: string): number | null {
+  return DURATION_DELTA_METRICS.has(id) ? parseMetricDuration(value) : parseMetricNumber(value);
+}
+
+function formatDurationDelta(minutes: number): string {
+  const seconds = Math.round(Math.abs(minutes) * 60);
+  const hours = Math.floor(seconds / 3600);
+  const remainingMinutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  const parts = [
+    ...(hours ? [`${hours}h`] : []),
+    ...(remainingMinutes ? [`${remainingMinutes}m`] : []),
+    ...(!hours && !remainingMinutes || remainingSeconds ? [`${remainingSeconds}s`] : []),
+  ];
+  return `${minutes > 0 ? "+" : minutes < 0 ? "−" : ""}${parts.join(" ")}`;
+}
+
+function formatMetricDelta(id: string, delta: number): string {
+  const arrow = delta > 0 ? "\u2191" : delta < 0 ? "\u2193" : "=";
+  if (MONEY_DELTA_METRICS.has(id)) return `${arrow} ${fmtMoney2(delta)}`;
+  const sign = delta > 0 ? "+" : delta < 0 ? "\u2212" : "";
+  if (PERCENT_DELTA_METRICS.has(id)) return `${arrow} ${sign}${Math.abs(delta).toFixed(1)} pp`;
+  if (COUNT_DELTA_METRICS.has(id)) {
+    const count = Math.round(Math.abs(delta));
+    return `${arrow} ${sign}${count} ${count === 1 ? "trade" : "trades"}`;
+  }
+  if (RATIO_DELTA_METRICS.has(id)) return `${arrow} ${sign}${Math.abs(delta).toFixed(2)}`;
+  if (DURATION_DELTA_METRICS.has(id)) return `${arrow} ${formatDurationDelta(delta)}`;
+  return `${arrow} ${sign}${Math.abs(delta).toFixed(2)}`;
 }
 
 /** Build a formatter that mirrors the target string's style. */
@@ -201,15 +331,12 @@ function metricFormatter(target: string): (v: number) => string {
 const COLORED_METRICS = new Set(["m.netpnl", "m.maxdd"]);
 
 /**
- * Per-trade statistics: a copied trade reached several accounts, but it is one
- * trade — so these dedupe by copyBaseKey and never count (or average) it twice.
- * Everything else (P&L, drawdown, best/worst day) is money and sums every leg.
+ * Metrics whose `compute` still reads the trade list handed to it (streaks,
+ * hold-time splits, per-trade Sharpe). The financial metrics — Net P&L, Closed
+ * trades, Win Rate, PF, Avg Net Result — read the shared FinancialSummary
+ * instead and never depend on the copy-count preference.
  */
 const PER_TRADE_METRICS = new Set([
-  "m.trades",
-  "m.winrate",
-  "m.wintrades",
-  "m.losstrades",
   "m.winstreak",
   "m.lossstreak",
   "m.avgwin",
@@ -226,21 +353,27 @@ const COMPARE_METRICS = new Set([
   "m.netpnl", "m.expectancy", "m.maxdd", "m.bestday", "m.worstday",
   "m.largestwin", "m.largestloss", "m.avgwin", "m.avgloss",
 ]);
-
-/** Calm, human header lines. Rotated on a timer — never on a re-render/click. */
-const GREETING_LINES = [
-  "Let's take it one trade at a time.",
-  "No rush — the setup will come to you.",
-  "Keep the risk small and the plan simple.",
-  "Focus on the process; the results follow.",
-  "Protect the capital first.",
-  "A clean review is worth more than a green day.",
-  "Trade the plan, not the feeling.",
-  "Steady hands today.",
-];
+const MONEY_DELTA_METRICS = new Set([
+  "m.netpnl", "m.expectancy", "m.maxdd", "m.bestday", "m.worstday",
+  "m.largestwin", "m.largestloss", "m.avgwin", "m.avgloss",
+]);
 
 // Used when the container width is unknown (e.g. jsdom harness).
 const DESIGN_W = 1200;
+
+interface HomeAccountSnapshot {
+  account: PropAccount;
+  balance: number;
+  days: Array<{ date: string; change: number; cumulative: number }>;
+}
+
+interface HomeAccountMovement {
+  accounts: HomeAccountSnapshot[];
+  trades: Trade[];
+  capital: number;
+  change: number;
+  days: Array<{ date: string; change: number; cumulative: number }>;
+}
 
 /**
  * Shared grid engine behind Home and Dashboard.
@@ -265,19 +398,29 @@ export class WidgetGridView extends ItemView {
   editMode = false;
   filtersOpen = false;
   widgetMenuOpen = false;
-  private headerTimer: number | null = null;
-  private msgEl: HTMLElement | null = null;
-  private msgStart = Date.now();
-  private msgBase = -1;
+  periodMenuOpen = false;
+  customPickerOpen = false;
+  customDraftFrom = "";
+  customDraftTo = "";
+  periodValidation = "";
   // Auto-adjust engine: re-render each widget body when its size changes so
   // content always fits (no scrollbars, no clipped charts).
   private bodyObserver: ResizeObserver | null = null;
   private bodyRenderers = new Map<HTMLElement, () => void>();
   private _resizeRaf = 0;
   private _pendingResize = new Set<HTMLElement>();
-  /** True while a card drag/resize is in progress: the ResizeObserver must not
-   *  re-draw widget bodies on every pointer move (commit re-draws once). */
+  /** Bodies whose first draw already ran (so a resize may redraw them). */
+  private _drawnBodies = new WeakSet<HTMLElement>();
+  /** Off-screen widget draws, filled in on idle instead of blocking the frame. */
+  private _idleQueue: Array<() => void> = [];
+  private _idleScheduled = false;
+  /** True while a card drag/resize is in progress. The ResizeObserver still
+   *  toggles the CSS size classes live, but JS-driven body re-draws are settled
+   *  by `scheduleBodyRedraw` for the card being resized. */
   _interacting = false;
+  /** rAF handle + last size for the live re-draw of the resized widget body. */
+  private _bodyRedrawRaf = 0;
+  private _lastBodyDims = new WeakMap<HTMLElement, string>();
   // Re-render the whole grid when the pane/window width changes (keeps columns
   // and card sizes in sync instead of drifting until you enter Edit).
   private _resizeTimer = 0;
@@ -294,7 +437,15 @@ export class WidgetGridView extends ItemView {
   /** Suppresses observer redraws while the intro animations play. */
   private _introUntil = 0;
   private _radarAnimated = false;
-  private _reviewPct = -1;
+  private calendarMonth = "";
+  private calendarManual = false;
+  /** Chosen once per view instance, so the note changes on reload, not on re-render. */
+  private greetingNoteText: string | null = null;
+  /** Home's recorded-value widgets share one Accounts-contract calculation per render. */
+  private _homeAccountMovement: HomeAccountMovement | null = null;
+  /** Grid in the coordinates currently shown to the user. */
+  private _visibleLayout: GridItem[] | null = null;
+  private _visibleCols = GRID_COLS;
   private headerEl: HTMLElement | null = null;
   private _onWinResize = () => {
     if (this._resizeTimer) window.clearTimeout(this._resizeTimer);
@@ -344,6 +495,36 @@ export class WidgetGridView extends ItemView {
     this.plugin.settings.dashboardLayout = layout;
   }
 
+  private storedGridCols(): number {
+    if (this.viewKey() === "home") return this.plugin.settings.homeGridCols || GRID_COLS;
+    return this.plugin.settings.dashboardGridCols || GRID_COLS;
+  }
+
+  private setStoredGridCols(cols: number): void {
+    if (this.viewKey() === "home") this.plugin.settings.homeGridCols = cols;
+    else this.plugin.settings.dashboardGridCols = cols;
+  }
+
+  private storedLayout(): GridItem[] {
+    this.ensureLayout();
+    return (this.layout() ?? this.defaultLayout()).map((item) => ({ ...item }));
+  }
+
+  private layoutForViewport(layout: GridItem[], fromCols: number, toCols: number): GridItem[] {
+    return layoutForColumns(layout, fromCols, toCols, (id) => this.minSize(id));
+  }
+
+  private setWorkingLayout(layout: GridItem[]): void {
+    this._visibleLayout = layout.map((item) => ({ ...item }));
+    this._visibleCols = this.activeCols;
+  }
+
+  private commitLayout(layout: GridItem[]): void {
+    this.setLayout(layout.map((item) => ({ ...item })));
+    this.setStoredGridCols(this.activeCols);
+    this.setWorkingLayout(layout);
+  }
+
   /** The seed used only when no layout was ever saved (undefined, not []). */
   defaultLayout(): GridItem[] {
     return DASHBOARD_DEFAULT;
@@ -360,23 +541,128 @@ export class WidgetGridView extends ItemView {
   }
 
   async onOpen(): Promise<void> {
+    if (this.viewKey() === "home") {
+      const state = this.plugin.briefingPeriodState;
+      this.dateRange = state.period === "custom" && (!isValidIsoDate(state.customFrom) || !isValidIsoDate(state.customTo) || state.customFrom > state.customTo)
+        ? "all"
+        : state.period || "all";
+      this.customFrom = state.customFrom || "";
+      this.customTo = state.customTo || "";
+      this.calendarMonth = state.calendarMonth || "";
+      this.calendarManual = state.calendarManual === true;
+    }
     window.addEventListener("resize", this._onWinResize);
     await this.refresh();
   }
 
   async refresh(): Promise<void> {
-    // Expanded: copied trades are real money in every account they reached. The
-    // per-trade widgets dedupe them again (see PER_TRADE_METRICS) so a copy is
-    // never both counted twice and dropped. Archived accounts are out of every
+    // Expanded: copied trades are real money in every account they reached.
+    // Financial decision metrics group the in-scope legs separately. Archived accounts are out of every
     // Home number — their notes live in the Trade Log, not in the balance.
     const all = await this.plugin.loadTradesExpanded();
     this.trades = all.filter((t) => !this.plugin.isArchivedTrade(t));
     this.render();
   }
 
+  /**
+   * Memo tables. `base`/`filtered` are keyed on the filter signature and tied
+   * to the current `trades` array, so they can never serve a stale list even
+   * when the state changes without a full render. The `WeakMap`s are keyed by
+   * the list reference and reset on every render.
+   */
+  private _cacheTrades: Trade[] | null = null;
+  private _baseCache = new Map<string, Trade[]>();
+  private _filteredCache = new Map<string, Trade[]>();
+  private _countCache = new WeakMap<Trade[], Trade[]>();
+  private _finCache = new WeakMap<Trade[], FinancialSummary>();
+
+  private ensureTradeCache(): void {
+    if (this._cacheTrades === this.trades) return;
+    this._cacheTrades = this.trades;
+    this._baseCache.clear();
+    this._filteredCache.clear();
+  }
+
   /** The list per-trade widgets use: one entry per logical trade. */
   countsList(list: Trade[]): Trade[] {
-    return analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
+    const cached = this._countCache.get(list);
+    if (cached) return cached;
+    const counts = analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
+    this._countCache.set(list, counts);
+    return counts;
+  }
+
+  /**
+   * The explicit scoped financial population. This is the ONE source every
+   * headline number reads — Net P&L, Closed trades, Win Rate, Net PF, Avg Net
+   * Result and the cumulative curve — so they can never disagree on scope,
+   * eligibility or classification. Monetary aggregation ignores the copy-count
+   * preference: legs are summed into decisions, then classified by Net sign.
+   */
+  private financialsFor(list: Trade[], dayKey?: (trade: Trade) => string): FinancialSummary {
+    // The default day key (journal zone) is by far the common case, and the
+    // same list is summarized by several widgets in one render — memoize it.
+    if (!dayKey) {
+      const cached = this._finCache.get(list);
+      if (cached) return cached;
+    }
+    const summary = summarizeFinancials(list, {
+      scope: this.accountScopeFor(list),
+      dayKey: dayKey ?? ((trade: Trade) => this.scoreDayKey(trade)),
+    });
+    if (!dayKey) this._finCache.set(list, summary);
+    return summary;
+  }
+
+  /**
+   * Who is in: one resolver (mapped id, else name match, else a stable
+   * unmapped key), the portfolio demo rule, and archived accounts out — the
+   * same population the Accounts overview and the recorded-value widgets use.
+   */
+  private accountScopeFor(list: Trade[]): FinancialScope {
+    return accountScope(list, {
+      resolve: accountResolver({
+        accounts: this.plugin.settings.propAccounts ?? [],
+        mappedAccount: (label) => this.plugin.mappedAccount(label),
+      }),
+      excludeDemos: this.plugin.settings.excludeDemosFromPortfolio !== false,
+      // A chosen account or account type is the trader asking for that
+      // population: a selected demo account stays in on purpose.
+      explicitAccountScope: !!this.accountId || this.filter !== "all",
+      selectedAccountId: this.accountId,
+      isArchived: (trade) => this.plugin.isArchivedTrade(trade),
+    });
+  }
+
+  private persistBriefingPeriod(): void {
+    if (this.viewKey() !== "home") return;
+    this.plugin.briefingPeriodState = {
+      period: this.dateRange as PeriodId,
+      customFrom: this.customFrom,
+      customTo: this.customTo,
+      calendarMonth: this.calendarMonth,
+      calendarManual: this.calendarManual,
+    };
+  }
+
+  private selectBriefingPeriod(period: PeriodId, from = this.customFrom, to = this.customTo): void {
+    const changed = this.dateRange !== period || (period === "custom" && (from !== this.customFrom || to !== this.customTo));
+    this.dateRange = period;
+    if (period === "custom") {
+      this.customFrom = from;
+      this.customTo = to;
+    }
+    if (changed) {
+      // A period change is relevant to Calendar's reference month. Other
+      // refreshes/resizes preserve the trader's manual month navigation.
+      this.calendarManual = false;
+      this.calendarMonth = "";
+    }
+    this.periodMenuOpen = false;
+    this.customPickerOpen = false;
+    this.periodValidation = "";
+    this.persistBriefingPeriod();
+    this.render();
   }
 
   accountMatches(t: Trade, acc: { id: string; name: string }): boolean {
@@ -387,6 +673,10 @@ export class WidgetGridView extends ItemView {
 
   /** Trades filtered by account / account-type (no date range). */
   baseTrades(): Trade[] {
+    this.ensureTradeCache();
+    const cacheKey = `${this.accountId ?? ""}|${this.filter}`;
+    const hit = this._baseCache.get(cacheKey);
+    if (hit) return hit;
     let list = this.trades.filter((t) => isFiniteNumber(t.pnl) && t.date);
     if (this.accountId) {
       const acc = this.plugin.settings.propAccounts.find((a) => a.id === this.accountId);
@@ -408,62 +698,287 @@ export class WidgetGridView extends ItemView {
         });
       }
     }
+    this._baseCache.set(cacheKey, list);
     return list;
   }
 
+  /** Shared inclusive journal-date bounds for period-filtered historical data. */
+  private rangeBounds() {
+    return periodDataBounds(
+      this.dateRange as PeriodId,
+      dateInZone(this.plugin.settings.timeZone),
+      this.customFrom,
+      this.customTo,
+    );
+  }
+
+  /** Home and Analytics use identical period bounds. */
+  private briefingBounds() {
+    return this.rangeBounds();
+  }
+
+  /** Journal-date reference for independent windows. All Time means today. */
+  private briefingAsOf(): string {
+    return periodAsOf(
+      this.dateRange as PeriodId,
+      dateInZone(this.plugin.settings.timeZone),
+      this.customFrom,
+      this.customTo,
+    );
+  }
+
+  /** The same journal-date boundary expressed as the Calendar/Score trading day. */
+  private briefingTradingAsOf(): string {
+    return tradingDayAtJournalDateEnd(this.briefingAsOf(), this.plugin.settings.timeZone);
+  }
+
   filteredTrades(): Trade[] {
-    let list = this.baseTrades();
-    const now = new Date();
-    if (this.dateRange !== "all") {
-      let start: Date | null = null;
-      let end: Date | null = null;
-      const parseDay = (s: string): Date => new Date(s + "T00:00:00");
-      if (this.dateRange === "today") {
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        end = start;
-      } else if (this.dateRange === "yesterday") {
-        const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        start = y;
-        end = y;
-      } else if (this.dateRange === "thisweek") {
-        const day = now.getDay() || 7; // Mon=1..Sun=7
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1);
-      } else if (this.dateRange === "lastweek") {
-        const day = now.getDay() || 7;
-        const thisMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1);
-        start = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 7);
-        end = new Date(thisMonday.getFullYear(), thisMonday.getMonth(), thisMonday.getDate() - 1);
-      } else if (this.dateRange === "1m") {
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
-      } else if (this.dateRange === "thisquarter") {
-        start = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      } else if (this.dateRange === "thisyear") {
-        start = new Date(now.getFullYear(), 0, 1);
-      } else if (this.dateRange === "custom") {
-        if (this.customFrom) start = parseDay(this.customFrom);
-        if (this.customTo) end = parseDay(this.customTo);
-      }
-      if (start) list = list.filter((t) => new Date(t.date + "T00:00:00") >= start);
-      if (end) list = list.filter((t) => new Date(t.date + "T00:00:00") <= end);
+    this.ensureTradeCache();
+    const cacheKey = `${this.accountId ?? ""}|${this.filter}|${this.dateRange}|${this.customFrom}|${this.customTo}|${this.plugin.settings.timeZone}`;
+    const hit = this._filteredCache.get(cacheKey);
+    if (hit) return hit;
+    const bounds = this.rangeBounds();
+    if (!bounds) {
+      this._filteredCache.set(cacheKey, []);
+      return [];
     }
-    return [...list].sort((a, b) => a.date.localeCompare(b.date));
+    // Period membership is judged on the SAME day key the buckets use, so a
+    // trade can never be counted inside a period and plotted on another day.
+    const dayBounds = periodDayBounds(bounds, this.plugin.settings.timeZone);
+    const list = this.baseTrades()
+      .filter((trade) => dateWithinPeriod(this.scoreDayKey(trade), dayBounds))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    this._filteredCache.set(cacheKey, list);
+    return list;
+  }
+
+  /** The selected journal-calendar window's as-of date, capped at today. */
+  private asOfKey(): string {
+    return periodAsOf(
+      this.dateRange as PeriodId,
+      dateInZone(this.plugin.settings.timeZone),
+      this.customFrom,
+      this.customTo,
+    );
+  }
+
+  /** Cached `journalDayKey` for the journal's zone — one day convention. */
+  private _dayKeyZone: string | null = null;
+  private _dayKey: (trade: Trade) => string = journalDayKey("");
+
+  /** What a day is, shared with period filtering (lib/scope.ts). */
+  private scoreDayKey(t: Trade): string {
+    const zone = this.plugin.settings.timeZone;
+    if (zone !== this._dayKeyZone) {
+      this._dayKeyZone = zone;
+      this._dayKey = journalDayKey(zone);
+    }
+    return this._dayKey(t);
+  }
+
+  private scoreAccountLabel(): string {
+    if (this.accountId) {
+      return this.plugin.settings.propAccounts.find((a) => a.id === this.accountId)?.name ?? "Selected account";
+    }
+    if (this.filter === "all") return "All accounts";
+    return accountFilters().find((item) => item.id === this.filter)?.label ?? "All accounts";
+  }
+
+  /** Period change in the journal-recorded value of the selected accounts. */
+  private remainingAccountPnl(): number {
+    const accounts = this.plugin.settings.propAccounts ?? [];
+    const included = accounts.filter((account) => {
+      if (this.accountId) return account.id === this.accountId;
+      if (this.filter === "live") return account.type === "live" || account.type === "personal";
+      if (this.filter !== "all") return account.type === this.filter;
+      return this.plugin.settings.excludeDemosFromPortfolio === false || account.type !== "demo";
+    });
+    const bounds = this.rangeBounds();
+    const asOf = this.asOfKey();
+    const inPeriod = (date: string): boolean =>
+      !!date && !!bounds && dateWithinPeriod(date, bounds) && date <= asOf;
+
+    let remaining = 0;
+    const accountIds = new Set(included.map((account) => account.id));
+    for (const account of included) {
+      for (const trade of this.trades) {
+        if (!this.accountMatches(trade, account)) continue;
+        if (account.createdAt && trade.date < account.createdAt) continue;
+        if (inPeriod(trade.date)) remaining += netPnl(trade);
+      }
+    }
+    for (const payout of this.plugin.settings.payouts ?? []) {
+      if (accountIds.has(payout.accountId) && inPeriod(payout.date)) remaining -= Math.abs(payout.amount);
+    }
+    for (const deposit of this.plugin.settings.deposits ?? []) {
+      if (accountIds.has(deposit.accountId) && inPeriod(deposit.date)) remaining += Math.abs(deposit.amount);
+    }
+    for (const adjustment of this.plugin.settings.feeAdjustments ?? []) {
+      if (accountIds.has(adjustment.accountId) && inPeriod(adjustment.date) && Number.isFinite(adjustment.amount)) {
+        remaining += adjustment.amount;
+      }
+    }
+    return remaining;
+  }
+
+  private selectedPeriodLabel(): string {
+    if (this.dateRange === "all") return "All Time";
+    if (this.dateRange === "custom" && this.customFrom && this.customTo) {
+      return `${formatDate(this.customFrom, this.plugin.settings.dateFormat)}–${formatDate(this.customTo, this.plugin.settings.dateFormat)}`;
+    }
+    return SCORE_PERIOD_LABELS[this.dateRange] ?? "Selected period";
+  }
+
+  /** Accounts overview population for Home's recorded-value widgets. */
+  private homeAccounts(): PropAccount[] {
+    const all = this.plugin.settings.propAccounts ?? [];
+    if (this.accountId) return all.filter((account) => account.id === this.accountId);
+    if (this.filter === "live") return all.filter((account) => account.type === "live" || account.type === "personal");
+    if (this.filter !== "all") return all.filter((account) => account.type === this.filter);
+    return this.plugin.settings.excludeDemosFromPortfolio === false
+      ? all
+      : all.filter((account) => account.type !== "demo");
+  }
+
+  /**
+   * The Accounts overview's contract: recorded balance less configured capital.
+   * This is all-time, and includes Net trades, payouts, deposits and signed
+   * account adjustments. Keep its daily series from the same shared calculation
+   * so the Home sparkline ends at the displayed value.
+   */
+  private homeAccountMovement(): HomeAccountMovement {
+    if (this._homeAccountMovement) return this._homeAccountMovement;
+    const accountTrades: Trade[] = [];
+    const snapshots: HomeAccountSnapshot[] = [];
+    const movementByDay = new Map<string, number>();
+    let capital = 0;
+
+    for (const account of this.homeAccounts()) {
+      const trades = this.trades.filter((trade) => {
+        if (!this.accountMatches(trade, account)) return false;
+        return !account.createdAt || trade.date >= account.createdAt;
+      });
+      const movement = computeRecordedAccountMovement({
+        trades,
+        size: account.size || 0,
+        dayKey: (trade) => this.scoreDayKey(trade),
+        cashflows: [
+          ...this.plugin.payoutsFor(account.id).map((payout) => ({ date: payout.date, amount: -Math.abs(payout.amount) })),
+          ...this.plugin.depositsFor(account.id).map((deposit) => ({ date: deposit.date, amount: Math.abs(deposit.amount) })),
+          ...this.plugin.feeAdjustmentsFor(account.id).map((adjustment) => ({ date: adjustment.date, amount: adjustment.amount })),
+        ],
+      });
+      capital += account.size || 0;
+      accountTrades.push(...trades);
+      snapshots.push({ account, balance: movement.balance, days: movement.days });
+      for (const day of movement.days) {
+        movementByDay.set(day.date, (movementByDay.get(day.date) ?? 0) + day.change);
+      }
+    }
+
+    let cumulative = 0;
+    const days = [...movementByDay.keys()].sort().map((date) => {
+      const change = movementByDay.get(date) ?? 0;
+      cumulative += change;
+      return { date, change, cumulative };
+    });
+    this._homeAccountMovement = {
+      accounts: snapshots,
+      trades: accountTrades,
+      capital,
+      change: cumulative,
+      days,
+    };
+    return this._homeAccountMovement;
+  }
+
+  private calendarInitialMonth(asOf: string, isHome: boolean): string | undefined {
+    if (!isHome) return undefined;
+    if (this.calendarManual && this.calendarMonth) return this.calendarMonth;
+    const tradingDate = this.briefingTradingAsOf() || asOf;
+    return `${tradingDate.slice(0, 7)}-01`;
+  }
+
+  private rememberCalendarMonth(monthKey: string): void {
+    if (this.viewKey() !== "home") return;
+    this.calendarMonth = monthKey;
+    this.calendarManual = true;
+    this.persistBriefingPeriod();
+  }
+
+  /**
+   * The Trading Score sample: the latest 30 decisions up to the as-of date.
+   * Used on BOTH pages, so the score is the same rolling metric everywhere
+   * instead of being the period on one page and the recent window on the other.
+   */
+  private recentScoreInput(): { trades: Trade[]; label: string } {
+    const isHome = this.viewKey() === "home";
+    const today = todayKey(this.plugin.settings.timeZone);
+    // Home follows the selected period and account scope; Analytics keeps the
+    // selected period too. Both cap the sample at the latest 30 decisions.
+    const source = isHome ? this.filteredTrades() : this.baseTrades();
+    const recent = recentScoreWindow(source, {
+      period: this.viewKey() === "home" ? "custom" : this.dateRange,
+      customTo: this.customTo,
+      today,
+      asOf: isHome ? this.briefingTradingAsOf() : undefined,
+      dayKey: (t) => this.scoreDayKey(t),
+    });
+    const decisions = recent.trades.length;
+    const scope = isHome ? this.selectedPeriodLabel() : `through ${formatDate(recent.asOf, "D MMM YYYY")}`;
+    return {
+      trades: recent.trades,
+      label: `${decisions} trade${decisions === 1 ? "" : "s"} · ${scope} · ${this.scoreAccountLabel()}`,
+    };
   }
 
   /** Trades from the previous window of the same length (for "vs prev" deltas). */
   previousPeriodTrades(): Trade[] {
-    if (this.dateRange === "all") return [];
-    const cur = this.filteredTrades();
-    if (!cur.length) return [];
-    const dates = cur.map((t) => t.date).sort();
-    const start = new Date(dates[0] + "T00:00:00");
-    const end = new Date(dates[dates.length - 1] + "T00:00:00");
-    const spanDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000) + 1);
-    const prevEnd = new Date(start.getTime() - 86400000);
-    const prevStart = new Date(prevEnd.getTime() - (spanDays - 1) * 86400000);
-    return this.baseTrades().filter((t) => {
-      const d = new Date(t.date + "T00:00:00");
-      return d >= prevStart && d <= prevEnd;
-    });
+    const bounds = previousPeriodBounds(
+      this.dateRange as PeriodId,
+      dateInZone(this.plugin.settings.timeZone),
+      this.customFrom,
+      this.customTo,
+    );
+    if (!bounds) return [];
+    const asOf = this.asOfKey();
+    const capped = { start: bounds.start, end: bounds.end && bounds.end < asOf ? bounds.end : asOf };
+    // Same day-key domain as filteredTrades, so current and baseline windows
+    // bucket the same way (identity when the journal zone is New York).
+    const dayBounds = periodDayBounds(capped, this.plugin.settings.timeZone);
+    return this.baseTrades().filter((trade) => dateWithinPeriod(this.scoreDayKey(trade), dayBounds));
+  }
+
+  /**
+   * Calendar-derived Analytics comparison populations. Unlike Home's
+   * legacy metric context, these bounds never depend on which trade dates happen
+   * to be present in either window.
+   */
+  analyticsComparisonTrades(): { current: Trade[]; baseline: Trade[]; eligible: boolean } {
+    const comparison = periodComparison(
+      this.dateRange as PeriodId,
+      dateInZone(this.plugin.settings.timeZone),
+      this.customFrom,
+      this.customTo,
+    );
+    if (!comparison.eligible || !comparison.current || !comparison.baseline) {
+      return { current: [], baseline: [], eligible: false };
+    }
+    const population = this.baseTrades();
+    // Comparison bounds are journal-calendar dates; membership is judged on the
+    // same trading-day key filteredTrades uses (identity in the default zone).
+    const zone = this.plugin.settings.timeZone;
+    const dayIn = (trade: Trade, window: PeriodBounds | null): boolean =>
+      dateInComparison(this.scoreDayKey(trade), periodDayBounds(window, zone));
+    return {
+      current: population.filter((trade) => dayIn(trade, comparison.current)),
+      baseline: population.filter((trade) => dayIn(trade, comparison.baseline)),
+      eligible: true,
+    };
+  }
+
+  private formatMetricDelta(id: string, delta: number): string {
+    return formatMetricDelta(id, delta);
   }
 
   ensureLayout(): void {
@@ -502,25 +1017,24 @@ export class WidgetGridView extends ItemView {
         }
       }
       this.setLayout(compactVertical(packed));
+      this.setStoredGridCols(GRID_COLS);
       return;
     }
-    // New format: drop unknown widgets, clamp bounds, re-compact.
-    // First migrate coordinates if the saved layout used an older grid width
-    // (e.g. 12 columns) so nothing shrinks or overlaps on upgrade.
-    // Only the Dashboard layout can be legacy — Home's layout is always written
-    // at the current width — and `gridCols` is a single shared marker, so the
-    // scale must run for one view only or it would double-scale the other.
-    const savedCols = this.plugin.settings.gridCols || 12;
-    if (savedCols !== GRID_COLS && this.viewKey() === "dashboard") {
-      const factor = GRID_COLS / savedCols;
+    // Migrate the old Analytics-only grid marker once. New edits store a column
+    // count alongside each page's layout so narrow-window edits round-trip.
+    if (this.viewKey() === "dashboard" && this.plugin.settings.dashboardGridCols === undefined && this.plugin.settings.gridCols !== GRID_COLS) {
+      const oldCols = this.plugin.settings.gridCols || 12;
+      const factor = GRID_COLS / oldCols;
       layout.forEach((it) => {
         if (!it) return;
         if (typeof it.x === "number") it.x = Math.round(it.x * factor);
         if (typeof it.w === "number") it.w = Math.max(1, Math.round(it.w * factor));
       });
       this.plugin.settings.gridCols = GRID_COLS;
+      this.plugin.settings.dashboardGridCols = GRID_COLS;
       void this.plugin.saveSettings();
     }
+    const savedCols = this.storedGridCols();
     // Deprecated ids are rewritten to their canonical replacement, so a saved
     // layout written before the rename keeps its tiles instead of losing them.
     layout.forEach((it) => {
@@ -538,33 +1052,69 @@ export class WidgetGridView extends ItemView {
     const valid = this.allowedIds();
     const filtered = [...byId.values()].filter((it) => it && it.i && valid.has(it.i) && it.w && it.h);
     for (const it of filtered) {
-      it.w = gClamp(Math.round(it.w), MIN_W[it.i] ?? 1, GRID_COLS);
-      it.h = gClamp(Math.round(it.h), MIN_H[it.i] ?? 1, 60);
-      it.x = gClamp(Math.round(it.x || 0), 0, GRID_COLS - it.w);
+      const min = this.minSize(it.i);
+      it.w = gClamp(Math.round(it.w), Math.min(min.w, savedCols), savedCols);
+      it.h = gClamp(Math.round(it.h), min.h, 60);
+      it.x = gClamp(Math.round(it.x || 0), 0, savedCols - it.w);
       it.y = Math.max(0, Math.round(it.y || 0));
     }
-    this.setLayout(compactVertical(filtered));
+    const hasCollisions = filtered.some((item, index) => filtered.slice(index + 1).some((other) => collides(item, other)));
+    // Repair only invalid legacy geometry. Valid saved positions (including
+    // intentional whitespace) are not repacked merely by opening the page.
+    this.setLayout(hasCollisions ? compactVertical(filtered) : filtered);
   }
 
   getLayout(): GridItem[] {
-    this.ensureLayout();
-    return this.layout() ?? this.defaultLayout();
+    if (this._visibleLayout && this._visibleCols === this.activeCols) return this._visibleLayout.map((item) => ({ ...item }));
+    return this.storedLayout();
+  }
+
+  private minSize(id: string): { w: number; h: number } {
+    const base = minOf(id);
+    // Home can take selected widgets one grid step narrower where their
+    // responsive presentation still keeps the essential information readable.
+    // The Analytics grid retains its existing resize floors.
+    if (this.viewKey() === "home") {
+      if (id === "m.netpnl") return { w: 4, h: 2 };
+      if (id === "m.winrate") return { w: 3, h: 2 };
+      if (id === "m.profitfactor") return { w: 3, h: 3 };
+      const homeFloors: Record<string, { w: number; h: number }> = {
+        calendar: { w: 4, h: 4 },
+        heatmap: { w: 4, h: 3 },
+        score: { w: 3, h: 4 },
+        streaks: { w: 3, h: 2 },
+        focus: { w: 4, h: 2 },
+        accounts: { w: 4, h: 2 },
+        payouts: { w: 3, h: 2 },
+      };
+      if (homeFloors[id]) return homeFloors[id];
+    }
+    return base;
   }
 
   saveLayout(): Promise<void> {
     return this.plugin.saveSettings().then(() => this.render());
   }
 
+  /**
+   * Persist a layout the DOM already reflects (drag/resize apply their trial
+   * positions live), so committing does not rebuild every widget body.
+   */
+  private persistLayout(): Promise<void> {
+    return this.plugin.saveSettings();
+  }
+
   addWidget(id: string): void {
     const isMetric = id.startsWith("m.");
-    const w = NEW_W[id] ?? (isMetric ? 3 : 12);
-    const h = NEW_H[id] ?? (isMetric ? 2 : 6);
-    this.setLayout(placeNew(this.getLayout(), id, w, h));
+    const min = this.minSize(id);
+    const w = Math.min(this.activeCols, Math.max(min.w, NEW_W[id] ?? (isMetric ? 3 : 12)));
+    const h = Math.max(min.h, NEW_H[id] ?? (isMetric ? 2 : 6));
+    this.commitLayout(placeNew(this.getLayout(), id, w, h, this.activeCols));
     this.saveLayout();
   }
 
   removeWidget(id: string): void {
-    this.setLayout(this.getLayout().filter((i) => i.i !== id));
+    this.commitLayout(compactVertical(this.getLayout().filter((item) => item.i !== id)));
     this.saveLayout();
   }
 
@@ -614,20 +1164,41 @@ export class WidgetGridView extends ItemView {
   private applyTrialPositions(layout: GridItem[]): void {
     const grid = this.gridEl;
     if (!grid) return;
+    this.setWorkingLayout(layout);
     for (const it of layout) {
-      const card = this.findCardEl(grid, it.i);
+      const card = this.cardEls.get(it.i);
       if (card) this.positionCard(card, it);
     }
-    grid.style.height = `${Math.max(1, gridRows(layout)) * ROW_PX + (Math.max(1, gridRows(layout)) - 1) * GAP}px`;
+    const rows = Math.max(1, gridRows(layout));
+    grid.style.height = `${rows * ROW_PX + (rows - 1) * GAP}px`;
   }
 
-  /** Drag preview: others shift live, dragged card fades out, placeholder shows. */
-  private applyDragTrial(nx: number, ny: number, item: GridItem): void {
-    const trial = gridMove(this.getLayout(), item.i, nx, ny);
+  /**
+   * Re-draw one widget body as its card changes size, so the JS-measured
+   * compact/normal/expanded arrangement follows the resize live (CSS container
+   * queries already adapt on their own). rAF-throttled and skipped when the size
+   * is unchanged, so a drag frame never does redundant work.
+   */
+  private scheduleBodyRedraw(body: HTMLElement): void {
+    const fn = this.bodyRenderers.get(body);
+    if (!fn) return;
+    const dims = `${body.clientWidth}x${body.clientHeight}`;
+    if (this._lastBodyDims.get(body) === dims) return;
+    this._lastBodyDims.set(body, dims);
+    if (this._bodyRedrawRaf) cancelAnimationFrame(this._bodyRedrawRaf);
+    this._bodyRedrawRaf = requestAnimationFrame(() => {
+      this._bodyRedrawRaf = 0;
+      fn();
+    });
+  }
+
+  /** Drag preview and drop use the same collision resolution and compaction. */
+  private applyDragTrial(nx: number, ny: number, item: GridItem, baseLayout: GridItem[]): GridItem[] {
+    const trial = gridMove(baseLayout, item.i, nx, ny, true, this.activeCols);
     const grid = this.gridEl;
-    if (!grid) return;
+    if (!grid) return trial;
     for (const it of trial) {
-      const card = this.findCardEl(grid, it.i);
+      const card = this.cardEls.get(it.i);
       if (!card) continue;
       if (it.i === item.i) {
         card.addClass("tj-moving");
@@ -636,7 +1207,10 @@ export class WidgetGridView extends ItemView {
         this.positionCard(card, it);
       }
     }
-    grid.style.height = `${Math.max(1, gridRows(trial)) * ROW_PX + (Math.max(1, gridRows(trial)) - 1) * GAP}px`;
+    const rows = Math.max(1, gridRows(trial));
+    grid.style.height = `${rows * ROW_PX + (rows - 1) * GAP}px`;
+    this.setWorkingLayout(trial);
+    return trial;
   }
 
   // ---------------- Interactive drag (pointer based, iOS/Android widget style) ----------------
@@ -657,9 +1231,12 @@ export class WidgetGridView extends ItemView {
     this._interacting = true;
     if (this._dragGhost) this._dragGhost.remove();
     this.dragId = item.i;
+    const baseLayout = this.getLayout();
+    const dragItem = baseLayout.find((candidate) => candidate.i === item.i);
     const card = this.findCardEl(this.gridEl as HTMLElement, item.i);
-    if (!card) {
+    if (!card || !dragItem) {
       this.dragId = null;
+      this._interacting = false;
       return;
     }
 
@@ -673,8 +1250,8 @@ export class WidgetGridView extends ItemView {
     ghost.style.left = "0";
     ghost.style.top = "0";
     ghost.style.margin = "0";
-    ghost.style.width = `${card.offsetWidth || item.w * this.colW}px`;
-    ghost.style.height = `${card.offsetHeight || item.h * ROW_PX}px`;
+    ghost.style.width = `${card.offsetWidth || dragItem.w * this.colW}px`;
+    ghost.style.height = `${card.offsetHeight || dragItem.h * ROW_PX}px`;
     document.body.appendChild(ghost);
     this._dragGhost = ghost;
 
@@ -683,54 +1260,70 @@ export class WidgetGridView extends ItemView {
     const offY = e.clientY - rect.top;
     ghost.style.transform = `translate(${e.clientX - offX}px, ${e.clientY - offY}px)`;
 
-    let lastNx: number | null = null;
-    let lastNy: number | null = null;
-
-    const snapPos = (ev: PointerEvent) => {
-      const gx = ev.clientX - this.gridRectLeft();
-      const gy = ev.clientY - this.gridRectTop();
-      const nx = gClamp(Math.round(gx / (this.colW + GAP) - (item.w - 1) / 2), 0, this.activeCols - item.w);
+    const snapPos = (clientX: number, clientY: number) => {
+      // Align to the ghost's own top-left (the grab offset is preserved), so the
+      // placeholder sits exactly under the floating card instead of centring the
+      // card on the cursor (which made the two visibly disagree).
+      const gx = clientX - offX - this.gridRectLeft();
+      const gy = clientY - offY - this.gridRectTop();
+      const nx = gClamp(Math.round(gx / (this.colW + GAP)), 0, this.activeCols - dragItem.w);
       const ny = Math.max(0, Math.round(gy / (ROW_PX + GAP)));
       return { nx, ny };
     };
 
-    const onMove = (ev: PointerEvent) => {
-      this.edgeAutoScroll(ev.clientY);
-      ghost.style.transform = `translate(${ev.clientX - offX}px, ${ev.clientY - offY}px)`;
-      const { nx, ny } = snapPos(ev);
+    let latest = { x: e.clientX, y: e.clientY };
+    let moveRaf = 0;
+    let lastNx: number | null = null;
+    let lastNy: number | null = null;
+    const updateAt = (x: number, y: number, allowAutoScroll = true) => {
+      if (allowAutoScroll) this.edgeAutoScroll(y);
+      ghost.style.transform = `translate(${x - offX}px, ${y - offY}px)`;
+      const { nx, ny } = snapPos(x, y);
       if (nx === lastNx && ny === lastNy) return;
       lastNx = nx;
       lastNy = ny;
-      this.applyDragTrial(nx, ny, item);
+      this.applyDragTrial(nx, ny, dragItem, baseLayout);
     };
-
-    const onUp = (ev: PointerEvent) => {
+    const onMove = (ev: PointerEvent) => {
+      latest = { x: ev.clientX, y: ev.clientY };
+      if (moveRaf) return;
+      moveRaf = requestAnimationFrame(() => {
+        moveRaf = 0;
+        updateAt(latest.x, latest.y);
+      });
+    };
+    const finish = (x: number, y: number) => {
+      if (moveRaf) {
+        cancelAnimationFrame(moveRaf);
+        moveRaf = 0;
+      }
+      updateAt(x, y, false);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
       ghost.remove();
       this._dragGhost = null;
       this.dragId = null;
       this._interacting = false;
       this.hidePlaceholder();
-      const layout = this.getLayout();
-      for (const it of layout) {
-        const el = this.findCardEl(this.gridEl as HTMLElement, it.i);
-        el?.removeClass("tj-moving");
-      }
-      const { nx, ny } = snapPos(ev);
-      this.setLayout(compactVertical(gridMove(layout, item.i, nx, ny)));
-      this.saveLayout();
+      for (const current of baseLayout) this.cardEls.get(current.i)?.removeClass("tj-moving");
+      const { nx, ny } = snapPos(x, y);
+      const committed = gridMove(baseLayout, dragItem.i, nx, ny, true, this.activeCols);
+      this.commitLayout(committed);
+      void this.persistLayout();
     };
+    const onUp = (ev: PointerEvent) => finish(ev.clientX, ev.clientY);
+    const onCancel = () => finish(latest.x, latest.y);
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
   }
 
   private findCardEl(grid: HTMLElement, id: string): HTMLElement | null {
-    for (const el of Array.from(grid.querySelectorAll(".tj-gridcard"))) {
-      if (el.getAttribute("data-wid") === id) return el as HTMLElement;
-    }
-    return null;
+    const cached = this.cardEls.get(id);
+    if (cached) return cached;
+    return Array.from(grid.querySelectorAll<HTMLElement>(".tj-gridcard")).find((el) => el.dataset.wid === id) ?? null;
   }
 
   // ---------------- Corner resize (edit mode) ----------------
@@ -742,40 +1335,87 @@ export class WidgetGridView extends ItemView {
       e.preventDefault();
       e.stopPropagation();
       this._interacting = true;
+      const baseLayout = this.getLayout();
+      const resizeItem = baseLayout.find((candidate) => candidate.i === item.i);
+      if (!resizeItem) {
+        this._interacting = false;
+        return;
+      }
       const startX = e.clientX;
       const startY = e.clientY;
-      const baseW = item.w;
-      const baseH = item.h;
+      const baseW = resizeItem.w;
+      const baseH = resizeItem.h;
+      const min = this.minSize(item.i);
       let curW = baseW;
       let curH = baseH;
-      const onMove = (ev: PointerEvent) => {
-        this.edgeAutoScroll(ev.clientY);
-        const dw = Math.round((ev.clientX - startX) / (this.colW + GAP));
-        const dh = Math.round((ev.clientY - startY) / (ROW_PX + GAP));
-        curW = gClamp(baseW + dw, MIN_W[item.i] ?? 1, this.activeCols - item.x);
-        curH = gClamp(baseH + dh, MIN_H[item.i] ?? 2, 30);
-        const trial = gridResize(this.getLayout(), item.i, curW, curH, minOf(item.i));
+      let latest = { x: startX, y: startY };
+      let moveRaf = 0;
+      let trial = baseLayout;
+      let lastSize = `${baseW}x${baseH}`;
+      const updateAt = (x: number, y: number, allowAutoScroll = true) => {
+        if (allowAutoScroll) this.edgeAutoScroll(y);
+        const dw = Math.round((x - startX) / (this.colW + GAP));
+        const dh = Math.round((y - startY) / (ROW_PX + GAP));
+        curW = gClamp(baseW + dw, min.w, this.activeCols - resizeItem.x);
+        curH = gClamp(baseH + dh, min.h, 30);
+        const size = `${curW}x${curH}`;
+        if (size === lastSize) return;
+        lastSize = size;
+        trial = gridResize(baseLayout, item.i, curW, curH, min, true, this.activeCols);
         this.applyTrialPositions(trial);
-        const me = this.findCardEl(this.gridEl as HTMLElement, item.i);
+        const me = this.cardEls.get(item.i);
         if (me) {
-          this.positionCard(me, trial.find((t) => t.i === item.i) ?? { ...item, w: curW, h: curH });
+          // Keep the resized widget's own content in step with its new size.
+          const body = me.querySelector(".tj-gridcard-body") as HTMLElement | null;
+          if (body) this.scheduleBodyRedraw(body);
         }
       };
-      const onUp = () => {
+      const onMove = (ev: PointerEvent) => {
+        latest = { x: ev.clientX, y: ev.clientY };
+        if (moveRaf) return;
+        moveRaf = requestAnimationFrame(() => {
+          moveRaf = 0;
+          updateAt(latest.x, latest.y);
+        });
+      };
+      const finish = (x: number, y: number) => {
+        if (moveRaf) {
+          cancelAnimationFrame(moveRaf);
+          moveRaf = 0;
+        }
+        updateAt(x, y, false);
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
         this._interacting = false;
-        this.setLayout(compactVertical(gridResize(this.getLayout(), item.i, curW, curH, minOf(item.i))));
-        this.saveLayout();
+        if (this._bodyRedrawRaf) {
+          cancelAnimationFrame(this._bodyRedrawRaf);
+          this._bodyRedrawRaf = 0;
+        }
+        this.commitLayout(trial);
+        void this.persistLayout();
       };
+      const onUp = (ev: PointerEvent) => finish(ev.clientX, ev.clientY);
+      const onCancel = () => finish(latest.x, latest.y);
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onCancel);
     });
   }
 
   render(): void {
     const root = this.contentEl;
     root.empty();
+    this._homeAccountMovement = null;
+    this._visibleLayout = null;
+    // Per-render memo tables; the trade list and its summaries are computed
+    // once and read by every widget instead of once per widget.
+    this._cacheTrades = null;
+    this._countCache = new WeakMap();
+    this._finCache = new WeakMap();
+    this._drawnBodies = new WeakSet();
+    this._idleQueue = [];
+    this._idleScheduled = false;
     const main = renderAppShell(root, this.plugin, this.viewKey());
     this.mainEl = main;
     if (this._intro) root.addClass("tj-intro-root");
@@ -814,6 +1454,15 @@ export class WidgetGridView extends ItemView {
 
     const trades = this.filteredTrades();
     if (trades.length === 0) {
+      // Home's independent widgets (Calendar, Last 6 Months, Trading Score
+      // and Discipline) keep their own historical windows, so an empty selected
+      // period still renders the grid — Breakdown, Payouts and the period
+      // metrics simply show their own empty state. Analytics keeps its
+      // page-level empty state.
+      if (this.viewKey() === "home" && this.baseTrades().length > 0) {
+        this.renderLayout(main, trades);
+        return;
+      }
       // Friendly empty state instead of a grid of zeros/dashes.
       this.renderEmptyState(main);
       if (this.editMode) this.renderLayout(main, trades);
@@ -847,58 +1496,104 @@ export class WidgetGridView extends ItemView {
       window.clearTimeout(this._resizeTimer);
       this._resizeTimer = 0;
     }
-    if (this.headerTimer !== null) {
-      window.clearInterval(this.headerTimer);
-      this.headerTimer = null;
-    }
     if (this.bodyObserver) {
       this.bodyObserver.disconnect();
       this.bodyObserver = null;
     }
   }
 
-  /** Time-of-day greeting (user's local clock), using the name from settings. */
+  /** The current hour in the Journal Timezone — the greeting speaks from the
+   *  trader's zone, not this machine's. An unset zone means "as recorded", and
+   *  then the host clock is the only clock the journal has. */
+  private journalHour(): number {
+    const zone = this.plugin.settings.timeZone;
+    if (!zone) return new Date().getHours();
+    const time = zoneWallParts(new Date(), zone).time;
+    const hour = Number(time.slice(0, 2));
+    return Number.isFinite(hour) ? hour : 0;
+  }
+
+  /** Time-of-day greeting (the journal's clock), using the name from settings. */
   private greetingText(): string {
-    const h = new Date().getHours();
-    const part =
-      h < 6 || h >= 22 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+    const h = this.journalHour();
+    const part = h < 6 || h >= 22 ? "Good night" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
     const name = (this.plugin.settings.journalName || "").trim();
     return name ? `${part}, ${name}` : part;
   }
 
-  /** Page header: Briefing shows the rotating greeting; both keep the actions. */
+  /**
+   * A short line under the greeting. Calm and factual, never motivational
+   * filler; drawn from a small pool per time of day so it changes day to day
+   * but stays stable within a day (no flicker on re-render).
+   */
+  private greetingNote(): string {
+    if (this.greetingNoteText) return this.greetingNoteText;
+    const h = this.journalHour();
+    const slot = h < 6 || h >= 22 ? "night" : h < 12 ? "morning" : h < 18 ? "afternoon" : "evening";
+    const pools: Record<string, string[]> = {
+      morning: [
+        "A clean page for the session ahead.",
+        "Quiet before the open.",
+        "The day hasn't written itself yet.",
+        "Everything starts on today's page.",
+        "A good hour to set the day up.",
+        "Fresh session, fresh notes.",
+        "The pre-market is for thinking.",
+        "Mark the levels before the bell.",
+      ],
+      afternoon: [
+        "The session is in motion.",
+        "Half the day is on the books.",
+        "Midday, and the page is filling.",
+        "The afternoon has its own rhythm.",
+        "A good moment to check the plan.",
+        "Keep the entries honest.",
+        "Plenty of session left.",
+        "The middle hours count too.",
+      ],
+      evening: [
+        "The session is behind you.",
+        "A good moment to review.",
+        "What the day left on the page.",
+        "The bell has rung — time to look back.",
+        "Evening, and the notes are still fresh.",
+        "The day is done; the record stays.",
+        "A quiet close to the session.",
+        "The page has the day on it now.",
+      ],
+      night: [
+        "The market is closed.",
+        "A quiet hour to look back.",
+        "Rest soon — the journal can wait.",
+        "Nothing is moving now; the day is on the page.",
+        "Late hours. Keep it calm.",
+        "The book is closed for the night.",
+        "The tape is quiet; the record is not.",
+        "A calm end to the day.",
+      ],
+    };
+    const pool = pools[slot];
+    this.greetingNoteText = pool[Math.floor(Math.random() * pool.length)];
+    return this.greetingNoteText;
+  }
+
+  /** Home retains its greeting; both views surface the selected account result. */
   renderHeader(main: HTMLElement): HTMLElement {
     const header = main.createDiv({ cls: "tj-header" + (this._intro ? " tj-intro" : "") });
 
+    const left = header.createDiv({ cls: "tj-header-greeting" });
     if (this.viewKey() === "home") {
-      const left = header.createDiv({ cls: "tj-header-greeting" });
       left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
-      const sub = left.createDiv({ cls: "tj-header-sub" });
-      this.msgEl = sub;
-
-      // The line is derived from the clock, so re-renders (clicks on Edit/Filters)
-      // always show the SAME line. It only advances on its own 20s timer.
-      if (this.msgBase < 0) {
-        const now = new Date();
-        const day = Math.floor(now.getTime() / 86400000);
-        this.msgBase = (day * 7 + now.getHours()) % GREETING_LINES.length;
-      }
-      const currentLine = () =>
-        GREETING_LINES[(this.msgBase + Math.floor((Date.now() - this.msgStart) / 20000)) % GREETING_LINES.length];
-      sub.setText(currentLine());
-      if (this.headerTimer !== null) {
-        window.clearInterval(this.headerTimer);
-        this.headerTimer = null;
-      }
-      this.headerTimer = window.setInterval(() => {
-        const el = this.msgEl;
-        if (!el) return;
-        el.addClass("tj-fade");
-        window.setTimeout(() => {
-          el.setText(currentLine());
-          el.removeClass("tj-fade");
-        }, 220);
-      }, 20000);
+      left.createDiv({ cls: "tj-header-sub", text: this.greetingNote() });
+    } else {
+      const pnl = this.remainingAccountPnl();
+      const amount = left.createDiv({ cls: "tj-header-sub" });
+      amount.setText(`Remaining P&L ${fmtMoney2(pnl)} · ${this.selectedPeriodLabel()} · ${this.scoreAccountLabel()}`);
+      attachTip(amount, {
+        title: "Remaining Account P&L",
+        value: fmtMoney2(pnl),
+        sub: "Recorded result remaining in the selected accounts after trading, fees, payouts and adjustments.",
+      });
     }
 
     const actions = header.createDiv({ cls: "tj-header-actions" });
@@ -917,7 +1612,8 @@ export class WidgetGridView extends ItemView {
       e.stopPropagation();
       this.filtersOpen = !this.filtersOpen;
       this.widgetMenuOpen = false;
-      this.render();
+      this.periodMenuOpen = false;
+      this.rerenderHeaderOnly();
     });
 
     // In edit mode, a labelled "Add widget" opens a dropdown that stays open,
@@ -934,7 +1630,8 @@ export class WidgetGridView extends ItemView {
         e.stopPropagation();
         this.widgetMenuOpen = !this.widgetMenuOpen;
         this.filtersOpen = false;
-        this.render();
+        this.periodMenuOpen = false;
+        this.rerenderHeaderOnly();
       });
       attachTip(abtn, { title: "Add widget", sub: "Stays open — add as many as you like." });
     }
@@ -952,6 +1649,7 @@ export class WidgetGridView extends ItemView {
     ebtn.addEventListener("click", () => {
       this.editMode = !this.editMode;
       this.render();
+      void this.plugin.saveSettings();
     });
 
     if (this.filtersOpen) this.renderFilterPopover(header);
@@ -959,22 +1657,46 @@ export class WidgetGridView extends ItemView {
     return header;
   }
 
+  /**
+   * Rebuild only the header (and its popovers) without touching the grid or its
+   * widget bodies. Opening/closing a menu used to re-render every chart on the
+   * page; this keeps the cost to the header alone.
+   */
+  private rerenderHeaderOnly(): void {
+    const main = this.mainEl;
+    const old = this.headerEl;
+    if (!main || !old) {
+      this.render();
+      return;
+    }
+    const header = this.renderHeader(main);
+    main.insertBefore(header, old);
+    old.remove();
+    this.headerEl = header;
+  }
+
   /** Dropdown list of addable widgets — stays open for multiple adds. */
   renderWidgetMenu(header: HTMLElement): void {
     const backdrop = header.createDiv({ cls: "tj-pop-backdrop" });
     backdrop.addEventListener("click", () => {
       this.widgetMenuOpen = false;
-      this.render();
+      this.rerenderHeaderOnly();
     });
     const pop = header.createDiv({ cls: "tj-popover tj-widgetmenu" });
     pop.addEventListener("click", (e) => e.stopPropagation());
     pop.createDiv({ cls: "tj-pop-section", text: "Add widget" });
     const list = pop.createDiv({ cls: "tj-widgetmenu-list" });
     const present = new Set(this.getLayout().map((i) => i.i));
-    for (const id of this.allowedIds()) {
+    const ids = this.viewKey() === "home" ? HOME_WIDGET_MENU : [...this.allowedIds()];
+    for (const id of ids) {
       const added = present.has(id);
       const item = list.createDiv({ cls: "tj-widgetmenu-item" + (added ? " is-added" : "") });
-      item.createSpan({ cls: "tj-widgetmenu-name", text: CARD_TITLES[id] });
+      const name = this.viewKey() === "home" && id === "m.netpnl"
+        ? "P&L"
+        : this.viewKey() === "home" && id === "score"
+          ? "Score"
+          : CARD_TITLES[id];
+      item.createSpan({ cls: "tj-widgetmenu-name", text: name });
       if (added) item.createSpan({ cls: "tj-widgetmenu-check", text: "✓" });
       else item.addEventListener("click", () => this.addWidget(id));
     }
@@ -983,16 +1705,50 @@ export class WidgetGridView extends ItemView {
   /** Seamless period bar, embedded under the header (Journalit style). */
   renderPeriodBar(main: HTMLElement): void {
     const bar = main.createDiv({ cls: "tj-periodbar" + (this._intro ? " tj-intro" : "") });
-    const ranges: [string, string][] = [
-      ["today", "Today"],
-      ["yesterday", "Yesterday"],
-      ["thisweek", "This Week"],
-      ["1m", "This Month"],
-      ["thisquarter", "This Quarter"],
-      ["thisyear", "This Year"],
-      ["all", "All Time"],
-      ["custom", "Custom"],
-    ];
+    if (this.viewKey() === "home") {
+      for (const [id, label] of BRIEFING_SHORTCUTS) {
+        const button = bar.createEl("button", {
+          cls: "tj-pbtn" + (this.dateRange === id ? " active" : ""),
+          text: label,
+          attr: { type: "button", "aria-pressed": String(this.dateRange === id) },
+        });
+        button.addEventListener("click", () => this.selectBriefingPeriod(id));
+      }
+      const selectedMore = BRIEFING_MORE_PERIODS.find(([id]) => id === this.dateRange);
+      const trigger = bar.createEl("button", {
+        cls: "tj-pbtn tj-period-more-trigger" + (selectedMore || this.dateRange === "custom" ? " active" : ""),
+        attr: {
+          type: "button",
+          "aria-expanded": String(this.periodMenuOpen),
+          "aria-label": this.dateRange === "custom" && this.customFrom && this.customTo
+            ? `More periods. Custom range ${formatDate(this.customFrom, this.plugin.settings.dateFormat)} to ${formatDate(this.customTo, this.plugin.settings.dateFormat)}`
+            : selectedMore ? `More periods. Selected ${selectedMore[1]}` : "More periods",
+        },
+      });
+      trigger.createSpan({ text: selectedMore?.[1] ?? (this.dateRange === "custom" ? "Custom" : "More periods") });
+      if (this.dateRange === "custom" && this.customFrom && this.customTo) {
+        trigger.createSpan({
+          cls: "tj-period-more-range",
+          text: this.customRangeSummary(),
+        });
+      }
+      trigger.createSpan({ cls: "tj-period-more-chevron", text: "⌄", attr: { "aria-hidden": "true" } });
+      trigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.periodMenuOpen = !this.periodMenuOpen;
+        this.customPickerOpen = false;
+        this.periodValidation = "";
+        this.filtersOpen = false;
+        this.widgetMenuOpen = false;
+        this.rerenderHeaderOnly();
+      });
+      if (this.periodMenuOpen) this.renderMorePeriodMenu(main);
+      return;
+    }
+
+    // Analytics keeps its existing controls and independent view state.
+    const ranges: [string, string][] = ["today", "yesterday", "thisweek", "1m", "thisquarter", "thisyear", "all", "custom"]
+      .map((id) => [id, SCORE_PERIOD_LABELS[id]] as [string, string]);
     for (const [id, label] of ranges) {
       const b = bar.createEl("button", {
         cls: "tj-pbtn" + (this.dateRange === id ? " active" : ""),
@@ -1016,6 +1772,7 @@ export class WidgetGridView extends ItemView {
         value: this.customFrom,
         format: this.plugin.settings.dateFormat,
         className: "tj-period-date",
+        zone: this.plugin.settings.timeZone,
         onChange: (iso) => {
           this.customFrom = iso;
           this.render();
@@ -1026,6 +1783,7 @@ export class WidgetGridView extends ItemView {
         value: this.customTo,
         format: this.plugin.settings.dateFormat,
         className: "tj-period-date",
+        zone: this.plugin.settings.timeZone,
         onChange: (iso) => {
           this.customTo = iso;
           this.render();
@@ -1034,10 +1792,111 @@ export class WidgetGridView extends ItemView {
     }
   }
 
+  private renderMorePeriodMenu(host: HTMLElement): void {
+    const backdrop = host.createDiv({ cls: "tj-pop-backdrop tj-period-more-backdrop" });
+    backdrop.addEventListener("click", () => {
+      this.periodMenuOpen = false;
+      this.customPickerOpen = false;
+      this.periodValidation = "";
+      this.rerenderHeaderOnly();
+    });
+    const pop = host.createDiv({ cls: "tj-popover tj-period-more-menu" });
+    pop.addEventListener("click", (event) => event.stopPropagation());
+    pop.createDiv({ cls: "tj-pop-section", text: this.customPickerOpen ? "Custom range" : "More periods" });
+
+    if (!this.customPickerOpen) {
+      for (const [id, label] of BRIEFING_MORE_PERIODS) {
+        const option = pop.createEl("button", {
+          cls: "tj-period-more-option" + (this.dateRange === id ? " is-active" : ""),
+          text: label,
+          attr: { type: "button", "aria-pressed": String(this.dateRange === id) },
+        });
+        option.addEventListener("click", () => this.selectBriefingPeriod(id));
+      }
+      const custom = pop.createEl("button", {
+        cls: "tj-period-more-option" + (this.dateRange === "custom" ? " is-active" : ""),
+        text: this.dateRange === "custom" && this.customFrom && this.customTo
+          ? `Custom · ${formatDate(this.customFrom, this.plugin.settings.dateFormat)} → ${formatDate(this.customTo, this.plugin.settings.dateFormat)}`
+          : "Custom range…",
+        attr: { type: "button", "aria-pressed": String(this.dateRange === "custom") },
+      });
+      custom.addEventListener("click", () => {
+        this.customDraftFrom = this.customFrom;
+        this.customDraftTo = this.customTo;
+        this.customPickerOpen = true;
+        this.periodValidation = "";
+        this.rerenderHeaderOnly();
+      });
+      return;
+    }
+
+    const field = (label: string, value: string, update: (iso: string) => void): void => {
+      const row = pop.createDiv({ cls: "tj-period-custom-row" });
+      row.createEl("label", { cls: "tj-pop-label", text: label });
+      const input = mountDateField(row, {
+        value,
+        format: this.plugin.settings.dateFormat,
+        zone: this.plugin.settings.timeZone,
+        calendarZIndex: 3200,
+        onChange: update,
+      });
+      input.setAttr("aria-label", label);
+      input.addEventListener("input", () => update(parseDateInput(input.value, this.plugin.settings.dateFormat)));
+    };
+    field("From", this.customDraftFrom, (iso) => { this.customDraftFrom = iso; });
+    field("To", this.customDraftTo, (iso) => { this.customDraftTo = iso; });
+    if (this.periodValidation) pop.createDiv({ cls: "tj-period-validation", text: this.periodValidation });
+    const actions = pop.createDiv({ cls: "tj-period-custom-actions" });
+    const cancel = actions.createEl("button", { cls: "tj-actionbtn", text: "Cancel", attr: { type: "button" } });
+    cancel.addEventListener("click", () => {
+      this.periodMenuOpen = false;
+      this.customPickerOpen = false;
+      this.periodValidation = "";
+      this.rerenderHeaderOnly();
+    });
+    const apply = actions.createEl("button", { cls: "tj-actionbtn is-primary", text: "Apply", attr: { type: "button" } });
+    apply.addEventListener("click", () => {
+      if (!this.customDraftFrom || !this.customDraftTo) {
+        this.periodValidation = "Choose both dates to apply this range.";
+        this.rerenderHeaderOnly();
+        return;
+      }
+      if (!isValidIsoDate(this.customDraftFrom) || !isValidIsoDate(this.customDraftTo) || this.customDraftFrom > this.customDraftTo) {
+        this.periodValidation = "Enter a valid range with From on or before To.";
+        this.rerenderHeaderOnly();
+        return;
+      }
+      this.selectBriefingPeriod("custom", this.customDraftFrom, this.customDraftTo);
+    });
+  }
+
+  private customRangeSummary(): string {
+    const from = formatDate(this.customFrom, "D MMM YYYY");
+    const to = formatDate(this.customTo, "D MMM YYYY");
+    if (this.customFrom.slice(0, 4) !== this.customTo.slice(0, 4)) return `${from}–${to}`;
+    const shortFrom = from.replace(/ \d{4}$/, "");
+    return `${shortFrom}–${to}`;
+  }
+
   renderLayout(root: HTMLElement, trades: Trade[]): void {
     // Money (every leg) drives the P&L; the counted list drives win rates and
     // trade counts — so a copied trade never tips a widget twice.
     const counted = this.countsList(trades);
+    // The Trading Score always uses the recent-30 window, on both pages, so the
+    // number is identical in Home and Analytics.
+    const recentScore = this.recentScoreInput();
+    // Home widgets with their own windows. The global date filter sets the
+    // as-of boundary, not the start: the Calendar and Last 6 Months keep their
+    // own look-back, independent of the selected range. Discipline follows the
+    // selected range (like Breakdown and Payouts).
+    const isHome = this.viewKey() === "home";
+    const asOf = this.asOfKey();
+    const homeTradingAsOf = isHome ? this.briefingTradingAsOf() : asOf;
+    const homeBase = isHome
+      ? this.baseTrades().filter((t) => t.date <= asOf && this.scoreDayKey(t) <= homeTradingAsOf)
+      : null;
+    const homeCounted = homeBase ? this.countsList(homeBase) : null;
+    const comparison = isHome ? null : this.analyticsComparisonTrades();
     const grid = root.createDiv({ cls: "tj-grid tj-grid-abs" });
     grid.toggleClass("is-editing", this.editMode);
     this.gridEl = grid;
@@ -1050,12 +1909,14 @@ export class WidgetGridView extends ItemView {
     const cols = Math.max(6, Math.min(GRID_COLS, Math.floor((gridW + GAP) / (MIN_COL + GAP))));
     this.activeCols = cols;
     this.colW = Math.max(24, (gridW - GAP * (cols - 1)) / cols);
-    let layout = compactVertical(this.getLayout());
-    if (cols < GRID_COLS) layout = reflow(layout, cols, minOf);
-    const prevTrades = this.previousPeriodTrades();
+    this._visibleLayout = null;
+    const stored = this.storedLayout();
+    const layout = this.layoutForViewport(stored, this.storedGridCols(), cols);
+    this.setWorkingLayout(layout);
+    const prevTrades = comparison ? comparison.baseline : this.previousPeriodTrades();
 
     if (layout.length === 0) {
-      const page = this.viewKey() === "home" ? "Briefing" : "Analytics";
+      const page = this.viewKey() === "home" ? "Home" : "Analytics";
       grid.createDiv({ cls: "tj-empty", text: `${page} is empty — press the pencil, then “Add widget”.` });
       return;
     }
@@ -1084,6 +1945,8 @@ export class WidgetGridView extends ItemView {
           if (this._interacting) continue;
           // Ignore the first layout pass — it would cancel the intro animations.
           if (Date.now() < this._introUntil) continue;
+          // A body that has not drawn yet is handled by the idle queue.
+          if (!this._drawnBodies.has(el)) continue;
           this._pendingResize.add(el);
         }
         if (this._interacting) return;
@@ -1100,12 +1963,14 @@ export class WidgetGridView extends ItemView {
       });
     }
 
+    const pendingDraws: Array<{ card: HTMLElement; draw: () => void }> = [];
     let introIdx = 0;
     for (const item of layout) {
       const card = grid.createDiv({ cls: "tj-card tj-gridcard", attr: { "data-wid": item.i } });
       // Charts blend into the dashboard background (no card box / border).
       if (
         item.i === "equity" ||
+        item.i === "netpnl" ||
         item.i === "longpnl" ||
         item.i === "shortpnl" ||
         item.i === "hour" ||
@@ -1126,25 +1991,30 @@ export class WidgetGridView extends ItemView {
       this.bindCard(card, item);
       // Headerless widgets (the chart + individual metrics): content fills the card.
       const headerless =
-        item.i === "equity" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar" || item.i.startsWith("m.");
+        item.i === "equity" || item.i === "netpnl" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar" || item.i.startsWith("m.");
       if (headerless) {
         const body = card.createDiv({
           cls: "tj-gridcard-body tj-scale" + (item.i.startsWith("m.") ? " tj-metric-body" : ""),
         });
         const drawHeadless = () => {
+          this._drawnBodies.add(body);
           body.empty();
           try {
-            if (item.i === "equity") this.renderEquityBody(body, trades);
+            if (item.i === "equity") this.renderRecordedAccountValueBody(body);
+            else if (item.i === "netpnl") this.renderEquityBody(body, trades, undefined, "analytics-net-pnl");
             else if (item.i === "longpnl") this.renderEquityBody(body, trades, "long");
             else if (item.i === "shortpnl") this.renderEquityBody(body, trades, "short");
             else if (item.i === "calendar")
-              new PerformanceCalendarWidget(body, trades, {
+              new PerformanceCalendarWidget(body, isHome ? (homeBase as Trade[]) : trades, {
                 timeZone: this.plugin.settings.timeZone,
+                initialMonth: this.calendarInitialMonth(asOf, isHome),
+                todayKey: isHome ? dateInZone(this.plugin.settings.timeZone) : undefined,
+                onMonthChange: isHome ? (month) => this.rememberCalendarMonth(month) : undefined,
                 onDayClick: (dateKey) => void this.openDayInTradeLog(dateKey),
                 animate: this._intro && this.plugin.settings.animations !== false,
                 dateFormat: this.plugin.settings.dateFormat,
               });
-            else this.renderMetricBody(body, trades, item.i, prevTrades);
+            else this.renderMetricBody(body, trades, item.i, prevTrades, comparison ?? undefined);
           } catch (err) {
             console.error("[tradebook] card failed:", item.i, err);
             body.empty();
@@ -1152,20 +2022,26 @@ export class WidgetGridView extends ItemView {
           }
         };
         this.bodyRenderers.set(body, drawHeadless);
-        drawHeadless();
+        pendingDraws.push({ card, draw: drawHeadless });
         this.bodyObserver?.observe(body);
         if (this.editMode) {
           const del = card.createEl("button", { cls: "tj-card-del", text: "✕", attr: { type: "button", "aria-label": "Remove card" } });
           attachTip(del, { title: "Remove card" });
           del.addEventListener("click", (e) => { e.stopPropagation(); this.removeWidget(item.i); });
-          // Metrics are fixed-size (drag to move only); chart + calendar are resizable.
-          if (item.i === "equity" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar")
+          // Home's independent metrics resize like every other Home widget;
+          // Analytics retains its existing fixed-size metric behaviour.
+          if (
+            item.i === "equity" || item.i === "netpnl" || item.i === "longpnl" || item.i === "shortpnl" || item.i === "calendar" ||
+            (isHome && item.i.startsWith("m."))
+          )
             this.bindResize(card, item);
         }
         continue;
       }
       const header = card.createDiv({ cls: "tj-card-header" });
-      header.createEl("h3", { text: CARD_TITLES[item.i] });
+      header.createEl("h3", {
+        text: isHome && item.i === "score" ? "Score" : CARD_TITLES[item.i],
+      });
       if (this.editMode) {
         const controls = header.createDiv({ cls: "tj-card-controls" });
         const b = controls.createEl("button", { text: "✕", cls: "tj-mini tj-del", attr: { type: "button", "aria-label": "Remove card" } });
@@ -1175,20 +2051,28 @@ export class WidgetGridView extends ItemView {
       }
       const body = card.createDiv({ cls: "tj-gridcard-body " + (SCROLL_WIDGETS.has(item.i) ? "tj-scroll" : "tj-scale") });
       const drawBody = () => {
+        this._drawnBodies.add(body);
         body.empty();
         try {
           switch (item.i) {
-            case "equity": this.renderEquityBody(body, trades); break;
+            case "equity": this.renderRecordedAccountValueBody(body); break;
+            case "netpnl": this.renderEquityBody(body, trades, undefined, "analytics-net-pnl"); break;
             case "breakdown": this.renderBreakdownWidget(body, trades, counted, header); break;
             case "streaks": this.renderStreaksWidget(body, counted, item.h); break;
-            case "score": this.renderScoreRadar(body, counted); break;
-            case "heatmap": this.renderHeatmap(body, trades, counted); break;
-            case "discipline": this.renderDisciplineWidget(body, counted, item.h); break;
-            case "trends": this.renderTrendsWidget(body, counted); break;
+            case "score": this.renderScoreRadar(body, recentScore.trades, recentScore.label); break;
+            case "heatmap": this.renderHeatmap(body, homeBase ?? trades, homeCounted ?? counted, isHome ? asOf : undefined); break;
+            case "discipline": this.renderDisciplineWidget(body, trades); break;
+            case "focus": this.renderFocusAreasWidget(body, trades, header); break;
+            case "accounts": this.renderAccountsPreviewWidget(body, header); break;
+            case "trends": this.renderTrendsWidget(body, trades, header); break;
             case "payouts": this.renderPayoutsWidget(body); break;
+            case "holdtime": this.renderAvgHoldWidget(body, trades); break;
             case "calendar":
-              new PerformanceCalendarWidget(body, trades, {
+              new PerformanceCalendarWidget(body, isHome ? (homeBase as Trade[]) : trades, {
                 timeZone: this.plugin.settings.timeZone,
+                initialMonth: this.calendarInitialMonth(asOf, isHome),
+                todayKey: isHome ? dateInZone(this.plugin.settings.timeZone) : undefined,
+                onMonthChange: isHome ? (month) => this.rememberCalendarMonth(month) : undefined,
                 onDayClick: (dateKey) => void this.openDayInTradeLog(dateKey),
                 animate: this._intro && this.plugin.settings.animations !== false,
                 dateFormat: this.plugin.settings.dateFormat,
@@ -1202,9 +2086,10 @@ export class WidgetGridView extends ItemView {
         }
       };
       this.bodyRenderers.set(body, drawBody);
-      drawBody();
+      pendingDraws.push({ card, draw: drawBody });
       this.bodyObserver?.observe(body);
     }
+    this.flushBodyDraws(pendingDraws);
     if (this._intro) {
       this._intro = false;
       this._introUntil = Date.now() + 1000;
@@ -1216,17 +2101,185 @@ export class WidgetGridView extends ItemView {
     }
   }
 
+  /**
+   * Draw the widgets on screen now, and the rest on idle. A dashboard with many
+   * widgets used to render every body in one synchronous block; this keeps the
+   * first paint immediate and lets the off-screen ones fill in within a frame.
+   */
+  private flushBodyDraws(draws: Array<{ card: HTMLElement; draw: () => void }>): void {
+    if (!draws.length) return;
+    const vh = this.mainEl?.clientHeight || (typeof window !== "undefined" ? window.innerHeight : 800);
+    const idle: Array<() => void> = [];
+    for (const entry of draws) {
+      const rect = entry.card.getBoundingClientRect();
+      if (rect.bottom > -240 && rect.top < vh + 240) entry.draw();
+      else idle.push(entry.draw);
+    }
+    if (!idle.length) return;
+    this._idleQueue.push(...idle);
+    if (this._idleScheduled) return;
+    this._idleScheduled = true;
+    const run = (deadline?: { timeRemaining?: () => number } | null) => {
+      const started = Date.now();
+      while (this._idleQueue.length) {
+        if (deadline && typeof deadline.timeRemaining === "function") {
+          if (deadline.timeRemaining() <= 4) break;
+        } else if (Date.now() - started > 8) break;
+        const fn = this._idleQueue.shift();
+        if (fn) fn();
+      }
+      if (this._idleQueue.length) {
+        const ric = (window as any).requestIdleCallback;
+        if (typeof ric === "function") ric(run);
+        else window.setTimeout(() => run(null), 0);
+      } else {
+        this._idleScheduled = false;
+      }
+    };
+    const ric = (typeof window !== "undefined") && (window as any).requestIdleCallback;
+    if (typeof ric === "function") ric(run);
+    else window.setTimeout(() => run(null), 0);
+  }
+
   /** Cumulative P&L — chart only. Hover shows the running total. */
-  renderEquityBody(body: HTMLElement, trades: Trade[], dir?: "long" | "short"): void {
+  renderEquityBody(body: HTMLElement, trades: Trade[], dir?: "long" | "short", chartKey?: string): void {
     const list = dir ? trades.filter((t) => (t.direction || "").toLowerCase() === dir) : trades;
     const wrap = body.createDiv({ cls: "tj-eq" });
     const chart = wrap.createDiv({ cls: "tj-eq-chart" });
-    if (list.length) this.drawEquityChart(chart, list, dir ?? "equity");
+    const financials = this.financialsFor(list);
+    if (list.length) this.drawEquityChart(chart, list, chartKey ?? dir ?? "equity", financials);
     else chart.createDiv({ cls: "tj-chart-empty", text: "No data" });
     // Tiny, unobtrusive title (Journalit style) — added after drawing so the
     // chart's container.empty() does not wipe it.
-    const title = dir === "long" ? "Long P&L" : dir === "short" ? "Short P&L" : "Cumulative P&L";
-    wrap.createDiv({ cls: "tj-eq-title", text: title });
+    const title = dir === "long" ? "Long Net Trading P&L" : dir === "short" ? "Short Net Trading P&L" : "Net Trading P&L";
+    const titleEl = wrap.createDiv({ cls: "tj-eq-title", text: title });
+    attachTip(titleEl, {
+      title,
+      sub: `Trading results after fees. Payouts and adjustments do not change trade results.${this.incompleteCostNote(financials)}`,
+    });
+  }
+
+  /** Recorded account value over the selected Analytics window. The account
+   *  movement series comes from Home's existing shared account calculation; the
+   *  opening point carries all recorded movement before the selected period. */
+  private renderRecordedAccountValueBody(body: HTMLElement): void {
+    const bounds = this.rangeBounds();
+    const movement = this.homeAccountMovement();
+    if (!bounds || !movement.accounts.length) {
+      body.createDiv({ cls: "tj-chart-empty", text: "No account value available" });
+      return;
+    }
+
+    const asOf = this.asOfKey();
+    const end = bounds.end && bounds.end < asOf ? bounds.end : asOf;
+    const series = windowRecordedAccountMovement(
+      movement.accounts.map((snapshot) => ({
+        capital: snapshot.account.size || 0,
+        days: snapshot.days,
+      })),
+      bounds.start,
+      end,
+    );
+    const points = series.points;
+    const selectedTrades = this.filteredTrades();
+    const financials = this.financialsFor(selectedTrades);
+    const accountIds = new Set(movement.accounts.map((snapshot) => snapshot.account.id));
+    const tradeNetByDay = new Map<string, number>();
+    for (const trade of movement.trades) {
+      const date = this.scoreDayKey(trade);
+      if ((bounds.start && date < bounds.start) || date > end) continue;
+      tradeNetByDay.set(date, (tradeNetByDay.get(date) ?? 0) + netPnl(trade));
+    }
+
+    type EventType = "payout" | "deposit" | "adjustment" | "cost";
+    const eventNames: Record<EventType, string> = {
+      payout: "Payout",
+      deposit: "Deposit",
+      adjustment: "Balance correction",
+      cost: "Unassigned account cost",
+    };
+    const eventsByDay = new Map<string, Map<EventType, { amount: number; count: number }>>();
+    const addEvent = (date: string, type: EventType, amount: number): void => {
+      if (!date || date > end || (bounds.start && date < bounds.start) || !Number.isFinite(amount)) return;
+      const byType = eventsByDay.get(date) ?? new Map<EventType, { amount: number; count: number }>();
+      const current = byType.get(type) ?? { amount: 0, count: 0 };
+      current.amount += amount;
+      current.count += 1;
+      byType.set(type, current);
+      eventsByDay.set(date, byType);
+    };
+    for (const payout of this.plugin.settings.payouts ?? []) {
+      if (accountIds.has(payout.accountId)) addEvent(payout.date, "payout", -Math.abs(payout.amount));
+    }
+    for (const deposit of this.plugin.settings.deposits ?? []) {
+      if (accountIds.has(deposit.accountId)) addEvent(deposit.date, "deposit", Math.abs(deposit.amount));
+    }
+    for (const adjustment of this.plugin.settings.feeAdjustments ?? []) {
+      if (accountIds.has(adjustment.accountId)) {
+        addEvent(adjustment.date, adjustment.kind === "cost" ? "cost" : "adjustment", adjustment.amount);
+      }
+    }
+
+    const chart = body.createDiv({ cls: "tj-eq tj-account-value" });
+    const plot = chart.createDiv({ cls: "tj-eq-chart" });
+    renderLineChart(plot, {
+      values: points.map((point) => point.balance),
+      dates: points.map((point) => point.date),
+      key: "analytics-recorded-account-value",
+      format: this.plugin.settings.dateFormat,
+      showDates: this.plugin.settings.chartDates !== false,
+      animations: this.plugin.settings.animations !== false,
+      baseline: series.capital,
+      baseLine: series.capital,
+      fadeFloor: series.capital,
+      dayDeltas: [0, ...points.slice(1).map((point) => tradeNetByDay.get(point.date) ?? 0)],
+      dayCash: points.slice(1).flatMap((point, index) => {
+        const events = eventsByDay.get(point.date);
+        if (!events?.size) return [];
+        const type = events.has("payout") ? "out" : events.has("deposit") ? "in" : "cost";
+        return [{ index: index + 1, kind: type as "out" | "in" | "cost" }];
+      }),
+      markers: points.slice(1).flatMap((point, index) => {
+        const events = eventsByDay.get(point.date);
+        if (!events?.size) return [];
+        return [...events.entries()].map(([type, event]) => {
+          const amount = type === "adjustment" || type === "cost" ? event.amount : Math.abs(event.amount);
+          return {
+            index: index + 1,
+            kind: type === "payout" ? "out" as const : type === "deposit" ? "in" as const : "adjustment" as const,
+            title: `${eventNames[type]} · ${fmtMoney2(amount)}${event.count > 1 ? ` · ${event.count} events` : ""} · ${point.date}`,
+          };
+        });
+      }),
+      hoverLines: (index) => {
+        if (index === 0) return [["Opening recorded value", fmtMoney2(series.openingBalance), ""]];
+        const point = points[index];
+        if (!point) return [];
+        const date = point.date;
+        const trading = tradeNetByDay.get(date) ?? 0;
+        const rows: Array<[string, string, string]> = [
+          ["Net trading", fmtMoney2(trading), trading > 0 ? "tj-pos" : trading < 0 ? "tj-neg" : ""],
+        ];
+        for (const [type, event] of eventsByDay.get(date) ?? []) {
+          rows.push([
+            event.count > 1 ? `${eventNames[type]} (${event.count})` : eventNames[type],
+            fmtMoney2(event.amount),
+            type === "payout" ? "tj-cash" : type === "deposit" ? "tj-pos" : "tj-cost",
+          ]);
+        }
+        return rows;
+      },
+    });
+
+    const title = chart.createDiv({
+      cls: "tj-eq-title",
+      text: `Recorded Account Value · ${fmtMoney2(series.closingBalance)}`,
+    });
+    attachTip(title, {
+      title: "Recorded account value",
+      value: fmtMoney2(series.closingBalance),
+      sub: `${this.scoreAccountLabel()} · ${this.selectedPeriodLabel()}. Configured capital plus recorded Net trades, payouts, deposits and signed corrections. This is the journal's account record, not live broker equity.${this.incompleteCostNote(financials)}`,
+    });
   }
 
   /** Lightweight count up/down when a metric value changes. */
@@ -1268,15 +2321,75 @@ export class WidgetGridView extends ItemView {
     this._tweens.set(id, requestAnimationFrame(tick));
   }
 
+  private costCoverageWarning(financials: FinancialSummary): string {
+    const { missingCommission, missingFees } = financials.costCoverage;
+    if (!financials.eligibleLegCount || (!missingCommission && !missingFees)) return "";
+    return " Some trade cost data is missing.";
+  }
+
+  private incompleteCostNote(financials: FinancialSummary): string {
+    if (!financials.eligibleLegCount) return " No closed trades in this selection.";
+    return this.costCoverageWarning(financials);
+  }
+
   /** One metric per widget. */
-  renderMetricBody(body: HTMLElement, trades: Trade[], id: string, prevTrades: Trade[] = []): void {
+  renderMetricBody(
+    body: HTMLElement,
+    trades: Trade[],
+    id: string,
+    prevTrades: Trade[] = [],
+    comparison?: { current: Trade[]; baseline: Trade[]; eligible: boolean },
+  ): void {
+    if (this.viewKey() === "home" && id === "m.netpnl") {
+      this.renderHomeNetPnl(body, trades);
+      return;
+    }
     const def = metricById(id);
-    const dayKey = (t: Trade): string => toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
+    // One day convention, shared with the period filter (lib/scope.ts).
+    const dayKey = (t: Trade): string => this.scoreDayKey(t);
     const wrap = body.createDiv({ cls: "tj-metric" });
     const labelText = def?.label ?? CARD_TITLES[id] ?? id;
     const labelEl = wrap.createDiv({ cls: "tj-metric-label", text: labelText });
     const val = wrap.createDiv({ cls: "tj-metric-value" });
-    const res = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(trades) : trades, dayKey) : { value: "—", tone: "neutral" as const };
+    const financials = this.financialsFor(trades);
+    const counted = PER_TRADE_METRICS.has(id) ? this.countsList(trades) : trades;
+    const calculated = def
+      ? def.compute(counted, dayKey, financials, this.plugin.settings.timeZone)
+      : { value: "—", tone: "neutral" as const };
+    const factor = financials.net.profitFactor;
+    const missingFactor = id === "m.profitfactor" && this.viewKey() === "home" &&
+      (!financials.decisions.length || (!Number.isFinite(factor) && factor !== Infinity));
+    const res = missingFactor ? { value: "—", tone: "neutral" as const } : calculated;
+    const financialTips: Record<string, string> = {
+      "m.netpnl": "Net Trading P&L for this selection: recorded results after commission and fees. Payouts, deposits and balance adjustments are account movements, not trading results.",
+      "m.profitfactor": "Net trading profit factor for this selection.",
+      "m.grossprofitfactor": "Gross trading profit factor before fees.",
+      "m.expectancy": "Average Net Trading P&L per trade.",
+      "m.bestday": "Best daily Net Trading P&L.",
+      "m.worstday": "Worst daily Net Trading P&L.",
+      "m.avgwin": "Average Net result of winning trades.",
+      "m.avgloss": "Average Net loss of losing trades.",
+      "m.avgrr": "Average Net win compared with average Net loss.",
+      "m.largestwin": "Largest single-trade Net result.",
+      "m.largestloss": "Largest single-trade Net loss.",
+      "m.maxdd": "Largest drawdown in Net Trading P&L.",
+      "m.sharpe": "Sharpe ratio using Net Trading P&L.",
+      "m.besthour": "Hour with the highest Net Trading P&L.",
+      "m.worsthour": "Hour with the lowest Net Trading P&L.",
+      "m.winrate": "Share of decisions that ended Net positive, out of the decisions that ended positive or negative. Net-breakeven decisions are excluded; copied legs are aggregated before classification.",
+      "m.winstreak": "Winning-streak classification remains Gross-sign based; breakevens pause a streak.",
+      "m.lossstreak": "Losing-streak classification remains Gross-sign based; breakevens pause a streak.",
+    };
+    const countTips: Record<string, string> = {
+      "m.trades": "Closed, eligible decisions in this selection. Copied account legs are aggregated into the decision they belong to.",
+      "m.wintrades": "Decisions that ended Net positive, aggregated across the in-scope account legs.",
+      "m.losstrades": "Decisions that ended Net negative, aggregated across the in-scope account legs.",
+    };
+    if (financialTips[id]) {
+      const coverage = id === "m.grossprofitfactor" ? "" : this.incompleteCostNote(financials);
+      attachTip(labelEl, { title: labelText, sub: `${financialTips[id]}${coverage}` });
+    }
+    else if (countTips[id]) attachTip(labelEl, { title: labelText, sub: countTips[id] });
     // Restrained colour: only metrics where colour carries real meaning.
     const tone = COLORED_METRICS.has(id) ? res.tone : "neutral";
     if (tone === "pos") val.addClass("tj-pos");
@@ -1296,21 +2409,170 @@ export class WidgetGridView extends ItemView {
       if (parsed !== null) this.metricDisplay.set(id, parsed);
     }
 
-    // Sub-stat: delta vs the previous period (neutral — direction via arrow).
-    if (COMPARE_METRICS.has(id) && prevTrades.length && parsed !== null) {
-      const prevRes = def ? def.compute(PER_TRADE_METRICS.has(id) ? this.countsList(prevTrades) : prevTrades, dayKey) : null;
-      const prevNum = prevRes ? parseMetricNumber(prevRes.value) : null;
-      if (prevNum !== null) {
-        const d = parsed - prevNum;
-        const sub = wrap.createDiv({ cls: "tj-metric-sub" });
-        sub.setText(`${d >= 0 ? "\u2191" : "\u2193"} ${fmtMoney2(d)} vs prev`);
+    let winVisual: HTMLElement | null = null;
+    let winRing: HTMLElement | null = null;
+    let winCenter: HTMLElement | null = null;
+
+    // Sub-stat: Analytics uses helper-derived calendar windows; Home retains
+    // its existing comparison population. Never show a delta for an ineligible
+    // period or when either period cannot produce this metric.
+    if (id !== "m.netpnl" && COMPARE_METRICS.has(id) && def) {
+      const currentComparisonTrades = comparison?.current ?? trades;
+      const eligible = comparison ? comparison.eligible : prevTrades.length > 0;
+      if (eligible) {
+        const currentCounted = PER_TRADE_METRICS.has(id) ? this.countsList(currentComparisonTrades) : currentComparisonTrades;
+        const previousCounted = PER_TRADE_METRICS.has(id) ? this.countsList(prevTrades) : prevTrades;
+        const zone = this.plugin.settings.timeZone;
+        const currentResult = def.compute(currentCounted, dayKey, this.financialsFor(currentComparisonTrades), zone);
+        const previousResult = def.compute(previousCounted, dayKey, this.financialsFor(prevTrades), zone);
+        const currentNumber = comparisonMetricNumber(id, currentResult.value);
+        const displayedNumber = comparisonMetricNumber(id, res.value);
+        const previousNumber = comparisonMetricNumber(id, previousResult.value);
+        if (
+          currentNumber !== null && displayedNumber !== null && previousNumber !== null &&
+          Math.abs(currentNumber - displayedNumber) < 1e-9
+        ) {
+          const delta = currentNumber - previousNumber;
+          const sub = wrap.createDiv({ cls: "tj-metric-sub" });
+          sub.setText(`${this.formatMetricDelta(id, delta)} vs prev`);
+        }
       }
+    }
+
+    if (this.viewKey() === "home" && id === "m.winrate") {
+      // Same classification as the number: Net sign of the aggregated decision.
+      const wins = financials.net.positiveDecisionCount;
+      const losses = financials.net.negativeDecisionCount;
+      const sample = wins + losses;
+      const visual = wrap.createDiv({ cls: "tj-home-winvisual" });
+      winVisual = visual;
+      if (sample) {
+        const ring = visual.createDiv({ cls: "tj-home-winring" });
+        winRing = ring;
+        const winPct = (wins / sample) * 100;
+        ring.style.setProperty("--tj-home-win-pct", `${winPct}%`);
+        winCenter = ring.createSpan({ cls: "tj-home-win-center", text: `${winPct.toFixed(1)}%` });
+        val.addClass("tj-home-win-hidden-value");
+        attachTip(ring, { title: "Wins · Losses", value: `${wins} · ${losses}` });
+      } else {
+        visual.createDiv({ cls: "tj-home-metric-empty", text: "No win/loss sample" });
+      }
+    }
+    if (this.viewKey() === "home" && id === "m.profitfactor") {
+      const visual = wrap.createDiv({ cls: "tj-home-pfvisual" });
+      visual.toggleClass("is-compact", (body.clientHeight > 0 && body.clientHeight < 130) || (body.clientWidth > 0 && body.clientWidth < 220));
+      const netWins = financials.decisions.filter((decision) => decision.net > 0).reduce((sum, decision) => sum + decision.net, 0);
+      const netLosses = Math.abs(financials.decisions.filter((decision) => decision.net < 0).reduce((sum, decision) => sum + decision.net, 0));
+      const movement = netWins + netLosses;
+      const bar = (label: string, amount: number, tone: "profit" | "loss") => {
+        const share = movement > 0 ? (amount / movement) * 100 : 0;
+        const row = visual.createDiv({ cls: "tj-home-pf-row" });
+        const meta = row.createDiv({ cls: "tj-home-pf-meta" });
+        meta.createSpan({ cls: "tj-home-pf-label", text: label });
+        meta.createSpan({ cls: "tj-home-pf-share", text: `${Math.round(share)}%` });
+        const track = row.createDiv({ cls: "tj-home-pf-track" });
+        const fill = track.createDiv({ cls: `tj-home-pf-fill is-${tone}` });
+        fill.style.width = `${share}%`;
+      };
+      bar("Wins", netWins, "profit");
+      bar("Losses", netLosses, "loss");
+      if (factor === Infinity) visual.createDiv({ cls: "tj-home-pf-note", text: "No losses" });
+      else if (!financials.decisions.length) visual.createDiv({ cls: "tj-home-pf-note", text: "No trades" });
+      else if (!Number.isFinite(factor)) visual.createDiv({ cls: "tj-home-pf-note", text: "Unavailable" });
+      else if (movement === 0) visual.createDiv({ cls: "tj-home-pf-note", text: "No net results" });
+      if (netWins > 0 && factor >= 1) val.addClass("tj-home-pf-positive");
+      else if (netLosses > 0) val.addClass("tj-home-pf-negative");
+      // The bars are the door: open the trades behind this scope.
+      visual.addClass("is-openable");
+      visual.setAttr("role", "button");
+      visual.setAttr("tabindex", "0");
+      const openTrades = () => void this.plugin.openTradeLogView({ scope: this.tradeLogScope() });
+      visual.addEventListener("click", openTrades);
+      visual.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openTrades();
+        }
+      });
+      attachTip(visual, {
+        title: "Net Profit Factor",
+        sub: factor === Infinity
+          ? "No Net losses, so Profit Factor is infinite. Bars show each side's share of Net movement."
+          : !financials.decisions.length
+            ? "No trades in this selection."
+            : !Number.isFinite(factor)
+              ? "Profit Factor is unavailable for the recorded amounts."
+              : "Bars show each side's share of Net movement; equal shares are 1.0.",
+      });
     }
 
     // Scale the value with the widget, but keep it modest (dashboard, not a TV).
     const w = Math.max(110, body.clientWidth || 200);
     const hh = Math.max(48, body.clientHeight || 70);
     val.style.fontSize = `${Math.max(14, Math.min(w * 0.1, hh * 0.4, 22)).toFixed(0)}px`;
+
+    // Visuals use the space actually left below the widget heading, body inset,
+    // and metric value. ResizeObserver re-renders these bodies after a grid resize.
+    if (winVisual && winRing) {
+      const availableHeight = winVisual.clientHeight || Math.max(0, hh - labelEl.offsetHeight - 32);
+      const availableWidth = Math.max(0, (body.clientWidth || w) - 24);
+      const diameter = Math.floor(Math.max(0, Math.min(160, availableHeight, availableWidth)));
+      winRing.style.width = `${diameter}px`;
+      winRing.style.height = `${diameter}px`;
+      winRing.style.flexBasis = `${diameter}px`;
+      winCenter?.toggleClass("is-compact", diameter < 112);
+    }
+  }
+
+  /**
+   * Home's headline P&L card. Same card as before, but the value and the curve
+   * now both come from the shared Net Trading P&L population — the headline can
+   * no longer disagree with the chart under it. Recorded account movement
+   * (payouts, deposits, signed adjustments) stays with the Accounts overview.
+   */
+  private renderHomeNetPnl(body: HTMLElement, trades: Trade[]): void {
+    const financials = this.financialsFor(trades);
+    const change = financials.net.total;
+    const period = this.selectedPeriodLabel();
+    let cumulative = 0;
+    const series = [...financials.net.byDay.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, netResult]) => {
+        cumulative += netResult;
+        return { date, cumulative };
+      });
+
+    const wrap = body.createDiv({ cls: "tj-metric tj-home-netpnl" });
+    const label = wrap.createDiv({ cls: "tj-metric-label", text: "P&L" });
+    const value = wrap.createDiv({
+      cls: `tj-metric-value tj-home-netpnl-value ${change >= 0 ? "tj-pos" : "tj-neg"}`,
+      text: fmtMoney2(change),
+    });
+    value.style.fontSize = "var(--tj-fs-head)";
+    const demosExcluded = this.filter === "all" && this.plugin.settings.excludeDemosFromPortfolio !== false;
+    const legs = financials.eligibleLegCount;
+    const decisions = financials.decisionCount;
+    attachTip(label, {
+      title: "Net Trading P&L",
+      value: fmtMoney2(change),
+      tone: change >= 0 ? "pos" : "neg",
+      sub: `${this.scoreAccountLabel()} · ${period} · ${decisions} closed trade${decisions === 1 ? "" : "s"}${legs !== decisions ? ` · ${legs} account legs` : ""}${demosExcluded ? " · demos excluded" : ""}. Recorded results after commission and fees; payouts, deposits and balance adjustments are account movements, not trading results.${this.incompleteCostNote(financials)}`,
+    });
+
+    const chart = wrap.createDiv({ cls: "tj-home-pnl-chart" });
+    if (series.length) {
+      renderLineChart(chart, {
+        values: [0, ...series.map((day) => day.cumulative)],
+        dates: [series[0].date, ...series.map((day) => day.date)],
+        key: `home-net-trading-pnl:${this.dateRange}:${this.accountId ?? "all"}:${this.filter}`,
+        format: this.plugin.settings.dateFormat,
+        showDates: false,
+        compact: true,
+        animations: this.plugin.settings.animations !== false,
+      });
+    } else {
+      chart.createDiv({ cls: "tj-home-pnl-empty", text: "No closed trades in this period" });
+    }
   }
 
   /**
@@ -1318,17 +2580,15 @@ export class WidgetGridView extends ItemView {
    * Smooth (Catmull-Rom) line, accent stroke, green/red area split at zero.
    * Morphs smoothly when data changes and hides axis labels when too small.
    */
-  private drawEquityChart(container: HTMLElement, trades: Trade[], key = "equity"): void {
-    const sorted = [...trades].sort(
-      (a, b) => a.date.localeCompare(b.date) || (a.entryTime || "").localeCompare(b.entryTime || "")
-    );
+  private drawEquityChart(container: HTMLElement, trades: Trade[], key = "equity", financials = this.financialsFor(trades)): void {
+    const days = [...financials.net.byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
     let cum = 0;
     const values: number[] = [0];
-    const dates: string[] = [sorted[0]?.date ?? ""];
-    for (const t of sorted) {
-      cum += netPnl(t);
+    const dates: string[] = [days[0]?.[0] ?? ""];
+    for (const [date, netResult] of days) {
+      cum += netResult;
       values.push(cum);
-      dates.push(t.date);
+      dates.push(date);
     }
     renderLineChart(container, {
       values,
@@ -1346,48 +2606,44 @@ export class WidgetGridView extends ItemView {
     const backdrop = header.createDiv({ cls: "tj-pop-backdrop" });
     backdrop.addEventListener("click", () => {
       this.filtersOpen = false;
-      this.render();
+      this.rerenderHeaderOnly();
     });
     const pop = header.createDiv({ cls: "tj-popover" });
     pop.addEventListener("click", (e) => e.stopPropagation());
 
-    // ---- Trading data ----
-    pop.createDiv({ cls: "tj-pop-section", text: "Trading data" });
-    pop.createDiv({ cls: "tj-pop-label", text: "Account" });
-    const accSel = pop.createEl("select", { cls: "dropdown tj-filt-account" });
-    const allOpt = accSel.createEl("option", { value: "", text: "All accounts" });
-    if (!this.accountId) allOpt.setAttr("selected", "selected");
-
-    const accounts = this.plugin.settings.propAccounts;
-    const byFirm = new Map<string, { acc: (typeof accounts)[number]; type: string; label: string; order: number }[]>();
-    for (const acc of accounts) {
-      const firmLabel = catalogLabel(acc.firmId) ?? "Other";
-      const sizeLabel = acc.size ? `$${(acc.size / 1000).toFixed(0)}K` : "";
-      const typeTag = acc.type === "eval" ? "Eval" : acc.type === "funded" ? "Funded" : acc.type === "live" ? "Live" : acc.type === "personal" ? "Personal" : acc.type === "demo" ? "Demo" : "Other";
-      const label = acc.name.length > 0 && acc.name !== "Custom Account" ? acc.name : `${firmLabel} ${sizeLabel} ${typeTag}`.trim();
-      const order = acc.type === "funded" ? 0 : acc.type === "live" ? 1 : acc.type === "personal" ? 2 : acc.type === "eval" ? 3 : 4;
-      if (!byFirm.has(firmLabel)) byFirm.set(firmLabel, []);
-      byFirm.get(firmLabel)!.push({ acc, type: acc.type, label, order });
-    }
-    for (const [firmLabel, list] of [...byFirm.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-      const group = accSel.createEl("optgroup", { attr: { label: firmLabel } });
-      for (const item of [...list].sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))) {
-        const opt = group.createEl("option", { value: item.acc.id, text: item.label });
-        if (this.accountId === item.acc.id) opt.setAttr("selected", "selected");
-      }
-    }
-    accSel.addEventListener("change", () => {
-      this.accountId = accSel.value || null;
-      this.render();
+    // ---- Account ----
+    const accSection = pop.createDiv({ cls: "tj-pop-fields" });
+    accSection.createDiv({ cls: "tj-pop-label", text: "Account" });
+    const accounts = [...(this.plugin.settings.propAccounts ?? [])].sort((a, b) => {
+      const order = (t: string): number => (t === "funded" ? 0 : t === "live" ? 1 : t === "personal" ? 2 : t === "eval" ? 3 : 4);
+      return order(a.type) - order(b.type) || a.name.localeCompare(b.name);
     });
+    const accItems: DropdownItem[] = [{ id: "", label: "All accounts", heading: "Scope" }];
+    let lastFirm = "";
+    for (const acc of accounts) {
+      const firm = catalogLabel(acc.firmId) ?? "Other";
+      const label = acc.name && acc.name !== "Custom Account"
+        ? acc.name
+        : `${firm}${acc.size ? ` $${(acc.size / 1000).toFixed(0)}K` : ""} ${typeLabel(acc.type)}`.trim();
+      accItems.push({ id: acc.id, label, heading: firm !== lastFirm ? firm : undefined });
+      lastFirm = firm;
+    }
+    mountDropdown(accSection, accItems, this.accountId ?? "", (id) => {
+      this.accountId = id || null;
+      this.render();
+    }, { title: "Account", placeholder: "All accounts" });
 
-    // ---- Classification ----
-    pop.createDiv({ cls: "tj-pop-section", text: "Classification" });
-    const types = pop.createDiv({ cls: "tj-chipgroup tj-chips-inline" });
+    // ---- Account type ----
+    const typeSection = pop.createDiv({ cls: "tj-pop-fields" });
+    typeSection.createDiv({ cls: "tj-pop-label", text: "Account type" });
+    const pills = typeSection.createDiv({ cls: "tj-pop-pills" });
     for (const f of accountFilters()) {
-      const chip = types.createEl("button", { text: f.label, cls: "tj-chip" });
-      if (!this.accountId && this.filter === f.id) chip.addClass("active");
-      chip.addEventListener("click", () => {
+      const pill = pills.createEl("button", {
+        cls: "tj-pop-pill" + (!this.accountId && this.filter === f.id ? " is-on" : ""),
+        text: f.label,
+        attr: { type: "button", "aria-pressed": String(!this.accountId && this.filter === f.id) },
+      });
+      pill.addEventListener("click", () => {
         this.accountId = null;
         this.filter = f.id;
         this.render();
@@ -1404,91 +2660,76 @@ export class WidgetGridView extends ItemView {
    * last stretch went better than the one before it without the app telling you
    * what to feel about it. Counted trades only — a copy is one decision.
    */
-  /**
-   * Payouts: what has actually left the accounts. Cash out, not performance — a
-   * payout moves the balance and the distance to the limit, never the P&L.
-   */
+  /** Current-scope payout total; cash out, not trading performance. */
   renderPayoutsWidget(body: HTMLElement): void {
     const excludeDemos = this.plugin.settings.excludeDemosFromPortfolio !== false;
     const accounts = this.plugin.settings.propAccounts ?? [];
     const byId = new Map(accounts.map((a) => [a.id, a]));
-    const rows = (this.plugin.settings.payouts ?? [])
-      .filter((p) => byId.has(p.accountId) && !(excludeDemos && byId.get(p.accountId)?.type === "demo"))
-      .slice()
+
+    // Account scope: the selected account, else the account-type filter, else all
+    // — the same filter every other widget answers to.
+    const inScope = (acc: { id: string; type: string }): boolean => {
+      if (this.accountId) return acc.id === this.accountId;
+      if (this.filter === "all") return true;
+      if (this.filter === "live") return acc.type === "live" || acc.type === "personal";
+      return acc.type === this.filter;
+    };
+
+    const scoped = (this.plugin.settings.payouts ?? []).filter((p) => {
+      const acc = byId.get(p.accountId);
+      if (!acc) return false;
+      if (excludeDemos && acc.type === "demo") return false;
+      return inScope(acc);
+    });
+
+    const bounds = this.rangeBounds();
+    const asOf = this.asOfKey();
+    const rows = scoped
+      .filter((p) => {
+        return p.date <= asOf && dateWithinPeriod(p.date, bounds);
+      })
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    if (!rows.length) {
-      body.createDiv({
-        cls: "tj-empty",
-        text: "No payouts yet. Log one on the account page on the day the money reaches you — the account value and its distance to the limit follow from it.",
-      });
-      return;
-    }
-
     const total = rows.reduce((s, p) => s + p.amount, 0);
-    const year = String(new Date().getFullYear());
-    const yearTotal = rows.filter((p) => p.date.startsWith(year)).reduce((s, p) => s + p.amount, 0);
-    const touched = new Set(rows.map((p) => p.accountId));
-    const last = rows[rows.length - 1];
+    const money = (n: number): string => fmtMoneyAbs(n, 2);
 
-    const wrap = body.createDiv({ cls: "tj-pay" });
-    const top = wrap.createDiv({ cls: "tj-pay-top" });
-    const totalBox = top.createDiv({ cls: "tj-pay-total" });
-    totalBox.createSpan({ cls: "tj-pay-k", text: "Total withdrawn" });
-    const totalVal = totalBox.createEl("b", { cls: "tj-pay-v", text: fmtMoney2(total) });
-    attachTip(totalVal, {
-      title: "Money that left your accounts",
-      sub: "Money that left your accounts.",
+    const compact = (body.clientHeight > 0 && body.clientHeight < 88) || (body.clientWidth > 0 && body.clientWidth < 180);
+    const summary = body.createDiv({ cls: "tj-payout-summary" });
+    summary.toggleClass("is-compact", compact);
+    const head = summary.createDiv({ cls: "tj-payout-summary-head" });
+    const icon = head.createSpan({ cls: "tj-payout-summary-icon" });
+    setIcon(icon, "wallet");
+    const amount = head.createDiv({ cls: "tj-payout-summary-value", text: money(total) });
+    attachTip(amount, {
+      title: "Total payouts",
+      value: money(total),
+      sub: rows.length
+        ? "Cash paid out in the selected period and account scope; not P&L."
+        : "No payouts in this period and account scope.",
     });
-
-    const facts = top.createDiv({ cls: "tj-pay-facts" });
-    const fact = (label: string, value: string) => {
-      const box = facts.createDiv({ cls: "tj-pay-fact" });
-      box.createSpan({ cls: "tj-pay-k", text: label });
-      box.createSpan({ cls: "tj-pay-f", text: value });
-    };
-    fact("Payouts", String(rows.length));
-    fact("Accounts", String(touched.size));
-    fact(`In ${year}`, fmtMoney2(yearTotal));
-
-    // Six months of cash out, so the shape of "when did I take money" is visible.
-    const now = new Date();
-    const months: Array<{ key: string; amount: number }> = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, amount: 0 });
+    if (rows.length && !compact) {
+      const year = dateInZone(this.plugin.settings.timeZone).slice(0, 4);
+      const yearTotal = rows.filter((p) => p.date.startsWith(year)).reduce((s, p) => s + p.amount, 0);
+      summary.createDiv({
+        cls: "tj-payout-summary-sub",
+        text: `${rows.length} payout${rows.length === 1 ? "" : "s"} · ${money(yearTotal)} in ${year}`,
+      });
     }
-    for (const p of rows) {
-      const bucket = months.find((m) => m.key === p.date.slice(0, 7));
-      if (bucket) bucket.amount += p.amount;
-    }
-    // Six months of cash out as one continuous bar — width by amount (magnitude).
-    renderContinuousBar(wrap, {
-      className: "tj-pay-cbar",
-      showLabels: true,
-      weightOf: (s) => Math.abs(s.value),
-      segments: months.map((m) => ({
-        key: m.key,
-        label: MON_ABBR[Number(m.key.slice(5, 7)) - 1],
-        value: m.amount,
-        tone: m.amount > 0 ? "pos" : "neutral",
-        tip: m.amount > 0 ? { title: m.key, value: fmtMoney2(m.amount) } : undefined,
-      })),
-    });
+    if (!rows.length) summary.createDiv({ cls: "tj-payout-summary-empty", text: "No payouts this period" });
 
-    const lastAcc = byId.get(last.accountId);
-    wrap.createDiv({
-      cls: "tj-pay-last",
-      text: `Last · ${formatDate(last.date)} · ${lastAcc?.name ?? "unknown account"} · ${fmtMoney2(last.amount)}`,
-    });
   }
-
-  renderTrendsWidget(body: HTMLElement, trades: Trade[]): void {
+  renderTrendsWidget(body: HTMLElement, trades: Trade[], header?: HTMLElement): void {
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
     }
     const trends = computeTrends(trades);
+    const financials = this.financialsFor(trades);
+    const title = header?.querySelector<HTMLElement>("h3");
+    if (title) attachTip(title, {
+      title: "Trends · Net",
+      sub: `Average result and Profit Factor use Net per trade. Copied legs in scope are summed before classification; Gross-sign win-rate and Gross-based R stay as defined.${this.incompleteCostNote(financials)}`,
+    });
     const minutes = (m: number): string => (m >= 60 ? `${Math.floor(m / 60)}h ${Math.round(m % 60)}m` : `${Math.round(m)}m`);
     const write = (v: number | null, unit: string): string => {
       if (v === null || !Number.isFinite(v)) return unit === "factor" ? "\u221e" : "\u2014";
@@ -1528,14 +2769,14 @@ export class WidgetGridView extends ItemView {
 
     const head = body.createDiv({ cls: "tj-trendrow is-head" });
     head.createDiv({ cls: "tj-trendname", text: "Metric" });
-    head.createDiv({ cls: "tj-trendval", text: `Previous ${trends.nBefore}` });
+    head.createDiv({ cls: "tj-trendval is-prev", text: `Previous ${trends.nBefore}` });
     head.createDiv({ cls: "tj-trendval", text: `Latest ${trends.nAfter}` });
     head.createDiv({ cls: "tj-trendval", text: "Change" });
 
     for (const row of trends.rows) {
       const line = body.createDiv({ cls: "tj-trendrow" });
       line.createDiv({ cls: "tj-trendname", text: row.label });
-      line.createDiv({ cls: "tj-trendval", text: write(row.before, row.unit) });
+      line.createDiv({ cls: "tj-trendval is-prev", text: write(row.before, row.unit) });
       line.createDiv({ cls: "tj-trendval", text: write(row.after, row.unit) });
       const cell = line.createDiv({ cls: "tj-trenddelta" });
       if (!trends.enough || row.delta === null) {
@@ -1558,7 +2799,7 @@ export class WidgetGridView extends ItemView {
       cls: "tj-trendnote",
       text: trends.enough
         ? `Latest ${trends.nAfter} trades against the ${trends.nBefore} before them \u2014 a direction, not a prediction.`
-        : `Not enough history for a trend yet \u2014 ${trades.length} trades here, and a direction needs ${trends.minSample} on each side of the split.`,
+        : `Not enough history for a trend yet \u2014 ${trends.nAfter + trends.nBefore} trades here, and a direction needs ${trends.minSample} on each side of the split.`,
     });
     // A row that can never fill is a dead end unless we say what is missing.
     for (const c of trends.coverage) {
@@ -1573,140 +2814,316 @@ export class WidgetGridView extends ItemView {
     }
   }
 
-  renderDisciplineWidget(body: HTMLElement, trades: Trade[], h?: number): void {
+  private homeTaskScopeLabel(): string {
+    const period = this.dateRange === "custom"
+      ? this.customRangeSummary()
+      : SCORE_PERIOD_LABELS[this.dateRange] ?? "Selected period";
+    return `${period} · ${this.scoreAccountLabel()}`;
+  }
+
+  renderFocusAreasWidget(body: HTMLElement, trades: Trade[], header?: HTMLElement): void {
+    const rows = tradeRows(trades);
+    const pending = rows.filter((row) => row.legs.some((trade) => !reviewStatus(trade).complete)).length;
+    const missingPrint = rows.filter((row) => row.legs.some((trade) => !hasPrint(trade))).length;
+    const title = header?.querySelector<HTMLElement>("h3");
+    const scopeLabel = this.homeTaskScopeLabel();
+    if (title) {
+      attachTip(title, {
+        title: "Focus Areas",
+        sub: `${scopeLabel}. Counts are trades; screenshot gaps are also included in review tasks.`,
+      });
+    }
+
+    const hub = body.createDiv({ cls: "tj-focus-hub" });
+    const next = rows.flatMap((row) => row.legs).find((trade) => !reviewStatus(trade).complete);
+    const taskCard = (
+      count: number,
+      titleText: string,
+      iconName: string,
+      actionText: string,
+      onAction: () => void,
+      actionAvailable = true,
+    ) => {
+      const card = hub.createEl("button", {
+        cls: "tj-focus-task-card",
+        attr: { type: "button" },
+      });
+      card.disabled = !actionAvailable;
+      const heading = card.createSpan({ cls: "tj-focus-review-heading" });
+      const icon = heading.createSpan({ cls: "tj-focus-review-icon" });
+      setIcon(icon, iconName);
+      heading.createSpan({ cls: "tj-focus-review-count", text: String(count) });
+      heading.createSpan({ cls: "tj-focus-review-title", text: titleText });
+      if (actionAvailable) {
+        const action = card.createSpan({ cls: "tj-focus-task-action" });
+        action.createSpan({ text: actionText });
+        const arrow = action.createSpan({ cls: "tj-focus-task-arrow" });
+        setIcon(arrow, "arrow-right");
+        card.addEventListener("click", onAction);
+      } else {
+        card.createSpan({ cls: "tj-focus-task-status", text: actionText });
+      }
+      return card;
+    };
+
+    taskCard(
+      pending,
+      "Pending reviews",
+      "clipboard-check",
+      "Continue reviewing",
+      () => {
+        if (!next) return;
+        void this.plugin.openTradeDetail({
+          id: next.id,
+          from: { type: "tradelog", tradeIds: rows.flatMap((row) => row.legs).map((trade) => trade.id) },
+        });
+      },
+      !!next,
+    );
+    taskCard(
+      missingPrint,
+      "Missing screenshots",
+      "image",
+      "Open filtered list",
+      () => void this.plugin.openTradeLogView({
+        scope: this.tradeLogScope(),
+        quality: ["noprint"],
+      }),
+    );
+  }
+
+  renderAccountsPreviewWidget(body: HTMLElement, header?: HTMLElement): void {
+    const movement = this.homeAccountMovement();
+    const accounts = [...movement.accounts].sort((a, b) =>
+      typeRank(a.account.type) - typeRank(b.account.type) ||
+      (a.account.copyRole === "base" ? -1 : 0) - (b.account.copyRole === "base" ? -1 : 0) ||
+      a.account.name.localeCompare(b.account.name),
+    );
+    header?.querySelector(".tj-home-accounts-link")?.remove();
+    const all = (header ?? body).createEl("button", {
+      cls: "tj-home-accounts-link",
+      text: `View all · ${accounts.length}`,
+      attr: { type: "button" },
+    });
+    all.addEventListener("click", () => void this.plugin.openAccounts());
+    const list = body.createDiv({ cls: "tj-home-accounts-list" });
+    if (accounts.length === 1) list.addClass("is-single");
+    if (!accounts.length) {
+      list.createDiv({ cls: "tj-home-accounts-empty", text: "No accounts in this selection." });
+    } else {
+      const listWidth = list.clientWidth || body.clientWidth || 180;
+      const listHeight = list.clientHeight || Math.max(72, (body.clientHeight || 150) - 24);
+      const columns = Math.max(1, Math.floor((listWidth + 8) / 248));
+      const rows = Math.max(1, Math.floor(listHeight / 72));
+      for (const snapshot of accounts.slice(0, columns * rows)) {
+        const capital = snapshot.account.size || 0;
+        const recordedChange = snapshot.balance - capital;
+        const valueTone = recordedChange > 0 ? "is-positive" : recordedChange < 0 ? "is-negative" : "";
+        const row = list.createEl("button", {
+          cls: "tj-home-account-card",
+          attr: { type: "button" },
+        });
+        row.createSpan({
+          cls: "tj-sr-only",
+          text: `Open ${snapshot.account.name}, ${typeLabel(snapshot.account.type)}, journal-recorded value ${fmtMoney2(snapshot.balance)}`,
+        });
+        const head = row.createSpan({ cls: "tj-home-account-head" });
+        const info = head.createSpan({ cls: "tj-home-account-info" });
+        info.createSpan({ cls: "tj-home-account-name", text: snapshot.account.name });
+        info.createSpan({ cls: "tj-home-account-type", text: typeLabel(snapshot.account.type) });
+        const balance = head.createSpan({ cls: `tj-home-account-balance ${valueTone}`.trim(), text: fmtMoney2(snapshot.balance) });
+        attachTip(balance, { title: "Journal-recorded value", value: fmtMoney2(snapshot.balance), sub: "Calculated from configured capital, journaled trading and account cash movements; not live broker equity." });
+        const chart = row.createSpan({ cls: "tj-home-account-chart" });
+        if (snapshot.days.length) {
+          renderLineChart(chart, {
+            values: [capital, ...snapshot.days.map((day) => capital + day.cumulative)],
+            dates: [snapshot.days[0].date, ...snapshot.days.map((day) => day.date)],
+            baseline: capital,
+            baseLine: capital,
+            fadeFloor: capital,
+            compact: true,
+            showDates: false,
+            key: `home-account-balance:${snapshot.account.id}`,
+            format: this.plugin.settings.dateFormat,
+            animations: this.plugin.settings.animations !== false,
+          });
+        } else {
+          chart.createSpan({ cls: "tj-home-account-nohistory", text: "No recorded history" });
+        }
+        row.addEventListener("click", () => void this.plugin.openAccountDashboard(undefined, snapshot.account.id));
+      }
+    }
+  }
+
+  renderDisciplineWidget(body: HTMLElement, trades: Trade[]): void {
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
       return;
     }
-    const rev = reviewSummary(trades);
-    const need = rev.total - rev.complete;
-    const dayKey = (t: Trade): string => toZoneDate(t.date, t.entryTime, this.plugin.settings.timeZone);
-    const process = computeProcessSignals(trades, dayKey);
+    // One logical decision per copy group (copied legs are never a second
+    // decision), and a decision is complete only when every one of its legs is
+    // complete — the exact rule the Trade Log's attention queue uses.
+    const rows = tradeRows(trades);
+    const total = rows.length;
+    const complete = rows.filter((r) => r.legs.every((l) => reviewStatus(l).complete)).length;
+    const pending = total - complete;
+    const pct = total ? Math.round((complete / total) * 100) : 0;
+    // Colour is review completion only — never trading quality.
+    const arcColor =
+      pct >= 100 ? "var(--tj-tone-good)"
+        : pct >= 80 ? "var(--tj-tone-mid)"
+          : pct >= 50 ? "var(--color-orange, #e8944a)"
+            : "var(--tj-tone-bad)";
 
-    // Journaling coverage: optional psychology / mistake signals logged or
-    // explicitly acknowledged. Distinct from the required-checklist review %.
-    const journaled = trades.filter(
-      (t) =>
-        (t.psychology_tags?.length ?? 0) > 0 ||
-        t.psychologyAcknowledged === true ||
-        (t.mistake_tags?.length ?? 0) > 0 ||
-        t.mistakesAcknowledged === true
-    ).length;
-    const journalPct = trades.length ? (journaled / trades.length) * 100 : 0;
-    const tiltPct = process.tradeCount ? (process.afterTwoLosses / process.tradeCount) * 100 : 0;
+    const bodyW = body.clientWidth || 0;
+    const bodyH = body.clientHeight || 0;
+    const measured = bodyW > 0 && bodyH > 0;
+    // Wide cards put the dial beside the text; narrow/tall centre the dial.
+    const wide = measured && bodyW > bodyH * 1.4 && bodyW >= 340;
 
-    const wrap = body.createDiv({ cls: "tj-revieww" });
-    // Compact when the card is short: measured height when the DOM has laid out,
-    // otherwise the grid row count (keeps the behaviour testable in jsdom).
-    const measured = body.clientHeight || 0;
-    const compact = measured > 0 ? measured < 150 : (h ?? 6) <= 4;
-    wrap.toggleClass("is-compact", compact);
+    const wrap = body.createDiv({ cls: "tj-disc" + (wide ? " is-wide" : "") });
 
-    if (!compact) {
-      const gaugewrap = wrap.createDiv({ cls: "tj-revieww-gaugewrap" });
-      const color = need === 0 ? "var(--tj-tone-good)" : rev.pct >= 50 ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)";
-      const animationsOn = this.plugin.settings.animations !== false;
-      const prevPct = this._reviewPct;
-      this._reviewPct = rev.pct;
-      renderGauge(gaugewrap, {
-        pct: rev.pct,
-        color,
-        label: `${rev.pct}%`,
-        sublabel: "reviewed",
-        className: "tj-disc-gauge",
-        animate: animationsOn && prevPct !== rev.pct,
-      });
-      gaugewrap.createDiv({
-        cls: "tj-revieww-gauge-cap" + (need === 0 ? " is-complete" : ""),
-        text: need === 0 ? "complete" : "trades need review",
-      });
-    }
-
-    const foot = wrap.createDiv({ cls: "tj-revieww-foot" });
-    foot.createDiv({
-      cls: "tj-revieww-sub",
-      text: need === 0 ? "All caught up 🎉" : `${rev.complete} of ${rev.total} complete`,
-    });
-
-    // Good signals read green when high; bad signals read green when low.
-    const state = (v: number, good: boolean): "ok" | "warn" | "bad" =>
-      good ? (v >= 70 ? "ok" : v >= 40 ? "warn" : "bad") : v <= 10 ? "ok" : v <= 25 ? "warn" : "bad";
-    renderStatusRow(foot, {
-      className: "tj-disc-process",
-      items: [
-        { key: "review", label: "Review", state: state(rev.pct, true),
-          tip: { title: "Reviewed", value: `${rev.pct}%`, sub: `${rev.complete} of ${rev.total} complete` } },
-        { key: "journal", label: "Journal", state: state(journalPct, true),
-          tip: { title: "Journaling coverage", value: `${journalPct.toFixed(0)}%`, sub: "Psychology or mistakes logged or acknowledged." } },
-        { key: "stops", label: "Stops", state: state(process.stopDefinedPct, true),
-          tip: { title: "Stop defined", value: `${process.stopDefinedPct.toFixed(0)}%`, sub: "Trades with a protective stop." } },
-        { key: "revenge", label: "Revenge", state: state(process.revengeRate, false),
-          tip: { title: "Revenge trades", value: `${process.revengeRate.toFixed(0)}%`, sub: `${process.revengeCount} re-entries after a loss.` } },
-        { key: "tilt", label: "Tilt", state: state(tiltPct, false),
-          tip: { title: "After two losses", value: `${process.afterTwoLosses}`, sub: "Trades opened right after two consecutive losses." } },
-        { key: "fast", label: "Fast", state: state(process.fastTradesPct, false),
-          tip: { title: "Impulsive", value: `${process.fastTradesPct.toFixed(0)}%`, sub: "Opened and closed inside a minute." } },
-      ],
-    });
-
-    // Explicit action instead of a hoverable, fully-clickable card.
-    const actions = foot.createDiv({ cls: "tj-revieww-actions" });
-    const openBtn = actions.createEl("button", {
-      cls: "tj-revieww-open",
-      text: "Open review queue →",
-      attr: { type: "button" },
-    });
-    openBtn.addEventListener("click", (e) => {
+    // Dial first in DOM (top when tall, left when wide), then the text.
+    const dial = wrap.createDiv({ cls: "tj-disc-dial" });
+    dial.style.setProperty("--tj-disc-color", arcColor);
+    const info = wrap.createDiv({ cls: "tj-disc-info" });
+    info.createDiv({ cls: "tj-disc-line", text: `${pending} pending` });
+    const link = info.createEl("button", { cls: "tj-disc-link", text: "Review queue ↗", attr: { type: "button" } });
+    link.addEventListener("click", (e) => {
       e.stopPropagation();
       void this.openReviewQueue();
     });
+
+    // Size the dial from the space left after the paddings, the gap and the
+    // text, so it fills the widget without clipping and without a huge empty
+    // area. The card body has ~24px horizontal / ~20px vertical padding.
+    const textW = info.offsetWidth || 190;
+    const textH = info.offsetHeight || 54;
+    let size = 120;
+    if (measured) {
+      const availW = Math.max(0, bodyW - 24);
+      const availH = Math.max(0, bodyH - 20);
+      size = wide
+        ? Math.min(availW - textW - 16, availH)
+        : Math.min(availW, availH - textH - 12);
+      size = Math.max(56, Math.floor(size));
+    }
+    dial.style.width = `${size}px`;
+    dial.style.height = `${size}px`;
+
+    // Open arc (270°, gap at the bottom): neutral track + completion arc.
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 120 120");
+    svg.setAttribute("class", "tj-disc-arc");
+    const cx = 60, cy = 60, r = 47, start = 225, span = 270;
+    const polar = (deg: number) => {
+      const a = ((deg - 90) * Math.PI) / 180;
+      return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+    };
+    const arcPath = (to: number): string => {
+      const s = polar(start);
+      const e = polar(to);
+      return `M ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${r} ${r} 0 ${to - start > 180 ? 1 : 0} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)}`;
+    };
+    const track = document.createElementNS(NS, "path");
+    track.setAttribute("d", arcPath(start + span));
+    track.setAttribute("class", "tj-disc-track");
+    const fill = document.createElementNS(NS, "path");
+    fill.setAttribute("d", arcPath(start + span * Math.max(0.004, Math.min(1, pct / 100))));
+    fill.setAttribute("class", "tj-disc-fill");
+    svg.appendChild(track);
+    svg.appendChild(fill);
+    dial.appendChild(svg as unknown as Node);
+    const pctBox = dial.createDiv({ cls: "tj-disc-pct" });
+    pctBox.createSpan({ cls: "tj-disc-pct-num", text: `${pct}%` });
   }
 
   /** Opens the Trade Log filtered to a single day (calendar day click). */
   private async openDayInTradeLog(dateKey: string): Promise<void> {
-    await this.plugin.openTradeLog();
-    const leaves = this.plugin.app.workspace.getLeavesOfType("tradebook-trade-log-view");
-    const view: any = leaves.length ? leaves[0].view : null;
-    if (view && typeof view.filterByDay === "function") view.filterByDay(dateKey);
+    await this.plugin.openTradeLogForDay(dateKey);
   }
 
-  /** Opens the Trade Log filtered to the trades that still need review. */
+  /** Opens the Trade Log on the same scope, filtered to the trades that still
+   *  need review — so its pending count matches this widget's for that scope. */
   private async openReviewQueue(): Promise<void> {
-    await this.plugin.openTradeLog();
-    const leaves = this.plugin.app.workspace.getLeavesOfType("tradebook-trade-log-view");
-    const view: any = leaves.length ? leaves[0].view : null;
-    if (view && typeof view.filterByReview === "function") view.filterByReview("pending");
+    await this.plugin.openTradeLogView({
+      scope: this.tradeLogScope(),
+      review: "pending",
+    });
   }
 
-  /** GitHub-style P&L heat-map of the last ~6 months. */
-  renderHeatmap(body: HTMLElement, trades: Trade[], counted: Trade[] = trades): void {
+  /** Preserve Home's exact journal-zone bounds when handing a scope to the
+   * Trade Log, whose own visible presets remain unchanged. */
+  private tradeLogScope(): {
+    period: string;
+    customFrom: string;
+    customTo: string;
+    dateBounds?: { start: string; end: string; label: string };
+    accountId: string | null;
+    accountType: string;
+  } {
+    const scope = {
+      period: this.dateRange,
+      customFrom: this.customFrom,
+      customTo: this.customTo,
+      accountId: this.accountId,
+      accountType: this.filter,
+    };
+    if (this.viewKey() === "home" && this.dateRange !== "all") {
+      const bounds = this.briefingBounds();
+      if (bounds?.start && bounds.end) {
+        scope.customFrom = bounds.start;
+        scope.customTo = bounds.end;
+        return {
+          ...scope,
+          dateBounds: {
+            start: bounds.start,
+            end: bounds.end,
+            label: SCORE_PERIOD_LABELS[this.dateRange] ?? "Custom",
+          },
+        };
+      }
+    }
+    return scope;
+  }
+
+  /** Trading Activity heatmap over the existing six-month window. */
+  renderHeatmap(body: HTMLElement, trades: Trade[], _counted: Trade[] = trades, asOf?: string): void {
     killTip();
     guardTips();
     document.querySelectorAll(".tj-tip").forEach((n) => n.remove());
 
-    const byDay = new Map<string, { pnl: number; count: number; wins: number }>();
-    for (const t of trades) {
-      if (!t.date) continue;
-      const b = byDay.get(t.date) ?? { pnl: 0, count: 0, wins: 0 };
-      b.pnl += Number.isFinite(t.pnl) ? t.pnl : 0;
-      byDay.set(t.date, b);
-    }
-    for (const t of counted) {
-      if (!t.date) continue;
-      const b = byDay.get(t.date) ?? { pnl: 0, count: 0, wins: 0 };
-      b.count++;
-      if (t.pnl > 0) b.wins++;
-      byDay.set(t.date, b);
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    // The window ends at the Home's historical as-of date when one is given,
+    // so a past period never reaches forward into later data.
+    const endRef = asOf ? new Date(asOf + "T00:00:00") : new Date();
+    const end = new Date(endRef.getFullYear(), endRef.getMonth(), endRef.getDate());
+    const endIso = iso(end);
+    const first = new Date(end.getFullYear(), end.getMonth() - 5, 1);
+    const firstIso = iso(first);
+
+    const source = trades.filter((t) => {
+      const day = this.scoreDayKey(t);
+      return !!day && day >= firstIso && day <= endIso;
+    });
+    const financials = this.financialsFor(source, (trade) => this.scoreDayKey(trade));
+    const byDay = new Map<string, { pnl: number; count: number; wins: number; losses: number; coverage: string }>();
+    for (const [day, pnl] of financials.net.byDay) {
+      const decisions = financials.decisionsByDay.get(day);
+      byDay.set(day, {
+        pnl,
+        count: decisions?.count ?? 0,
+        wins: decisions?.wins ?? 0,
+        losses: decisions?.losses ?? 0,
+        coverage: this.costCoverageWarning(financials),
+      });
     }
     if (!byDay.size) {
       body.createDiv({ cls: "tj-empty", text: "No trades yet." });
       return;
     }
-    const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const now = new Date();
-    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const first = new Date(end.getFullYear(), end.getMonth() - 5, 1);
     const startMon = new Date(first);
     startMon.setDate(startMon.getDate() - ((startMon.getDay() + 6) % 7));
     const weeks: Date[] = [];
@@ -1714,11 +3131,22 @@ export class WidgetGridView extends ItemView {
 
     const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
     const maxAbs = Math.max(...[...byDay.values()].map((b) => Math.abs(b.pnl)), 1);
-    const cell = Math.max(8, Math.min(15, Math.floor(((body.clientHeight || 160) - 46) / 7)));
+    // Size the cells to fit BOTH dimensions: the height sets the natural cell,
+    // then the width caps it so the six-month grid never runs off the card.
+    const bodyW = body.clientWidth || 0;
+    const bodyH = body.clientHeight || 0;
+    let cell = bodyH > 0 ? Math.floor((bodyH - 46) / 7) : 12;
+    if (bodyW > 0 && weeks.length) {
+      const labelInset = bodyW > 384 ? 26 : 0;
+      const avail = bodyW - 24 - labelInset - (weeks.length - 1) * 3;
+      cell = Math.min(cell, Math.floor(avail / weeks.length));
+    }
+    cell = Math.max(4, Math.min(15, cell));
 
     const wrap = body.createDiv({ cls: "tj-heat" });
-    const monthsRow = wrap.createDiv({ cls: "tj-heat-months" });
-    const main = wrap.createDiv({ cls: "tj-heat-main" });
+    const scroll = wrap.createDiv({ cls: "tj-heat-scroll" });
+    const monthsRow = scroll.createDiv({ cls: "tj-heat-months" });
+    const main = scroll.createDiv({ cls: "tj-heat-main" });
     const days = main.createDiv({ cls: "tj-heat-days" });
     const wcol = main.createDiv({ cls: "tj-heat-weeks" });
 
@@ -1730,6 +3158,7 @@ export class WidgetGridView extends ItemView {
 
     let lastMonth = -1;
     let lastLabelAt = -99;
+    const monthLabelGap = cell <= 5 ? 4 : 3;
     weeks.forEach((w, wi) => {
       const col = wcol.createDiv({ cls: "tj-heat-col" });
       const slot = monthsRow.createDiv({ cls: "tj-heat-mslot" });
@@ -1737,7 +3166,7 @@ export class WidgetGridView extends ItemView {
       if (w.getMonth() !== lastMonth) {
         lastMonth = w.getMonth();
         // Skip a label if it would collide with the previous one (like GitHub).
-        if (wi - lastLabelAt >= 3) {
+        if (wi - lastLabelAt >= monthLabelGap) {
           lastLabelAt = wi;
           slot.setText(MON_ABBR[lastMonth]);
         }
@@ -1771,15 +3200,17 @@ export class WidgetGridView extends ItemView {
     legend.createSpan({ text: "More" });
   }
 
-  private bindHeatTip(cell: HTMLElement, key: string, b: { pnl: number; count: number; wins: number }): void {
+  private bindHeatTip(cell: HTMLElement, key: string, b: { pnl: number; count: number; wins: number; losses: number; coverage: string }): void {
     cell.addEventListener("mouseenter", () => {
       const [y, m, d] = key.split("-");
+      const decided = b.wins + b.losses;
+      const rate = decided ? `${Math.round((b.wins / decided) * 100)}%` : "—";
       showTip(
         {
           title: formatDate(key, this.plugin.settings.dateFormat) || `${parseInt(d, 10)} ${MON_ABBR[parseInt(m, 10) - 1]} ${y}`,
           value: fmtMoney2(b.pnl),
           tone: b.pnl >= 0 ? "pos" : "neg",
-          sub: `${b.count} trade${b.count === 1 ? "" : "s"} · ${Math.round((b.wins / b.count) * 100)}% win`,
+          sub: `${b.count} trade${b.count === 1 ? "" : "s"} · ${rate} Net win rate · Net P&L${b.coverage}`,
         },
         "tj-heat-tip"
       );
@@ -1788,145 +3219,25 @@ export class WidgetGridView extends ItemView {
     cell.addEventListener("mouseleave", () => killTip());
   }
 
-  /**
-   * Trading Score — Journalit-style weighted radar.
-   * 6 axes: risk 25 · profitability 20 · execution 15 · consistency 15 ·
-   * experience 15 · return-consistency 10. Unlocks after 4 weeks + 5 trades.
-   */
-  renderScoreRadar(body: HTMLElement, trades: Trade[]): void {
-    if (trades.length === 0) {
-      body.createDiv({ cls: "tj-empty", text: "No trades to compute score." });
-      return;
-    }
-    const result = computeScore(trades, (t) => t.date);
-    const axes = result.axes;
-    const score = result.score;
-    const phase = result.phase;
-    const weeksActive = result.progress.weeksActive;
-    const count = result.progress.tradeCount;
-    const band = SCORE_BAND_TOKEN[result.band];
-
-    const NS = "http://www.w3.org/2000/svg";
-    const el = (tag: string, attrs: Record<string, string>): SVGElement => {
-      const node = document.createElementNS(NS, tag);
-      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
-      return node;
-    };
-    const box = body.createDiv({ cls: "tj-chart-box tj-radar-box tj-score2" });
-    box.style.setProperty("--tj-score-color", band);
-
-    // ------------------ locked: progress ring ------------------
-    if (!result.unlocked) {
-      const done = Math.min(4, weeksActive);
-      const pct = (done / 4) * 100;
-      const msg =
-        weeksActive < 4
-          ? done === 0
-            ? "Start trading to unlock your score"
-            : done === 1
-              ? "1 week down, keep going!"
-              : `${4 - done} weeks to unlock`
-          : `${Math.max(0, 5 - count)} trades to unlock`;
-      const wrap = box.createDiv({ cls: "tj-score-lock" });
-      renderGauge(wrap, {
-        pct,
-        color: band,
-        label: String(done),
-        sublabel: "of 4",
-        className: "tj-score-gauge",
+  /** Trading Score v1 — rendered by the shared widget module, so Home and
+   *  Analytics always show the same responsive implementation. */
+  renderScoreRadar(body: HTMLElement, trades: Trade[], scopeLabel: string): void {
+    if (!trades.length) {
+      renderEmptyBox(body, {
+        title: "No trades in this period",
+        sub: "A score needs at least a few trades. Widen the period or change the account scope.",
       });
-      box.createDiv({ cls: "tj-score-msg", text: msg });
-      box.createDiv({ cls: "tj-score-trades", text: `${count} trades logged` });
       return;
     }
-
-    // ------------------ unlocked: weighted radar ------------------
-    const n = axes.length;
-    const cx = 200, cy = 165, r = 118;
-    const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
-    const pt = (i: number, dist: number) => ({ x: cx + Math.cos(angle(i)) * dist, y: cy + Math.sin(angle(i)) * dist });
-    const svg = el("svg", { viewBox: "0 0 400 320", preserveAspectRatio: "xMidYMid meet", class: "tj-chart tj-radar", width: "100%", height: "100%" });
-    box.appendChild(svg as unknown as Node);
-    const small = (box.clientWidth > 0 && box.clientWidth < 150) || (box.clientHeight > 0 && box.clientHeight < 110);
-
-    for (const pct of [0.25, 0.5, 0.75, 1]) {
-      let d = "";
-      for (let i = 0; i < n; i++) {
-        const p = pt(i, r * pct);
-        d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
-      }
-      svg.appendChild(el("path", { d: d + "Z", class: "tj-radar-ring" }));
-    }
-    for (let i = 0; i < n; i++) {
-      const p = pt(i, r);
-      svg.appendChild(el("line", { x1: String(cx), y1: String(cy), x2: String(p.x), y2: String(p.y), class: "tj-radar-axis" }));
-    }
-    if (!small) {
-      for (let i = 0; i < n; i++) {
-        const p = pt(i, r + 24);
-        const lbl = el("text", {
-          x: String(p.x), y: String(p.y), "text-anchor": "middle", "dominant-baseline": "central", class: "tj-radar-label",
-        });
-        lbl.textContent = axes[i].label;
-        svg.appendChild(lbl);
-      }
-    }
-    const fill = el("path", { class: "tj-radar-fill" });
-    fill.setAttribute("stroke-dasharray", "4 3");
-    svg.appendChild(fill);
-    const shapeAt = (scale: number) => {
-      let d = "";
-      for (let i = 0; i < n; i++) {
-        const p = pt(i, (axes[i].value / 100) * r * scale);
-        d += (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1) + " ";
-      }
-      return d + "Z";
-    };
-    const animationsOn = this.plugin.settings.animations !== false && !this._radarAnimated;
+    const result = computeScore(trades, (t) => this.scoreDayKey(t));
+    const animate = this.plugin.settings.animations !== false && !this._radarAnimated;
     this._radarAnimated = true;
-    fill.setAttribute("d", shapeAt(animationsOn ? 0 : 1));
-    if (animationsOn) {
-      const dur = 700;
-      const t0 = performance.now();
-      const step = (now: number) => {
-        const t = Math.min(1, (now - t0) / dur);
-        const e = 1 - Math.pow(1 - t, 3);
-        fill.setAttribute("d", shapeAt(e));
-        if (t < 1) requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
-    }
-
-    // hover targets: axis score + weight
-    for (let i = 0; i < n; i++) {
-      const p = pt(i, r);
-      const hit = el("circle", { cx: String(p.x), cy: String(p.y), r: "22", fill: "transparent", class: "tj-tip-anchor" });
-      hit.addEventListener("mouseenter", () =>
-        showTip(
-          {
-            title: axes[i].label,
-            value: String(Math.round(axes[i].value)),
-            sub: `Weight: ${Math.round(axes[i].weight * 100)}%`,
-          },
-          "tj-score-tip"
-        )
-      );
-      hit.addEventListener("mousemove", (e) => moveTip(e));
-      hit.addEventListener("mouseleave", () => killTip());
-      svg.appendChild(hit);
-    }
-
-    // footer: composite score · phase · weeks
-    const foot = box.createDiv({ cls: "tj-score-foot" });
-    foot.createDiv({ cls: "tj-score-big", text: String(Math.round(score)) });
-    const meta = foot.createDiv({ cls: "tj-score-meta" });
-    meta.createSpan({ cls: "tj-score-phase", text: phase });
-    meta.createSpan({ cls: "tj-score-weeks", text: `· ${weeksActive}w` });
+    renderTradingScore(body, result, scopeLabel, animate);
   }
 
   /**
-   * Streaks — three calm lines (hero, context, state) with a W/L ribbon of the
-   * recent sequence. One decision per counted trade.
+   * Streaks — current run and its existing phrase, with historical run context.
+   * One decision per counted trade.
    */
   renderStreaksWidget(body: HTMLElement, trades: Trade[], h?: number): void {
     if (!trades.length) {
@@ -1957,18 +3268,24 @@ export class WidgetGridView extends ItemView {
     const avg = runs ? winsTotal / runs : 0;
 
     // Icon by family (calm): win trending up, flame once the run is real.
-    const icon = current >= 3 ? "flame" : current > 0 ? "trending-up" : current < 0 ? "alert-triangle" : "minus";
+    const icon = current >= 3 ? "flame" : current > 0 ? "trending-up" : current < 0 ? "trending-down" : "minus";
     const tone = current > 0 ? "is-pos" : current < 0 ? "is-warn" : "is-flat";
 
     const wrap = body.createDiv({ cls: "tj-streaks" });
-    // Compact when the card is short: measured height, else the grid row count
-    // (keeps the behaviour testable in jsdom). Hides the state line when tiny.
+    // Mark compact boxes so styles can scale the same current/history context.
     const measured = body.clientHeight || 0;
     const rows = h ?? 6;
     const compact = measured > 0 ? measured < 110 : rows <= 3;
     const tiny = measured > 0 ? measured < 80 : rows <= 2;
     wrap.toggleClass("is-compact", compact || tiny);
     wrap.toggleClass("is-tiny", tiny);
+    // Scale the whole block with the card so it fills the space instead of
+    // sitting small inside a large area. Capped so it never becomes a billboard.
+    const wpx = body.clientWidth || 0;
+    const scale = measured > 0 && wpx > 0
+      ? Math.max(0.8, Math.min(1.9, Math.min(measured / 150, wpx / 320)))
+      : 1;
+    wrap.style.setProperty("--tj-streak-scale", scale.toFixed(2));
 
     // Line 1 — the run.
     const hero = wrap.createDiv({ cls: "tj-streaks-hero " + tone });
@@ -1984,14 +3301,55 @@ export class WidgetGridView extends ItemView {
 
     // Line 2 — context.
     const ctx = wrap.createDiv({ cls: "tj-streaks-ctx" });
-    ctx.createSpan({ text: `best ${bestWin} · avg ${avg.toFixed(1)}` });
+    ctx.createSpan({ text: `best ${bestWin} · worst ${worstLoss} · avg ${avg.toFixed(1)}` });
     attachTip(ctx, {
       title: "Streaks",
       sub: `Best win run ${bestWin} · worst loss run ${worstLoss} · ${runs} win run${runs === 1 ? "" : "s"}`,
     });
 
-    // Line 3 — state (hidden when the card is tiny).
-    if (!tiny) wrap.createDiv({ cls: "tj-streaks-state " + tone, text: streakState(current) });
+    // Existing phrase, selected only from the current signed run.
+    wrap.createDiv({ cls: "tj-streaks-state " + tone, text: streakState(current) });
+  }
+
+  /** Whole minutes held, or null when there is nothing to measure: the real
+   *  elapsed time between the two instants when the note has them, the recorded
+   *  clock (with its midnight wrap) otherwise. */
+  private holdMinutes(t: Trade): number | null {
+    return holdMinutesOf(t);
+  }
+
+  /** "1h 24m" / "18m" / "45s" from minutes. */
+  private fmtHold(mins: number): string {
+    const total = Math.round(mins * 60);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return m ? `${h}h ${m}m` : `${h}h`;
+    if (m > 0) return s ? `${m}m ${s}s` : `${m}m`;
+    return `${s}s`;
+  }
+
+  /** Average hold time, as one prominent figure. */
+  renderAvgHoldWidget(body: HTMLElement, trades: Trade[]): void {
+    const mins: number[] = [];
+    for (const t of trades) {
+      const m = this.holdMinutes(t);
+      if (m !== null) mins.push(m);
+    }
+    const wrap = body.createDiv({ cls: "tj-hold" });
+    if (!mins.length) {
+      wrap.createDiv({ cls: "tj-empty", text: "No entry/exit times recorded." });
+      return;
+    }
+    const avg = mins.reduce((a, v) => a + v, 0) / mins.length;
+    const icon = wrap.createSpan({ cls: "tj-hold-icon" });
+    setIcon(icon, "timer");
+    wrap.createDiv({ cls: "tj-hold-value", text: this.fmtHold(avg) });
+    wrap.createDiv({ cls: "tj-hold-label", text: "Average hold time" });
+    attachTip(wrap, {
+      title: "Average hold time",
+      sub: `Mean of ${mins.length} trades with an entry and exit time. Per-zone detail lives in Analytics.`,
+    });
   }
 
   /**
@@ -2003,7 +3361,7 @@ export class WidgetGridView extends ItemView {
   renderBreakdownWidget(body: HTMLElement, trades: Trade[], counted: Trade[] = trades, header?: HTMLElement): void {
     const zone = this.plugin.settings.timeZone;
     const weekdayOf = (t: Trade): string => {
-      const d = toZoneDate(t.date, t.entryTime, zone);
+      const d = this.scoreDayKey(t);
       const [y, m, day] = d.split("-").map(Number);
       return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "—";
     };
@@ -2036,7 +3394,7 @@ export class WidgetGridView extends ItemView {
         },
       },
       {
-        id: "hour", label: "Hour", key: hourBlockOf, timeline: true,
+        id: "hour", label: "Hour", key: (t) => hourBlockOf(t, zone), timeline: true,
         labelOf: (k) => (k === "—" ? "—" : fmtHourLabel(Number(k))),
         orderOf: hourOrder,
       },
@@ -2049,6 +3407,11 @@ export class WidgetGridView extends ItemView {
     if (!dims.some((d) => d.id === current)) current = "symbol";
 
     const wrap = body.createDiv({ cls: "tj-bd" });
+    const title = header?.querySelector<HTMLElement>("h3");
+    if (title) attachTip(title, {
+      title: "Breakdown · Net",
+      sub: `Net results sum eligible in-scope account legs. Counts and Gross-sign win rate follow the Analytics copy-count preference.${this.incompleteCostNote(this.financialsFor(trades))}`,
+    });
     // Tabs sit on the card's title line, top-right (like the account page), so the
     // body is all chart and there is no empty band under the tabs. Re-draws clear
     // the previous set first, or resizing would stack them.
@@ -2070,6 +3433,7 @@ export class WidgetGridView extends ItemView {
         labelOf: dim.labelOf,
         orderOf: dim.orderOf,
         formatMoney: fmtMoney2,
+        countPopulation: this.plugin.settings.includeCopiesInPortfolioAnalytics === true ? "account leg" : "trade",
       });
       if (!tiles.length) {
         panel.createDiv({ cls: "tj-empty", text: "No trades in this period." });
@@ -2081,27 +3445,41 @@ export class WidgetGridView extends ItemView {
       // and win% live in the tooltip.
       // Carry the grid's own scope into the Trade Log, so a click means "these
       // trades, as I was looking at them" — period, dates, account and class.
-      const scope = {
-        period: this.dateRange,
-        customFrom: this.customFrom,
-        customTo: this.customTo,
-        accountId: this.accountId,
-        accountType: this.filter,
+      const scope = this.tradeLogScope();
+      const openTile = (tile: { key: string; label: string }): void => {
+        void this.plugin.openTradeLogForBreakdown(
+          `${dim.label}: ${tile.label}`,
+          // Archived trades are out of every Home number, so the lens must leave
+          // them out too — otherwise the ledger shows rows the tile never counted.
+          (t) => !this.plugin.isArchivedTrade(t) && (dim.key(t) || "") === tile.key,
+          scope
+        );
       };
+      // When the tiles would be too narrow for readable names and values, switch
+      // to a list: category names and their main figure stay visible with no
+      // hover. The treemap merges the tail into "Other"; the list shows every
+      // bucket, so nothing is hidden from the reader.
+      const panelW = panel.clientWidth || body.clientWidth || 0;
+      const shown = dim.timeline ? tiles.length : Math.min(tiles.length, 6);
+      const perTile = shown > 0 ? (panelW - (shown - 1) * 6) / shown : 0;
+      if (panelW > 0 && (panelW < 260 || perTile < 72)) {
+        const list = panel.createDiv({ cls: "tj-bd-list" });
+        for (const t of tiles) {
+          const row = list.createDiv({ cls: "tj-bd-row" });
+          row.createDiv({ cls: "tj-bd-row-name", text: t.label });
+          row.createDiv({ cls: "tj-bd-row-win", text: `${t.count ? Math.round((t.wins / t.count) * 100) : 0}%` });
+          row.createDiv({ cls: "tj-bd-row-val " + (t.net >= 0 ? "tj-pos" : "tj-neg"), text: fmtMoney2(t.net) });
+          attachTip(row, { title: `${t.label} · Net`, value: fmtMoney2(t.net), sub: `${t.count} ${this.plugin.settings.includeCopiesInPortfolioAnalytics ? "account legs" : "trades"} · Gross-sign win rate` });
+          row.addEventListener("click", () => openTile(t));
+        }
+        return;
+      }
       renderTreemap(panel, {
         tiles,
         className: "tj-bd-treemap",
         maxTiles: dim.timeline ? tiles.length : undefined,
         formatMoney: fmtMoneyCompact,
-        onTileClick: (tile) => {
-          void this.plugin.openTradeLogForBreakdown(
-            `${dim.label}: ${tile.label}`,
-            // Archived trades are out of every Home number, so the lens must leave
-            // them out too — otherwise the ledger shows rows the tile never counted.
-            (t) => !this.plugin.isArchivedTrade(t) && (dim.key(t) || "") === tile.key,
-            scope
-          );
-        },
+        onTileClick: openTile,
       });
     };
 
@@ -2141,9 +3519,9 @@ export class WidgetGridView extends ItemView {
 }
 
 /**
- * Dashboard — the archive. Fully editable and rich: every widget, drag, resize,
- * add and remove. It reads and writes `settings.dashboardLayout`, seeds
- * `DASHBOARD_DEFAULT` on a brand-new journal and allows every widget id — all
- * of which are the shared engine's defaults, so it stays a thin subclass.
+ * Dashboard — the Analytics archive. Fully editable and rich: every widget,
+ * drag, resize, add and remove. It reads and writes `settings.dashboardLayout`,
+ * seeds the curated `DASHBOARD_DEFAULT` only when no layout has been saved, and
+ * allows every widget id in the shared catalogue.
  */
 export class DashboardView extends WidgetGridView {}

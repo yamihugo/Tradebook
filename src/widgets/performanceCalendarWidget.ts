@@ -4,9 +4,11 @@
 // the Trade Log filtered to that day.
 
 import { Trade } from "../types";
-import { fmtMoney, isFiniteNumber, toZoneDate } from "../tz";
+import { fmtMoney } from "../tz";
+import { tradeDayInZone } from "../lib/instant";
 import { formatDate } from "../lib/dates";
 import { attachTip } from "../lib/tip";
+import { summarizeFinancials } from "../lib/money";
 
 const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI"];
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -39,6 +41,12 @@ function ensureTipListener(): void {
 export interface PerfCalOpts {
   timeZone: string;
   onDayClick: (dateKey: string) => void;
+  /** Initial visible month as an ISO calendar date. */
+  initialMonth?: string;
+  /** Current trading-day key, in the same domain as `dayKey()`. */
+  todayKey?: string;
+  /** Called only when the trader manually changes the visible month. */
+  onMonthChange?: (monthKey: string) => void;
   showNav?: boolean;
   greyscaleNeutral?: boolean;
   /** Play a small entrance animation (first render only). */
@@ -51,6 +59,7 @@ interface DayBucket {
   pnl: number;
   count: number;
   wins: number;
+  losses: number;
 }
 
 export class PerformanceCalendarWidget {
@@ -61,6 +70,8 @@ export class PerformanceCalendarWidget {
   year: number;
   month: number;
   private titleEl: HTMLElement | null = null;
+  private coverageTipAttached = false;
+  private netCoverageNote = "";
   private tipEl: HTMLElement | null = null;
   private gridEl: HTMLElement | null = null;
   private wdRowEl: HTMLElement | null = null;
@@ -69,9 +80,10 @@ export class PerformanceCalendarWidget {
     this.trades = trades;
     this.opts = opts;
     this.timeZone = opts.timeZone ?? "";
+    const initial = /^(\d{4})-(\d{2})/.exec(opts.initialMonth || "");
     const now = new Date();
-    this.year = now.getFullYear();
-    this.month = now.getMonth();
+    this.year = initial ? Number(initial[1]) : now.getFullYear();
+    this.month = initial ? Number(initial[2]) - 1 : now.getMonth();
     this.el = container.createDiv({ cls: "tj-pcal" });
     // Remove any orphaned tooltips left behind by previous instances / views.
     document.querySelectorAll(".tj-pcal-tip").forEach((n) => n.remove());
@@ -81,7 +93,7 @@ export class PerformanceCalendarWidget {
   }
 
   dayKey(t: Trade): string {
-    return toZoneDate(t.date, t.entryTime, this.timeZone);
+    return tradeDayInZone(t, this.timeZone);
   }
 
   setTrades(trades: Trade[]): void {
@@ -93,6 +105,7 @@ export class PerformanceCalendarWidget {
     const d = new Date(this.year, this.month + delta, 1);
     this.year = d.getFullYear();
     this.month = d.getMonth();
+    this.opts.onMonthChange?.(`${this.year}-${String(this.month + 1).padStart(2, "0")}-01`);
     this.draw();
   }
 
@@ -104,7 +117,7 @@ export class PerformanceCalendarWidget {
     const prev = head.createEl("button", { cls: "tj-pcal-nav", text: "‹", attr: { type: "button", "aria-label": "Previous month" } });
     attachTip(prev, { title: "Previous month" });
     prev.addEventListener("click", () => this.shiftMonth(-1));
-    head.createDiv({ cls: "tj-pcal-name", text: "Performance Calendar" });
+    head.createDiv({ cls: "tj-pcal-name", text: "Calendar" });
     const next = head.createEl("button", { cls: "tj-pcal-nav", text: "›", attr: { type: "button", "aria-label": "Next month" } });
     attachTip(next, { title: "Next month" });
     next.addEventListener("click", () => this.shiftMonth(1));
@@ -117,21 +130,44 @@ export class PerformanceCalendarWidget {
   }
 
   private buckets(): Map<string, DayBucket> {
+    const accountKey = (t: Trade): string => String(t.account ?? "").trim().toLocaleLowerCase() || "unassigned";
+    const summary = summarizeFinancials(this.trades, {
+      scope: {
+        kind: "all-included-accounts",
+        accountIdOf: accountKey,
+        includedAccountIds: new Set(this.trades.map(accountKey)),
+      },
+      dayKey: (t) => this.dayKey(t),
+    });
+    const { missingCommission, missingFees } = summary.costCoverage;
+    this.netCoverageNote = !summary.eligibleLegCount
+      ? " No eligible closed trade legs in this account/date scope."
+      : missingCommission || missingFees
+      ? ` Cost coverage incomplete: commission missing on ${missingCommission} leg(s), fees missing on ${missingFees} leg(s). Net uses recorded amounts only; missing costs are not confirmed zero.`
+      : " Recorded commission and fee fields are present for these eligible legs.";
     const byDay = new Map<string, DayBucket>();
-    for (const t of this.trades) {
-      if (!isFiniteNumber(t.pnl) || !t.date) continue;
-      const key = this.dayKey(t);
-      const b = byDay.get(key) ?? { pnl: 0, count: 0, wins: 0 };
-      b.pnl += t.pnl;
-      b.count += 1;
-      if (t.pnl > 0) b.wins += 1;
-      byDay.set(key, b);
+    for (const [key, pnl] of summary.net.byDay) {
+      const decisions = summary.decisionsByDay.get(key);
+      byDay.set(key, {
+        pnl,
+        count: decisions?.count ?? 0,
+        wins: decisions?.wins ?? 0,
+        losses: decisions?.losses ?? 0,
+      });
     }
     return byDay;
   }
 
   draw(): void {
     const byDay = this.buckets();
+    const maxAbs = Math.max(1, ...[...byDay.values()].map((bucket) => Math.abs(bucket.pnl)));
+    if (this.titleEl && !this.coverageTipAttached) {
+      attachTip(this.titleEl, {
+        title: "Calendar",
+        sub: `Daily Net trading results across eligible in-scope account legs. Daily counts and win rate classify each decision by its Net result, counting each decision once.${this.netCoverageNote}`,
+      });
+      this.coverageTipAttached = true;
+    }
     const monthName = new Date(this.year, this.month, 1).toLocaleDateString("en-US", { month: "short" }).toUpperCase();
     const quarter = Math.floor(this.month / 3) + 1;
     if (this.titleEl) this.titleEl.setText(`${monthName} · Q${quarter} ${this.year}`);
@@ -152,10 +188,10 @@ export class PerformanceCalendarWidget {
     const lead = (first.getDay() + 6) % 7; // Monday = 0
     const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
     const weeks = Math.ceil((lead + daysInMonth) / 7);
-    const today = new Date();
-    const ty = today.getFullYear();
-    const tm = today.getMonth();
-    const td = today.getDate();
+    const today = /^(\d{4})-(\d{2})-(\d{2})$/.exec(this.opts.todayKey || "");
+    const ty = today ? Number(today[1]) : new Date().getFullYear();
+    const tm = today ? Number(today[2]) - 1 : new Date().getMonth();
+    const td = today ? Number(today[3]) : new Date().getDate();
 
     let rowsBefore = 0;
     for (let r = 0; r < weeks; r++) {
@@ -194,6 +230,7 @@ export class PerformanceCalendarWidget {
             // Colour lives in the stylesheet (.is-pos / .is-neg) so the theme
             // can give it a soft-neon treatment.
             cell.addClass(b.pnl > 0 ? "is-pos" : b.pnl < 0 ? "is-neg" : "is-flat");
+            cell.style.setProperty("--tj-pcal-strength", (0.16 + Math.min(1, Math.abs(b.pnl) / maxAbs) * 0.34).toFixed(2));
             cell.createDiv({ cls: "tj-pcal-val", text: fmtMoney(b.pnl, 0) });
             this.bindDayTip(cell, key, b);
           }
@@ -207,7 +244,7 @@ export class PerformanceCalendarWidget {
         }
       }
 
-      // Week number column — just the label, tinted by the week's net.
+      // Week number column — just the label, tinted by the week's Net result.
       const wk = grid.createEl("div", { cls: "tj-pcal-wk" });
       if (weekHasMonth) {
         wk.createDiv({ cls: "tj-pcal-wknum", text: String(w - rowsBefore + 1) });
@@ -241,8 +278,10 @@ export class PerformanceCalendarWidget {
     tip.empty();
     tip.createDiv({ cls: "tj-pcal-tip-date", text: label });
     if (b) {
+      const decided = b.wins + b.losses;
+      const rate = decided ? `${Math.round((b.wins / decided) * 100)}%` : "—";
       tip.createDiv({ cls: "tj-pcal-tip-val " + (b.pnl >= 0 ? "tj-pos" : "tj-neg"), text: fmtMoney(b.pnl, 2) });
-      tip.createDiv({ cls: "tj-pcal-tip-sub", text: `${b.count} trade${b.count === 1 ? "" : "s"} · ${Math.round((b.wins / b.count) * 100)}% win` });
+      tip.createDiv({ cls: "tj-pcal-tip-sub", text: `${b.count} trade${b.count === 1 ? "" : "s"} · ${rate} Net win rate · Net P&L` });
     } else {
       tip.createDiv({ cls: "tj-pcal-tip-sub", text: "No trades" });
     }
@@ -270,4 +309,8 @@ export class PerformanceCalendarWidget {
       this.tipEl = null;
     }
   }
+}
+
+if (typeof window !== "undefined") {
+  (window as any).__tjPerformanceCalendar = { PerformanceCalendarWidget };
 }

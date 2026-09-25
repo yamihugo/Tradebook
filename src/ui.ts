@@ -1,7 +1,8 @@
 import { AccountType, Trade } from "./types";
-import { isFiniteNumber, toZoneDate } from "./tz";
+import { isFiniteNumber } from "./tz";
 import { typeLabel } from "./lib/accountTypes";
 import { netPnl } from "./lib/fees";
+import { entryInstantDate, tradeDayInZone } from "./lib/instant";
 
 export interface FilterOption {
   id: string;
@@ -115,16 +116,25 @@ export function renderAreaChart(
 export function cumulativeEquitySeries(trades: Trade[], zone = ""): { date: string; cum: number }[] {
   const valid = trades.filter((t) => t && isFiniteNumber(t.pnl) && typeof t.date === "string" && t.date);
   const sorted = [...valid].sort((a, b) => {
-    const da = zone ? toZoneDate(a.date, a.entryTime || "00:00", zone) : a.date;
-    const db = zone ? toZoneDate(b.date, b.entryTime || "00:00", zone) : b.date;
-    return da.localeCompare(db) || (a.id || "").localeCompare(b.id || "");
+    // Chronological when both trades carry an instant; otherwise the journal's
+    // day and the recorded time, so the curve still reads in order.
+    const ia = entryInstantDate(a)?.getTime();
+    const ib = entryInstantDate(b)?.getTime();
+    if (ia !== undefined && ib !== undefined && ia !== ib) return ia - ib;
+    const da = tradeDayInZone(a, zone);
+    const db = tradeDayInZone(b, zone);
+    return (
+      da.localeCompare(db) ||
+      String(a.entryTime ?? "").localeCompare(String(b.entryTime ?? "")) ||
+      (a.id || "").localeCompare(b.id || "")
+    );
   });
   const points: { date: string; cum: number }[] = [{ date: "Start", cum: 0 }];
   if (sorted.length === 0) return points;
   let cum = 0;
   for (const t of sorted) {
     cum += netPnl(t);
-    const d = zone ? toZoneDate(t.date, t.entryTime || "00:00", zone) : t.date;
+    const d = tradeDayInZone(t, zone);
     const last = points[points.length - 1];
     if (last && last.date !== "Start" && last.date === d) {
       last.cum = cum;
