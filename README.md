@@ -7,6 +7,7 @@
   <p>
     <a href="#features">Features</a> &nbsp;·&nbsp;
     <a href="#install">Install</a> &nbsp;·&nbsp;
+    <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
     <a href="#support">Support</a>
   </p>
 </div>
@@ -30,23 +31,21 @@
 - **A Home that reads your trading** — net P&L curve, calendar heatmap, focus areas and a trading score.
 - **Local and private** — Markdown in your vault; nothing leaves your computer, no internet connection required.
 
-## Requirements
-
-- Obsidian **1.7.2 or newer** (desktop or mobile).
-- No other plugins, no account and no internet connection required.
-
 ## Install
 
-Tradebook is installed through [BRAT](https://tfthacker.com/BRAT), the community plugin that installs and updates beta plugins. The same steps work on desktop and mobile.
+Tradebook is a plugin for [Obsidian](https://obsidian.md), installed and kept up to date through [BRAT](https://tfthacker.com/BRAT). It runs on desktop and mobile, needs no account, and works offline.
 
-### 1. Install BRAT
+If you don't use Obsidian yet, start at step 1. If you already do, skip to step 2.
 
-Open *Settings → Community plugins*. If Restricted mode is on, turn it **off** first — Obsidian will not load any community plugin until you do. Then:
+### 1. Install Obsidian
 
-1. Select **Browse** and search for **BRAT**.
-2. Select **Install**, then **Enable**.
+Download Obsidian **1.7.2 or newer** from [obsidian.md](https://obsidian.md) and open a vault — a new, empty vault is fine.
 
-### 2. Add Tradebook
+### 2. Install BRAT
+
+Open *Settings → Community plugins*. If **Restricted mode** is on, turn it off first; Obsidian loads no community plugin until you do. Then select **Browse**, search for **BRAT**, and choose **Install**, then **Enable**.
+
+### 3. Add Tradebook
 
 Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for testing**. Paste this repository and confirm:
 
@@ -54,29 +53,39 @@ Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for te
 yamihugo/Tradebook
 ```
 
-BRAT downloads the latest release. When it finishes, the plugin is listed in the community plugins.
+BRAT downloads the latest release and lists the plugin for you.
 
-### 3. Enable Tradebook
+### 4. Enable and open
 
-Still in *Settings → Community plugins*, find **Tradebook** and turn it on.
+Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from the ribbon icons or the command palette:
 
-### 4. Open it
-
-Run **Tradebook: Open Home** from the command palette. Your settings are stored in the plugin's `data.json`; your trades are written as plain Markdown notes under `_tradebook/` in your vault.
+| Command | What it opens |
+| --- | --- |
+| `Tradebook: Open Home` | Your dashboard — P&L curve, heatmap, score |
+| `Tradebook: Open Accounts` | Account cards and dashboards |
+| `Tradebook: Open Trade Log` | The full trade ledger |
+| `Tradebook: Manual Trade` | Log a trade by hand |
+| `Tradebook: Import trades from CSV` | Import a broker export |
 
 ### Updating
 
-- **Through BRAT:** run **BRAT: Check for updates** (or let it update on startup).
-- **Manually:** replace only the three build files — `main.js`, `manifest.json`, `styles.css`.
-- **Never** replace `data.json`: it holds your settings and accounts. Updating never touches your trades.
+- **Through BRAT:** run **BRAT: Check for updates**, or let BRAT update on startup.
+- **Manually:** replace only `main.js`, `manifest.json` and `styles.css`.
+- **Never** replace `data.json`. It holds your settings and accounts, and updating never touches your trades.
 
-### If something goes wrong
+### Troubleshooting
 
-- **Nothing loads:** make sure Restricted mode is off in *Settings → Community plugins*, then enable Tradebook.
-- **Tradebook is missing from the list:** BRAT did not finish. Run **BRAT: Add a beta plugin for testing** again and check the console for errors.
-- **The plugin does not load:** check that Obsidian is **1.7.2 or newer**.
-- **Restore settings:** *Settings → Tradebook → Advanced → Import backup*, or **Restore previous settings** after an import.
+- **Nothing loads:** confirm **Restricted mode** is off, then enable Tradebook.
+- **Tradebook is not listed:** BRAT didn't finish. Run **BRAT: Add a beta plugin for testing** again and check the developer console.
+- **The plugin doesn't load:** check Obsidian is **1.7.2 or newer**.
+- **Restore your settings:** *Settings → Tradebook → Advanced → Import backup*, or **Restore previous settings** after an import.
 - **Uninstalling deletes the plugin folder, including `data.json`.** Export a backup first from *Settings → Tradebook → Advanced → Export*.
+
+## Getting started
+
+1. **Add an account.** Open **Tradebook: Open Accounts** and choose **Add account**. Pick the type (eval, funded or demo), the firm, and its rules and limits.
+2. **Import your trades.** Run **Tradebook: Import trades from CSV** with your broker's export. Review the preview, then import — each trade becomes a Markdown note under `_tradebook/`.
+3. **Review what you did.** Open the **Trade Log**, open a trade and mark it **Reviewed**. Home keeps score from there.
 
 ## Data and privacy
 
