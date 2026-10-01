@@ -19,6 +19,15 @@ mistaken for a missing feature.
 - **Imports are a convenience.** CSV parsing targets Tradovate execution/order exports.
   Other formats are not supported, and malformed rows are skipped rather than guessed.
 
+## Times and timezones
+
+- Times are shown as **civil time** — the wall clock where the trade happened — not as
+  absolute instants. A trade around midnight or a DST change can land on the wrong day.
+- Fills are ordered by civil time, so a trade that crosses midnight may list its fills
+  **out of order**.
+- Costs are matched from the broker's cash history; a cash line with a fractional or
+  offset timestamp may not match.
+
 ## Reporting, never enforcing
 
 - The journal never blocks, refuses, limits or locks anything — no order blocking, no
