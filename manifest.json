@@ -1,0 +1,13 @@
+{
+	"id": "tradebook",
+	"name": "Tradebook",
+	"version": "0.5.0-beta.1",
+	"minAppVersion": "1.7.2",
+	"description": "Journal your futures trades locally. Import broker CSV, track accounts and risk.",
+	"author": "YamiHugo",
+	"isDesktopOnly": false,
+	"fundingUrl": {
+		"Buy me a coffee": "https://www.buymeacoffee.com/yamihugo",
+		"Ko-fi": "https://ko-fi.com/yamihugo"
+	}
+}

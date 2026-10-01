@@ -1,0 +1,316 @@
+// Performance calendar — month grid.
+// Seven day columns (Mon–Sun) + a week-number column, day cells tinted by P&L
+// intensity and a compact P&L scale. Click a day to open the Trade Log filtered
+// to that day.
+
+import { Trade } from "../types";
+import { fmtMoney } from "../tz";
+import { formatDate } from "../lib/dates";
+import { attachTip } from "../lib/tip";
+import type { FinancialSummary } from "../lib/money";
+
+const WEEKDAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+/** Only one calendar tooltip may exist at a time, and it lives on <body>. */
+let ACTIVE_TIP: HTMLElement | null = null;
+let TIP_LISTENER = false;
+function killTip(): void {
+  if (ACTIVE_TIP) {
+    ACTIVE_TIP.remove();
+    ACTIVE_TIP = null;
+  }
+}
+function ensureTipListener(): void {
+  if (TIP_LISTENER) return;
+  TIP_LISTENER = true;
+  // Safety net: whenever the pointer leaves a calendar cell (anywhere in the
+  // app, any page), drop the tooltip so nothing can get stuck.
+  document.addEventListener(
+    "mousemove",
+    (e) => {
+      if (!ACTIVE_TIP) return;
+      const el = e.target as HTMLElement | null;
+      if (!el || !el.closest || !el.closest(".tj-pcal-cell")) killTip();
+    },
+    true
+  );
+}
+
+export interface PerfCalOpts {
+  /**
+   * Who is in, what a day is and what Net means: the view's shared financial
+   * population (`WidgetGridView.financialsFor`). The calendar deliberately
+   * builds no scope of its own — a widget that summarizes its own way is how
+   * one page ends up disagreeing with itself.
+   */
+  summarize: (trades: Trade[]) => FinancialSummary;
+  onDayClick: (dateKey: string) => void;
+  /** Initial visible month as an ISO calendar date. */
+  initialMonth?: string;
+  /** Current trading-day key, in the same domain as the summary's `byDay`. */
+  todayKey?: string;
+  /** Called only when the trader manually changes the visible month. */
+  onMonthChange?: (monthKey: string) => void;
+  /** Play a small entrance animation (first render only). */
+  animate?: boolean;
+  /** Date format from settings (so the hover card matches the rest). */
+  dateFormat?: string;
+  /** Show Saturday/Sunday columns. Off by default, like the market calendar. */
+  showWeekends?: boolean;
+  /** Which day the week starts on. Default: Monday. */
+  weekStart?: "monday" | "sunday";
+}
+
+interface DayBucket {
+  pnl: number;
+  count: number;
+  wins: number;
+  losses: number;
+}
+
+export class PerformanceCalendarWidget {
+  el: HTMLElement;
+  trades: Trade[];
+  opts: PerfCalOpts;
+  year: number;
+  month: number;
+  private titleEl: HTMLElement | null = null;
+  private coverageTipAttached = false;
+  private netCoverageNote = "";
+  private tipEl: HTMLElement | null = null;
+  private gridEl: HTMLElement | null = null;
+  private wdRowEl: HTMLElement | null = null;
+
+  constructor(container: HTMLElement, trades: Trade[], opts: PerfCalOpts) {
+    this.trades = trades;
+    this.opts = opts;
+    const initial = /^(\d{4})-(\d{2})/.exec(opts.initialMonth || "");
+    // Fall back to the journal's own day when known, never the host clock.
+    const jday = /^(\d{4})-(\d{2})/.exec(opts.todayKey || "");
+    const now = new Date();
+    this.year = initial ? Number(initial[1]) : jday ? Number(jday[1]) : now.getFullYear();
+    this.month = initial ? Number(initial[2]) - 1 : jday ? Number(jday[2]) - 1 : now.getMonth();
+    this.el = container.createDiv({ cls: "tj-pcal" });
+    // Remove any orphaned tooltips left behind by previous instances / views.
+    document.querySelectorAll(".tj-pcal-tip").forEach((n) => n.remove());
+    ACTIVE_TIP = null;
+    ensureTipListener();
+    this.render();
+  }
+
+  shiftMonth(delta: number): void {
+    const d = new Date(this.year, this.month + delta, 1);
+    this.year = d.getFullYear();
+    this.month = d.getMonth();
+    this.opts.onMonthChange?.(`${this.year}-${String(this.month + 1).padStart(2, "0")}-01`);
+    this.draw();
+  }
+
+  private render(): void {
+    const box = this.el;
+    box.empty();
+    box.toggleClass("is-weekends", this.opts.showWeekends === true);
+
+    const head = box.createDiv({ cls: "tj-pcal-top" });
+    const prev = head.createEl("button", { cls: "tj-pcal-nav", text: "‹", attr: { type: "button", "aria-label": "Previous month" } });
+    prev.addEventListener("click", () => this.shiftMonth(-1));
+    head.createDiv({ cls: "tj-pcal-name", text: "Calendar" });
+    const next = head.createEl("button", { cls: "tj-pcal-nav", text: "›", attr: { type: "button", "aria-label": "Next month" } });
+    next.addEventListener("click", () => this.shiftMonth(1));
+    this.titleEl = box.createDiv({ cls: "tj-pcal-title" });
+
+    const body = box.createDiv({ cls: "tj-pcal-body" });
+    this.wdRowEl = body.createDiv({ cls: "tj-pcal-wdrow" });
+    this.gridEl = body.createDiv({ cls: "tj-pcal-grid" });
+    this.draw();
+  }
+
+  private buckets(): Map<string, DayBucket> {
+    const summary = this.opts.summarize(this.trades);
+    const { missingCommission, missingFees } = summary.costCoverage;
+    this.netCoverageNote = !summary.eligibleLegCount
+      ? " No eligible closed trade legs in this account/date scope."
+      : missingCommission || missingFees
+      ? ` Cost coverage incomplete: commission missing on ${missingCommission} leg(s), fees missing on ${missingFees} leg(s). Net uses recorded amounts only; missing costs are not confirmed zero.`
+      : " Recorded commission and fee fields are present for these eligible legs.";
+    const byDay = new Map<string, DayBucket>();
+    for (const [key, pnl] of summary.net.byDay) {
+      const decisions = summary.decisionsByDay.get(key);
+      byDay.set(key, {
+        pnl,
+        count: decisions?.count ?? 0,
+        wins: decisions?.wins ?? 0,
+        losses: decisions?.losses ?? 0,
+      });
+    }
+    return byDay;
+  }
+
+  draw(): void {
+    const byDay = this.buckets();
+    const maxAbs = Math.max(1, ...[...byDay.values()].map((bucket) => Math.abs(bucket.pnl)));
+    if (this.titleEl && !this.coverageTipAttached) {
+      attachTip(this.titleEl, {
+        title: "Calendar",
+        sub: `Daily Net trading results. Counts and win rate classify each decision once by its Net result.${this.netCoverageNote}`,
+      });
+      this.coverageTipAttached = true;
+    }
+    const monthName = new Date(this.year, this.month, 1).toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+    const quarter = Math.floor(this.month / 3) + 1;
+    if (this.titleEl) this.titleEl.setText(`${monthName} · Q${quarter} ${this.year}`);
+
+    const grid = this.gridEl;
+    if (!grid) return;
+    if (this.tipEl) { this.tipEl.remove(); this.tipEl = null; }
+    grid.empty();
+
+    // Weekday headers + "WEEK" column, on their own compact row. Weekends are
+    // hidden unless the trader asked for them.
+    const cols = this.opts.showWeekends === true ? 7 : 5;
+    const order = this.opts.weekStart === "sunday"
+      ? ["SUN", ...WEEKDAYS.slice(0, 6)]
+      : WEEKDAYS;
+    if (this.wdRowEl) {
+      this.wdRowEl.empty();
+      for (const wd of order.slice(0, cols)) this.wdRowEl.createEl("div", { cls: "tj-pcal-wd", text: wd });
+      this.wdRowEl.createEl("div", { cls: "tj-pcal-wd tj-pcal-wkhead", text: "WEEK" });
+    }
+
+    const first = new Date(this.year, this.month, 1);
+    // Leading blanks: the first day's position in the week, from the chosen start.
+    const shortByJs = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+    const lead = Math.max(0, order.indexOf(shortByJs[first.getDay()]));
+    const daysInMonth = new Date(this.year, this.month + 1, 0).getDate();
+    const weeks = Math.ceil((lead + daysInMonth) / 7);
+    const today = /^(\d{4})-(\d{2})-(\d{2})$/.exec(this.opts.todayKey || "");
+    const ty = today ? Number(today[1]) : new Date().getFullYear();
+    const tm = today ? Number(today[2]) - 1 : new Date().getMonth();
+    const td = today ? Number(today[3]) : new Date().getDate();
+
+    let rowsBefore = 0;
+    for (let r = 0; r < weeks; r++) {
+      let has = false;
+      for (let c = 0; c < cols; c++) {
+        const dn = r * 7 + c + 1 - lead;
+        if (dn >= 1 && dn <= daysInMonth) { has = true; break; }
+      }
+      if (has) break;
+      rowsBefore++;
+    }
+
+    for (let w = 0; w < weeks; w++) {
+      let weekPnl = 0;
+      let weekHasData = false;
+      let weekHasMonth = false;
+
+      for (let c = 0; c < cols; c++) {
+        const dayNum = w * 7 + c + 1 - lead;
+        const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+        const key = `${this.year}-${String(this.month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+        const b = inMonth ? byDay.get(key) : undefined;
+        // A weekend day with no trades is shown, but faded: the calendar never
+        // hides a day, it only quiets the ones the market was closed.
+        const dow = inMonth ? new Date(this.year, this.month, dayNum).getDay() : -1;
+        const weekendEmpty = inMonth && !b && (dow === 0 || dow === 6);
+        const cell = grid.createEl("div", { cls: "tj-pcal-cell" + (inMonth ? "" : " is-dim") + (weekendEmpty ? " is-weekend-empty" : "") });
+        if (this.opts.animate && inMonth) {
+          cell.addClass("tj-pcal-in");
+          cell.style.animationDelay = `${(w * 30 + c * 12)}ms`;
+        }
+
+        if (inMonth) {
+          weekHasMonth = true;
+          cell.createDiv({ cls: "tj-pcal-num", text: String(dayNum) });
+          if (b) {
+            weekPnl += b.pnl;
+            weekHasData = true;
+            // Soft tints matching the equity chart palette (green #227a4a / red #8f2b1e).
+            // Colour lives in the stylesheet (.is-pos / .is-neg) so the theme
+            // can give it a soft-neon treatment.
+            cell.addClass(b.pnl > 0 ? "is-pos" : b.pnl < 0 ? "is-neg" : "is-flat");
+            cell.style.setProperty("--tj-pcal-strength", (0.16 + Math.min(1, Math.abs(b.pnl) / maxAbs) * 0.34).toFixed(2));
+            cell.createDiv({ cls: "tj-pcal-val", text: fmtMoney(b.pnl, 0) });
+            this.bindDayTip(cell, key, b);
+          }
+          if (ty === this.year && tm === this.month && td === dayNum) cell.addClass("today");
+          cell.addEventListener("click", () => this.opts.onDayClick(key));
+        } else {
+          // Days from the previous/next month — shown, but faded into the background.
+          const prevDays = new Date(this.year, this.month, 0).getDate();
+          const outNum = dayNum < 1 ? prevDays + dayNum : dayNum - daysInMonth;
+          cell.createDiv({ cls: "tj-pcal-num tj-pcal-num-out", text: String(outNum) });
+        }
+      }
+
+      // Week number column — just the label, tinted by the week's Net result.
+      const wk = grid.createEl("div", { cls: "tj-pcal-wk" });
+      if (weekHasMonth) {
+        wk.createDiv({ cls: "tj-pcal-wknum", text: String(w - rowsBefore + 1) });
+        if (weekHasData) {
+          const tone = weekPnl > 0 ? "tj-pos" : weekPnl < 0 ? "tj-neg" : "";
+          wk.createDiv({ cls: "tj-pcal-wkpnl " + tone, text: fmtMoney(weekPnl, 0) });
+          wk.addClass(weekPnl > 0 ? "is-pos" : weekPnl < 0 ? "is-neg" : "is-flat");
+        }
+      }
+    }
+
+  }
+
+  /** Custom hover card for a day cell (the native title tooltip looks bad). */
+  private bindDayTip(cell: HTMLElement, key: string, b: DayBucket | undefined): void {
+    const [y, m, d] = key.split("-");
+    const label = this.opts.dateFormat
+      ? formatDate(key, this.opts.dateFormat)
+      : `${parseInt(d, 10)} ${MONTHS[parseInt(m, 10) - 1] ?? ""} ${y}`;
+    cell.addEventListener("mouseenter", () => this.showDayTip(label, b));
+    cell.addEventListener("mousemove", (e) => this.moveTip(e));
+    cell.addEventListener("mouseleave", () => this.hideTip());
+  }
+
+  private showDayTip(label: string, b?: DayBucket): void {
+    ensureTipListener();
+    killTip();
+    const tip = document.body.createDiv({ cls: "tj-pcal-tip" });
+    ACTIVE_TIP = tip;
+    this.tipEl = tip;
+    tip.empty();
+    tip.createDiv({ cls: "tj-pcal-tip-date", text: label });
+    if (b) {
+      const decided = b.wins + b.losses;
+      const rate = decided ? `${Math.round((b.wins / decided) * 100)}%` : "—";
+      tip.createDiv({ cls: "tj-pcal-tip-val " + (b.pnl >= 0 ? "tj-pos" : "tj-neg"), text: fmtMoney(b.pnl, 2) });
+      tip.createDiv({ cls: "tj-pcal-tip-sub", text: `${b.count} trade${b.count === 1 ? "" : "s"} · ${rate} Net win rate · Net P&L` });
+    } else {
+      tip.createDiv({ cls: "tj-pcal-tip-sub", text: "No trades" });
+    }
+    tip.addClass("is-visible");
+  }
+
+  private moveTip(e: MouseEvent): void {
+    const tip = this.tipEl;
+    if (!tip) return;
+    const pad = 12;
+    const w = tip.offsetWidth || 120;
+    const h = tip.offsetHeight || 60;
+    let left = e.clientX + pad;
+    let top = e.clientY - h - pad;
+    if (left + w > window.innerWidth - 8) left = e.clientX - w - pad;
+    if (top < 8) top = e.clientY + pad;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+  }
+
+  private hideTip(): void {
+    if (this.tipEl) {
+      this.tipEl.remove();
+      if (ACTIVE_TIP === this.tipEl) ACTIVE_TIP = null;
+      this.tipEl = null;
+    }
+  }
+}
+
+if (typeof window !== "undefined") {
+  (window as any).__tjPerformanceCalendar = { PerformanceCalendarWidget };
+}

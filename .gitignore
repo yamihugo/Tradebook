@@ -1,0 +1,19 @@
+node_modules/
+main.js
+
+# Local dev data (real trades — keep private)
+test-fixtures/
+data.json
+data.json.bak*
+
+# Private working docs and dev material — never published
+/AGENTS.md
+/docs/
+/tools/
+/tests/
+/previews/
+/assets/brand/TradebookDarkLogo.png
+/assets/brand/TradebookWhiteLogo.png
+
+*.log
+.DS_Store

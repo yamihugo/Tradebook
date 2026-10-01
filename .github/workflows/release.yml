@@ -1,0 +1,65 @@
+name: Release Obsidian plugin
+
+# Publishes a BRAT-installable release.
+# Trigger: pushing a version tag, e.g. `git tag 0.4.10 && git push origin 0.4.10`
+# The tag MUST match the version in manifest.json.
+# BRAT reads only these release assets: manifest.json, main.js, styles.css.
+# The release is created as a DRAFT: review it, add notes, then Publish release.
+
+on:
+  push:
+    tags:
+      - "*"
+
+# contents: create/upload the release · id-token + attestations: build provenance
+# attestation (recommended for submission to the Obsidian community directory).
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="$(node -p "require('./manifest.json').version")"
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::Tag ($TAG) does not match manifest.json version ($VER)"
+            exit 1
+          fi
+
+      - name: Generate artifact attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --draft \
+            main.js styles.css manifest.json
