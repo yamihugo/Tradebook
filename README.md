@@ -8,13 +8,14 @@
     <a href="#features">Features</a> &nbsp;·&nbsp;
     <a href="#install">Install</a> &nbsp;·&nbsp;
     <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
+    <a href="ROADMAP.md">Roadmap</a> &nbsp;·&nbsp;
     <a href="#support">Support</a>
   </p>
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/github/downloads/yamihugo/Tradebook/total?style=flat-square" alt="Downloads">
-  <img src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" alt="License: MIT">
+  <a href="https://github.com/yamihugo/Tradebook"><img src="https://img.shields.io/github/stars/yamihugo/Tradebook?style=flat-square" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" alt="License: MIT"></a>
 </p>
 
 <div align="center">
@@ -105,6 +106,12 @@ If Tradebook helps your trading, you're welcome to support it.
   <a href="https://www.buymeacoffee.com/yamihugo"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="40"></a>
   <a href="https://ko-fi.com/yamihugo"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Ko-fi" height="40"></a>
 </p>
+
+<div align="center">
+  <a href="https://star-history.com/#yamihugo/Tradebook&Date">
+    <img src="https://api.star-history.com/svg?repos=yamihugo/Tradebook&type=Date" alt="Star History Chart" width="600">
+  </a>
+</div>
 
 ## License
 
