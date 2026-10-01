@@ -12,8 +12,6 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Obsidian-1.7.2%2B-8b6cff?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian 1.7.2+">
-  <a href="https://tfthacker.com/BRAT"><img src="https://img.shields.io/badge/install%20with-BRAT-ff7a59?style=flat-square" alt="Install with BRAT"></a>
   <img src="https://img.shields.io/github/downloads/yamihugo/Tradebook/total?style=flat-square" alt="Downloads">
   <img src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" alt="License: MIT">
 </p>
@@ -32,29 +30,53 @@
 - **A Home that reads your trading** — net P&L curve, calendar heatmap, focus areas and a trading score.
 - **Local and private** — Markdown in your vault; nothing leaves your computer, no internet connection required.
 
-<div align="center">
-  <img src="assets/readme/02-trade-log.png" alt="Trade Log" width="780">
-</div>
-
-## Install
-
-### Via BRAT
-
-1. Install the [BRAT](https://tfthacker.com/BRAT) community plugin.
-2. Open the command palette and run **BRAT: Add a beta plugin for testing**.
-3. Paste the repository: `yamihugo/Tradebook`.
-4. Enable **Tradebook** in *Settings → Community plugins*.
-
-> On update, replace the three files (`main.js`, `manifest.json`, `styles.css`). **Never replace `data.json`** — it holds your settings and accounts.
-
-<div align="center">
-  <img src="assets/readme/03-account-cards.png" alt="Accounts" width="780">
-</div>
-
 ## Requirements
 
 - Obsidian **1.7.2 or newer** (desktop or mobile).
 - No other plugins, no account and no internet connection required.
+
+## Install
+
+Tradebook is installed through [BRAT](https://tfthacker.com/BRAT), the community plugin that installs and updates beta plugins. The same steps work on desktop and mobile.
+
+### 1. Install BRAT
+
+Open *Settings → Community plugins*. If Restricted mode is on, turn it **off** first — Obsidian will not load any community plugin until you do. Then:
+
+1. Select **Browse** and search for **BRAT**.
+2. Select **Install**, then **Enable**.
+
+### 2. Add Tradebook
+
+Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for testing**. Paste this repository and confirm:
+
+```
+yamihugo/Tradebook
+```
+
+BRAT downloads the latest release. When it finishes, the plugin is listed in the community plugins.
+
+### 3. Enable Tradebook
+
+Still in *Settings → Community plugins*, find **Tradebook** and turn it on.
+
+### 4. Open it
+
+Run **Tradebook: Open Home** from the command palette. Your settings are stored in the plugin's `data.json`; your trades are written as plain Markdown notes under `_tradebook/` in your vault.
+
+### Updating
+
+- **Through BRAT:** run **BRAT: Check for updates** (or let it update on startup).
+- **Manually:** replace only the three build files — `main.js`, `manifest.json`, `styles.css`.
+- **Never** replace `data.json`: it holds your settings and accounts. Updating never touches your trades.
+
+### If something goes wrong
+
+- **Nothing loads:** make sure Restricted mode is off in *Settings → Community plugins*, then enable Tradebook.
+- **Tradebook is missing from the list:** BRAT did not finish. Run **BRAT: Add a beta plugin for testing** again and check the console for errors.
+- **The plugin does not load:** check that Obsidian is **1.7.2 or newer**.
+- **Restore settings:** *Settings → Tradebook → Advanced → Import backup*, or **Restore previous settings** after an import.
+- **Uninstalling deletes the plugin folder, including `data.json`.** Export a backup first from *Settings → Tradebook → Advanced → Export*.
 
 ## Data and privacy
 
