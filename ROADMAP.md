@@ -15,6 +15,7 @@ What has actually shipped lives in the [CHANGELOG](CHANGELOG.md).
 
 ## Big — later
 
+- [ ] A first-run guide inside the plugin (today the README is the only path)
 - [ ] Strategy sandbox (isolated testing)
 - [ ] Strategy-specific review templates
 - [ ] Broker exports beyond Tradovate

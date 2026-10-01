@@ -432,8 +432,6 @@ export class TradeDetailView extends ItemView {
     // `reviewed: true` never closes a review on its own — only `reviewed: false`
     // reopens a complete one — so a button on "Needs Review" promised a click
     // that could not do anything. It states what is missing instead.
-    // Three verdicts, and the badge says which one it is: written up, accepted
-    // as it stands, or still in the queue with the list of what is missing.
     // One verdict, one word: "Reviewed" when the trader's word (or a full
     // write-up) has closed it, "Needs review" otherwise. A reviewed badge is the
     // control that reopens; an open one is state only — the button beside it is

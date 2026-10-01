@@ -85,7 +85,7 @@ Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from th
 ## Getting started
 
 1. **Add an account.** Open **Tradebook: Open Accounts** and choose **Add account**. Pick the type (eval, funded or demo), the firm, and its rules and limits.
-2. **Import your trades.** Run **Tradebook: Import trades from CSV** with your broker's export. Review the preview, then import — each trade becomes a Markdown note under `_tradebook/`.
+2. **Import your trades.** Run **Tradebook: Import trades from CSV** with your broker's export. Review the preview, then import — each trade becomes a Markdown note under `<year>/<month>/trades/`.
 3. **Review what you did.** Open the **Trade Log**, open a trade and mark it **Reviewed**. Home keeps score from there.
 
 ## Data and privacy

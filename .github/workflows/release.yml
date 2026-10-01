@@ -1,7 +1,7 @@
 name: Release Obsidian plugin
 
 # Publishes a BRAT-installable release.
-# Trigger: pushing a version tag, e.g. `git tag 0.4.10 && git push origin 0.4.10`
+# Trigger: pushing a version tag, e.g. `git tag 1.0.0-beta.1 && git push origin 1.0.0-beta.1`
 # The tag MUST match the version in manifest.json.
 # BRAT reads only these release assets: manifest.json, main.js, styles.css.
 # The release is created as a DRAFT: review it, add notes, then Publish release.
