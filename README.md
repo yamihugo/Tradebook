@@ -1,13 +1,22 @@
 <div align="center">
-  <img src="assets/brand/TradebookWordmark.png" alt="Tradebook" width="260">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/logo-white.png">
+    <img alt="Tradebook" src="assets/readme/logo-dark.png" width="240">
+  </picture>
+  <h3>A local, private futures journal for Obsidian.</h3>
+  <p>
+    <a href="#features">Features</a> &nbsp;·&nbsp;
+    <a href="#install">Install</a> &nbsp;·&nbsp;
+    <a href="#support">Support</a>
+  </p>
 </div>
 
-# Tradebook
-
-> A local futures journal for Obsidian — import your broker CSV, organise accounts, and review every decision.
-
-![Obsidian 1.7.2+](https://img.shields.io/badge/Obsidian-1.7.2%2B-7c5cff?style=flat-square)
-![License: MIT](https://img.shields.io/badge/License-MIT-3fb950?style=flat-square)
+<p align="center">
+  <img src="https://img.shields.io/badge/Obsidian-1.7.2%2B-8b6cff?style=flat-square&logo=obsidian&logoColor=white" alt="Obsidian 1.7.2+">
+  <a href="https://tfthacker.com/BRAT"><img src="https://img.shields.io/badge/install%20with-BRAT-ff7a59?style=flat-square" alt="Install with BRAT"></a>
+  <img src="https://img.shields.io/github/downloads/yamihugo/Tradebook/total?style=flat-square" alt="Downloads">
+  <img src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" alt="License: MIT">
+</p>
 
 <div align="center">
   <img src="assets/readme/01-home.png" alt="Tradebook Home" width="860">
@@ -23,6 +32,10 @@
 - **A Home that reads your trading** — net P&L curve, calendar heatmap, focus areas and a trading score.
 - **Local and private** — Markdown in your vault; nothing leaves your computer, no internet connection required.
 
+<div align="center">
+  <img src="assets/readme/02-trade-log.png" alt="Trade Log" width="780">
+</div>
+
 ## Install
 
 ### Via BRAT
@@ -32,19 +45,11 @@
 3. Paste the repository: `yamihugo/Tradebook`.
 4. Enable **Tradebook** in *Settings → Community plugins*.
 
-### Manual
+> On update, replace the three files (`main.js`, `manifest.json`, `styles.css`). **Never replace `data.json`** — it holds your settings and accounts.
 
-1. Download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/yamihugo/Tradebook/releases/latest).
-2. Copy them into `<vault>/.obsidian/plugins/tradebook/` (create the folder if needed).
-3. Enable **Tradebook** in *Settings → Community plugins*.
-
-> On update, replace the three files. **Never replace `data.json`** — it holds your settings and accounts.
-
-## First steps
-
-1. **Confirm the journal root** on **Settings → Journal** (default `Tradebook`); trades are filed under `<year>/<month>/trades`.
-2. **Create accounts** on the **Accounts** page with **Add account**.
-3. **Add a trade** by hand, or import your broker's CSV.
+<div align="center">
+  <img src="assets/readme/03-account-cards.png" alt="Accounts" width="780">
+</div>
 
 ## Requirements
 
@@ -63,9 +68,12 @@ Some numbers are modelled rather than measured (copy-trading legs; costs the bro
 
 ## Support
 
-If Tradebook helps your trading, you're welcome to support it —
-[Buy me a coffee](https://www.buymeacoffee.com/yamihugo) ·
-[Ko-fi](https://ko-fi.com/yamihugo).
+If Tradebook helps your trading, you're welcome to support it.
+
+<p align="center">
+  <a href="https://www.buymeacoffee.com/yamihugo"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="40"></a>
+  <a href="https://ko-fi.com/yamihugo"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Ko-fi" height="40"></a>
+</p>
 
 ## License
 
