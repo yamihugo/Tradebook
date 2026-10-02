@@ -49,7 +49,7 @@ numbers; it never blocks a trade, imposes a rule or holds anything back.
 
 - **Eval, funded and demo accounts** with firm logos, and their real rules and limits.
 - A **tracking boundary** with a declared opening value: trades and cash movements from
-  before it stay in your journal, and stay out of every calculated figure. An account with no
+  before it stay in your journal, and stay out of tracked performance calculations. An account with no
   tracked data reads "—", never a misleading zero.
 - **Deposits, payouts and corrections are tracked per account and always reported apart
   from trading P&L.** Money leaving is not a loss.

@@ -52,12 +52,18 @@ mistaken for a missing feature.
 
 ## Times and timezones
 
-- Times are shown as **civil time** — the wall clock where the trade happened — not as
-  absolute instants. A trade around midnight or a DST change can land on the wrong day.
-- Fills are ordered by civil time, so a trade that crosses midnight may list its fills
-  **out of order**.
-- Costs are matched from the broker's cash history; a cash line with a fractional or
-  offset timestamp may not match.
+- An imported timestamp that carries its own offset (`Z` or `±HH:MM`) is an **absolute
+  instant**. No source zone is applied on top of it, and it is stored in canonical UTC form.
+- A **naive** imported timestamp (no offset) is read only in the **source zone chosen for that
+  import**. With no zone chosen, it is not resolved against your computer's clock — it is
+  reported as carrying no zone.
+- A naive timestamp that falls in a **DST gap** (the clock jumped forward) or in a
+  **repeated hour** (the clock went back) has no single instant, so the row is **left out and
+  counted in the import receipt** rather than rounded into a plausible time.
+- Cost **attribution** is the remaining soft spot: a Cash History line whose timestamp is
+  fractional or carries its own offset may not match a fill's stamp exactly. A line that
+  cannot be tied to a trade is still logged against the account on its own date, rather than
+  dropped or guessed.
 
 ## Reporting, never enforcing
 

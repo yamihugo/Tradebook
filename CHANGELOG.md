@@ -9,8 +9,10 @@ BRAT picks them up automatically.
 
 ## [1.0.0] - 2026-10-02
 
-The first stable release. Tradebook is now a finished journal: it records what you traded,
-reports the numbers honestly, and stays entirely inside your vault.
+The first stable release. Tradebook 1.0.0 is the baseline everything else builds on: a journal
+that records what you traded, reports the numbers honestly, and stays entirely inside your
+vault. It is a stable foundation rather than a finished product — the work continues, and so
+does the roadmap.
 
 ### Added
 
@@ -49,8 +51,10 @@ reports the numbers honestly, and stays entirely inside your vault.
 ### Fixed
 
 - **Superseded reconstructed models are excluded from the canonical portfolio financial
-  population and from the account-scoped money, balance and curve populations**, while
-  remaining in the ledger as history. They are never deleted.
+  population and from the account-scoped money, balance and curve populations**. When a real
+  broker fill supersedes a generated model, reconciliation keeps the model in the ledger as
+  history. (Deleting a base trade is different: that removes its generated copier legs with
+  it.)
 - **Reported history is display-only context.** It never reaches a calculated figure, and a
   field the journal does not have is not shown as zero.
 - Copy configuration is temporal: a leg uses the ratio and start that applied on its day.
