@@ -216,6 +216,12 @@ export interface FinancialScope {
   includedAccountIds: ReadonlySet<string>;
   /** Required for `selected-account`; it must also be in `includedAccountIds`. */
   accountId?: string;
+  /**
+   * Optional tracked-history gate: a trade for which this returns false sits
+   * before its account's tracking boundary and is out of every financial
+   * population. Absent = no gate (today's behaviour).
+   */
+  isTracked?: (trade: Trade) => boolean;
 }
 
 export interface CostCoverage {
@@ -408,6 +414,9 @@ function financialPopulation(trades: Trade[], scope: FinancialScope): { legs: Fi
     // Scope filtering deliberately precedes eligibility and every aggregation.
     const accountId = scope.accountIdOf(trade);
     if (!accountId || !allowed.has(accountId) || (selected && accountId !== selected)) return;
+    // A trade before its account's tracking boundary is not in the tracked
+    // population: it is history, not performance.
+    if (scope.isTracked && !scope.isTracked(trade)) return;
     if (!isEligibleFinancialLeg(trade)) return;
 
     const id = String(trade.id ?? "").trim();

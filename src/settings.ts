@@ -9,8 +9,10 @@ import { openBackupSummary } from "./views/backupRestore";
 import { openSettingsRestore } from "./views/settingsRestore";
 import { summariseBackup } from "./lib/backup";
 import { freeNumeric } from "./lib/numeric";
+import { mountDropdown, type DropdownItem } from "./lib/dropdown";
 import { MISTAKE_GROUPS, PSYCHOLOGY_TAGS, libraryFor, reviewOptions } from "./lib/tags";
-import { CORE_INSTRUMENTS, contractLabel, futuresSpec } from "./futures";
+import { CORE_INSTRUMENTS, CORE_SYMBOLS, contractLabel, futuresSpec, DEFAULT_ACCOUNT_RULES } from "./futures";
+import { typeColor, typeLabel } from "./lib/accountTypes";
 import type { RiskRule } from "./lib/risk";
 import wordmarkUrl from "../assets/brand/TradebookWordmark.png";
 
@@ -25,14 +27,15 @@ const LINKS = {
 };
 const DISCORD_HANDLE = "@yamihugo29";
 
-type SettingsTabId = "root" | "general" | "journal" | "appearance" | "newtrades" | "review" | "advanced";
+type SettingsTabId = "root" | "general" | "journal" | "appearance" | "newtrades" | "review" | "imports" | "advanced";
 
 const SECTIONS: { id: SettingsTabId; title: string; desc: string; icon: string }[] = [
   { id: "general", title: "General", desc: "Currency, your name and how dates and times are shown.", icon: "settings" },
   { id: "journal", title: "Journal", desc: "Where the journal lives, its clock, and how views open.", icon: "notebook-text" },
   { id: "appearance", title: "Appearance", desc: "Animations, privacy mode and the calendar.", icon: "palette" },
-  { id: "newtrades", title: "New trades", desc: "What the Add Trade form starts with, including default risk.", icon: "plus-circle" },
+  { id: "newtrades", title: "New trades", desc: "What the Add Trade form starts with.", icon: "plus-circle" },
   { id: "review", title: "Review", desc: "The re-entry window and which tags the review suggests.", icon: "check-circle-2" },
+  { id: "imports", title: "Imports", desc: "How imported trades are interpreted and matched.", icon: "import" },
   { id: "advanced", title: "Advanced", desc: "Maintenance, diagnostics and backup.", icon: "wrench" },
 ];
 
@@ -152,6 +155,7 @@ export class SettingsTab extends PluginSettingTab {
     else if (this.active === "appearance") this.renderAppearance(content);
     else if (this.active === "newtrades") this.renderNewTrades(content);
     else if (this.active === "review") this.renderReview(content);
+    else if (this.active === "imports") this.renderImports(content);
     else this.renderAdvanced(content);
   }
 
@@ -166,6 +170,33 @@ export class SettingsTab extends PluginSettingTab {
     return s;
   }
 
+  /**
+   * The one selection control, mounted on a setting row.
+   *
+   * Obsidian's `addDropdown` renders a native `<select>`, and a system popup in
+   * the middle of the app breaks the visual language: it is the only control on
+   * the page that does not belong to Tradebook. This is the plugin's own
+   * dropdown instead — same component as the trading groups and the import
+   * mapper, so a picker looks and behaves the same everywhere, and it is
+   * keyboard-complete (arrows, Home/End, Enter, Escape) with the focus staying
+   * on the button.
+   */
+  private select(
+    s: Setting,
+    items: DropdownItem[],
+    value: string,
+    onChange: (id: string) => void | Promise<void>,
+    title?: string
+  ): void {
+    s.controlEl.empty();
+    mountDropdown(s.controlEl, items, value, (id) => void onChange(id), {
+      block: true,
+      align: "right",
+      side: "above",
+      title,
+    });
+  }
+
   private groupLabel(containerEl: HTMLElement, text: string): void {
     containerEl.createDiv({ cls: "tj-set-group", text });
   }
@@ -173,7 +204,7 @@ export class SettingsTab extends PluginSettingTab {
   // ------------------------------------------------------------- General
 
   renderGeneral(containerEl: HTMLElement): void {
-    this.groupLabel(containerEl, "Identity");
+    this.groupLabel(containerEl, "You");
     this.settingRow(containerEl, "user-round", "Your name", "Used in the Home greeting, e.g. 'Good morning, Alex'.")
       .addText((text) =>
         text
@@ -185,32 +216,38 @@ export class SettingsTab extends PluginSettingTab {
             await this.plugin.reloadAllViews();
           })
       );
-    this.settingRow(containerEl, "coins", "Currency", "Symbol shown next to monetary values.")
-      .addDropdown((dd) => {
-        for (const [v, t] of [["$", "USD ($)"], ["€", "EUR (€)"], ["£", "GBP (£)"], ["¥", "JPY (¥)"], ["R$", "BRL (R$)"]] as [string, string][]) {
-          dd.addOption(v, t);
-        }
-        dd.setValue(this.plugin.settings.currency || "$").onChange(async (v) => {
-          this.plugin.settings.currency = v;
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
+    this.groupLabel(containerEl, "Money, dates and times");
+    this.select(
+      this.settingRow(containerEl, "coins", "Currency", "The symbol shown next to every amount. It changes how figures read; it never converts them."),
+      ([["$", "US Dollar  $"], ["€", "Euro  €"], ["£", "Pound Sterling  £"], ["¥", "Japanese Yen  ¥"], ["R$", "Brazilian Real  R$"]] as [string, string][])
+        .map(([id, label]) => ({ id, label })),
+      this.plugin.settings.currency || "$",
+      async (v) => {
+        this.plugin.settings.currency = v;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      }
+    );
 
-    this.groupLabel(containerEl, "Dates and times");
-    this.settingRow(containerEl, "calendar-days", "Date format", "How dates are shown across the plugin.")
-      .addDropdown((dd) => {
-        dd.addOption("YYYY-MM-DD", "2026-09-13 — YYYY-MM-DD");
-        dd.addOption("DD/MM/YYYY", "13/09/2026 — DD/MM/YYYY (day first)");
-        dd.addOption("MM/DD/YYYY", "09/13/2026 — MM/DD/YYYY (month first)");
-        dd.addOption("D MMM YYYY", "13 Sep 2026 — D MMM YYYY");
-        dd.setValue(this.plugin.settings.dateFormat || "YYYY-MM-DD").onChange(async (v) => {
-          this.plugin.settings.dateFormat = v;
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
-    this.settingRow(containerEl, "clock", "24-hour time")
+    // The label is the date itself, so the choice is read at a glance; the exact
+    // pattern it stands for is the small line under it, not the headline.
+    this.select(
+      this.settingRow(containerEl, "calendar-days", "Date format", "How dates read everywhere in Tradebook."),
+      [
+        { id: "YYYY-MM-DD", label: "2026-09-13", note: "ISO · year, month, day" },
+        { id: "DD/MM/YYYY", label: "13/09/2026", note: "day first" },
+        { id: "MM/DD/YYYY", label: "09/13/2026", note: "month first" },
+        { id: "D MMM YYYY", label: "13 Sep 2026", note: "13 Sept 2026 · words" },
+      ],
+      this.plugin.settings.dateFormat || "YYYY-MM-DD",
+      async (v) => {
+        this.plugin.settings.dateFormat = v;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      },
+      "This changes how dates are written and read everywhere in Tradebook. The dates themselves are never altered."
+    );
+    this.settingRow(containerEl, "clock", "24-hour time", "Write times as 14:30 instead of 2:30 PM, everywhere they appear.")
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.use24HourTime === true).onChange(async (v) => {
           this.plugin.settings.use24HourTime = v;
@@ -218,7 +255,7 @@ export class SettingsTab extends PluginSettingTab {
           await this.plugin.reloadAllViews();
         });
       });
-    this.settingRow(containerEl, "timer", "Show seconds", "Show seconds on entry and exit times.")
+    this.settingRow(containerEl, "timer", "Show seconds", "Add seconds to entry and exit times.")
       .addToggle((tg) => {
         tg.setValue(this.plugin.settings.showSeconds === true).onChange(async (v) => {
           this.plugin.settings.showSeconds = v;
@@ -226,16 +263,16 @@ export class SettingsTab extends PluginSettingTab {
           await this.plugin.reloadAllViews();
         });
       });
-    this.settingRow(containerEl, "calendar-range", "Week starts on", "The first day of the week, for 'This week', 'Last week' and the calendar.")
-      .addDropdown((dd) => {
-        dd.addOption("monday", "Monday");
-        dd.addOption("sunday", "Sunday");
-        dd.setValue(this.plugin.settings.weekStart ?? "monday").onChange(async (v) => {
-          this.plugin.settings.weekStart = v as "monday" | "sunday";
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
+    this.select(
+      this.settingRow(containerEl, "calendar-range", "Week starts on", "Where 'This week' and 'Last week' begin, and how the calendar draws a week."),
+      [{ id: "monday", label: "Monday" }, { id: "sunday", label: "Sunday" }],
+      this.plugin.settings.weekStart ?? "monday",
+      async (v) => {
+        this.plugin.settings.weekStart = v as "monday" | "sunday";
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      }
+    );
   }
 
   // ------------------------------------------------------------- Journal
@@ -261,26 +298,25 @@ export class SettingsTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
-    this.settingRow(containerEl, "app-window", "Open views in", "Whether sidebar items replace the current tab or open a new one.")
-      .addDropdown((dd) => {
-        dd.addOption("replace", "Same tab");
-        dd.addOption("new", "New tab");
-        dd.setValue(this.plugin.settings.tabBehavior || "replace").onChange(async (v) => {
-          this.plugin.settings.tabBehavior = v as "replace" | "new";
-          await this.plugin.saveSettings();
-        });
-      });
-    this.settingRow(containerEl, "calendar-clock", "Default period", "What Home and the Trade Log open with, before you pick another.")
-      .addDropdown((dd) => {
-        for (const [v, t] of [["all", "All time"], ["thismonth", "This month"], ["thisweek", "This week"], ["today", "Today"]] as [string, string][]) {
-          dd.addOption(v, t);
-        }
-        dd.setValue(this.plugin.settings.defaultPeriod ?? "all").onChange(async (v) => {
-          this.plugin.settings.defaultPeriod = v as PeriodId;
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
+    this.select(
+      this.settingRow(containerEl, "panels-top-left", "Open pages in", "Whether opening a Tradebook page replaces the tab or opens a new one."),
+      [{ id: "replace", label: "This tab" }, { id: "new", label: "A new tab" }],
+      this.plugin.settings.tabBehavior || "replace",
+      async (v) => {
+        this.plugin.settings.tabBehavior = v as "replace" | "new";
+        await this.plugin.saveSettings();
+      }
+    );
+    this.select(
+      this.settingRow(containerEl, "calendar-clock", "Default period", "What Home and the Trade Log open with, before you pick another."),
+      [{ id: "all", label: "All time" }, { id: "thismonth", label: "This month" }, { id: "thisweek", label: "This week" }, { id: "today", label: "Today" }],
+      this.plugin.settings.defaultPeriod ?? "all",
+      async (v) => {
+        this.plugin.settings.defaultPeriod = v as PeriodId;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      }
+    );
   }
 
   renderTimezone(containerEl: HTMLElement): void {
@@ -288,25 +324,27 @@ export class SettingsTab extends PluginSettingTab {
       text: "One clock for the whole journal: every trade is shown and stored in the zone below, so the times you read are the times you typed — on any machine. New York (Eastern) is the default because futures trade on ET.",
       cls: "tj-set-note",
     });
-    this.settingRow(containerEl, "globe", "Journal time zone", "Your journal's clock. Zones handle daylight saving automatically. Pick 'None' to keep times exactly as written.")
-      .addDropdown((dd) => {
-        for (const opt of TIMEZONE_OPTIONS) dd.addOption(opt.zone, opt.label);
-        dd.setValue(this.plugin.settings.timeZone).onChange(async (v) => {
-          this.plugin.settings.timeZone = v;
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
+    this.select(
+      this.settingRow(containerEl, "clock", "Journal time zone", "Every trade is shown and stored in this zone, so times read as you wrote them. Daylight saving is handled for you; pick \u2018None\u2019 to keep times exactly as typed."),
+      TIMEZONE_OPTIONS.map((opt) => ({ id: opt.zone, label: opt.label })),
+      this.plugin.settings.timeZone,
+      async (v) => {
+        this.plugin.settings.timeZone = v;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      }
+    );
     const detected = detectSystemZone();
-    this.settingRow(containerEl, "plane", "Import time zone", `The zone your broker writes its CSV in; trades are converted to your journal zone. Default is this computer (${detected}).`)
-      .addDropdown((dd) => {
-        dd.addOption("", `This computer (${detected})`);
-        for (const opt of TIMEZONE_OPTIONS) if (opt.zone) dd.addOption(opt.zone, opt.label);
-        dd.setValue(this.plugin.settings.importZone || "").onChange(async (v) => {
-          this.plugin.settings.importZone = v;
-          await this.plugin.saveSettings();
-        });
-      });
+    this.select(
+      this.settingRow(containerEl, "plane", "Import time zone", `The zone your broker writes its CSV in; trades are converted to your journal zone.`),
+      [{ id: "", label: `This computer (${detected})`, note: "detected" }, ...TIMEZONE_OPTIONS.filter((opt) => opt.zone).map((opt) => ({ id: opt.zone, label: opt.label }))],
+      this.plugin.settings.importZone || "",
+      async (v) => {
+        this.plugin.settings.importZone = v;
+        await this.plugin.saveSettings();
+      },
+      `Leave on "This computer" unless your broker's export uses another zone. Currently ${detected}.`
+    );
   }
 
   // ---------------------------------------------------------- Appearance
@@ -376,7 +414,7 @@ export class SettingsTab extends PluginSettingTab {
   renderNewTrades(containerEl: HTMLElement): void {
     this.groupLabel(containerEl, "Defaults");
     this.renderDefaultSymbol(containerEl);
-    this.settingRow(containerEl, "shield", "Default risk", "Dollars of risk pre-filled on a new trade. Once you type an entry price it derives the stop; your own stop overrides it.")
+    this.settingRow(containerEl, "shield", "Default risk", "Risk pre-filled on a new trade, in your currency. Type an entry price and it suggests a stop distance; type your own stop and this is ignored.")
       .addText((text) => {
         text.inputEl.type = "number";
         freeNumeric(text.inputEl);
@@ -387,12 +425,9 @@ export class SettingsTab extends PluginSettingTab {
         });
       });
 
-    this.groupLabel(containerEl, "Risk by symbol");
-    containerEl.createEl("p", {
-      text: "Used only on import, and only where the file holds no stop. The rule fills the gap and the trade is marked as assumed, never as recorded.",
-      cls: "tj-set-note",
-    });
-    this.renderDefaultRisk(containerEl);
+    // "Risk by symbol" is deliberately NOT here: it is an import-time gap
+    // filler, not something a new trade uses, so it lives in Advanced with the
+    // rest of the repair tools.
   }
 
   /**
@@ -403,7 +438,7 @@ export class SettingsTab extends PluginSettingTab {
     const s = this.plugin.settings;
     const contracts: string[] = [];
     for (const inst of CORE_INSTRUMENTS) for (const sym of [inst.mini, inst.micro]) contracts.push(sym);
-    this.settingRow(containerEl, "tag", "Default symbol", "Pre-fill the symbol on a new manual trade.")
+    this.settingRow(containerEl, "tag", "Default symbol", "Pre-fill the contract on a new manual trade. You can change it per trade; turning this off clears the pre-fill.")
       .addToggle((tg) => {
         tg.setValue(!!s.defaultSymbol).onChange(async (v) => {
           s.defaultSymbol = v ? contracts[0] : "";
@@ -412,21 +447,28 @@ export class SettingsTab extends PluginSettingTab {
         });
       });
     if (s.defaultSymbol) {
-      this.settingRow(containerEl, "list", "Symbol", "The symbol pre-filled on a new trade.")
-        .addDropdown((dd) => {
-          for (const sym of contracts) dd.addOption(sym, contractLabel(sym));
-          dd.setValue(s.defaultSymbol || contracts[0]).onChange(async (v) => {
-            s.defaultSymbol = v;
-            await this.plugin.saveSettings();
-          });
-        });
+      this.select(
+        this.settingRow(containerEl, "list", "Contract", "The contract every new trade starts on."),
+        contracts.map((sym) => ({ id: sym, label: contractLabel(sym) })),
+        s.defaultSymbol || contracts[0],
+        async (v) => {
+          s.defaultSymbol = v;
+          await this.plugin.saveSettings();
+        }
+      );
     }
   }
 
   /**
    * A risk per contract, for the trades an import cannot show a stop for.
    *
-   * The mini and the micro are two rows on purpose: ten points is not the same
+   * One grid for the page, not a stack of blocks: a family is a quiet subhead,
+   * the mini and the micro are two rows under it, and the numbers sit in two
+   * columns that never move. A row with no rule is one line — there is no
+   * permanent "no rule" line under every empty contract, so the weight of the
+   * editor is what the trader actually wrote and nothing else.
+   *
+   * The mini and the micro stay two rows on purpose: ten points is not the same
    * money on an NQ and on an MNQ, so a rule that means "10 points" has to say
    * which contract it is about. Dollars are the size-blind way to write it —
    * $200 is $200 on one NQ or on ten MNQ — and the row shows what that came out
@@ -435,31 +477,74 @@ export class SettingsTab extends PluginSettingTab {
    * Nothing is applied here: these rules run on import, and only where the file
    * holds no stop of its own.
    */
-  renderDefaultRisk(containerEl: HTMLElement): void {
+  private renderDefaultRisk(containerEl: HTMLElement, onChanged: () => void): void {
+    const money = this.plugin.settings.currency || "$";
     // Read through the live settings, never through a captured copy: after a
     // write the row repaints itself, and a closed-over object would keep showing
     // the rule it had when the pane opened.
     const ruleNow = (sym: string): RiskRule | undefined => this.plugin.settings.defaultRiskBySymbol?.[sym];
+    // Every control this editor writes, so "clear" can empty them in place
+    // instead of repainting the page (a repaint would fold the tool shut).
+    const fields = new Map<string, { points: HTMLInputElement; dollars: HTMLInputElement }>();
+
+    let summary: HTMLElement;
+    let foot: HTMLElement;
+    const setCountNow = (): number => CORE_SYMBOLS.filter((s) => ruleNow(s)).length;
+    const paintSummary = (): void => {
+      const n = setCountNow();
+      // The count already sits on the closed row, and every rule states itself
+      // under its own contract — so this line only has anything to add while
+      // nothing is set: it says what then happens to the trade.
+      summary.setText("Nothing set — a trade that arrives with no stop is recorded with no risk.");
+      summary.toggleClass("is-hidden", n > 0);
+      // The way back is a repair row, not a feature: it exists only once there
+      // is something to undo, and it is never given a box of its own.
+      foot.empty();
+      foot.toggleClass("is-hidden", n === 0);
+      if (!n) return;
+      const clear = foot.createEl("button", { cls: "tj-set-linkbtn", text: "Clear every assumption", attr: { type: "button" } });
+      const wipe = async (): Promise<void> => {
+        this.plugin.settings.defaultRiskBySymbol = {};
+        await this.plugin.saveSettings();
+        for (const f of fields.values()) {
+          f.points.value = "";
+          f.dollars.value = "";
+        }
+        paintSummary();
+        onChanged();
+      };
+      clear.addEventListener("click", () => {
+        if (window.confirm(`Remove all ${n} assumptions? Imports without a stop go back to being recorded with no risk.`)) void wipe();
+      });
+    };
+    // The verdict line opens the editor; the clear action is drawn under the
+    // twelve rows it undoes, once both exist.
+    summary = containerEl.createEl("p", { cls: "tj-set-note tj-set-summary" });
+
+    // One legend for the whole grid: the column titles never repeat per family,
+    // so a family can be a single quiet line.
+    const legend = containerEl.createDiv({ cls: "tj-set-riskgrid is-legend" });
+    legend.createSpan({ text: "Contract" });
+    legend.createSpan({ text: "Points from entry" });
+    legend.createSpan({ text: "Money per trade" });
+
     for (const instrument of CORE_INSTRUMENTS) {
-      const block = containerEl.createDiv({ cls: "tj-set-riskblock" });
-      const head = block.createDiv({ cls: "tj-set-riskblock-head" });
-      head.createSpan({ cls: "tj-set-riskblock-name", text: instrument.label });
-      head.createSpan({ cls: "tj-set-riskblock-pair", text: `${instrument.mini} / ${instrument.micro}` });
+      const family = containerEl.createDiv({ cls: "tj-set-riskfam" });
+      family.createSpan({ cls: "tj-set-riskfam-name", text: instrument.label });
+      family.createSpan({ cls: "tj-set-riskfam-pair", text: `${instrument.mini} / ${instrument.micro}` });
       for (const symbol of [instrument.mini, instrument.micro]) {
         const spec = futuresSpec(symbol);
-        const row = block.createDiv({ cls: "tj-set-riskrow" });
+        const row = containerEl.createDiv({ cls: "tj-set-riskrow" });
         const name = row.createDiv({ cls: "tj-set-riskname" });
         name.createSpan({ cls: "tj-set-risksym", text: contractLabel(symbol) });
-        const hint = name.createSpan({ cls: "tj-set-riskhint" });
+        // The result line exists only once there is a result to state.
+        const hint = name.createSpan({ cls: "tj-set-riskhint is-hidden" });
         const paint = (): void => {
           const rule = ruleNow(symbol);
-          hint.setText(
-            rule?.points
-              ? `${rule.points} pt from entry · $${round2(rule.points * spec.pointValue)} a contract`
-              : rule?.dollars
-              ? `$${round2(rule.dollars)} a trade`
-              : "no rule"
-          );
+          if (rule?.points) hint.setText(`${rule.points} pt from entry · ${money}${round2(rule.points * spec.pointValue)} a contract`);
+          else if (rule?.dollars) hint.setText(`${money}${round2(rule.dollars)} a trade`);
+          else hint.setText("");
+          hint.toggleClass("is-hidden", !rule?.points && !rule?.dollars);
         };
         const write = async (field: "points" | "dollars", raw: string): Promise<void> => {
           const n = Number(raw);
@@ -474,6 +559,8 @@ export class SettingsTab extends PluginSettingTab {
           points.value = now?.points ? String(now.points) : "";
           dollars.value = now?.dollars ? String(now.dollars) : "";
           paint();
+          paintSummary();
+          onChanged();
         };
         const points = row.createEl("input", {
           cls: "tj-set-riskinput",
@@ -486,30 +573,34 @@ export class SettingsTab extends PluginSettingTab {
         const dollars = row.createEl("input", {
           cls: "tj-set-riskinput",
           type: "number",
-          attr: { placeholder: "$ per trade", "aria-label": `Default risk in dollars for ${symbol}` },
+          attr: { placeholder: `${money} per trade`, "aria-label": `Default risk in ${money} per trade for ${symbol}` },
         });
         freeNumeric(dollars);
         dollars.value = ruleNow(symbol)?.dollars ? String(ruleNow(symbol)?.dollars) : "";
         dollars.addEventListener("change", () => void write("dollars", dollars.value));
+        fields.set(symbol, { points, dollars });
         paint();
       }
     }
+
+    foot = containerEl.createDiv({ cls: "tj-set-toolfoot is-hidden" });
+    paintSummary();
   }
 
   // ------------------------------------------------------------- Review
 
   renderReview(containerEl: HTMLElement): void {
     this.groupLabel(containerEl, "Psychology");
-    this.settingRow(containerEl, "timer-reset", "Re-entry window", "A trade opened within this many minutes of a losing exit on the same symbol reads as a re-entry after a loss. A heuristic, not a rule.")
-      .addDropdown((dd) => {
-        for (const minutes of [5, 10, 15, 30, 60]) dd.addOption(String(minutes), `${minutes} minutes`);
-        dd.setValue(String(this.plugin.settings.reentryWindowMinutes ?? 15));
-        dd.onChange(async (v) => {
-          this.plugin.settings.reentryWindowMinutes = Number(v);
-          await this.plugin.saveSettings();
-          await this.plugin.reloadAllViews();
-        });
-      });
+    this.select(
+      this.settingRow(containerEl, "timer-reset", "Re-entry window", "A trade opened within this many minutes of a losing exit on the same symbol reads as a re-entry after a loss. A heuristic, not a rule."),
+      [5, 10, 15, 30, 60].map((minutes) => ({ id: String(minutes), label: `${minutes} minutes` })),
+      String(this.plugin.settings.reentryWindowMinutes ?? 15),
+      async (v) => {
+        this.plugin.settings.reentryWindowMinutes = Number(v);
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      }
+    );
     this.groupLabel(containerEl, "Tags");
     containerEl.createEl("p", {
       text: "Your own words for what happened. This list only changes which tags are suggested when you review — a tag already on a trade always stays.",
@@ -570,6 +661,275 @@ export class SettingsTab extends PluginSettingTab {
       );
   }
 
+  // ------------------------------------------------------------- Imports
+
+  /**
+   * The import-only tools. Everything here shapes how a broker's CSV is read —
+   * assumptions for a missing stop, and the account matching/repair path — and
+   * nothing here is normal account configuration. A trader who never imports by
+   * hand never needs to open this page.
+   *
+   * Closed, the page is two rows and a state: each tool says what it is for and
+   * what is currently in it, so "do I need this?" is answered without opening
+   * anything. Open, there is exactly ONE editor on screen — the two tools are
+   * separate jobs, and showing both at once is what made this page the densest
+   * and most technical in Settings.
+   */
+  renderImports(containerEl: HTMLElement): void {
+    containerEl.createEl("p", {
+      cls: "tj-set-note tj-set-lead",
+      text: "Neither tool changes a trade you already have.",
+    });
+
+    const tools: { btn: HTMLElement; panel: HTMLElement }[] = [];
+    /** One tool at a time: opening one closes the other, -1 closes both. */
+    const show = (index: number): void => {
+      tools.forEach((tool, i) => {
+        const open = i === index;
+        tool.panel.toggleClass("is-hidden", !open);
+        tool.btn.setAttr("aria-expanded", String(open));
+        tool.btn.toggleClass("is-open", open);
+      });
+    };
+    /** The row is the whole control: pressing an open tool closes it again. */
+    const toggle = (index: number): void => {
+      show(tools[index].panel.hasClass("is-hidden") ? index : -1);
+    };
+
+    this.groupLabel(containerEl, "Import assumptions");
+    const risk = this.toolRow(containerEl, {
+      icon: "sliders-horizontal",
+      title: "Risk by symbol",
+      sub: "Used only when an imported trade has no stop of its own.",
+    });
+    tools.push(risk);
+    const paintRiskState = (): void => {
+      const rules = this.plugin.settings.defaultRiskBySymbol || {};
+      const n = CORE_SYMBOLS.filter((sym) => rules[sym]).length;
+      risk.state.setText(n ? `${n} of ${CORE_SYMBOLS.length} set` : "Not set");
+      risk.state.toggleClass("is-set", n > 0);
+    };
+    risk.panel.createEl("p", {
+      cls: "tj-set-note",
+      text: "Used as an assumption only, and the trade is marked as assumed so you can always see it was not in the file. One rule per contract: points or money, never both.",
+    });
+    this.renderDefaultRisk(risk.panel, paintRiskState);
+    paintRiskState();
+    risk.btn.addEventListener("click", () => toggle(tools.indexOf(risk)));
+
+    this.groupLabel(containerEl, "Account matching & repair");
+    const match = this.toolRow(containerEl, {
+      icon: "link",
+      title: "Which account a name belongs to",
+      sub: "Only needed when an import lands on the wrong account, or its name is unreadable.",
+    });
+    tools.push(match);
+    const paintMatchState = (): void => {
+      const n = Object.keys(this.plugin.settings.accountMappings || {}).length;
+      match.state.setText(n ? `${n} ${n === 1 ? "name" : "names"} bound` : "Automatic");
+      match.state.toggleClass("is-set", n > 0);
+    };
+    void this.renderMatchTools(match.panel, paintMatchState);
+    paintMatchState();
+    match.btn.addEventListener("click", () => toggle(tools.indexOf(match)));
+  }
+
+  /**
+   * One import tool, folded by default: icon, name, one line of what it is for,
+   * and the current state in the value slot on the right.
+   *
+   * The row is a normal settings row inside a card — same padding, icon column,
+   * hierarchy and right-hand measure — so this page reads as part of the same
+   * system as General. No badge: the row already says it is interactive, and a
+   * filled capsule on each row would make this the loudest page in Settings for
+   * its least-used tools.
+   */
+  private toolRow(
+    containerEl: HTMLElement,
+    o: { icon: string; title: string; sub: string }
+  ): { btn: HTMLElement; panel: HTMLElement; state: HTMLElement } {
+    const box = containerEl.createDiv({ cls: "tj-set-disclosure" });
+    const btn = box.createEl("button", {
+      cls: "tj-set-disclosure-btn",
+      attr: { type: "button", "aria-expanded": "false" },
+    });
+    const icon = btn.createDiv({ cls: "tj-set-opt-icon" });
+    setIcon(icon, o.icon);
+    const left = btn.createDiv({ cls: "tj-set-disclosure-left" });
+    left.createSpan({ cls: "tj-set-disclosure-title", text: o.title });
+    left.createSpan({ cls: "tj-set-disclosure-sub", text: o.sub });
+    const state = btn.createSpan({ cls: "tj-set-state" });
+    const chev = btn.createSpan({ cls: "tj-set-disclosure-chev", attr: { "aria-hidden": "true" } });
+    setIcon(chev, "chevron-down");
+    const panel = box.createDiv({ cls: "tj-set-disclosure-panel is-hidden" });
+    return { btn, panel, state };
+  }
+
+  /**
+   * The repair editor: which account a name belongs to, then how the words in a
+   * name are read. Binding comes first because it is the common repair —
+   * classification is the fallback for when the name itself is misleading.
+   */
+  private async renderMatchTools(host: HTMLElement, onChanged: () => void): Promise<void> {
+    await this.renderAccountMapping(host, onChanged);
+    this.renderImportClassification(host);
+  }
+
+  /**
+   * Broker account names seen in trades, each bindable to a real account.
+   *
+   * Two lists, because they are two different things: the names the trader bound
+   * on purpose (still editable), and the names the rules already decided (facts,
+   * and shown as facts). A picker on every row made a dozen resolved names look
+   * like a dozen unanswered questions.
+   */
+  private async renderAccountMapping(host: HTMLElement, onChanged: () => void): Promise<void> {
+    const s = this.plugin.settings;
+    host.createDiv({ cls: "tj-set-subhead", text: "The names your imports arrive under" });
+    host.createEl("p", {
+      cls: "tj-set-note",
+      text: "Your broker may send trades under a name that is not one of your accounts — after a rename, or when several accounts are merged into one name. Bind the name once, and its trades count under the right account.",
+    });
+
+    const trades = await this.plugin.loadTrades();
+    const names = [...new Set(trades.map((t) => t.account).filter((a) => !!a))].sort();
+    if (!names.length) {
+      host.createDiv({ cls: "tj-hint", text: "No account names in your trades yet — import a file or add a trade first." });
+      return;
+    }
+    const accounts = s.propAccounts;
+    if (!accounts.length) {
+      host.createDiv({ cls: "tj-hint", text: "No Tradebook accounts yet, so there is nothing to bind a name to. Set one up first." });
+      return;
+    }
+
+    const items: DropdownItem[] = [
+      { id: "", label: "Decide by the rules", note: "the name's own keywords pick" },
+      ...accounts.map((acc) => ({ id: acc.id, label: acc.name, note: typeLabel(acc.type) })),
+    ];
+    const write = async (name: string, id: string): Promise<void> => {
+      if (id) s.accountMappings[name] = id;
+      else delete s.accountMappings[name];
+      await this.plugin.saveSettings();
+      await this.plugin.reloadAllViews();
+    };
+    const applyBind = async (name: string, id: string): Promise<void> => {
+      if (!id) return;
+      await write(name, id);
+      paint();
+      onChanged();
+    };
+    const bind = (row: HTMLElement, name: string): void => {
+      mountDropdown(
+        row,
+        items,
+        "",
+        (id) => void applyBind(name, id),
+        { title: "Which account this name means", align: "right", side: "above", size: "sm", block: true }
+      );
+    };
+
+    // Only this list repaints, so the keyword editor below it survives a binding.
+    const list = host.createDiv({ cls: "tj-set-maplist" });
+    const paint = (): void => {
+      list.empty();
+      const mapped = (n: string): ReturnType<typeof this.plugin.mappedAccount> => this.plugin.mappedAccount(n);
+      const bound = names.filter((n) => !!mapped(n));
+      const auto = names.filter((n) => !mapped(n));
+
+      const row = (name: string, isBound: boolean): void => {
+        const target = mapped(name);
+        const r = list.createDiv({ cls: "tj-set-maprow" });
+        const nameBox = r.createDiv({ cls: "tj-set-mapname" });
+        nameBox.createDiv({ cls: "tj-set-maplabel", text: name });
+        const meta = nameBox.createDiv({ cls: "tj-set-mapmeta" });
+        if (target) {
+          meta.createSpan({ text: `Bound to ${target.name}` });
+          const kind = meta.createSpan({ cls: "tj-set-maptype", text: typeLabel(target.type) });
+          kind.style.color = typeColor(target.type);
+        } else {
+          const verdict = this.plugin.resolveAccountType(name);
+          const kind = meta.createSpan({
+            cls: "tj-set-maptype" + (verdict === "unknown" ? " is-unread" : ""),
+            text: verdict === "unknown" ? "No keyword matched" : `Read as ${typeLabel(verdict)}`,
+          });
+          if (verdict !== "unknown") kind.style.color = typeColor(verdict);
+        }
+        if (isBound) {
+          mountDropdown(r, items, target?.id ?? "", (id) => void applyBind(name, id), {
+            title: "Which account this name means",
+            align: "right",
+            side: "above",
+            size: "sm",
+            block: true,
+          });
+          return;
+        }
+        // A plain action, not another filled control on a row of facts.
+        const action = r.createEl("button", { cls: "tj-set-linkbtn", text: "Bind…", attr: { type: "button" } });
+        action.addEventListener("click", () => {
+          action.remove();
+          bind(r, name);
+        });
+      };
+
+      if (bound.length) {
+        list.createDiv({ cls: "tj-set-microhead", text: "Bound by you" });
+        for (const name of bound) row(name, true);
+      }
+      if (auto.length) {
+        list.createDiv({ cls: "tj-set-microhead", text: "Decided by the rules" });
+        for (const name of auto) row(name, false);
+      }
+    };
+    paint();
+  }
+
+  /** Keywords that sort a broker's account name into a type. First match wins. */
+  private renderImportClassification(host: HTMLElement): void {
+    const s = this.plugin.settings;
+    host.createDiv({ cls: "tj-set-subhead", text: "How a name's type is read" });
+    host.createEl("p", {
+      cls: "tj-set-note",
+      text: "The words that sort a name into a type. The first match wins, so only the words your broker really uses need to be here.",
+    });
+    const box = host.createDiv({ cls: "tj-set-kwgroup" });
+    const inputs = new Map<string, HTMLInputElement>();
+    for (const rule of this.plugin.getAccountRules()) {
+      const rrow = box.createDiv({ cls: "tj-set-kwrow" });
+      rrow.createSpan({ cls: "tj-set-kwtype", text: typeLabel(rule.type) });
+      const input = rrow.createEl("input", {
+        cls: "tj-set-kwinput",
+        attr: { type: "text", value: rule.keywords.join(", ") },
+      });
+      inputs.set(rule.type, input);
+      input.addEventListener("change", async () => {
+        const keywords = input.value.split(",").map((x) => x.trim()).filter(Boolean);
+        if (!s.accountRules.length) {
+          s.accountRules = DEFAULT_ACCOUNT_RULES.map((x) => ({ type: x.type, keywords: [...x.keywords] }));
+        }
+        const target = s.accountRules.find((x) => x.type === rule.type);
+        if (target) target.keywords = keywords;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      });
+    }
+    // The way back — and an empty list already means "the defaults", so this
+    // only has to hand the editor its original words.
+    const foot = host.createDiv({ cls: "tj-set-toolfoot" });
+    const restore = foot.createEl("button", { cls: "tj-set-linkbtn", text: "Restore the default keywords", attr: { type: "button" } });
+    const resetKeywords = async (): Promise<void> => {
+      s.accountRules = [];
+      await this.plugin.saveSettings();
+      await this.plugin.reloadAllViews();
+      for (const rule of DEFAULT_ACCOUNT_RULES) {
+        const input = inputs.get(rule.type);
+        if (input) input.value = rule.keywords.join(", ");
+      }
+    };
+    restore.addEventListener("click", () => void resetKeywords());
+  }
+
   // ------------------------------------------------------------ Advanced
 
   renderAdvanced(containerEl: HTMLElement): void {
@@ -593,7 +953,7 @@ export class SettingsTab extends PluginSettingTab {
         b.setDisabled(false);
       });
     });
-    this.settingRow(containerEl, "refresh-cw", "Rebuild trade index", "Re-read every trade note (clears the in-memory cache).").addButton((b) =>
+    this.settingRow(containerEl, "refresh-cw", "Rebuild trade index", "Re-reads every trade note from scratch. Slower on a big journal, and the fix when a note was edited outside Tradebook.").addButton((b) =>
       b.setButtonText("Rebuild").onClick(async () => {
         this.plugin.clearTradeCache();
         await this.plugin.reloadAllViews();
@@ -622,7 +982,7 @@ export class SettingsTab extends PluginSettingTab {
         b.setDisabled(false);
       })
     );
-    this.settingRow(containerEl, "upload", "Import a backup", "Shows what is inside the file before anything changes. Your current settings are snapshotted first.").addButton((b) =>
+    this.settingRow(containerEl, "upload", "Import a backup", "Shows what is inside the file before anything changes. Your current settings are saved as a safety copy first.").addButton((b) =>
       b.setButtonText("Choose file…").onClick(() => this.pickBackupFile())
     );
     this.settingRow(

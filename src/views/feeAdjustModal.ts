@@ -6,6 +6,7 @@ import { attachTip } from "../lib/tip";
 import { fmtMoney, todayKey } from "../tz";
 import { allocateProportional, tradeFeeKeys } from "../lib/fees";
 import { byEntryInstant, tradeDayInZone } from "../lib/instant";
+import { accountBoundary } from "../lib/tracking";
 import type { Trade } from "../types";
 
 /**
@@ -88,12 +89,22 @@ class FeeAdjustModal extends Modal {
     });
   }
 
+  /**
+   * The earliest day this account's balance can still be moved on: the tracking
+   * boundary when the trader declared one (everything before it is already
+   * inside the opening balance), else the account's start.
+   */
+  private boundary(): string {
+    const acc = (this.plugin.settings.propAccounts ?? []).find((a) => a.id === this.accountId);
+    return accountBoundary(acc);
+  }
+
   /** The day after the last correction's window, or where the account began. */
   private defaultFrom(): string {
     const last = this.plugin.feeAdjustmentsFor(this.accountId).filter((a) => a.kind !== "cost").slice(-1)[0];
-    if (last?.period?.to) return dayAfter(last.period.to);
-    const acc = (this.plugin.settings.propAccounts ?? []).find((a) => a.id === this.accountId);
-    if (acc?.createdAt) return acc.createdAt;
+    const boundary = this.boundary();
+    if (last?.period?.to) return boundary && dayAfter(last.period.to) < boundary ? boundary : dayAfter(last.period.to);
+    if (boundary) return boundary;
     // Default bounds are the account's own first/last day on the same key the
     // window filters by, or the default window would clip its own history.
     const zone = this.plugin.settings.timeZone;
@@ -132,7 +143,12 @@ class FeeAdjustModal extends Modal {
     const zone = this.plugin.settings.timeZone;
     return this.accountTrades()
       .map((t) => ({ t, day: tradeDayInZone(t, zone) }))
-      .filter(({ day }) => day >= this.from && day <= this.to && !(acc.createdAt && day < acc.createdAt))
+      .filter(({ day }) => {
+        // Same boundary the balance is measured from: an allocation can never
+        // point at a day the money engine would discard.
+        const floor = accountBoundary(acc);
+        return day >= this.from && day <= this.to && !(floor && day < floor);
+      })
       .sort((a, b) => byEntryInstant(a.t, b.t))
       .map(({ t }) => t);
   }
@@ -365,13 +381,22 @@ class FeeAdjustModal extends Modal {
         this.render();
         return;
       }
+      // A correction the balance would throw away is not saved. It would sit in
+      // the list looking recorded while the account value never moved.
+      const boundary = this.boundary();
+      const loggedOn = when || todayKey(this.plugin.settings.timeZone);
+      if (boundary && loggedOn < boundary) {
+        this.error = `This account's balance is measured from ${boundary}. A correction on ${loggedOn} is already inside the balance it started from, so it would change nothing.`;
+        this.render();
+        return;
+      }
       this.error = "";
       const slices = allocateProportional(pending, diff);
       const remainder =
         Math.round(diff * 100) - slices.reduce((s, x) => s + Math.round(x.amount * 100), 0);
       await this.plugin.registerFeeAdjustment(
         this.accountId,
-        when || todayKey(this.plugin.settings.timeZone),
+        loggedOn,
         diff,
         noteInput.value.trim() || undefined,
         slices.length ? { from: this.from, to: this.to } : undefined,

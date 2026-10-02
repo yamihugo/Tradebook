@@ -9,8 +9,8 @@ import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields } from "
 import { attachTip } from "../lib/tip";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import { analyticsTrades, journalDayKey } from "../lib/scope";
+import { legBaseKey } from "../lib/copy";
 import { byEntryInstant } from "../lib/instant";
-import { netOutcomes } from "../lib/process";
 import { netPnl } from "../lib/fees";
 import { sessionOf } from "../lib/sessions";
 import { eligibleTradeIds, tradeSelectionScopeKey } from "../lib/tradeSelection";
@@ -32,6 +32,18 @@ export const TRADE_LOG_VIEW_TYPE = "tradebook-trade-log-view";
 
 /** Every column the ledger can hold — the shared order is validated against it. */
 const ALL_COLUMN_IDS = TRADE_COLUMNS.map((c) => c.id);
+
+/**
+ * Escape a value for use inside an attribute selector. `CSS.escape` does the
+ * whole job where it exists; the fallback covers the environments where the CSS
+ * global is missing (older webviews, headless test runs), so a trade id with a
+ * quote in it can never break the row lookup that restores the scroll position
+ * or the selection ticks.
+ */
+function attrValue(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") return CSS.escape(value);
+  return String(value).replace(/["\\]/g, "\\$&");
+}
 
 /** Where the old per-column switches map onto the ledger columns. */
 const LEGACY_KEYS: Record<string, string> = {
@@ -176,8 +188,12 @@ export class TradeLogView extends ItemView {
   lens: { label: string; test: (t: Trade) => boolean } | null = null;
   /** Which gaps to look for — a trade can be missing more than one thing. */
   qualityFilters: string[] = [];
-  /** Leave demo-account trades out of the ledger and every count (Trade Log only). */
-  excludeDemos = false;
+  /**
+   * Leave demo-account trades out of the ledger and every count. ON by default:
+   * the ledger opens on the accounts the trader is actually running, and the
+   * "Show demo accounts" control is off to match. Turning it on is the deviation.
+   */
+  excludeDemos = true;
   /** What the reader typed in the account picker (kept across re-renders). */
   accQuery = "";
   /** all | 1plus | 0to1 | neg — how the trade finished in R, not in dollars. */
@@ -199,8 +215,26 @@ export class TradeLogView extends ItemView {
   /** The trade the reader was last on: we come back to it, not to the top. */
   anchor = "";
   savedScrollY = 0;
-  selected = new Set<string>();
-  selectMode = false;
+  /**
+   * The selection is session state, held on the plugin rather than on this view:
+   * opening a trade, switching tabs or letting the leaf rebuild must not throw
+   * away a selection the reader spent a minute building.
+   */
+  get selected(): Set<string> {
+    return this.plugin.tradeLogSelection;
+  }
+
+  set selected(next: Set<string>) {
+    this.plugin.tradeLogSelection = next;
+  }
+
+  get selectMode(): boolean {
+    return this.plugin.tradeLogSelectMode === true;
+  }
+
+  set selectMode(on: boolean) {
+    this.plugin.tradeLogSelectMode = on;
+  }
   filtersOpen = false;
   columnsOpen = false;
   private _restoreFocus = false;
@@ -271,7 +305,11 @@ export class TradeLogView extends ItemView {
           : typeof f.quality === "string" && f.quality !== "all"
             ? [f.quality]
             : this.qualityFilters;
-        this.excludeDemos = f.excludeDemos === true;
+        // Demo trades are hidden by default. A view saved by an older build had
+        // no version and could hold the old default (`false`) while demos were
+        // shown; that state is migrated once, so the control and the population
+        // start in step. After that an explicit choice persists as written.
+        this.excludeDemos = f.version === 2 ? f.excludeDemos !== false : true;
         this.customFrom = f.customFrom ?? this.customFrom;
         this.customTo = f.customTo ?? this.customTo;
         this.search = f.search ?? this.search;
@@ -368,6 +406,9 @@ export class TradeLogView extends ItemView {
       search: this.search,
       setups: this.setupFilters.slice(),
       excludeDemos: this.excludeDemos,
+      // Bumped when the demo default was inverted, so the one old state that
+      // disagrees with the new contract is not restored.
+      version: 2,
     };
     // Writing the same thing every render was a save storm; only a real change
     // touches data.json. A scoped open records its signature without saving, so
@@ -475,11 +516,21 @@ export class TradeLogView extends ItemView {
 
   filtered(opts?: { skipAttention?: boolean }): Trade[] {
     let list = this.trades.filter((t) => t && t.date && typeof t.pnl === "number");
+    // Review classification reads the DECISION's representative, never one leg
+    // on its own: a copy leg is born unreviewed, so a fully reviewed decision
+    // must not reappear under "Needs review" because of its legs. The copies
+    // stay visible — every leg of a matching decision is kept, so a row can
+    // still expand Original → Copied.
+    const keepMatchingDecisions = (predicate: (rep: Trade) => boolean): void => {
+      const keys = new Set<string>();
+      for (const row of tradeRows(list)) if (predicate(row.rep)) keys.add(row.key);
+      list = list.filter((t) => keys.has(legBaseKey(t)));
+    };
     if (this.idFilter.length) {
       const ids = new Set(this.idFilter);
       list = list.filter((t) => ids.has(t.id));
     }
-    if (this.lens) list = list.filter((t) => this.lens!.test(t));
+    if (this.lens) keepMatchingDecisions((rep) => this.lens!.test(rep));
     if (this.symbolFilter) list = list.filter((t) => (t.symbol || "").toUpperCase() === this.symbolFilter.toUpperCase());
     if (this.accountFilters.length) {
       const wanted = this.accountFilters
@@ -509,14 +560,16 @@ export class TradeLogView extends ItemView {
     }
     if (this.directionFilter !== "all") list = list.filter((t) => t.direction === this.directionFilter);
     if (this.resultFilter !== "all") {
-      // Result is the Net sign of the decision, like every other win/loss in
-      // the product: a trade that wins before costs and loses once commission
-      // is recorded is filed under Losses here too.
-      const outcomes = netOutcomes(list);
-      const decided = (t: Trade): number => outcomes.get(t) ?? netPnl(t);
-      if (this.resultFilter === "win") list = list.filter((t) => decided(t) > 0);
-      else if (this.resultFilter === "loss") list = list.filter((t) => decided(t) < 0);
-      else if (this.resultFilter === "be") list = list.filter((t) => decided(t) === 0);
+      // Result is the Net sign of the DECISION — the same number the row's Net
+      // column shows (the original trade's own result). A copy's result belongs
+      // to its own account and never reclassifies the decision here.
+      const want = this.resultFilter;
+      keepMatchingDecisions((rep) => {
+        const net = netPnl(rep);
+        if (want === "win") return net > 0;
+        if (want === "loss") return net < 0;
+        return net === 0;
+      });
     }
     // Behavioral tags: one OR per block, and OR *between* the two blocks — a
     // trade passes when it carries a selected mistake tag or a selected
@@ -540,9 +593,9 @@ export class TradeLogView extends ItemView {
         return this.sessionFilter === "none" ? s === "" : s === this.sessionFilter;
       });
     }
-    // Demo accounts count by default — the trader is testing on them. The
-    // explicit "Exclude demo accounts" toggle (a global list filter, not an
-    // attention filter) drops them from the ledger AND from every count below.
+    // Demo accounts are out of the population unless shown. The explicit "Show
+    // demo accounts" control (a global list filter, not an attention filter)
+    // decides it, and this filter drops them from the ledger AND every count.
     if (this.excludeDemos) {
       list = list.filter((t) => (this.plugin.mappedAccount(t.account)?.type ?? t.accountType) !== "demo");
     }
@@ -551,7 +604,7 @@ export class TradeLogView extends ItemView {
     // filter is active, to avoid the circular-dependency bug where clicking a
     // chip changes its own count.
     if (!opts?.skipAttention && this.qualityFilters.length) {
-      list = list.filter((t) => this.qualityFilters.some((q) => missingFlag(t, q)));
+      keepMatchingDecisions((rep) => this.qualityFilters.some((q) => missingFlag(rep, q)));
     }
     if (this.rFilter !== "all") {
       list = list.filter((t) => {
@@ -563,7 +616,8 @@ export class TradeLogView extends ItemView {
       });
     }
     if (!opts?.skipAttention && this.reviewFilter !== "all") {
-      list = list.filter((t) => (this.reviewFilter === "complete" ? reviewStatus(t).complete : !reviewStatus(t).complete));
+      const wantComplete = this.reviewFilter === "complete";
+      keepMatchingDecisions((rep) => reviewStatus(rep).complete === wantComplete);
     }
     const range = this.periodRange();
     if (range) {
@@ -578,7 +632,19 @@ export class TradeLogView extends ItemView {
     if (this.search) {
       const terms = this.search.toLowerCase().split(/\s+/).filter(Boolean);
       list = list.filter((t) => {
-        const hay = [t.symbol, t.setup, t.mistake, t.notes, t.review, t.account, (t.tags || []).join(" ")]
+        const hay = [
+          t.symbol,
+          t.setup,
+          t.mistake,
+          t.notes,
+          t.review,
+          t.thesis,
+          t.orderType,
+          t.account,
+          (t.tags || []).join(" "),
+          (t.mistake_tags || []).join(" "),
+          (t.psychology_tags || []).join(" "),
+        ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
@@ -634,8 +700,10 @@ export class TradeLogView extends ItemView {
     const list = this.filtered();
     // The list shows every leg (each one is a real trade in its own account), but
     // the totals count one entry per logical trade: a copy must not add a second
-    // "trade" or a second win to these numbers.
-    const counted = analyticsTrades(list, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
+    // "trade" or a second win to these numbers. Trades before their account's
+    // tracking boundary stay visible as history but are out of the totals.
+    const tracked = this.plugin.isTrackedTrade ? list.filter((t) => this.plugin.isTrackedTrade(t)) : list;
+    const counted = analyticsTrades(tracked, this.plugin.settings.includeCopiesInPortfolioAnalytics === true).counts;
     // The attention chips must (a) never change number when their own filter is
     // active, and (b) match exactly the rows a click shows. The table folds copy
     // legs into one row per logical trade (tradeRows), so the chips count the
@@ -654,9 +722,12 @@ export class TradeLogView extends ItemView {
       // pending here while the Focus counted it covered.
       // `missingSetup`/`missingPrint` stay on the legs on purpose: they describe
       // what this list is showing, one row per leg.
+      // Every review count reads the decision's representative, the same one
+      // the filters below use — so a count and a click always agree, and a copy
+      // leg's own incompleteness never inflates the queue.
       pending: attentionRows.filter((r) => !reviewStatus(r.rep).complete).length,
-      missingSetup: attentionRows.filter((r) => r.legs.some((l) => missingFlag(l, "nosetup"))).length,
-      missingPrint: attentionRows.filter((r) => r.legs.some((l) => missingFlag(l, "noprint"))).length,
+      missingSetup: attentionRows.filter((r) => missingFlag(r.rep, "nosetup")).length,
+      missingPrint: attentionRows.filter((r) => missingFlag(r.rep, "noprint")).length,
     };
     this._stats = { key, value };
     return value;
@@ -811,7 +882,9 @@ export class TradeLogView extends ItemView {
 
     const searchBox = sub.createDiv({ cls: "tj-tl-search" });
     setIcon(searchBox.createSpan({ cls: "tj-tl-search-ico" }), "search");
-    const searchInput = searchBox.createEl("input", { attr: { type: "search", placeholder: "Search symbol, strategy, account\u2026" } });
+    const searchInput = searchBox.createEl("input", {
+      attr: { type: "search", placeholder: "Search symbol, strategy, account, tags\u2026" },
+    });
     searchInput.value = this.search;
     // Typing only re-renders once the keystrokes settle: re-reading and rebuilding
     // the whole page on every character is what made a long journal feel stuck.
@@ -864,7 +937,7 @@ export class TradeLogView extends ItemView {
     // Put the reader back on the row they left from. The element only exists when
     // that trade is still inside the visible window, so this never fights a filter.
     if (this.anchor) {
-      const el = this.contentEl.querySelector(`[data-trade="${CSS.escape(this.anchor)}"]`);
+      const el = this.contentEl.querySelector(`[data-trade="${attrValue(this.anchor)}"]`);
       if (el) (el as HTMLElement).scrollIntoView({ block: "center" });
     }
   }
@@ -878,10 +951,17 @@ export class TradeLogView extends ItemView {
     if (!host) return;
     host.empty();
     const s = this.stats();
-    const rows = s.list.slice(0, this.limit);
+    // The limit counts decisions, not records: the day rows already say "N
+    // trades", and "Load more" must add that many decisions, not leg notes.
+    const ordered = orderedTradeRows(s.list, this.sort, this.plugin, true);
+    const visible = ordered.slice(0, this.limit);
+    const rows = visible.flatMap((r) => r.legs);
     this._renderedIds = rows.map((t) => t.id || "").filter(Boolean);
 
-    const card = host.createDiv({ cls: "tj-panel" });
+    // `is-bleed` lets the ledger overflow sideways at a narrow width — the page
+    // scrolls to the clipped columns instead of squeezing every column — while
+    // keeping the panel itself as the visible frame.
+    const card = host.createDiv({ cls: "tj-panel is-bleed" });
     renderTradeTable(card, {
       plugin: this.plugin,
       trades: rows,
@@ -890,6 +970,7 @@ export class TradeLogView extends ItemView {
       groupByDay: true,
       showDayHeaders: false,
       compactDate: true,
+      stableGeometry: true,
       selectMode: this.selectMode,
       selected: this.selected,
       onToggleSelect: (t, shift) => {
@@ -929,13 +1010,13 @@ export class TradeLogView extends ItemView {
 
     if (s.list.length === 0) card.createDiv({ cls: "tj-empty", text: "No trades match these filters." });
 
-    if (s.list.length > this.limit) {
-      const left = s.list.length - rows.length;
+    if (ordered.length > visible.length) {
+      const left = ordered.length - visible.length;
       const more = host.createDiv({ cls: "tj-tl-more" });
       more
         .createEl("button", {
           cls: "tj-actionbtn",
-          text: `Load 50 more · ${left} record${left === 1 ? "" : "s"} left`,
+          text: `Load 50 more · ${left} trade${left === 1 ? "" : "s"} left`,
           attr: { type: "button" },
         })
         .addEventListener("click", () => {
@@ -957,13 +1038,19 @@ export class TradeLogView extends ItemView {
 
   /**
    * The attention row: the review queue and the two gaps that usually cause it.
-   * Each chip is a filter — closing the gap is one click away, and nothing is
-   * imposed (a missing field is reported, never blocked).
+   *
+   * Each chip is a filter, and it says so: the row's label tells the reader that
+   * the numbers are clickable, the count is amber because something genuinely
+   * wants attention, and switching a chip on draws the same filter chip the
+   * drawer would have drawn — so the two paths are one behaviour with a shorter
+   * route to it, not two ways of doing the same thing. Nothing is imposed: a
+   * missing field is reported, never blocked.
    */
   private renderAttention(main: HTMLElement, s: TradeLogStats): void {
     const row = main.createDiv({ cls: "tj-attention" });
     let any = false;
-    const label = row.createSpan({ cls: "tj-attn-label", text: "Needs attention" });
+    const label = row.createSpan({ cls: "tj-attn-label" });
+    label.createSpan({ text: "Needs attention" });
     const chip = (count: number, meaning: string, active: boolean, tip: string, onClick: () => void) => {
       any = true;
       const b = row.createEl("button", {
@@ -972,8 +1059,11 @@ export class TradeLogView extends ItemView {
       });
       b.setAttr("aria-pressed", String(active));
       b.createSpan({ cls: "tj-attn-count", text: String(count) });
-      b.createSpan({ cls: "tj-attn-copy", text: meaning });
-      attachTip(b, { title: `${count} ${meaning}`, sub: tip });
+      b.createSpan({ cls: "tj-attn-copy", text: active ? `showing ${meaning.toLowerCase()}` : meaning });
+      attachTip(b, {
+        title: active ? `Showing ${count} ${meaning.toLowerCase()}` : `${count} ${meaning}`,
+        sub: `${tip}${active ? " Click again to show everything." : " Click to show only these."}`,
+      });
       b.addEventListener("click", () => {
         onClick();
         this.render();
@@ -982,16 +1072,16 @@ export class TradeLogView extends ItemView {
     if (s.pending > 0) {
       chip(
         s.pending,
-        "to review",
+        "Needs review",
         this.reviewFilter === "pending",
-        "Missing screenshot, strategy, review or rating. Click to show only those.",
+        "Trades missing one or more review fields.",
         () => (this.reviewFilter = this.reviewFilter === "pending" ? "all" : "pending")
       );
     }
     if (s.missingSetup > 0) {
       chip(
         s.missingSetup,
-        "missing strategy",
+        "Without strategy",
         this.qualityFilters.includes("nosetup"),
         "Trades you have not filed under a strategy yet. Click to show only those.",
         () => this.toggleQuality("nosetup")
@@ -1000,7 +1090,7 @@ export class TradeLogView extends ItemView {
     if (s.missingPrint > 0) {
       chip(
         s.missingPrint,
-        "missing screenshot",
+        "Without screenshot",
         this.qualityFilters.includes("noprint"),
         "Trades with no chart attached yet. Click to show only those.",
         () => this.toggleQuality("noprint")
@@ -1047,7 +1137,7 @@ export class TradeLogView extends ItemView {
       if (this.selectMode) this.renderBulkBar(this._bulkHost);
     }
     for (const id of this._renderedIds) {
-      const row = this.contentEl.querySelector(`[data-trade="${CSS.escape(id)}"]`);
+      const row = this.contentEl.querySelector(`[data-trade="${attrValue(id)}"]`);
       const box = row?.querySelector<HTMLInputElement>("input.tj-tbl-check");
       if (box) box.checked = this.selected.has(id);
     }
@@ -1062,9 +1152,11 @@ export class TradeLogView extends ItemView {
     const bar = host.createDiv({ cls: "tj-tl-bulk" });
     const eligible = this.eligibleSelectedIds();
     const empty = eligible.size === 0;
+    // The empty state is the instruction. "None selected" told the reader where
+    // they were; this tells them what to do and that the rows are waiting.
     bar.createSpan({
-      cls: "tj-tl-bulk-count",
-      text: eligible.size > 0 ? `${eligible.size} selected` : "None selected",
+      cls: "tj-tl-bulk-count" + (eligible.size ? "" : " is-hint"),
+      text: eligible.size > 0 ? `${eligible.size} selected` : "Tick the box on any trade to start",
     });
 
     const act = (parent: HTMLElement, label: string, cls: string, fn: () => void, disabled = false) => {
@@ -1480,9 +1572,9 @@ export class TradeLogView extends ItemView {
       out.push({ label: `Account type: ${typeName}`, clear: () => (this.accountTypeFilter = "all") });
     }
     if (this.qualityFilters.length) {
-      const words: Record<string, string> = { noprint: "no print", nosetup: "no strategy", nostop: "no stop", norating: "no rating" };
+      const words: Record<string, string> = { noprint: "screenshot", nosetup: "strategy", nostop: "stop", norating: "rating" };
       const picked = this.qualityFilters.map((q) => words[q] ?? q);
-      out.push({ label: `Missing: ${picked.join(" or ")}`, clear: () => (this.qualityFilters = []) });
+      out.push({ label: `Without: ${picked.join(", ")}`, clear: () => (this.qualityFilters = []) });
     }
     if (this.accountFilters.length) {
       const names = this.accountFilters.map((id) =>
@@ -1497,8 +1589,10 @@ export class TradeLogView extends ItemView {
         },
       });
     }
-    if (this.excludeDemos) {
-      out.push({ label: "Demo accounts excluded", clear: () => (this.excludeDemos = false) });
+    // Hidden demos are the default, so they are not an "active filter". Showing
+    // them is the deviation, and it is the thing the chip removes.
+    if (!this.excludeDemos) {
+      out.push({ label: "Showing demo accounts", clear: () => (this.excludeDemos = true) });
     }
     if (this.idFilter.length) {
       // A scoped open (the trades an import just wrote) must be visible and
@@ -1551,7 +1645,7 @@ export class TradeLogView extends ItemView {
     this.scopedPeriodBounds = null;
     this.search = "";
     this.setupFilters = [];
-    this.excludeDemos = false;
+    this.excludeDemos = true;
     this.limit = 50;
   }
 
@@ -1836,8 +1930,10 @@ export class TradeLogView extends ItemView {
     preset("Default", DEFAULT_TRADE_LOG_ORDER, "Full journal workflow — time, execution, results, strategy, print.");
     preset("Simple", ["date", "symbol", "side", "qty", "entryexit", "points", "pnl"], "Core execution columns only — what the trade was and what it did.");
 
-    const reset = pop.createEl("button", { cls: "tj-tl-presetbtn is-quiet", text: "Reset to default", attr: { type: "button" } });
-    attachTip(reset, { title: "Reset to default", sub: "Back to the default column layout." });
+    // "Restore defaults", not "Reset to default": it is what the button does to
+    // the reader's arrangement, in the words of the rest of the app.
+    const reset = pop.createEl("button", { cls: "tj-tl-presetbtn is-quiet", text: "Restore defaults", attr: { type: "button" } });
+    attachTip(reset, { title: "Restore defaults", sub: "Puts every column back where it started, including the ones you turned off." });
     reset.addEventListener("click", () => {
       this.colOrder = DEFAULT_TRADE_LOG_ORDER.slice();
       this.syncSharedOrder(); this.savePrefs(); this.render();
@@ -1991,19 +2087,32 @@ export class TradeLogView extends ItemView {
       .map((x) => [x as string, x as string] as [string, string]);
     const toggleIn = (list: string[], v: string, on: boolean): string[] => (on ? [...list, v] : list.filter((x) => x !== v));
 
-    // Demo exclusion belongs to no section: it is a global position, so it
-    // sits above them all. The state is the same `excludeDemos` the ledger
-    // filters on — only the control changed, from a pill to a checkbox. Both
-    // events are wired through one guarded writer, so whichever fires first
-    // (a click before or after the checkedness flips) applies the value once
-    // and the other becomes a no-op: never a double render, never a missed one.
+    // Demo accounts belong to no section: it is a global position, so it sits
+    // above them all. The control is stated the way the ledger behaves — demos
+    // are hidden to begin with, so "Show demo accounts" starts OFF, and the
+    // visible state can never disagree with the rows below it.
     const demoRow = body.createDiv({ cls: "tj-tl-exclude-demos" });
-    const demoInput = demoRow.createEl("input", { attr: { type: "checkbox", id: "tj-tl-exclude-demos" } });
-    demoInput.checked = this.excludeDemos;
-    demoRow.createEl("label", { text: "Exclude demo accounts", attr: { for: "tj-tl-exclude-demos" } });
+    const demoInput = demoRow.createEl("input", { attr: { type: "checkbox", id: "tj-tl-show-demos" } });
+    demoInput.checked = !this.excludeDemos;
+    const demoLabel = demoRow.createEl("label", { attr: { for: "tj-tl-show-demos" } });
+    demoLabel.createSpan({ text: "Show demo accounts" });
+    demoLabel.createSpan({
+      cls: "tj-tl-demonote",
+      text: "Hidden from this list, and already left out of your totals and every calculated figure.",
+    });
+    attachTip(demoLabel, {
+      title: "Demo accounts",
+      sub: "Demo trades are hidden from this ledger and excluded from Home, the Accounts totals and every metric. Turn this on to see them here.",
+    });
+    // The state is the same `excludeDemos` the ledger filters on — only the
+    // control changed, from a pill to a checkbox. Both events are wired through
+    // one guarded writer, so whichever fires first (a click before or after the
+    // checkedness flips) applies the value once and the other becomes a no-op:
+    // never a double render, never a missed one.
     const applyDemoExclusion = () => {
-      if (this.excludeDemos === demoInput.checked) return;
-      this.excludeDemos = demoInput.checked;
+      const next = !demoInput.checked;
+      if (this.excludeDemos === next) return;
+      this.excludeDemos = next;
       this.render();
     };
     demoInput.addEventListener("click", applyDemoExclusion);
@@ -2057,7 +2166,7 @@ export class TradeLogView extends ItemView {
     pills(g, setups, this.setupFilters, (v, on) => { this.setupFilters = toggleIn(this.setupFilters, v, !on); this.renderPreservingDrawerScroll(); }, "No strategy named yet");
     pills(
       subgroup(g),
-      [["noprint", "No screenshot"], ["nosetup", "No strategy"], ["nostop", "No stop"], ["norating", "No rating"]],
+      [["noprint", "Without screenshot"], ["nosetup", "Without strategy"], ["nostop", "Without stop"], ["norating", "Without rating"]],
       this.qualityFilters,
       (v, on) => { this.qualityFilters = toggleIn(this.qualityFilters, v, !on); this.renderPreservingDrawerScroll(); }
     );
@@ -2092,8 +2201,19 @@ export class TradeLogView extends ItemView {
 
     const foot = drawer.createDiv({ cls: "tj-tl-drawerfoot" });
     const show = foot.createEl("button", { cls: "tj-tl-drawer-show", attr: { type: "button" } });
-    const n = this.stats().tradeCount;
-    show.setText(n === 1 ? "Show 1 trade" : `Show ${n} trades`);
+    // The rows below are every trade, history included; the count is the tracked
+    // subset. When the two differ, say which is which rather than showing a
+    // number that does not match the list the trader is about to see.
+    const stat = this.stats();
+    const n = stat.tradeCount;
+    const visible = stat.list.length;
+    show.setText(
+      visible > n
+        ? `Show ${n} tracked of ${visible} visible`
+        : n === 1
+          ? "Show 1 trade"
+          : `Show ${n} trades`
+    );
     show.addEventListener("click", () => {
       this.filtersOpen = false;
       this.render();

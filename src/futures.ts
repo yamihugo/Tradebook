@@ -104,8 +104,9 @@ export interface CoreInstrument {
 }
 
 /** Six instruments, twelve contracts. Ordered by how often they are traded, so
- *  the picker opens on what a trader reaches for; the rest of the registry
- *  (rates, ag, FX) stays one click away rather than filling the list. */
+ *  the picker opens on what a trader reaches for. The rest of the registry
+ *  (rates, ag, FX) is still priced — a typed or imported contract resolves here
+ *  — but it is not what the journal suggests. */
 export const CORE_INSTRUMENTS: CoreInstrument[] = [
   { id: "nasdaq", label: "Nasdaq 100", mini: "NQ", micro: "MNQ" },
   { id: "spx", label: "S&P 500", mini: "ES", micro: "MES" },
@@ -115,21 +116,9 @@ export const CORE_INSTRUMENTS: CoreInstrument[] = [
   { id: "russell", label: "Russell 2000", mini: "RTY", micro: "M2K" },
 ];
 
-const CORE_SET: Set<string> = new Set(CORE_INSTRUMENTS.flatMap((i) => [i.mini, i.micro]));
-
-/** The twelve core contracts, in instrument order (mini then micro). */
+/** The twelve core contracts, in instrument order (mini then micro). This is
+ *  what the journal supports: the picker suggests these and nothing else. */
 export const CORE_SYMBOLS: string[] = CORE_INSTRUMENTS.flatMap((i) => [i.mini, i.micro]);
-
-/** The picker, in two sections: the core, and everything else behind "All". */
-export function pickerSections(): { label: string; symbols: string[] }[] {
-  return [
-    { label: "Common instruments", symbols: [...CORE_SYMBOLS] },
-    {
-      label: "All instruments",
-      symbols: Object.keys(FUTURES_SPECS).filter((s) => !CORE_SET.has(s)),
-    },
-  ];
-}
 
 /** "NQ (mini)" / "MNQ (micro)" — the size, since that is what moves the money. */
 export function contractLabel(symbol: string): string {
@@ -142,6 +131,19 @@ export function contractLabel(symbol: string): string {
 export function coreInstrumentOf(symbol: string): CoreInstrument | undefined {
   const root = rootSymbol(symbol);
   return CORE_INSTRUMENTS.find((i) => i.mini === root || i.micro === root);
+}
+
+/**
+ * The configured default symbol — but only when the journal supports it.
+ *
+ * Settings offers the twelve core contracts, so a saved value naming anything
+ * else is an old or hand-edited setting, not a choice. It is ignored, and the
+ * answer is `""`: the field starts empty and the trader picks. A contract whose
+ * root is core counts, dated or not — `NQU6` is an NQ.
+ */
+export function supportedDefaultSymbol(raw: string | undefined | null): string {
+  const symbol = (raw || "").trim().toUpperCase();
+  return coreInstrumentOf(symbol) ? symbol : "";
 }
 
 /** The contracts, by market — for a grouped picker or a symbol breakdown. */

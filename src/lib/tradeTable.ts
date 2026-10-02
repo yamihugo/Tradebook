@@ -213,6 +213,9 @@ export interface TradeColumnCtx {
   toggleFills: (t: Trade) => void;
   /** Every record behind this row, when the ledger is folding copies. */
   row?: TradeRow;
+  /** Rows showing their copy provenance (base + copies + ratios). */
+  copiesExpanded?: Set<string>;
+  toggleCopies?: (t: Trade) => void;
   /** True when the table is grouping by day. Columns that show the date can
    *  use this to suppress the date portion and show only the time. */
   groupByDay?: boolean;
@@ -275,7 +278,19 @@ export const TRADE_COLUMNS: TradeColumn[] = [
     align: "left",
     sortValue: (t) => t.symbol || "",
     firstDir: "asc",
-    render: (td, t) => td.createSpan({ cls: "tj-tbl-sym", text: t.symbol }),
+    render: (td, t, _plugin, ctx) => {
+      td.createSpan({ cls: "tj-tbl-sym", text: t.symbol });
+      // Symbol is the one thing the log is read by, so it carries the row and
+      // nothing else. Which accounts a decision reached is metadata: it lives in
+      // the optional Accounts column, off by default, and the Accounts column is
+      // where the drill-down to the copied legs lives too.
+      const row = ctx?.row;
+      if (!row || row.legs.length < 2 || !ctx?.copiesExpanded) return;
+      const expanded = ctx.copiesExpanded.has(t.id);
+      if (row.legs.every((leg) => leg.account === row.rep.account)) return;
+      td.addClass("is-folded");
+      td.setAttr("title", expanded ? "Copies expanded" : "Copied into several accounts — see the Accounts column");
+    },
   },
   {
     id: "side",
@@ -428,7 +443,8 @@ export const TRADE_COLUMNS: TradeColumn[] = [
   },
   {
     id: "net",
-    label: "Net",
+    // Name the scope in the label itself: the one place a reader looks first.
+    label: "Net (decision)",
     align: "right",
     sortValue: (t) => (Number.isFinite(t.pnl) ? netPnl(t) : null),
     firstDir: "desc",
@@ -439,6 +455,45 @@ export const TRADE_COLUMNS: TradeColumn[] = [
       td.addClass("tj-tbl-pnl");
       td.addClass(toneClass(money));
       td.setText(money === 0 ? fmtMoneyAbs(0) : fmtMoney(money));
+    },
+  },
+  {
+    id: "accounts",
+    label: "Accounts",
+    align: "left",
+    // Opt-in: absent from DEFAULT_TRADE_LOG_ORDER, so the ledger shows Symbol
+    // without an account column until the reader asks for one. Account identity
+    // is metadata, not the first question the log answers.
+    sortValue: (t, plugin) => plugin.displayAccount(t.account),
+    firstDir: "asc",
+    render: (td, t, plugin, ctx) => {
+      const row = ctx?.row;
+      const legs = row?.legs ?? [t];
+      const names = [...new Set(legs.map((leg) => plugin.displayAccount(leg.account)))];
+      if (names.length === 1) {
+        // One account: the name, in the quiet metadata tone. No chip, no count.
+        td.createSpan({ cls: "tj-tbl-acc", text: names[0] });
+        return;
+      }
+      // A decision that reached several accounts: the count is the information,
+      // and it stays a control because it opens the accounts behind it.
+      const open = !!ctx?.copiesExpanded?.has(t.id);
+      const chip = td.createEl("button", {
+        cls: "tj-tbl-copies" + (open ? " is-open" : ""),
+        attr: { type: "button", "aria-expanded": String(open) },
+      });
+      chip.createSpan({ text: names[0] });
+      chip.createSpan({ cls: "tj-tbl-copies-more", text: `+${names.length - 1}` });
+      attachTip(chip, {
+        title: `This decision in ${names.length} accounts`,
+        sub: `${names.join(" · ")}. Money is what it made in each account; the ledger counts the decision once.`,
+      });
+      if (ctx?.toggleCopies) {
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation();
+          ctx.toggleCopies?.(t);
+        });
+      }
     },
   },
   {
@@ -481,6 +536,54 @@ export const DEFAULT_TRADE_LOG_ORDER = [
 export const DEFAULT_ACCOUNT_ORDER = ["date", "symbol", "side", "qty", "entryexit", "hold", "r", "pnl", "setup"];
 
 /**
+ * Each column's preferred width, in pixels, for the whole life of the ledger.
+ *
+ * With `table-layout: fixed` these are also the weights: the table fills its
+ * container and shares any extra width in proportion, so a column's share
+ * depends only on which column it is — never on how many others are on screen.
+ * The sum is the Trade Log's minimum width: below it the table scrolls instead
+ * of shrinking a column past its preferred size.
+ */
+const COLUMN_WIDTHS: Record<string, number> = {
+  image: 56,
+  date: 104,
+  symbol: 92,
+  side: 58,
+  qty: 54,
+  points: 74,
+  entryexit: 168,
+  hold: 74,
+  r: 62,
+  pnl: 104,
+  net: 104,
+  accounts: 150,
+  setup: 150,
+  stars: 92,
+};
+
+/** The rail and selection columns are chrome, not data — fixed like the rest. */
+const RAIL_WIDTH = 26;
+const SELECT_WIDTH = 40;
+
+/**
+ * The stable width of each visible column, keyed by id. A test pins that this
+ * map does not change when an optional column is added or removed.
+ */
+export function tradeColumnWidths(order: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const id of order) if (COLUMN_WIDTHS[id] !== undefined) out[id] = COLUMN_WIDTHS[id];
+  return out;
+}
+
+/** The sum of preferred widths for an order — the Trade Log's overflow floor. */
+export function tradeTableMinWidth(order: string[], opts: { rail?: boolean; select?: boolean } = {}): number {
+  let sum = opts.select ? SELECT_WIDTH : 0;
+  if (opts.rail) sum += RAIL_WIDTH;
+  for (const id of order) sum += COLUMN_WIDTHS[id] ?? 0;
+  return sum;
+}
+
+/**
  * Keep a saved order usable: unknown ids dropped, missing ones appended in the
  * catalogue order. A journal that gained a column overnight must not lose the
  * arrangement the user set (no dead ends).
@@ -505,6 +608,11 @@ export interface TradeTableOpts {
   showDayHeaders?: boolean;
   /** When true, date column shows compact "DD Mon, HH:MM" format. */
   compactDate?: boolean;
+  /**
+   * Fixed column geometry (Trade Log). Off by default: the account widget lives
+   * in a small card where the browser's auto layout is the one that fits.
+   */
+  stableGeometry?: boolean;
   selectMode?: boolean;
   selected?: Set<string>;
   onToggleSelect?: (t: Trade, shift?: boolean) => void;
@@ -621,7 +729,9 @@ function dayLabel(key: string): string {
 }
 
 function dayNet(rows: TradeRow[]): number {
-  return rows.reduce((s, r) => s + r.money, 0);
+  // The day answers "what did I make today?" the same way Home does: Net of
+  // recorded costs, one entry per decision. The row's Gross column is untouched.
+  return rows.reduce((s, r) => s + netPnl(r.rep), 0);
 }
 
 /**
@@ -635,12 +745,19 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
   // Which trades are showing their executions. The ledger is redrawn on every
   // toggle — small tables, and it keeps one source of truth on screen.
   const expanded = new Set<string>();
+  const copiesExpanded = new Set<string>();
   const ctx: TradeColumnCtx = {
     plugin,
     expanded,
     toggleFills: (t) => {
       if (expanded.has(t.id)) expanded.delete(t.id);
       else expanded.add(t.id);
+      draw();
+    },
+    copiesExpanded,
+    toggleCopies: (t) => {
+      if (copiesExpanded.has(t.id)) copiesExpanded.delete(t.id);
+      else copiesExpanded.add(t.id);
       draw();
     },
     groupByDay: !!opts.groupByDay,
@@ -727,13 +844,64 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
     }
   };
 
+  /** The accounts behind a folded decision, opened under its own row. */
+  const drawCopyRow = (body: HTMLElement, tradeRow: TradeRow): void => {
+    const tr = body.createEl("tr", { cls: "tj-tbl-copiesrow" });
+    if (opts.selectMode) tr.createEl("td", { cls: "tj-tbl-selcol" });
+    if (opts.rail) tr.createEl("td", { cls: "tj-tbl-rail is-sub" });
+    const cell = tr.createEl("td", { attr: { colspan: String(Math.max(1, cols.length)) } });
+    const list = cell.createDiv({ cls: "tj-tbl-copylist" });
+    const line = (kind: string, name: string, ratio?: number) => {
+      const l = list.createDiv({ cls: "tj-tbl-copyline" });
+      l.createSpan({ cls: "tj-tbl-copykind", text: kind });
+      l.createSpan({ cls: "tj-tbl-copyname", text: name });
+      if (Number.isFinite(ratio)) {
+        const chip = l.createSpan({ cls: "tj-tbl-copyratio", text: `×${ratio}` });
+        attachTip(chip, { title: `Ratio \u00d7${ratio}`, sub: "Contracts copied per leader contract." });
+      }
+    };
+    line("Original", plugin.displayAccount(tradeRow.rep.account) || tradeRow.rep.account || "—");
+    for (const c of tradeRow.legs.filter((x) => x.isCopiedTrade)) {
+      // A reconstructed leg is a model of the leader's trade; the ledger says so
+      // rather than letting it pass as that account's own fill.
+      line(
+        c.dataSource === "reconstructed" ? "Copied (model)" : "Copied",
+        plugin.displayAccount(c.account) || c.account || "—",
+        c.copyMultiplier
+      );
+    }
+  };
+
   const draw = (): void => {
     // Clear only the table we own: the Trade Log draws its section header inside
     // the same card, and it must survive a redraw (fills open, filter change).
     for (const child of Array.from(host.children)) {
       if (child.tagName === "TABLE") child.remove();
     }
-    const table = host.createEl("table", { cls: "tj-tbl" + (opts.stickyHeader === false ? " is-static" : "") });
+    // Fixed geometry is opt-in: the Trade Log asks for it so optional columns
+    // never re-measure the others. A narrow account widget keeps the browser's
+    // auto layout instead, where a small card must still fit its columns.
+    const stable = !!opts.stableGeometry;
+    const table = host.createEl("table", {
+      cls: "tj-tbl" + (stable ? " is-fixed" : "") + (opts.stickyHeader === false ? " is-static" : ""),
+    });
+    const colIds = cols.map((c) => c.id);
+    if (stable) {
+      // The <colgroup> carries each column's preferred width. With
+      // `table-layout: fixed` and no auto column, those widths act as weights:
+      // the table always fills its container, and any slack is shared in
+      // proportion (Time and Entry→Exit grow more than Qty, never a blank
+      // filler on the right). `min-width` is the sum of the preferred widths, so
+      // a narrow pane keeps every column at its preferred size and scrolls
+      // sideways instead of crushing them. Adding a column shifts the existing
+      // ones by a small proportion — the same table, one more fact.
+      const widths = tradeColumnWidths(colIds);
+      table.style.minWidth = `${tradeTableMinWidth(colIds, { rail: opts.rail, select: opts.selectMode })}px`;
+      const colgroup = table.createEl("colgroup");
+      if (opts.selectMode) colgroup.createEl("col", { attr: { style: `width:${SELECT_WIDTH}px` } });
+      if (opts.rail) colgroup.createEl("col", { attr: { style: `width:${RAIL_WIDTH}px` } });
+      for (const id of colIds) colgroup.createEl("col", { attr: { style: `width:${widths[id] ?? 0}px` } });
+    }
     const head = table.createEl("thead").createEl("tr");
     if (opts.selectMode) head.createEl("th", { cls: "tj-tbl-selcol" });
     // The rail is a real column: a ::before on a <tr> becomes an extra anonymous
@@ -780,7 +948,13 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
       if (opts.onSort && col.sortValue) {
         th.addClass("tj-col-clickable");
         th.setAttribute("tabindex", "0");
-        attachTip(th, { title: `Sort by ${col.label || "print"}`, sub: "Click again to flip, once more to go back to the plain list." });
+        attachTip(th, {
+          title: `Sort by ${col.label || "print"}`,
+          sub:
+            col.id === "net"
+              ? "The original trade's Net result. Copies belong to their own accounts. Click again to flip, once more to go back to the plain list."
+              : "Click again to flip, once more to go back to the plain list.",
+        });
         th.addEventListener("click", () => cycleSort(col));
         // Same door, without a mouse (SC 2.1.1).
         th.addEventListener("keydown", (e) => {
@@ -852,9 +1026,16 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
           text: `${group.rows.length} trade${group.rows.length === 1 ? "" : "s"}`,
         });
         const net = dayNet(group.rows);
-        mid.createSpan({
+        const netSpan = mid.createSpan({
           cls: "tj-tbl-daynet " + (net > 0 ? "tj-pos" : net < 0 ? "tj-neg" : ""),
           text: fmtMoney(net),
+        });
+        // Say which basis the day figure is, so it reads as the same number
+        // Home's calendar shows and never as the row's Gross column.
+        netSpan.setAttr("aria-label", "Day Net P&L");
+        attachTip(netSpan, {
+          title: "Day Net P&L",
+          sub: "Net of recorded costs, one decision basis.",
         });
         bar.createSpan({ cls: "tj-tbl-dayrule" });
       }
@@ -865,16 +1046,39 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
         // The row says which trade it is, so a view can put the reader back where
         // they were after opening one, and so the harnesses can find it.
         if (t.id) row.dataset.trade = t.id;
-        row.addEventListener("click", () => opts.onRowClick(t));
+        // While selecting, the row is inert: opening a trade from a mis-aimed click
+        // would throw away the selection the reader spent the last minute building.
+        row.addEventListener("click", () => {
+          if (opts.selectMode) return;
+          opts.onRowClick(t);
+        });
 
         if (opts.selectMode) {
+          // The whole cell is the target, not just the 13px box. A selection that
+          // a few pixels wide makes people open the wrong trade, which is the one
+          // thing selection mode must never do.
           const cell = row.createEl("td", { cls: "tj-tbl-selcol" });
-          const check = cell.createEl("input", { cls: "tj-tbl-check", attr: { type: "checkbox" } });
-          check.checked = !!t.id && !!opts.selected?.has(t.id);
-          check.addEventListener("click", (e) => {
-            e.stopPropagation();
-            opts.onToggleSelect?.(t, (e as MouseEvent).shiftKey);
+          const hit = cell.createSpan({ cls: "tj-tbl-selhit" });
+          const check = hit.createEl("input", {
+            cls: "tj-tbl-check",
+            attr: { type: "checkbox", "aria-label": "Select this trade" },
           });
+          check.checked = !!t.id && !!opts.selected?.has(t.id);
+          const toggle = (e: Event): void => {
+            // Selection mode is for choosing, not for opening. A click anywhere in
+            // the cell — the box, the padding around it, the cell itself — selects
+            // and never bubbles to the row.
+            e.stopPropagation();
+            // The box must keep its own default action. Cancel it and the UA restores
+            // the pre-click checkedness *after* this handler runs, overwriting whatever
+            // we set — the box then read one click behind the selection.
+            if (e.target !== check) e.preventDefault();
+            opts.onToggleSelect?.(t, (e as MouseEvent).shiftKey);
+          };
+          check.addEventListener("click", toggle);
+          hit.addEventListener("click", toggle);
+          cell.addEventListener("click", toggle);
+          cell.addEventListener("mousedown", (e) => e.stopPropagation());
         }
 
         if (opts.rail) {
@@ -892,6 +1096,9 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
           const cell = row.createEl("td", { cls: col.align === "left" ? "l" : "" });
           col.render(cell, t, plugin, { ...ctx, row: tradeRow });
         }
+
+        // The copies behind this decision, when the chip is open.
+        if (copiesExpanded.has(t.id) && tradeRow.legs.length > 1) drawCopyRow(body, tradeRow);
 
         // The executions, when this trade has them open.
         const set = fillSet(t);

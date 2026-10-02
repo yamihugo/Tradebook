@@ -1,22 +1,28 @@
-import { ItemView, setIcon } from "obsidian";
+import { ItemView, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { AccountRules, AccountType, PropAccount, Trade } from "../types";
 import { openPayoutsModal } from "./payoutModal";
 import { openFeeAdjustModal } from "./feeAdjustModal";
+import { openAccountWizard } from "./accountWizard";
 import { uniqueAccountName } from "../props";
 import { resolveAccountView, drawdownLabel, isPropType } from "../lib/accountRules";
 import { freeNumeric } from "../lib/numeric";
 import { mountDropdown } from "../lib/dropdown";
 import { ACCOUNT_SIZES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { firmLabel } from "../lib/firmLogos";
-import { kpiCard, openPluginSettings as openSettings, renderAppShell } from "../ui";
+import { kpiCard, renderAppShell } from "../ui";
 import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey } from "../tz";
 import { tradeDayInZone } from "../lib/instant";
 import { renderLineChart } from "../lib/lineChart";
 import { formatDate, mountDateField } from "../lib/dates";
-import { computeAccountMetrics } from "../lib/accountMetrics";
+import { copierPresentation } from "../lib/copy";
+import { excludeSuperseded } from "../lib/copySupersession";
+import { reportedHistorySummary } from "../lib/reportedHistory";
+import { accountValueSeries, computeAccountMetrics, computeRecordedAccountMovement } from "../lib/accountMetrics";
+import { accountCashflows } from "../lib/accountCashflows";
 import { netPnl } from "../lib/fees";
 import { tradeCostCoverage } from "../lib/money";
+import { isTrackedTrade, trackingStartOf, historyAvailability, trackedReading, trackedNote, openingPeakOf, openingCapital, hasOpeningBalance, missingOpeningBalance, accountBoundary, OPENING_BALANCE_REQUIRED_NOTE, NO_TRACKED_DATA_NOTE } from "../lib/tracking";
 import { sessionLabel, sessionRank } from "../lib/sessions";
 import { renderTradeTable, resolveOrder, DEFAULT_ACCOUNT_ORDER } from "../lib/tradeTable";
 import type { TradeSort } from "../lib/tradeTable";
@@ -74,36 +80,22 @@ export class AccountDashboardView extends ItemView {
     return accounts.find((a) => a.id === this.plugin.getPrimaryAccount()?.id) ?? accounts[0];
   }
 
-  /** Dropdown to switch between configured accounts. */
-  accountPicker(parent: HTMLElement, acc: { id: string; name: string; size: number; type: string }): void {
-    const accounts = this.plugin.settings.propAccounts || [];
-    const sel = parent.createEl("select", { cls: "dropdown tj-account-picker" });
-    sel.setAttr("aria-label", "Switch account");
-    for (const a of accounts) {
-      const opt = sel.createEl("option", { value: a.id, text: `${a.name} · $${(a.size / 1000).toFixed(0)}K` });
-      if (a.id === acc.id) opt.setAttr("selected", "selected");
-    }
-    sel.value = acc.id;
-    sel.addEventListener("change", () => {
-      this.accountId = sel.value;
-      this.render();
-    });
-  }
-
   scoped(): Trade[] {
     const acc = this.account();
     if (!acc) return [];
-    return this.trades
-      .filter((t) => {
+    return excludeSuperseded(
+      this.trades.filter((t) => {
         if (!isFiniteNumber(t.pnl) || !t.date) return false;
         const mapped = this.plugin.mappedAccount(t.account);
         const matches = mapped ? mapped.id === acc.id : (t.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase();
         if (!matches) return false;
-        // Never count trades dated before the account was created.
-        if (acc.createdAt && t.date < acc.createdAt) return false;
+        // The tracked boundary wins when the trader declared one; an account
+        // without it keeps the old "started on" rule. One name for that rule.
+        const boundary = accountBoundary(acc);
+        if (boundary && !isTrackedTrade(t, boundary)) return false;
         return true;
       })
-      .sort((a, b) => {
+    ).sort((a, b) => {
         const ka = this.dayKey(a);
         const kb = this.dayKey(b);
         return ka.localeCompare(kb) || (a.id || "").localeCompare(b.id || "");
@@ -123,16 +115,6 @@ export class AccountDashboardView extends ItemView {
     this.render();
   }
 
-  /** Open the plugin's own Settings tab (not the general Obsidian settings). */
-  openPluginSettings(): void {
-    try {
-      openSettings(this.app, this.plugin, "accounts");
-      (this.app as any)?.setting?.open?.();
-    } catch (err) {
-      console.error("[tradebook] could not open settings:", err);
-    }
-  }
-
   /**
    * The account's copy link, on one line under the title: who it mirrors (or
    * who mirrors it) and at what ratio. The stretches it went through stay in
@@ -141,29 +123,26 @@ export class AccountDashboardView extends ItemView {
    */
   private renderCopyBar(host: HTMLElement, acc: PropAccount): void {
     const accounts = this.plugin.settings.propAccounts ?? [];
-    const byId = new Map(accounts.map((a) => [a.id, a]));
     const copiers = accounts.filter((a) => a.id !== acc.id && a.copyBaseId === acc.id);
     if (!acc.copyRole && !copiers.length) return;
-
-    const periods = [...(acc.copyPeriods ?? [])].sort((a, b) => String(a.start ?? "").localeCompare(String(b.start ?? "")));
-    const openPeriod = periods.find((p) => !p.end);
-    const leader = acc.copyBaseId ? byId.get(acc.copyBaseId) : undefined;
 
     const bar = host.createDiv({ cls: "tj-acc-copybar" });
     bar.createDiv({ cls: "tj-acc-k", text: "Trading group" });
     const chip = bar.createDiv({ cls: "tj-acc-copychip" });
     if (acc.copyRole === "copier") {
       chip.addClass("is-copier");
-      const mult = openPeriod?.multiplier ?? acc.copyMultiplier ?? 1;
-      const from = openPeriod?.start;
-      // Short on purpose: the chip reads like the tag on the account cards. The
-      // leader (and when it started) lives in the tooltip.
-      chip.createSpan({ cls: "tj-acc-copychip-t", text: `Copier ×${mult}` });
+      // One source for the ratio and the start, so this chip and the account
+      // card never disagree — see `copierPresentation`.
+      const cp = copierPresentation(acc, (id) => accounts.find((a) => a.id === id)?.name ?? id);
+      chip.createSpan({ cls: "tj-acc-copychip-t", text: `Copier ×${cp.ratio}` });
+      const since = cp.since
+        ? cp.sinceIsBeginning
+          ? "the beginning"
+          : formatDate(cp.since, this.plugin.settings.dateFormat)
+        : "";
       attachTip(chip, {
         title: "Copier",
-        sub: `Copies ${leader?.name ?? "an unknown account"}${
-          from ? ` · since ${from === "0000-01-01" ? "the beginning" : formatDate(from)}` : ""
-        }`,
+        sub: `Copies ${cp.baseName ?? "an unknown account"}${since ? ` · since ${since}` : ""}`,
       });
     } else {
       chip.addClass("is-leader");
@@ -218,6 +197,7 @@ export class AccountDashboardView extends ItemView {
     const panes = modal.createDiv({ cls: "tj-as-panes" });
     const tabDefs: Array<{ id: string; label: string; dng?: boolean }> = [
       { id: "general", label: "General" },
+      { id: "information", label: "Information" },
       { id: "rules", label: "Rules" },
       { id: "danger", label: "Deletion", dng: true },
     ];
@@ -251,8 +231,9 @@ export class AccountDashboardView extends ItemView {
       return row.createSpan({ cls: "tj-as-rowval" });
     };
 
-    // ======== GENERAL ========
+    // ======== GENERAL — identity and setup only ========
     const gen = paneEls.general;
+    const info = paneEls.information;
     const nameInput = mkRow(gen, "Account name").createEl("input", { type: "text", cls: "tj-as-nameinput" });
     nameInput.value = acc.name;
 
@@ -267,6 +248,188 @@ export class AccountDashboardView extends ItemView {
       zone: this.plugin.settings.timeZone,
       onChange: (iso) => (startedValue = iso),
     });
+
+    // "Start Tracking From Here". `createdAt` above is identity; this is the
+    // analytics boundary. Trades before it stay in the journal but are out of
+    // the tracked population. `size` stays the rule anchor; the opening balance
+    // is the value anchor.
+    // ---- Tracking: the minimum valid setup, then what is optional ----
+    //
+    // Two dates that are easy to confuse, so each says what it is in one line:
+    // "Account started" is when the account existed; "Tracking from" is when
+    // Tradebook began measuring it. Below them the account's value on that date,
+    // and then a collapsed group for the history you know but Tradebook does not.
+    // A visible (i) beside the label, not a tooltip hidden on the words: nobody
+    // hovers a label they do not yet know holds help.
+    const infoLabel = (row: HTMLElement, label: string, tip: string): HTMLElement => {
+      const l = row.createSpan({ cls: "tj-as-rowlabel" });
+      l.createSpan({ text: label });
+      const dot = l.createSpan({ cls: "tj-as-infoico", attr: { tabindex: "0" } });
+      const glyph = dot.createSpan({ attr: { "aria-hidden": "true" } });
+      setIcon(glyph, "info");
+      dot.createSpan({ cls: "tj-sr-only", text: `About ${label}` });
+      attachTip(dot, { title: label, sub: tip });
+      return row.createSpan({ cls: "tj-as-rowval" });
+    };
+
+    const trackSection = info.createDiv({ cls: "tj-as-section", text: "Tracking" });
+    trackSection.createDiv({
+      cls: "tj-as-hint",
+      text: "Set this once. Tradebook measures this account from the tracking date onwards; earlier trades stay in the journal as history.",
+    });
+
+    let trackingValue = acc.trackingStart ?? "";
+    const trackRow = trackSection.createDiv({ cls: "tj-as-row" });
+    const trackField = infoLabel(
+      trackRow,
+      "Tracking from",
+      "The date Tradebook starts calculating this account's performance. It doesn't have to be the date the account started."
+    );
+    mountDateField(trackField, {
+      value: trackingValue,
+      format: this.plugin.settings.dateFormat,
+      className: "tj-as-nameinput",
+      zone: this.plugin.settings.timeZone,
+      onChange: (iso) => {
+        trackingValue = iso;
+        syncTracking();
+      },
+    });
+
+    const openRow = trackSection.createDiv({ cls: "tj-as-row" });
+    const openField = infoLabel(
+      openRow,
+      "Opening balance",
+      "What was this account worth on the tracking date? Your firm's rules still come from the account size — this is the money it actually held."
+    );
+    const openingInput = openField.createEl("input", { type: "number", cls: "tj-as-nameinput" });
+    freeNumeric(openingInput);
+    openingInput.placeholder = "Value on that date";
+    // When the account's declared value IS its configured size (the trader chose
+    // the box last time, or typed it), the number is left in the field and the box
+    // reflects it — the two never disagree on screen.
+    const anchorIsSize = hasOpeningBalance(acc) && openingCapital(acc) === acc.size;
+    openingInput.value = hasOpeningBalance(acc) && !anchorIsSize ? String(acc.openingBalance as number) : "";
+
+    // A boundary without a declared value would quietly make the balance the
+    // configured size — the one number the trader checks against the platform.
+    // So the choice is explicit: their own number, or the account size on record.
+    const useSizeRow = trackSection.createDiv({ cls: "tj-as-row" });
+    const useSizeField = infoLabel(
+      useSizeRow,
+      "Use the account size",
+      "Use this only if the account was worth exactly its configured size when tracking started."
+    );
+    const useSizeInput = useSizeField.createEl("input", { type: "checkbox" });
+    useSizeInput.checked = anchorIsSize;
+    const useSizeNote = trackSection.createDiv({ cls: "tj-as-hint" });
+    useSizeNote.setText("Tick the box above when the account was worth its configured size on that date.");
+
+    // The pre-tracking high-water mark. Only asked for where the account's own
+    // loss-floor rule can actually need it, and never inferred.
+    let peakInput: HTMLInputElement | null = null;
+    let peakHint: HTMLElement | null = null;
+    const peakRow = trackSection.createDiv({ cls: "tj-as-row is-hidden" });
+    const peakField = infoLabel(
+      peakRow,
+      "Highest value before",
+      "If this account was already trading before tracking started, enter the highest balance it had reached. Some drawdown rules need this to calculate the correct floor. Tradebook won't guess it."
+    );
+    peakInput = peakField.createEl("input", { type: "number", cls: "tj-as-nameinput" });
+    freeNumeric(peakInput);
+    peakInput.placeholder = "Only if it was already running";
+    peakInput.value = typeof acc.openingPeak === "number" && Number.isFinite(acc.openingPeak) ? String(acc.openingPeak) : "";
+    peakHint = trackSection.createDiv({ cls: "tj-as-hint is-hidden" });
+    peakHint.setText("Leave this empty if the account started on the tracking date — the floor then comes from your opening balance.");
+
+    // ---- Reported history: optional, and behind a disclosure ----
+    //
+    // A trader with fifty accounts sets a date and moves on. A trader with two
+    // may want the history written down. Both are supported: the second one opens
+    // it, the first one never has to.
+    const histSection = info.createDiv({ cls: "tj-as-section", text: "Reported history" });
+    histSection.createDiv({
+      cls: "tj-as-hint",
+      text: "Optional context from before tracking started. It's shown as history and never mixed into Tradebook's calculated performance.",
+    });
+    // What is already on file reads back here as plain context — reported
+    // history is not a form you fill once and never see again. Display only:
+    // it is never counted in any figure below. Absent values are omitted.
+    const reported = reportedHistorySummary(acc.historicalContext);
+    if (reported.hasAny) {
+      const summary = info.createDiv();
+      if (reported.segments.length) {
+        const row = summary.createDiv({ cls: "tj-as-row" });
+        row.createSpan({ cls: "tj-as-rowlabel", text: "Reported before tracking" });
+        row.createSpan({ cls: "tj-as-rowval", text: reported.segments.join(" \u00b7 ") });
+      }
+      if (reported.note) {
+        const row = summary.createDiv({ cls: "tj-as-row" });
+        row.createSpan({ cls: "tj-as-rowlabel", text: "Reported note" });
+        row.createSpan({ cls: "tj-as-rowval", text: reported.note });
+      }
+      summary.createDiv({
+        cls: "tj-as-hint",
+        text: "Self-reported \u00b7 context only, never counted in any Tradebook figure.",
+      });
+    }
+    const prevCountInput = info.createEl("input", { type: "number", cls: "tj-as-nameinput" });
+    const prevWinRateInput = info.createEl("input", { type: "number", cls: "tj-as-nameinput" });
+    const noteInput = info.createEl("input", { type: "text", cls: "tj-as-nameinput" });
+    prevCountInput.value = Number.isFinite(acc.historicalContext?.previousTradeCount)
+      ? String(acc.historicalContext?.previousTradeCount)
+      : "";
+    prevWinRateInput.value = Number.isFinite(acc.historicalContext?.previousWinRate)
+      ? String(acc.historicalContext?.previousWinRate)
+      : "";
+    noteInput.value = acc.historicalContext?.note ?? "";
+    const ctxBox = info.createDiv({ cls: "tj-as-disclosure" });
+    const ctxToggle = ctxBox.createEl("button", {
+      cls: "tj-as-disclosure-btn",
+      text: "Add what happened before tracking",
+      attr: { type: "button", "aria-expanded": "false" },
+    });
+    const ctxPanel = ctxBox.createDiv({ cls: "tj-as-disclosure-panel is-hidden" });
+    const ctxHint = ctxPanel.createDiv({
+      cls: "tj-as-hint",
+      text: "Anything you remember from before Tradebook started watching. It is shown on the account page and never used in a calculation.",
+    });
+    const ctxRow = (label: string, control: HTMLElement, tip: string) => {
+      const r = ctxPanel.createDiv({ cls: "tj-as-row" });
+      const l = r.createSpan({ cls: "tj-as-rowlabel", text: label });
+      r.createSpan({ cls: "tj-as-rowval" }).appendChild(control);
+      attachTip(l, { title: label, sub: tip });
+    };
+    ctxRow("Trades before", prevCountInput, "How many trades you had already taken. Context only.");
+    ctxRow("Win rate before %", prevWinRateInput, "As you remember it. Tradebook does not recompute or use it.");
+    ctxRow("Note", noteInput, "Anything else worth remembering — the account's history, in your words.");
+    const hasReportedNow =
+      Number.isFinite(acc.historicalContext?.previousTradeCount) || Number.isFinite(acc.historicalContext?.previousWinRate) || !!acc.historicalContext?.note;
+    ctxToggle.addEventListener("click", () => {
+      const open = ctxPanel.hasClass("is-hidden");
+      ctxPanel.toggleClass("is-hidden", !open);
+      ctxToggle.setAttr("aria-expanded", String(open));
+      ctxToggle.toggleClass("is-open", open);
+    });
+    if (hasReportedNow) {
+      ctxPanel.removeClass("is-hidden");
+      ctxToggle.addClass("is-open");
+      ctxToggle.setAttr("aria-expanded", "true");
+    }
+
+    /**
+     * Show the trailing-floor field only where the account's own rule can need
+     * it: a trailing or open-trailing floor, and only once there is a tracking
+     * date. A static floor needs no history at all.
+     */
+    const syncTracking = (): void => {
+      const rules = resolveAccountView(acc).rules;
+      const trailing = !!rules.maxLoss && !!rules.maxLossType && rules.maxLossType !== "static" && rules.maxLossType !== "intraday-trailing";
+      const showPeak = !!trackingValue && (trailing || acc.openingPeak !== undefined);
+      peakRow.toggleClass("is-hidden", !showPeak);
+      peakHint?.toggleClass("is-hidden", !showPeak);
+    };
+    syncTracking();
 
     // ---- Account size: the same five sizes the wizard offers, plus Custom… ----
     let selectedSize = acc.size;
@@ -299,7 +462,10 @@ export class AccountDashboardView extends ItemView {
         customWrap.addClass("is-hidden");
         syncAutoName();
       },
-      { title: "The account's starting size." }
+      {
+        title: "Account size",
+        sub: "The size your firm's rules are written against. It is not the money in the account: the recorded value is what this account actually held, and it sits above or below this number.",
+      }
     );
     customWrap = sizeRow.createDiv({ cls: "tj-wz-affix" + (sizeCustom ? "" : " is-hidden") });
     customWrap.createSpan({ cls: "tj-wz-affix-pre", text: "$" });
@@ -509,6 +675,13 @@ export class AccountDashboardView extends ItemView {
       });
     };
     renderRules();
+    // A change of loss-floor type can make the pre-tracking peak relevant (or not),
+    // so the field is re-read whenever the rules pane redraws itself.
+    const rulesRefresh = renderRules;
+    renderRules = () => {
+      rulesRefresh();
+      syncTracking();
+    };
 
     // ======== DANGER ZONE ========
     const dng = paneEls.danger;
@@ -554,6 +727,22 @@ export class AccountDashboardView extends ItemView {
     const foot = modal.createDiv({ cls: "tj-as-foot" });
     foot.createEl("button", { text: "Cancel", cls: "tj-as-btn", attr: { type: "button" } }).addEventListener("click", () => overlay.remove());
     foot.createEl("button", { text: "Save changes", cls: "tj-as-btn tj-as-btn-cta", attr: { type: "button" } }).addEventListener("click", async () => {
+      const nextSize = selectedSize || acc.size;
+      // The value anchor is required before a boundary goes on file: a tracking
+      // start with no declared value would silently balance from the configured
+      // size. The trader either typed their own number or ticked the box.
+      const typedOpening = parseFloat(openingInput.value);
+      const openingBalance = Number.isFinite(typedOpening) && typedOpening > 0 ? typedOpening : null;
+      const openingPeak = parseFloat(peakInput?.value ?? "");
+      if (missingOpeningBalance({ trackingStart: trackingValue, openingBalance: openingBalance ?? undefined }) && !useSizeInput.checked) {
+        useSizeNote.setText(OPENING_BALANCE_REQUIRED_NOTE);
+        useSizeNote.addClass("tj-as-hint-warn");
+        new Notice("Opening balance needed before tracking can start.");
+        (useSizeInput.checked ? openingInput : useSizeInput).focus();
+        return;
+      }
+      useSizeNote.setText("");
+      useSizeNote.removeClass("tj-as-hint-warn");
       // Keep names unique so two accounts never share trades/data.
       const taken = (this.plugin.settings.propAccounts || []).filter((a: any) => a.id !== acc.id).map((a: any) => a.name);
       const desired = uniqueAccountName(nameInput.value.trim() || acc.name, taken);
@@ -563,7 +752,39 @@ export class AccountDashboardView extends ItemView {
       }
       if (startedValue) acc.createdAt = startedValue;
       else delete acc.createdAt;
-      acc.size = selectedSize || acc.size;
+      acc.size = nextSize;
+
+      // Tracking boundary + the account's own opening state + reported context.
+      // The opening value and the pre-tracking peak belong to a boundary: with
+      // none, they would measure the balance from a moment that no longer exists
+      // and double-count the history it was meant to replace. So clearing the
+      // boundary clears them, out loud — never a silent conversion.
+      const hadOpeningState = hasOpeningBalance(acc) || openingPeakOf(acc) !== null;
+      if (trackingValue) acc.trackingStart = trackingValue;
+      else delete acc.trackingStart;
+      if (openingBalance !== null) acc.openingBalance = openingBalance;
+      else if (useSizeInput.checked && trackingValue) acc.openingBalance = nextSize;
+      else delete acc.openingBalance;
+      // The pre-tracking high-water mark, declared for a trailing floor. Recorded
+      // as a number or not at all — never inferred from the opening balance.
+      if (Number.isFinite(openingPeak) && openingPeak > 0) acc.openingPeak = openingPeak;
+      else delete acc.openingPeak;
+      if (!trackingValue && hadOpeningState) {
+        new Notice("Tracking start cleared — the opening balance and pre-tracking peak were cleared with it.");
+      }
+      // Context is display-only: it never becomes trades or calculated metrics.
+      const prevCount = parseInt(prevCountInput.value, 10);
+      const prevWinRate = parseFloat(prevWinRateInput.value);
+      const note = noteInput.value.trim();
+      const ctx = { ...(acc.historicalContext ?? {}) };
+      if (Number.isFinite(prevCount)) ctx.previousTradeCount = prevCount;
+      else delete ctx.previousTradeCount;
+      if (Number.isFinite(prevWinRate)) ctx.previousWinRate = prevWinRate;
+      else delete ctx.previousWinRate;
+      if (note) ctx.note = note;
+      else delete ctx.note;
+      if (Object.keys(ctx).length) acc.historicalContext = ctx;
+      else delete acc.historicalContext;
       acc.type = selectedType;
       // A funded account must not keep the evaluation's rules: when the type
       // changes, snap the program to one of the right phase (Select eval →
@@ -612,15 +833,21 @@ export class AccountDashboardView extends ItemView {
 
     const acc = this.account();
     if (!acc) {
+      // Point at the flow that actually creates an account — the Accounts page
+      // wizard — not Settings, and let a missing/archived account be found where
+      // it can be restored.
       const empty = main.createDiv({ cls: "tj-empty" });
-      empty.createDiv({
-        text: this.accountId
-          ? "This account no longer exists (it may have been deleted or archived)."
-          : "No accounts configured yet — add your first account in Settings to see its dashboard here.",
-      });
-      empty.createEl("button", { text: "Open Settings", cls: "mod-cta tj-btn", attr: { type: "button" } }).addEventListener("click", () => {
-        this.openPluginSettings();
-      });
+      if (this.accountId) {
+        empty.createDiv({ text: "This account no longer exists — it may have been deleted or archived." });
+        empty
+          .createEl("button", { text: "Open Accounts", cls: "mod-cta tj-btn", attr: { type: "button" } })
+          .addEventListener("click", () => this.plugin.openAccounts());
+      } else {
+        empty.createDiv({ text: "No accounts yet — create your first account to see its dashboard here." });
+        empty
+          .createEl("button", { text: "Create an account", cls: "mod-cta tj-btn", attr: { type: "button" } })
+          .addEventListener("click", () => openAccountWizard(this.plugin, { onDone: () => void this.plugin.openAccounts() }));
+      }
       return;
     }
     const view = resolveAccountView(acc);
@@ -688,6 +915,21 @@ export class AccountDashboardView extends ItemView {
     this.renderCopyBar(main, acc);
 
     const scoped = this.scoped();
+    const trackedAvailability = historyAvailability(acc, scoped.length);
+    // No tracked trades means there is no performance to report: every
+    // performance figure on this page reads "—" and says why, instead of a zero
+    // that would read as bad trading. A tracked trade that closed flat is a real
+    // zero and still shows, because then the data exists.
+    const tracked = trackedAvailability === "tracked";
+    const na = (value: string): string => trackedReading(acc, scoped.length, value);
+    const naInfo = (info: string): string => trackedNote(acc, scoped.length, info);
+
+    // The tracking boundary and any reported history are metadata about the
+    // numbers, not the numbers themselves, so the page does not carry a
+    // permanent banner about them. They are set and read in
+    // Account settings → Information, which is the one place the trader audits
+    // why their metrics begin where they do. The data is untouched here.
+
     const missingCostLegs = scoped.filter((trade) => {
       const coverage = tradeCostCoverage(trade);
       return !coverage.commission || !coverage.fees;
@@ -725,24 +967,39 @@ export class AccountDashboardView extends ItemView {
       adjustByDay.set(a.date, (adjustByDay.get(a.date) ?? 0) + a.amount);
       flowByDay.set(a.date, (flowByDay.get(a.date) ?? 0) + a.amount);
     }
-    const days = [...new Set([...byDay.keys(), ...flowByDay.keys()])].sort();
-    const series: { date: string; net: number; cum: number }[] = [];
-    let runningTrades = 0;
-    let runningBalance = 0;
-    for (const d of days) {
-      const dayNet = byDay.get(d)?.net ?? 0;
-      const flow = flowByDay.get(d) ?? 0;
-      runningTrades += dayNet;
-      runningBalance += dayNet + flow;
-      series.push({ date: d, net: dayNet, cum: runningBalance });
-    }
+    // One canonical balance: the shared movement engine (opening value + Net +
+    // signed cashflows) is the only place the formula lives. The chart reuses
+    // its dated series — the daily trading Net is read back from `byDay`, exactly
+    // as the curve used to build it by hand.
+    //
+    // `capital` is the account's VALUE anchor: the declared balance at the
+    // tracking boundary, or the configured size when there is none. `acc.size`
+    // stays the RULE anchor and is only ever used for rule lines (target, floor
+    // lock). The two must never be quietly swapped.
+    const capital = this.plugin.openingCapitalOf(acc.id);
+    const movement = computeRecordedAccountMovement({
+      trades: scoped,
+      size: capital,
+      dayKey: (t) => this.dayKey(t),
+      trackingStart: trackingStartOf(acc),
+      cashflows: accountCashflows(
+        this.plugin.payoutsFor(acc.id),
+        this.plugin.depositsFor(acc.id),
+        this.plugin.feeAdjustmentsFor(acc.id)
+      ),
+    });
+    const series = movement.days.map((d) => ({ date: d.date, net: byDay.get(d.date)?.net ?? 0, cum: d.cumulative }));
+    // The curve's own points, built by the shared helper: the opening value
+    // first, then each recorded day's close — so the last point is exactly the
+    // balance printed above it.
+    const valueCurve = accountValueSeries(movement.days, capital);
     // Trading performance (target, consistency, win rate) ignores cash flows;
     // the balance does not.
-    const net = runningTrades;
-    const balance = acc.size + runningBalance;
+    const net = [...byDay.values()].reduce((s, b) => s + b.net, 0);
+    const balance = movement.balance;
     // The header's correction square reads this when it is pressed.
     balanceNow = balance;
-    const peak = Math.max(0, ...series.map((s) => s.cum)) || 0;
+    const peak = movement.peakChange;
     const todayNet = byDay.get(this.todayKey())?.net ?? 0;
     const targetApplies = acc.type === "eval";
     const targetReached = targetApplies && size.target > 0 ? net >= size.target : false;
@@ -760,6 +1017,13 @@ export class AccountDashboardView extends ItemView {
       const bannerText = bannerBody.createDiv({ cls: "tj-acc-passed-text" });
       bannerText.createEl("h4", { text: "You passed the evaluation" });
       bannerText.createDiv({ cls: "tj-acc-passed-detail", text: `${fmtMoney(net)} net P\u0026L \u00b7 target of $${size.target.toLocaleString()} reached` });
+      // The funded account is a new account with a new value, and Tradebook
+      // never carries money state across on its own. One line, here, where the
+      // promotion happens — not a new step, and not silence.
+      bannerText.createDiv({
+        cls: "tj-acc-passed-detail",
+        text: "The funded account starts fresh: you set its tracking date and opening balance yourself, so its numbers are yours from day one.",
+      });
       const doUpgrade = async (action: "keep" | "archive" | "delete") => {
         const newId = await this.plugin.upgradeAccountToFunded(acc.id, action);
         if (newId) await this.plugin.openAccountDashboard(this.leaf, newId);
@@ -811,6 +1075,15 @@ export class AccountDashboardView extends ItemView {
             ? `This eval is done. ${candidate.name} looks like the account it produced — you can link the two.`
             : "This eval is done. No funded account is linked to it.",
       });
+      // A funded account is its own lifecycle with its own value: the tracking
+      // date and the opening balance are set there, never carried over from the
+      // eval. Said once, here, where the promotion is offered.
+      if (!linked) {
+        bandText.createDiv({
+          cls: "tj-acc-passed-detail",
+          text: "The funded account starts with its own tracking date and opening balance — you set both there, so none of this eval's money carries over.",
+        });
+      }
       const bandBtns = band.createDiv({ cls: "tj-acc-passed-btns" });
       if (linked) {
         // Named, and it only opens: no button here can create a second funded.
@@ -859,6 +1132,9 @@ export class AccountDashboardView extends ItemView {
     const M = computeAccountMetrics({
       trades: scoped,
       size: acc.size,
+      capital,
+      trackingStart: trackingStartOf(acc),
+      openingPeak: openingPeakOf(acc) ?? undefined,
       target: size.target,
       maxLoss: size.maxLoss,
       ddLockOffset: size.ddLockOffset,
@@ -873,11 +1149,11 @@ export class AccountDashboardView extends ItemView {
       dayKey: (t) => this.dayKey(t),
       todayKey: this.todayKey(),
       withdrawn: this.plugin.accountPayoutsTotal(acc.id),
-      cashflows: [
-        ...this.plugin.payoutsFor(acc.id).map((p) => ({ date: p.date, amount: -Math.abs(p.amount) })),
-        ...this.plugin.depositsFor(acc.id).map((d) => ({ date: d.date, amount: Math.abs(d.amount) })),
-        ...this.plugin.feeAdjustmentsFor(acc.id).map((a) => ({ date: a.date, amount: a.amount })),
-      ],
+      cashflows: accountCashflows(
+        this.plugin.payoutsFor(acc.id),
+        this.plugin.depositsFor(acc.id),
+        this.plugin.feeAdjustmentsFor(acc.id)
+      ),
     });
 
     // ---------- Discipline (shown on the back of the hero card) ----------
@@ -891,19 +1167,24 @@ export class AccountDashboardView extends ItemView {
         const r = document.createElementNS(NS, "circle");
         r.setAttribute("cx", "36"); r.setAttribute("cy", "36"); r.setAttribute("r", "30");
         r.setAttribute("fill", "none"); r.setAttribute("stroke", "rgba(255,255,255,.07)"); r.setAttribute("stroke-width", "7");
-        const a = document.createElementNS(NS, "circle");
-        a.setAttribute("cx", "36"); a.setAttribute("cy", "36"); a.setAttribute("r", "30");
-        a.setAttribute("fill", "none");
-        const good = invert ? pct <= 10 : pct >= 80;
-        const mid = invert ? pct <= 30 : pct >= 40;
-        a.setAttribute("stroke", good ? "var(--tj-tone-good)" : mid ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)");
-        a.setAttribute("stroke-width", "7"); a.setAttribute("stroke-linecap", "round");
-        a.setAttribute("pathLength", "100");
-        a.setAttribute("stroke-dasharray", `${Math.max(1, Math.min(100, pct))} 100`);
-        a.setAttribute("transform", "rotate(-90 36 36)");
-        svg.appendChild(r); svg.appendChild(a);
+        svg.appendChild(r);
+        // Nothing tracked means nothing to grade: the ring keeps its place in the
+        // card and stays empty, rather than painting a full or empty arc at zero.
+        if (tracked) {
+          const a = document.createElementNS(NS, "circle");
+          a.setAttribute("cx", "36"); a.setAttribute("cy", "36"); a.setAttribute("r", "30");
+          a.setAttribute("fill", "none");
+          const good = invert ? pct <= 10 : pct >= 80;
+          const mid = invert ? pct <= 30 : pct >= 40;
+          a.setAttribute("stroke", good ? "var(--tj-tone-good)" : mid ? "var(--tj-tone-mid)" : "var(--tj-tone-bad)");
+          a.setAttribute("stroke-width", "7"); a.setAttribute("stroke-linecap", "round");
+          a.setAttribute("pathLength", "100");
+          a.setAttribute("stroke-dasharray", `${Math.max(1, Math.min(100, pct))} 100`);
+          a.setAttribute("transform", "rotate(-90 36 36)");
+          svg.appendChild(a);
+        }
         box.appendChild(svg as unknown as Node);
-        box.createDiv({ cls: "tj-acc-disc-num", text: `${pct.toFixed(0)}%` });
+        box.createDiv({ cls: "tj-acc-disc-num" + (tracked ? "" : " is-na"), text: na(`${pct.toFixed(0)}%`) });
         box.createDiv({ cls: "tj-acc-disc-lbl", text: label });
       };
       gauge("Clean trades", Math.max(0, 100 - M.mistakeRate), false);
@@ -922,12 +1203,17 @@ export class AccountDashboardView extends ItemView {
       const scoreRow = top.createDiv({ cls: "tj-acc-dscore" });
       const scoreLeft = scoreRow.createDiv();
       scoreLeft.createDiv({ cls: "tj-acc-k", text: "Discipline score" });
-      const scoreTrack = scoreRow.createDiv({ cls: "tj-acc-risktrack" });
-      const scoreFill = scoreTrack.createDiv({ cls: "tj-acc-dscore-fill" });
-      scoreFill.style.width = `${Math.max(2, Math.min(100, score))}%`;
-      scoreFill.style.background = band;
-      scoreRow.createDiv({ cls: "tj-acc-dscore-num", text: String(score) });
-      attachTip(scoreTrack, { title: "Discipline score", sub: "Model of recorded process fields; informational, not a trading verdict." });
+      const scoreTrack = scoreRow.createDiv({ cls: "tj-acc-risktrack" + (tracked ? "" : " is-unavailable") });
+      if (tracked) {
+        const scoreFill = scoreTrack.createDiv({ cls: "tj-acc-dscore-fill" });
+        scoreFill.style.width = `${Math.max(2, Math.min(100, score))}%`;
+        scoreFill.style.background = band;
+      }
+      scoreRow.createDiv({ cls: "tj-acc-dscore-num" + (tracked ? "" : " is-na"), text: na(String(score)) });
+      attachTip(scoreTrack, {
+        title: "Discipline score",
+        sub: naInfo("Model of recorded process fields; informational, not a trading verdict."),
+      });
       const cols = host.createDiv({ cls: "tj-acc-mcols" });
       const habits = cols.createDiv({ cls: "tj-acc-mcol" });
       const behaviour = cols.createDiv({ cls: "tj-acc-mcol" });
@@ -937,8 +1223,8 @@ export class AccountDashboardView extends ItemView {
         k.createSpan({ text: label });
         const dot = k.createSpan({ cls: "tj-info-dot tj-tip-anchor" });
         setIcon(dot, "info");
-        row.createEl("b", { cls: `tj-acc-mvalue ${tone}`.trim(), text: value });
-        dot.addEventListener("mouseenter", () => showTip({ title: label, sub: info }, "tj-acc-facttip"));
+        row.createEl("b", { cls: `tj-acc-mvalue ${tracked ? tone : "is-na"}`.trim(), text: na(value) });
+        dot.addEventListener("mouseenter", () => showTip({ title: label, sub: naInfo(info) }, "tj-acc-facttip"));
         dot.addEventListener("mousemove", (e) => moveTip(e));
         dot.addEventListener("mouseleave", () => killTip());
       };
@@ -982,11 +1268,15 @@ export class AccountDashboardView extends ItemView {
       arc.setAttribute("pathLength", "100");
       arc.setAttribute("stroke-dasharray", `${Math.max(0, Math.min(100, pct))} 100`);
       arc.setAttribute("transform", "rotate(-90 52 52)");
-      svg.appendChild(ring); svg.appendChild(arc);
+      svg.appendChild(ring);
+      // No tracked trades: the dial keeps its place and reads "—". An arc at 0%
+      // would be a performance verdict nobody has earned yet.
+      if (tracked) svg.appendChild(arc);
       box.appendChild(svg as unknown as Node);
-      box.createDiv({ cls: "tj-acc-dial-num", text: `${pct.toFixed(0)}%` });
+      box.createDiv({ cls: "tj-acc-dial-num" + (tracked ? "" : " is-na"), text: na(`${pct.toFixed(0)}%`) });
       box.createDiv({ cls: "tj-acc-dial-lbl", text: label });
       box.createDiv({ cls: "tj-acc-dial-sub", text: sub });
+      if (!tracked) attachTip(box, { title: label, sub: NO_TRACKED_DATA_NOTE });
     };
     const hero = main.createDiv({ cls: "tj-acc-hero" });
     const heroLeft = hero.createDiv({ cls: "tj-acc-heroleft" });
@@ -997,10 +1287,10 @@ export class AccountDashboardView extends ItemView {
     const eqTitle = eqTitleRow.createDiv({ cls: "tj-acc-k", text: "Account Balance" });
     attachTip(eqTitle, {
       title: "Recorded account balance",
-      sub: `Configured size plus recorded trading and cash movements — not live broker equity.${netCoverageNote}`,
+      sub: `This account's value when tracking started (${fmtMoney(capital)}), plus every recorded trading result, payout, deposit and correction since — not live broker equity.${netCoverageNote}`,
     });
     // Streak dots (last 20 trading days) — top right, same line as title
-    if (days.length > 0) {
+    if (byDay.size > 0) {
       const eqRight = eqTitleRow.createDiv({ cls: "tj-acc-eqright" });
       const streakRow = eqRight.createDiv({ cls: "tj-acc-streakrow" });
       const last20 = [...byDay.keys()].sort().slice(-20);
@@ -1022,10 +1312,14 @@ export class AccountDashboardView extends ItemView {
     });
     const eqChart = eqCard.createDiv({ cls: "tj-acc-eqchart" });
     if (series.length) {
-      const balances = [acc.size, ...series.map((s2) => acc.size + s2.cum)];
+      const balances = valueCurve;
       const ddLevels: number[] = [];
       if (size.maxLoss) {
-        let runPeak = acc.size;
+        // Rule lines stay on `acc.size`: the floor lock point is defined by the
+        // account's rules, not by where the account happens to be worth now.
+        // Drawn against the value curve, the gap between the two lines is the
+        // room to the floor, which is what the reader is being told.
+        let runPeak = capital;
         for (const bal of balances) {
           runPeak = Math.max(runPeak, bal);
           // Trails the running peak, then locks at the firm's point (Tradeify
@@ -1043,9 +1337,9 @@ export class AccountDashboardView extends ItemView {
       renderLineChart(eqChart, {
         values: balances,
         dates: [series[0]?.date ?? "", ...series.map((s2) => s2.date)],
-        baseline: acc.size,
-        baseLine: acc.size,
-        fadeFloor: acc.size,
+        baseline: capital,
+        baseLine: capital,
+        fadeFloor: capital,
         targetLine: targetApplies && size.target ? acc.size + size.target : undefined,
         ddLine: ddLevels.length === balances.length ? ddLevels : undefined,
         dayDeltas: [0, ...series.map((s2) => s2.net)],
@@ -1077,7 +1371,7 @@ export class AccountDashboardView extends ItemView {
         animations: this.plugin.settings.animations !== false,
       });
     } else {
-      eqChart.createDiv({ cls: "tj-empty", text: "No trades yet." });
+      eqChart.createDiv({ cls: "tj-empty", text: "No trades yet — import your history or add a trade to see the curve." });
     }
 
     const heroBreak = heroLeft.createDiv({ cls: "tj-acc-herobreak" });
@@ -1115,6 +1409,14 @@ export class AccountDashboardView extends ItemView {
       if (targetRange) riskStat("Profit target", `+${fmtMoney(size.target)}`, "tj-pos");
 
       const ddKnown = M.drawdownFloor !== null && M.drawdownUsed !== null && M.drawdownRoom !== null;
+      // Why it is unknown, when it is: a trailing floor needs the account's
+      // pre-tracking peak, which only the trader can supply.
+      const trackStart = trackingStartOf(acc);
+      const missingPeak =
+        !!size.maxLossType &&
+        size.maxLossType !== "static" &&
+        size.maxLossType !== "intraday-trailing" &&
+        !ddKnown;
       const ddPct = ddKnown ? Math.max(0, (M.drawdownUsed! / size.maxLoss) * 100) : 0;
       const roomPct = ddKnown ? Math.max(0, (M.drawdownRoom! / size.maxLoss) * 100) : 0;
       const ddStatus = !ddKnown ? "unknown" : M.drawdownRoom! <= 0 ? "breached" : ddPct >= 75 ? "critical" : ddPct >= 50 ? "warning" : "safe";
@@ -1128,10 +1430,12 @@ export class AccountDashboardView extends ItemView {
       attachTip(ddTip, {
         title: ddKnown ? ddl.label : "Drawdown model unavailable",
         sub: ddKnown
-          ? `${ddl.lock} Floor movement follows this account's configured rule.`
+          ? `${ddl.lock} Floor movement follows this account's configured rule, drawn from its size of ${fmtMoney(acc.size)}; its recorded value is ${fmtMoney(M.balance)}. Neither is live broker equity.`
           : size.maxLossType === "intraday-trailing"
             ? "Intraday trailing needs intraday equity history, which this journal does not record."
-            : "Set a drawdown type in account Rules to calculate the floor, used amount and room accurately.",
+            : missingPeak
+              ? `A trailing floor follows the account's highest balance, and this account started being tracked on ${formatDate(trackStart || "", this.plugin.settings.dateFormat)} — the peak before that date is not in the journal. Add "Highest value before tracking" in account Settings, and the floor, used amount and room are calculated from it.`
+              : "Set a drawdown type in account Rules to calculate the floor, used amount and room accurately.",
       });
       const track = barCol.createDiv({ cls: `tj-acc-risktrack${ddKnown ? "" : " is-unavailable"}${ddKnown && M.drawdownRoom! <= 0 ? " is-reached" : ""}` });
       if (riskApplies && ddKnown) {
@@ -1141,10 +1445,15 @@ export class AccountDashboardView extends ItemView {
         });
       }
       if (ddKnown && acc.type === "eval") {
+        // Two anchors, both named: the ends of the scale are the account's RULES
+        // (floor and target, defined from the configured size), while the zero
+        // the marker moves from is the account's VALUE at the tracking boundary.
+        // Anchoring the zero on the value is what stops a tracked-in-halfway
+        // account from looking like it started full.
         const floor = acc.size - size.maxLoss;
         const ceiling = acc.size + size.target;
         const span = Math.max(1, ceiling - floor);
-        const zeroPct = ((acc.size - floor) / span) * 100;
+        const zeroPct = ((capital - floor) / span) * 100;
         const balancePct = Math.max(0, Math.min(100, ((M.balance - floor) / span) * 100));
         track.addClass("is-evaluation");
         const evalTrack = track;
@@ -1160,7 +1469,7 @@ export class AccountDashboardView extends ItemView {
         progress.style.left = `${balancePct}%`;
         attachTip(progress, {
           title: `Recorded balance ${fmtMoney(M.balance)}`,
-          sub: `Starting balance ${fmtMoney(acc.size)} · floor ${fmtMoney(M.drawdownFloor!)} · target ${fmtMoney(ceiling)}.`,
+          sub: `Zero is this account's value at the tracking start (${fmtMoney(capital)}). Scale: rule floor ${fmtMoney(floor)} → rule target ${fmtMoney(ceiling)}, from the configured size ${fmtMoney(acc.size)}. Tracked Net toward the target is in Limits.`,
         });
       } else if (ddKnown) {
         const visualPct = riskApplies ? roomPct : ddPct;
@@ -1171,8 +1480,14 @@ export class AccountDashboardView extends ItemView {
         track.createSpan({ cls: "tj-acc-risk-empty", text: "Drawdown calculation unavailable" });
       }
       const riskAxis = barCol.createDiv({ cls: "tj-acc-riskaxis" });
-      riskAxis.createSpan({ text: `${fmtMoney(M.drawdownRoom ?? 0)} room to floor` });
-      riskAxis.createSpan({ text: `Floor ${fmtMoney(M.drawdownFloor ?? 0)}` });
+      // An unknown floor is not a $0 floor. The axis says so instead of printing
+      // a number nobody can act on.
+      if (ddKnown) {
+        riskAxis.createSpan({ text: `${fmtMoney(M.drawdownRoom!)} room to floor` });
+        riskAxis.createSpan({ text: `Floor ${fmtMoney(M.drawdownFloor!)}` });
+      } else {
+        riskAxis.createSpan({ text: "Drawdown state unavailable" });
+      }
     } else {
       const unavailable = barCol.createDiv({ cls: "tj-acc-risk-summary" });
       unavailable.createDiv({ cls: "tj-acc-risk-empty", text: "No maximum-loss limit configured" });
@@ -1201,13 +1516,29 @@ export class AccountDashboardView extends ItemView {
 
     limitsCol.createDiv({ cls: "tj-acc-mgroup", text: "Limits" });
     const todayTrades = scoped.filter((t) => this.dayKey(t) === this.todayKey()).length;
+    // Two kinds of row live in this column, and they fall silent differently:
+    //  - a RULE (the target, the daily limit, the required days) is configured
+    //    and stays true with no trades at all — it is never blanked;
+    //  - RECORDED USAGE or a performance measure needs a sample, so with no
+    //    tracked trades it reads "—" (or "0 tracked days" when the sample size
+    //    is the point) instead of a zero that would read as a failed rule.
+    const usageRow = (label: string, value: string, tone: string, info: string) =>
+      mRow(limitsCol, label, tracked ? value : "—", tracked ? tone : "is-na", naInfo(info));
     mRow(limitsCol, "Today", todayTrades ? `${fmtMoney(M.todayNet)} · ${todayTrades}` : "—", M.todayNet < 0 ? "tj-neg" : M.todayNet > 0 ? "tj-pos" : "", `Today's Net trading result.${netCoverageNote}`);
-    if (targetApplies && size.target) mRow(limitsCol, "Target progress", `${targetPct.toFixed(0)}%`, "", "Net trading result toward the evaluation target.");
+    if (targetApplies && size.target) usageRow("Target progress", `${targetPct.toFixed(0)}%`, "", "Net trading result toward the evaluation target.");
     if (targetApplies && size.target && M.daysToTarget !== null) mRow(limitsCol, "Days to target", `~${M.daysToTarget}`, "", "Estimate from current average Net pace.");
-    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Daily room", fmtMoney(M.dailyLossRemaining), M.dailyLossRemaining > 0 ? "" : "tj-neg", "Daily loss limit minus today's Net losses.");
-    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Worst day vs limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Worst recorded Net loss day ÷ daily limit.");
+    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Daily room", fmtMoney(M.dailyLossRemaining), M.dailyLossRemaining > 0 ? "" : "tj-neg", "Daily loss limit minus today's Net losses. The rule is configured; this is today's remaining room.");
+    if (size.dailyLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) usageRow("Worst day vs limit", `${M.worstDayPctOfLimit.toFixed(0)}%`, M.worstDayPctOfLimit > 80 ? "tj-neg" : "", "Worst recorded Net loss day ÷ daily limit.");
     if (size.consistency > 0 && (acc.type === "eval" || acc.type === "funded")) {
-      mRow(limitsCol, "Consistency", `${M.consistencyPct.toFixed(0)}% / ${size.consistency}%`, M.consistencyPct <= size.consistency ? "tj-pos" : "tj-neg", M.impliedTarget > size.target ? `Biggest day needs ${fmtMoney(M.impliedTarget)} total profit to satisfy the rule.` : "Best day stays within the limit.");
+      // The rule stays on screen: with no tracked days the value is unmeasured,
+      // and saying how many days were measured is the honest alternative.
+      mRow(
+        limitsCol,
+        "Consistency",
+        tracked ? `${M.consistencyPct.toFixed(0)}% / ${size.consistency}%` : `— · rule ${size.consistency}%`,
+        tracked ? (M.consistencyPct <= size.consistency ? "tj-pos" : "tj-neg") : "is-na",
+        naInfo(M.impliedTarget > size.target ? `Biggest day needs ${fmtMoney(M.impliedTarget)} total profit to satisfy the rule.` : "Best day stays within the limit."),
+      );
     }
     const minDays = size.minDays ?? 0;
     if (minDays > 0 && (acc.type === "eval" || acc.type === "funded")) {
@@ -1215,25 +1546,34 @@ export class AccountDashboardView extends ItemView {
       mRow(
         limitsCol,
         acc.type === "funded" ? "Payout winning days" : "Passing days",
-        `${M.winDays} of ${minDays} days`,
-        M.winDays >= minDays ? "tj-pos" : "",
-        `Model: days that closed positive. ${
-          daysLeft > 0 ? `${daysLeft} to go.` : "Requirement met."
-        }`,
+        tracked ? `${M.winDays} of ${minDays} days` : `— · needs ${minDays} days`,
+        tracked ? (M.winDays >= minDays ? "tj-pos" : "") : "is-na",
+        naInfo(
+          `Model: days that closed positive. ${
+            daysLeft > 0 ? `${daysLeft} to go.` : "Requirement met."
+          }`,
+        ),
       );
     }
-    if (size.maxLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) mRow(limitsCol, "Max trading drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Largest peak-to-trough Net trading decline.");
+    if (size.maxLoss && (acc.type === "eval" || acc.type === "funded" || acc.type === "live")) usageRow("Max trading drawdown", fmtMoney(-M.maxDrawdown), "tj-neg", "Largest peak-to-trough Net trading decline. The loss allowance itself is in Account risk.");
     if (M.avgRiskMoney) mRow(limitsCol, "Avg risk / trade", `${fmtMoney(M.avgRiskMoney)} · ${M.avgRiskR.toFixed(2)}R`, "", "Average risk per trade.");
 
     perfCol.createDiv({ cls: "tj-acc-mgroup", text: "Performance" });
-    mRow(perfCol, "Gross profit factor", Number.isFinite(M.grossProfitFactor) ? M.grossProfitFactor.toFixed(2) : M.grossProfitFactor > 0 ? "∞" : "—", "", "Gross winning results divided by gross losing results, before recorded costs.");
-    mRow(perfCol, "Net result per trade", fmtMoney(M.expectancy), M.expectancy >= 0 ? "tj-pos" : "tj-neg", "Average Net result per recorded trade.");
-    mRow(perfCol, "Avg win / loss", M.avgLoss ? `${fmtMoney(M.avgWin)} / ${fmtMoney(-M.avgLoss)}` : fmtMoney(M.avgWin), "", "Average positive and negative Net trade results.");
-    mRow(perfCol, "Reached 1R", M.pctGE1R ? `${M.pctGE1R.toFixed(0)}%` : "—", "", "How often a trade reached at least 1R.");
-    mRow(perfCol, "Best Net day", fmtMoney(M.bestDay), "tj-pos", "Highest daily Net trading result.");
-    mRow(perfCol, "Worst Net day", fmtMoney(M.worstDay), "tj-neg", "Lowest daily Net trading result.");
-    mRow(perfCol, "Biggest win", M.largestWin ? fmtMoney(M.largestWin) : "—", "tj-pos", "Largest single winning trade.");
-    mRow(perfCol, "Biggest loss", M.largestLoss ? fmtMoney(M.largestLoss) : "—", "tj-neg", "Largest single losing trade.");
+    // Every row in this column is a performance reading, so they all fall silent
+    // together when the tracked population is empty — one rule, one gate.
+    const perfRow = (label: string, value: string, tone: string, info: string) =>
+      mRow(perfCol, label, na(value), tracked ? tone : "is-na", naInfo(info));
+    // The account's own Net P&L, named for its scope: this page reads one
+    // account, so it can never be mistaken for the portfolio or a decision.
+    perfRow("Account Net P&L", fmtMoney(M.net), M.net >= 0 ? "tj-pos" : "tj-neg", "Net result of this account's recorded trades, after recorded costs. Payouts and deposits move the balance, not this number.");
+    perfRow("Gross profit factor", Number.isFinite(M.grossProfitFactor) ? M.grossProfitFactor.toFixed(2) : M.grossProfitFactor > 0 ? "∞" : "—", "", "Gross winning results divided by gross losing results, before recorded costs.");
+    perfRow("Net result per trade", fmtMoney(M.expectancy), M.expectancy >= 0 ? "tj-pos" : "tj-neg", "Average Net result per recorded trade.");
+    perfRow("Avg win / loss", M.avgLoss ? `${fmtMoney(M.avgWin)} / ${fmtMoney(-M.avgLoss)}` : fmtMoney(M.avgWin), "", "Average positive and negative Net trade results.");
+    perfRow("Reached 1R", M.pctGE1R ? `${M.pctGE1R.toFixed(0)}%` : "—", "", "How often a trade reached at least 1R.");
+    perfRow("Best Net day", fmtMoney(M.bestDay), "tj-pos", "Highest daily Net trading result.");
+    perfRow("Worst Net day", fmtMoney(M.worstDay), "tj-neg", "Lowest daily Net trading result.");
+    perfRow("Biggest win", M.largestWin ? fmtMoney(M.largestWin) : "—", "tj-pos", "Largest single winning trade.");
+    perfRow("Biggest loss", M.largestLoss ? fmtMoney(M.largestLoss) : "—", "tj-neg", "Largest single losing trade.");
 
     renderDisciplineCard(back);
     flipBtn.addEventListener("click", () => {
@@ -1279,7 +1619,7 @@ export class AccountDashboardView extends ItemView {
       keyFn?: (t: Trade) => string
     ) => {
       if (!rows.length) {
-        host.createDiv({ cls: "tj-empty", text: "No data." });
+        host.createDiv({ cls: "tj-empty", text: "No data yet — this account has no trades in the current selection." });
         return;
       }
       const totalTrades = rows.reduce((a, [, b]) => a + b.count, 0) || 1;
@@ -1670,11 +2010,24 @@ export class AccountDashboardView extends ItemView {
       amt.addClass("tj-pos");
       amt.textContent = `$${d.amount.toLocaleString()}`;
       tr.createEl("td", { text: d.note || "\u2014" });
-      const del = tr.createEl("td").createEl("button", { text: "\u2715", cls: "tj-mini tj-del", attr: { "aria-label": "Remove deposit" } });
-      del.addEventListener("click", async () => {
-        await this.plugin.removeDeposit(d.id);
-        this.render();
-      });
+      const delCell = tr.createEl("td");
+      const paintDel = (armed: boolean): void => {
+        delCell.empty();
+        if (!armed) {
+          const del = delCell.createEl("button", { text: "\u2715", cls: "tj-mini tj-del", attr: { type: "button", "aria-label": "Remove deposit" } });
+          del.addEventListener("click", () => paintDel(true));
+          return;
+        }
+        const yes = delCell.createEl("button", { text: "Remove?", cls: "tj-mini tj-del", attr: { type: "button", "aria-label": "Confirm remove deposit" } });
+        const no = delCell.createEl("button", { text: "Cancel", cls: "tj-mini", attr: { type: "button" } });
+        yes.addEventListener("click", async () => {
+          await this.plugin.removeDeposit(d.id);
+          new Notice("Deposit removed.");
+          this.render();
+        });
+        no.addEventListener("click", () => paintDel(false));
+      };
+      paintDel(false);
     }
   }
 

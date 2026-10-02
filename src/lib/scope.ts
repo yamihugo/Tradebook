@@ -113,6 +113,12 @@ export interface AccountScopeOptions {
   selectedAccountId?: string | null;
   /** Archived accounts are out of every financial number, always. */
   isArchived?: (trade: Trade) => boolean;
+  /**
+   * Optional tracked-history gate, carried onto the FinancialScope so
+   * `summarizeFinancials` skips trades before their account's tracking
+   * boundary. Absent = no gate (today's behaviour).
+   */
+  isTracked?: (trade: Trade) => boolean;
 }
 
 /**
@@ -124,7 +130,13 @@ export function accountScope(trades: Trade[], options: AccountScopeOptions): Fin
   const accountIdOf = (trade: Trade) => options.resolve.accountIdOf(trade);
   const selected = options.selectedAccountId ?? null;
   if (selected) {
-    return { kind: "selected-account", accountIdOf, includedAccountIds: new Set([selected]), accountId: selected };
+    return {
+      kind: "selected-account",
+      accountIdOf,
+      includedAccountIds: new Set([selected]),
+      accountId: selected,
+      isTracked: options.isTracked,
+    };
   }
   const includeDemos = options.explicitAccountScope === true || options.excludeDemos !== true;
   const includedAccountIds = new Set<string>();
@@ -136,7 +148,7 @@ export function accountScope(trades: Trade[], options: AccountScopeOptions): Fin
     if (!includeDemos && options.resolve.typeOf(trade) === "demo") continue;
     includedAccountIds.add(id);
   }
-  return { kind: "all-included-accounts", accountIdOf, includedAccountIds };
+  return { kind: "all-included-accounts", accountIdOf, includedAccountIds, isTracked: options.isTracked };
 }
 
 // ---------------------------------------------------------------------------

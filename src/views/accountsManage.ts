@@ -1,14 +1,13 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { AccountType, PropAccount } from "../types";
-import { closeCopyPeriods, startCopying, todayIso, unlinkCopier } from "../lib/copy";
+import { COPY_ALL_START, closeCopyPeriods, copierPresentation, startCopying, todayIso, unlinkCopier } from "../lib/copy";
 import { mountDropdown } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
 import { formatDate, mountDateField } from "../lib/dates";
 import { attachTip } from "../lib/tip";
 import { fmtMoneyAbs } from "../tz";
 import { DEFAULT_COLORS, DEFAULT_LABELS, TYPE_COLOR_CHOICES, typeKey, typeOrder } from "../lib/accountTypes";
-import { DEFAULT_ACCOUNT_RULES } from "../futures";
 
 /** A small palette so two groups never look alike. */
 const GROUP_COLORS = ["#34d17a", "#4aa8ff", "#a882ff", "#d9a441", "#ff8d6b", "#7de2d1", "#ff5d48", "#8a8a8a"];
@@ -18,13 +17,10 @@ const GROUP_COLORS = ["#34d17a", "#4aa8ff", "#a882ff", "#d9a441", "#ff8d6b", "#7
  * running, so "today" is the safe default but never the only answer.
  */
 const COPY_START_ITEMS = [
-  { id: "start", label: "From the account's start", note: "Mirror only from the day this copier account was created." },
-  { id: "custom", label: "A date I choose", note: "Mirror from a date you pick — when the group started later." },
-  { id: "all", label: "The leader's whole history", note: "Mirror everything the leader ever traded, even before this copier existed." },
+  { id: "start", label: "From its own account start", note: "Mirror only from the day this copier account was created." },
+  { id: "custom", label: "From a date I choose", note: "Mirror from a date you pick — when the group started later." },
+  { id: "all", label: "From the leader's whole history", note: "Mirror everything the leader ever traded, even before this copier existed." },
 ];
-
-/** The floor of recorded time: "copy everything the leader ever did". */
-const COPY_ALL_START = "0000-01-01";
 
 const TYPE_TOGGLES: Array<[AccountType, string]> = [
   ["funded", "Funded"],
@@ -78,13 +74,20 @@ class AccountsManageModal extends Modal {
   private newLeaderId = "";
   private newMemberIds: string[] = [];
   private newName = "";
-  /** New group: when its copiers start mirroring. */
-  private newCopyFrom = "start";
-  private newCopyFromDate = "";
+  /**
+   * New group: each copier's own start. Keyed by account id, so two copiers in
+   * one new group can begin on different days — the same shape an existing
+   * group already has, and the shape the copy engine records per account.
+   */
+  private newMemberStart: Record<string, { mode: string; date: string }> = {};
   /** Adding one account to an existing group: the same choice, kept apart. */
   private addPickedId = "";
   private addCopyFrom = "start";
   private addCopyFromDate = "";
+  /** Per-copier ratio chosen in the new-group composer, keyed by account id. */
+  private newMemberRatios: Record<string, number> = {};
+  /** Ratio chosen in the "Add a copier" control of an existing group. */
+  private addRatio = 1;
 
   constructor(plugin: TradebookPlugin, mode: "groups" | "display") {
     super(plugin.app);
@@ -98,6 +101,9 @@ class AccountsManageModal extends Modal {
     // surface inside the first — one modal, two frames. Obsidian's own `.modal` is
     // the surface, exactly like the account-settings modal does it.
     this.contentEl.addClass("tj-manage");
+    // Named on the modal frame too, so the width and the single-scroller rule do
+    // not depend on :has() support in the host Electron build.
+    this.modalEl.addClass("tj-manage-modal");
     this.render();
   }
 
@@ -109,6 +115,10 @@ class AccountsManageModal extends Modal {
 
   private render(): void {
     const el = this.contentEl;
+    // A rebuild is an inline edit, not a navigation: with a long account list,
+    // dropping the scroll would make picking a leader or a copier jump the whole
+    // composer back to the top. Keep the single scroller where the reader left it.
+    const keepScroll = (el.querySelector(".tj-manage-body") as HTMLElement | null)?.scrollTop ?? 0;
     el.empty();
 
     const groups = this.mode === "groups";
@@ -116,7 +126,7 @@ class AccountsManageModal extends Modal {
     const titleRow = head.createDiv({ cls: "tj-manage-title" });
     const titleIcon = titleRow.createSpan({ cls: "tj-manage-titleicon" });
     setIcon(titleIcon, groups ? "users" : "sliders-horizontal");
-    titleRow.createEl("h2", { text: groups ? "Copy groups" : "Settings" });
+    titleRow.createEl("h2", { text: groups ? "Trading groups" : "Settings" });
     head.createEl("p", {
       cls: "tj-manage-sub",
       text: groups
@@ -127,6 +137,7 @@ class AccountsManageModal extends Modal {
     const body = el.createDiv({ cls: "tj-manage-body" });
     if (groups) this.renderGroups(body);
     else this.renderDisplay(body);
+    body.scrollTop = keepScroll;
 
     const foot = el.createDiv({ cls: "tj-manage-foot" });
     foot
@@ -166,7 +177,7 @@ class AccountsManageModal extends Modal {
   }
 
   /**
-   * The day a copier starts on, from the "Copy from" choice. "The leader's whole
+   * The day a copier starts on, from the "When copying starts" choice. "The leader's whole
    * history" floors at the beginning of recorded time, which is the one case
    * where a copier mirrors trades from before its own account was created.
    */
@@ -188,9 +199,30 @@ class AccountsManageModal extends Modal {
     return "starts copying today";
   }
 
+  /** A start date read back for the reader: "4 Sep 2026", or "the beginning". */
+  private startLabel(iso: string): string {
+    return iso === COPY_ALL_START ? "the beginning" : formatDate(iso, this.plugin.settings.dateFormat);
+  }
+
+  /** A quiet "Saved" cue for the write-through inline edits, then it fades. */
+  private flashSaved(): void {
+    const head = this.contentEl.querySelector(".tj-manage-head");
+    if (!head) return;
+    head.querySelector(".tj-mg-saved")?.remove();
+    const cue = head.createSpan({ cls: "tj-mg-saved", text: "Saved" });
+    window.setTimeout(() => cue.remove(), 1400);
+  }
+
   /**
-   * The "Copy from" control: one dropdown plus the date field it reveals when
-   * you pick your own date. Both write straight into the caller's own state.
+   * "When should this start copying?" — one dropdown plus the date field it
+   * reveals when you pick your own date. Both write straight into the caller's
+   * own state.
+   *
+   * The label says *this* copier because every copier has its own start: two
+   * copiers in one group can, and do, begin on different days. The dropdown only
+   * offers what the engine can actually represent — the account's own start, a
+   * date you choose, or the leader's entire history — and each row above reads
+   * back the date it will use.
    */
   private copyStartControl(
     host: HTMLElement,
@@ -209,9 +241,9 @@ class AccountsManageModal extends Modal {
         if (id === "custom" && !custom) onDate(todayIso(this.plugin.settings.timeZone));
         this.render();
       },
-      { placeholder: "Copy from…", title: "When this account began copying" }
+      { placeholder: "When should it start copying?", title: "When this copier begins mirroring the leader" }
     );
-    attachTip(dd, { title: "Copy from", sub: this.copyStartNote(acc, mode, custom) });
+    attachTip(dd, { title: "When it starts copying", sub: this.copyStartNote(acc, mode, custom) });
     if (mode === "custom") {
       mountDateField(host, {
         value: custom || todayIso(this.plugin.settings.timeZone),
@@ -262,8 +294,18 @@ class AccountsManageModal extends Modal {
       const noteIco = note.createSpan({ cls: "tj-manage-note-ico", attr: { "aria-hidden": "true" } });
       setIcon(noteIco, "info");
       note.createSpan({
-        text: "Linking never rewrites trades already recorded. Taking an account out of a group keeps everything it already copied.",
+        text: "Copies Tradebook generates are a model of the leader's trade, not the follower's own fill. Linking never rewrites trades already recorded, and taking an account out of a group keeps everything it already copied.",
       });
+      const review = note.createEl("button", {
+        cls: "tj-mg-act",
+        text: "Review real fills",
+        attr: { type: "button" },
+      });
+      attachTip(review, {
+        title: "Review real fills",
+        sub: "Fills the follower actually traded, matched against the generated legs. Linking replaces a generated leg with the real one and keeps the generated leg as history \u2014 nothing is deleted.",
+      });
+      review.addEventListener("click", () => this.plugin.openCopyMatches());
     }
 
     for (const g of groups) this.renderGroup(body, g.leader, g.members, free);
@@ -281,12 +323,16 @@ class AccountsManageModal extends Modal {
    * leader picker, and the rest of the form stays shut until it is answered.
    */
   private stepHead(host: HTMLElement, n: number, title: string, hint?: string): HTMLElement {
-    const head = host.createDiv({ cls: "tj-mg-step" });
+    const head = host.createDiv({ cls: "tj-mg-stephead" });
     head.createSpan({ cls: "tj-mg-stepnum", text: String(n) });
-    head.createSpan({ cls: "tj-mg-stepfill" });
     head.createSpan({ cls: "tj-mg-steptitle", text: title });
     if (hint) host.createDiv({ cls: "tj-mg-hint", text: hint });
     return head;
+  }
+
+  /** One copier's own start, defaulting to that account's own creation date. */
+  private memberStart(id: string): { mode: string; date: string } {
+    return this.newMemberStart[id] ?? { mode: "start", date: "" };
   }
 
   private renderNewGroup(body: HTMLElement, free: PropAccount[]): void {
@@ -311,6 +357,7 @@ class AccountsManageModal extends Modal {
         this.newOpen = true;
         this.newLeaderId = "";
         this.newMemberIds = [];
+        this.newMemberRatios = {};
         this.render();
       });
       return;
@@ -335,9 +382,22 @@ class AccountsManageModal extends Modal {
     const grid = step1.createDiv({ cls: "tj-mg-leadgrid" });
     for (const f of free) {
       const on = f.id === this.newLeaderId;
-      const el = grid.createDiv({ cls: "tj-mg-leadcard" + (on ? " on" : "") });
-      el.createSpan({ cls: "tj-mg-leadcard-nm", text: f.name });
-      el.createSpan({ cls: "tj-mg-leadcard-sub", text: `${fmtMoneyAbs(this.sizeOf(f))} · leader` });
+      const el = grid.createEl("button", {
+        cls: "tj-mg-leadcard" + (on ? " on" : ""),
+        attr: { type: "button", "aria-pressed": String(on) },
+      });
+      // The marker is always in the DOM, selected or not, so choosing a leader
+      // never shifts the row: the tick fills the ring instead of appearing.
+      el.createSpan({ cls: "tj-mg-leadcard-marker", text: on ? "\u2713" : "" });
+      const txt = el.createDiv({ cls: "tj-mg-leadcard-txt" });
+      txt.createDiv({ cls: "tj-mg-leadcard-nm", text: f.name });
+      // Size is context, not a headline: it stays secondary in every state, so
+      // the name is what the eye reads first.
+      txt.createDiv({ cls: "tj-mg-leadcard-sub", text: fmtMoneyAbs(this.sizeOf(f)) });
+      attachTip(el, {
+        title: on ? `${f.name} leads this group` : `Make ${f.name} the leader`,
+        sub: on ? "Everything below copies it." : "The other accounts in this group copy it.",
+      });
       el.addEventListener("click", () => {
         this.newLeaderId = f.id;
         this.newMemberIds = this.newMemberIds.filter((id) => id !== f.id);
@@ -371,9 +431,17 @@ class AccountsManageModal extends Modal {
       }
     }
 
-    // --- 2 · who copies it. Nothing to answer here until step 1 is answered.
+    // --- 2 · who copies it, and how. One block per copier: the account, its
+    // ratio and its own start live together, because they are one decision. A
+    // separate "when copying starts" summary used to repeat the same dates
+    // several lines below the rows that already showed them.
     const step2 = card.createDiv({ cls: "tj-mg-stepblock" + (leader ? "" : " is-locked") });
-    this.stepHead(step2, 2, "Copiers");
+    this.stepHead(
+      step2,
+      2,
+      "Copiers",
+      leader ? "Tick the accounts that follow the leader. Each keeps its own ratio and start." : undefined
+    );
     if (!leader) {
       step2.createDiv({ cls: "tj-mg-empty", text: "Pick the leader first." });
     } else {
@@ -381,45 +449,81 @@ class AccountsManageModal extends Modal {
       locked.createSpan({ cls: "tj-mg-lockedlead-nm", text: leader.name });
       locked.createSpan({ cls: "tj-mg-lockedlead-sub", text: "leader" });
 
-      const list = step2.createDiv({ cls: "tj-wz-leader-list" });
+      const list = step2.createDiv({ cls: "tj-mg-copiers" });
       const others = free.filter((f) => f.id !== leader.id);
       if (!others.length) {
         list.createDiv({ cls: "tj-mg-empty", text: "No other account free to copy it — you can add copiers later." });
       }
       for (const o of others) {
         const on = this.newMemberIds.includes(o.id);
-        const el = list.createDiv({ cls: "tj-mg-copier" + (on ? " on" : "") });
-        el.createSpan({ cls: "tj-mg-pick" + (on ? " on" : ""), text: on ? "✓" : "" });
-        const inner = el.createDiv({ cls: "tj-mg-copier-body" });
-        inner.createDiv({ cls: "tj-mg-copier-nm", text: o.name });
-        inner.createDiv({ cls: "tj-mg-copier-sub", text: `${fmtMoneyAbs(this.sizeOf(o))} · copies ${leader.name}` });
-        el.addEventListener("click", () => {
+        const row = list.createDiv({ cls: "tj-mg-coprow" + (on ? " on" : "") });
+        // The whole row is the pick target; the controls stop the click so a
+        // ratio nudge can never deselect the copier (or vice versa).
+        row.createSpan({ cls: "tj-mg-pick" + (on ? " on" : ""), text: on ? "✓" : "" });
+        const body = row.createDiv({ cls: "tj-mg-coprow-body" });
+        body.createDiv({ cls: "tj-mg-coprow-nm", text: o.name });
+        body.createDiv({ cls: "tj-mg-coprow-sub", text: `${fmtMoneyAbs(this.sizeOf(o))} · copies ${leader.name}` });
+
+        if (on) {
+          const cfg = row.createDiv({ cls: "tj-mg-coprow-cfg" });
+          // Ratio — its own labelled cell, clearly apart from the pick.
+          const ratioRow = cfg.createDiv({ cls: "tj-mg-cfgrow" });
+          ratioRow.createSpan({ cls: "tj-mg-cfglabel", text: "Ratio" });
+          const ratioVal = ratioRow.createSpan({ cls: "tj-mg-cfgval" });
+          ratioVal.createSpan({ cls: "tj-mg-x", text: "×" });
+          const ri = freeNumeric(
+            ratioVal.createEl("input", {
+              cls: "tj-mg-ratio",
+              attr: { type: "number", value: String(this.newMemberRatios[o.id] ?? 1) },
+            })
+          );
+          attachTip(ri, {
+            title: "Ratio",
+            sub: "Contracts copied per leader contract. Below one mini, the copy mirrors in micros so the leg is never lost.",
+          });
+          ri.addEventListener("click", (ev) => ev.stopPropagation());
+          ri.addEventListener("input", (ev) => ev.stopPropagation());
+          ri.addEventListener("change", () => {
+            this.newMemberRatios[o.id] = Math.max(0.1, parseFloat(ri.value) || 1);
+          });
+
+          // This copier's own start: the same control an existing group uses,
+          // mounted inside this row so the date belongs to this account.
+          const startRow = cfg.createDiv({ cls: "tj-mg-cfgrow" });
+          startRow.createSpan({ cls: "tj-mg-cfglabel", text: "Starts copying" });
+          const startHost = startRow.createDiv({ cls: "tj-mg-cfgval tj-mg-cfgstart" });
+          const st = this.memberStart(o.id);
+          startHost.addEventListener("click", (ev) => ev.stopPropagation());
+          this.copyStartControl(
+            startHost,
+            o,
+            st.mode,
+            st.date,
+            (m) => (this.newMemberStart[o.id] = { mode: m, date: this.memberStart(o.id).date }),
+            (iso) => (this.newMemberStart[o.id] = { mode: "custom", date: iso })
+          );
+        }
+
+        row.addEventListener("click", () => {
           this.newMemberIds = on ? this.newMemberIds.filter((x) => x !== o.id) : [...this.newMemberIds, o.id];
+          if (!on) {
+            this.newMemberRatios[o.id] = this.newMemberRatios[o.id] ?? 1;
+            this.newMemberStart[o.id] = this.newMemberStart[o.id] ?? { mode: "start", date: "" };
+          }
           this.render();
         });
       }
     }
 
-    // --- 3 · when those copiers start mirroring
-    const step3 = card.createDiv({ cls: "tj-mg-stepblock" + (leader ? "" : " is-locked") });
-    this.stepHead(step3, 3, "Copy from", "When each copier should start mirroring the leader.");
-    if (!leader) {
-      step3.createDiv({ cls: "tj-mg-empty", text: "Pick the leader first." });
-    } else {
-      this.copyStartControl(
-        step3,
-        leader,
-        this.newCopyFrom,
-        this.newCopyFromDate,
-        (m) => (this.newCopyFrom = m),
-        (iso) => (this.newCopyFromDate = iso)
-      );
-      step3.createDiv({ cls: "tj-mg-hint", text: this.copyStartNote(leader, this.newCopyFrom, this.newCopyFromDate) });
-    }
-
-    const actions = card.createDiv({ cls: "tj-mg-add" });
-    const create = actions.createEl("button", { cls: "tj-mg-act", text: "Create group", attr: { type: "button" } }) as HTMLButtonElement;
+    const actions = card.createDiv({ cls: "tj-mg-actions" });
+    // Once a leader is chosen this is the thing the reader came here to do, so it
+    // is the one filled action on the screen; Cancel stays a ghost beside it.
+    const create = actions.createEl("button", { cls: "tj-mg-act is-primary", text: "Create group", attr: { type: "button" } }) as HTMLButtonElement;
     create.disabled = !leader;
+    attachTip(create, {
+      title: "Create group",
+      sub: "Links the leader to the copiers you picked. It never rewrites a trade you have already recorded.",
+    });
     create.addEventListener("click", async () => {
       const lead = free.find((f) => f.id === this.newLeaderId);
       if (!lead) return;
@@ -436,19 +540,21 @@ class AccountsManageModal extends Modal {
       for (const id of this.newMemberIds) {
         const m = free.find((x) => x.id === id);
         if (!m || m.id === lead.id) continue;
+        const ratio = this.newMemberRatios[m.id] ?? 1;
         m.copyRole = "copier";
         m.copyBaseId = lead.id;
-        m.copyMultiplier = 1;
-        startCopying(m, lead.id, 1, this.copyStartFor(m, this.newCopyFrom, this.newCopyFromDate), this.plugin.settings.timeZone);
+        m.copyMultiplier = ratio;
+        const st = this.memberStart(m.id);
+        startCopying(m, lead.id, ratio, this.copyStartFor(m, st.mode, st.date), this.plugin.settings.timeZone);
         copiers++;
       }
       closeCopyPeriods(lead, this.plugin.settings.timeZone);
       this.newOpen = false;
       this.newLeaderId = "";
       this.newMemberIds = [];
+      this.newMemberRatios = {};
+      this.newMemberStart = {};
       this.newName = "";
-      this.newCopyFrom = "start";
-      this.newCopyFromDate = "";
       await this.apply();
       new Notice(
         copiers
@@ -463,9 +569,9 @@ class AccountsManageModal extends Modal {
         this.newOpen = false;
         this.newLeaderId = "";
         this.newMemberIds = [];
+        this.newMemberRatios = {};
+        this.newMemberStart = {};
         this.newName = "";
-        this.newCopyFrom = "start";
-        this.newCopyFromDate = "";
         this.render();
       });
   }
@@ -488,6 +594,7 @@ class AccountsManageModal extends Modal {
       leader.copyGroupColor = GROUP_COLORS[(i + 1) % GROUP_COLORS.length];
       await this.apply();
       this.render();
+      this.flashSaved();
     });
 
     const nameInput = head.createEl("input", {
@@ -498,6 +605,7 @@ class AccountsManageModal extends Modal {
       leader.copyGroupName = nameInput.value.trim() || undefined;
       await this.apply();
       this.render();
+      this.flashSaved();
     });
 
     head.createDiv({ cls: "tj-mg-count", text: `${members.length} copier${members.length === 1 ? "" : "s"}` });
@@ -571,46 +679,47 @@ class AccountsManageModal extends Modal {
         // greyed, so the choice is never made blind.
         .sort((a, b) => Number(a.disabled) - Number(b.disabled));
       let nextId = "";
-      mountDropdown(swap, items, nextId, (id) => {
-        nextId = id;
-      }, { placeholder: "Pick an account…", title: "Which account leads this group from today" });
-      swap
-        .createEl("button", { text: "Move group", cls: "tj-mg-act", attr: { type: "button" } })
-        .addEventListener("click", async () => {
-          const next = items.find((i) => i.id === nextId && !i.disabled);
-          if (!next) {
-            new Notice("Pick the account that should lead.");
-            return;
-          }
-          const nextAcc = all.find((a) => a.id === next.id);
-          if (!nextAcc) return;
-          const from = todayIso(this.plugin.settings.timeZone);
-          for (const m of members) {
-            const mult = m.copyMultiplier ?? 1;
-            // Re-link from scratch: nothing from the old group leaks into the
-            // new one, and the ratio is written into the config history.
-            unlinkCopier(m, this.plugin.settings.timeZone);
-            m.copyRole = "copier";
-            m.copyBaseId = nextAcc.id;
-            m.copyMultiplier = mult;
-            startCopying(m, nextAcc.id, mult, from, this.plugin.settings.timeZone);
-          }
-          const name = leader.copyGroupName;
-          const colour = leader.copyGroupColor;
-          this.detachAccount(leader);
-          nextAcc.copyRole = "base";
-          nextAcc.copyGroupName = name ?? nextAcc.copyGroupName;
-          nextAcc.copyGroupColor = colour ?? nextAcc.copyGroupColor;
-          await this.apply();
-          new Notice(`${nextAcc.name} now leads the group.`);
-          this.render();
-        });
+      const moveBtn = swap.createEl("button", { text: "Move group", cls: "tj-mg-act", attr: { type: "button" } });
+      // A disabled control explains itself better than a live one that only
+      // complains after the click. It wakes when an eligible leader is picked.
+      moveBtn.disabled = true;
+      mountDropdown(
+        swap,
+        items,
+        nextId,
+        (id) => {
+          nextId = id;
+          moveBtn.disabled = !items.some((i) => i.id === id && !i.disabled);
+        },
+        { placeholder: "Pick an account…", title: "Which account leads this group from today" }
+      );
+      moveBtn.addEventListener("click", async () => {
+        const next = items.find((i) => i.id === nextId && !i.disabled);
+        if (!next) return; // the button is disabled until an eligible leader is picked
+        const nextAcc = all.find((a) => a.id === next.id);
+        if (!nextAcc) return;
+        const from = todayIso(this.plugin.settings.timeZone);
+        for (const m of members) {
+          const mult = m.copyMultiplier ?? 1;
+          // Re-link from scratch: nothing from the old group leaks into the
+          // new one, and the ratio is written into the config history.
+          unlinkCopier(m, this.plugin.settings.timeZone);
+          m.copyRole = "copier";
+          m.copyBaseId = nextAcc.id;
+          m.copyMultiplier = mult;
+          startCopying(m, nextAcc.id, mult, from, this.plugin.settings.timeZone);
+        }
+        const name = leader.copyGroupName;
+        const colour = leader.copyGroupColor;
+        this.detachAccount(leader);
+        nextAcc.copyRole = "base";
+        nextAcc.copyGroupName = name ?? nextAcc.copyGroupName;
+        nextAcc.copyGroupColor = colour ?? nextAcc.copyGroupColor;
+        await this.apply();
+        new Notice(`${nextAcc.name} now leads the group.`);
+        this.render();
+      });
     }
-
-    card.createDiv({
-      cls: "tj-mg-hint",
-      text: "Remove takes an account out of the group: it keeps every trade it copied so far and simply stops taking new ones. From there it can join another group or become a leader.",
-    });
 
     // --- members, drawn on a tree so the leader/copiers relation reads at a glance
     if (members.length) {
@@ -623,93 +732,164 @@ class AccountsManageModal extends Modal {
     addSect.createDiv({ cls: "tj-mg-sectitle", text: "Add a copier" });
     const add = addSect.createDiv({ cls: "tj-mg-add" });
     if (free.length) {
+      const addTarget = free.find((f) => f.id === this.addPickedId);
       mountDropdown(
         add,
         free.map((f) => ({ id: f.id, label: f.name, note: `${fmtMoneyAbs(this.sizeOf(f))} · not in a group` })),
         this.addPickedId,
         (id) => {
           this.addPickedId = id;
+          // Reveal the account's own choices only once it is picked.
+          this.render();
         },
         { placeholder: "Add an account…", title: "An account that is not in a group yet" }
       );
-      this.copyStartControl(
-        add,
-        free.find((f) => f.id === this.addPickedId),
-        this.addCopyFrom,
-        this.addCopyFromDate,
-        (m) => (this.addCopyFrom = m),
-        (iso) => (this.addCopyFromDate = iso)
-      );
-      add
-        .createEl("button", { text: "Add to group", cls: "tj-mg-act", attr: { type: "button" } })
-        .addEventListener("click", async () => {
-          // A pick can go stale when the page redraws under it: drop it and say
-          // so, instead of a button that looks live and does nothing.
-          const target = free.find((f) => f.id === this.addPickedId);
-          if (!target) {
-            this.addPickedId = "";
-            new Notice("Pick an account first.");
-            this.render();
-            return;
-          }
-          unlinkCopier(target, this.plugin.settings.timeZone);
-          target.copyRole = "copier";
-          target.copyBaseId = leader.id;
-          target.copyMultiplier = 1;
-          startCopying(target, leader.id, 1, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate), this.plugin.settings.timeZone);
-          this.addPickedId = "";
-          this.addCopyFrom = "start";
-          this.addCopyFromDate = "";
-          await this.apply();
-          new Notice(`${target.name} now copies ${leader.name}.`);
-          this.render();
+      // No account picked, no ratio and no date: a control without a subject is
+      // the thing that made this row confusing. They appear with the pick.
+      if (addTarget) {
+        this.copyStartControl(
+          add,
+          addTarget,
+          this.addCopyFrom,
+          this.addCopyFromDate,
+          (m) => (this.addCopyFrom = m),
+          (iso) => (this.addCopyFromDate = iso)
+        );
+        // The new member's own ratio: 1 unless the trader says otherwise,
+        // written into its config history when it joins — never inherited.
+        add.createSpan({ cls: "tj-mg-x", text: "×" });
+        const addRatioInput = freeNumeric(
+          add.createEl("input", {
+            cls: "tj-mg-ratio",
+            attr: { type: "number", value: String(this.addRatio) },
+          })
+        );
+        attachTip(addRatioInput, {
+          title: "Ratio",
+          sub: "Contracts copied per leader contract. Below one mini, the copy mirrors in micros so the leg is never lost.",
         });
+        addRatioInput.addEventListener("change", () => {
+          this.addRatio = Math.max(0.1, parseFloat(addRatioInput.value) || 1);
+        });
+        add.createDiv({ cls: "tj-mg-hint", text: this.copyStartNote(addTarget, this.addCopyFrom, this.addCopyFromDate) });
+      }
+      const addBtn = add.createEl("button", { text: "Add to group", cls: "tj-mg-act", attr: { type: "button" } });
+      addBtn.disabled = !addTarget;
+      addBtn.addEventListener("click", async () => {
+        const target = free.find((f) => f.id === this.addPickedId);
+        if (!target) return; // the button is disabled until an account is picked
+        const ratio = this.addRatio;
+        unlinkCopier(target, this.plugin.settings.timeZone);
+        target.copyRole = "copier";
+        target.copyBaseId = leader.id;
+        target.copyMultiplier = ratio;
+        startCopying(target, leader.id, ratio, this.copyStartFor(target, this.addCopyFrom, this.addCopyFromDate), this.plugin.settings.timeZone);
+        this.addPickedId = "";
+        this.addCopyFrom = "start";
+        this.addCopyFromDate = "";
+        this.addRatio = 1;
+        await this.apply();
+        new Notice(`${target.name} now copies ${leader.name}.`);
+        this.render();
+      });
     } else {
       add.createSpan({ cls: "tj-mg-empty", text: "Every account is already in a group." });
     }
 
   }
 
+  /**
+   * One copier, read as three facts and two actions that cannot be confused:
+   * who it is, what it copies and from when — then the ratio (a stepper with its
+   * own generous target) and, well away from it, the way out.
+   *
+   * The complaint this answers: ratio and selection used to share one strip, so
+   * nudging the ratio could land on the action that removes the copier. Now the
+   * ratio sits inside its own labelled zone, and nothing else on the row is a
+   * target.
+   */
   private renderMember(card: HTMLElement, leader: PropAccount, m: PropAccount): void {
     const row = card.createDiv({ cls: "tj-mg-mrow" });
+    const zone = this.plugin.settings.propAccounts ?? [];
+    const cp = copierPresentation(m, (id) => zone.find((a) => a.id === id)?.name ?? id);
 
-    row.createSpan({ cls: "tj-mg-badge is-copier", text: "COPIER" });
-    row.createSpan({ cls: "tj-mg-mname", text: m.name });
+    // --- who it is, and from when: the two facts that make each copier its own row
+    const who = row.createDiv({ cls: "tj-mg-mwho" });
+    const top = who.createDiv({ cls: "tj-mg-mtop" });
+    top.createSpan({ cls: "tj-mg-badge is-copier", text: "COPIER" });
+    top.createSpan({ cls: "tj-mg-mname", text: m.name });
+    const from = cp.since
+      ? cp.sinceIsBeginning
+        ? "copies the leader's whole history"
+        : `starts copying ${formatDate(cp.since, this.plugin.settings.dateFormat)}`
+      : "start not recorded";
+    who.createDiv({ cls: "tj-mg-msub", text: from });
+    // The date is on the line above in the trader's own format; the tooltip adds
+    // the one thing that line cannot say — that these starts are independent.
+    attachTip(who, {
+      title: m.name,
+      sub: `Copies ${cp.baseName ?? leader.name}. Each copier keeps its own start, and the copy legs before it are never written.`,
+    });
 
-    // ratio
-    row.createSpan({ cls: "tj-mg-x", text: "×" });
+    // --- the ratio: labelled, stepped, and impossible to mistake for Remove
+    const ratioZone = row.createDiv({ cls: "tj-mg-mratiozone" });
+    ratioZone.createSpan({ cls: "tj-mg-mratiolabel", text: "Ratio" });
+    const stepper = ratioZone.createDiv({ cls: "tj-mg-stepper" });
+    const readRatio = (): number => Math.max(0.1, parseFloat(ratio.value) || 1);
+    const commit = async (next: number): Promise<void> => {
+      ratio.value = String(next);
+      m.copyMultiplier = next;
+      // The engine reads the ratio from copyConfigHistory, keyed by date. An open
+      // period that starts later (a future "starts copying" date) already holds an
+      // old entry; writing "today" would land before it and be shadowed for every
+      // trade from that date on. Anchor the edit to the open period's start when it
+      // is today or later, so it replaces the stale entry; a period that began in
+      // the past keeps its history and the change applies only from today.
+      const today = todayIso(this.plugin.settings.timeZone);
+      const open = (m.copyPeriods ?? []).find((p) => !p.end);
+      const fromDate = open?.start && open.start >= today ? open.start : today;
+      startCopying(m, leader.id, next, fromDate, this.plugin.settings.timeZone);
+      // No repaint: the field already shows the new value, and a rebuild would
+      // drop focus and scroll. A quiet cue confirms the write instead.
+      await this.apply();
+      this.flashSaved();
+    };
     const ratio = freeNumeric(
-      row.createEl("input", {
+      stepper.createEl("input", {
         cls: "tj-mg-ratio",
-        attr: { type: "number", value: String(m.copyMultiplier ?? 1) },
+        attr: { type: "number", value: String(cp.ratio) },
       })
     );
+    const nudge = (delta: number) => () => void commit(readRatio() + delta);
+    const minus = stepper.createEl("button", { cls: "tj-mg-step", text: "\u2212", attr: { type: "button", "aria-label": "Lower the ratio" } });
+    const plus = stepper.createEl("button", { cls: "tj-mg-step", text: "+", attr: { type: "button", "aria-label": "Raise the ratio" } });
+    attachTip(minus, { title: "Lower the ratio", sub: "Fewer contracts copied per leader contract." });
+    attachTip(plus, { title: "Raise the ratio", sub: "More contracts copied per leader contract." });
+    minus.addEventListener("click", (e) => {
+      e.stopPropagation();
+      nudge(-0.1)();
+    });
+    plus.addEventListener("click", (e) => {
+      e.stopPropagation();
+      nudge(0.1)();
+    });
+    ratio.addEventListener("change", () => void commit(readRatio()));
     attachTip(ratio, {
       title: "Ratio",
-      sub: "Contracts copied per leader contract. Below one mini, the copy mirrors in micros so the leg is never lost.",
+      sub: "Contracts copied per leader contract. Below one mini, the copy mirrors in micros so the leg is never lost. Changing it applies from today and never rewrites trades already copied.",
     });
-    ratio.addEventListener("change", async () => {
-      const v = Math.max(0.1, parseFloat(ratio.value) || 1);
-      m.copyMultiplier = v;
-      // startCopying, not openCopyPeriod: the new ratio is written into the
-      // account's own config history from today, which is what the copy engine
-      // actually reads. Legs already generated keep the ratio they were made with.
-      startCopying(m, leader.id, v, todayIso(this.plugin.settings.timeZone), this.plugin.settings.timeZone);
-      await this.apply();
-      this.render();
-    });
+    const mult = ratioZone.createSpan({ cls: "tj-mg-mratiox", text: "\u00d7" });
 
-    // Out of the group — one action, no separate pause. Leaving closes the
-    // stretch, so the account keeps every trade it already copied and simply
-    // stops taking new ones; it can then join another group or lead its own.
-    const off = row.createEl("button", {
+    // --- the way out, in its own zone with real distance from the ratio
+    const acts = row.createDiv({ cls: "tj-mg-macts" });
+    const off = acts.createEl("button", {
       cls: "tj-mg-act is-quiet",
       text: "Remove",
       attr: { type: "button" },
     });
     attachTip(off, {
-      title: "Remove",
-      sub: "Removes it from the group. It keeps its copied trades and history; relink it anytime.",
+      title: "Remove from the group",
+      sub: "It keeps every trade it already copied and simply stops taking new ones. It can join another group or lead its own later.",
     });
     off.addEventListener("click", async () => {
       unlinkCopier(m, this.plugin.settings.timeZone);
@@ -770,7 +950,10 @@ class AccountsManageModal extends Modal {
       if (at === from || at < 0) return;
       next.splice(at, 0, item);
       s.accountTypeOrder = next;
-      void this.apply().then(() => this.render());
+      void this.apply().then(() => {
+        this.render();
+        this.flashSaved();
+      });
     };
 
     /** Any open palette goes away as soon as you click elsewhere. */
@@ -846,7 +1029,7 @@ class AccountsManageModal extends Modal {
         if (v && v !== DEFAULT_LABELS[t]) labels[t] = v;
         else delete labels[t];
         s.accountTypeLabels = labels;
-        void this.apply();
+        void this.apply().then(() => this.flashSaved());
       });
 
       const dot = val.createDiv({ cls: "tj-mg-dot", attr: { "aria-label": "Pick a colour" } });
@@ -869,7 +1052,7 @@ class AccountsManageModal extends Modal {
             dot.style.background = c;
             for (const other of Array.from(pop.querySelectorAll(".tj-mg-swatch"))) other.removeClass("on");
             sw.addClass("on");
-            void this.apply();
+            void this.apply().then(() => this.flashSaved());
           });
         }
         // Added on the next tick: a listener registered while this click is still
@@ -898,6 +1081,7 @@ class AccountsManageModal extends Modal {
         s.accountsVisibleTypes = list.length ? list : (ALL_TYPES as AccountType[]);
         await this.apply();
         this.render();
+        this.flashSaved();
       });
     });
 
@@ -915,6 +1099,7 @@ class AccountsManageModal extends Modal {
       delete s.accountTypeOrder;
       await this.apply();
       this.render();
+      this.flashSaved();
     });
   }
 
@@ -939,6 +1124,7 @@ class AccountsManageModal extends Modal {
         s.accountsGroupBy = id as typeof s.accountsGroupBy;
         await this.apply();
         this.render();
+        this.flashSaved();
       },
       { align: "right" }
     );
@@ -949,13 +1135,14 @@ class AccountsManageModal extends Modal {
       [
         { id: "name", label: "Name" },
         { id: "balance", label: "Balance" },
-        { id: "net", label: "Net P&L" },
+        { id: "net", label: "Net P&L (account)" },
         { id: "dd", label: "Drawdown used" },
       ],
       s.accountsSort ?? "name",
       async (id) => {
         s.accountsSort = id as typeof s.accountsSort;
         await this.apply();
+        this.flashSaved();
       },
       { align: "right" }
     );
@@ -968,6 +1155,7 @@ class AccountsManageModal extends Modal {
     logoInput.addEventListener("change", async () => {
       s.accountsShowLogo = logoInput.checked;
       await this.apply();
+      this.flashSaved();
     });
 
     const demos = this.row(shown, "Exclude demo accounts", "Demos stay visible but out of the totals");
@@ -976,6 +1164,7 @@ class AccountsManageModal extends Modal {
     demoInput.addEventListener("change", async () => {
       s.excludeDemosFromPortfolio = demoInput.checked;
       await this.apply();
+      this.flashSaved();
     });
 
     const arch = this.row(shown, "Archived accounts", "Show the Archived box at the bottom — past evals you keep for the record");
@@ -984,6 +1173,7 @@ class AccountsManageModal extends Modal {
     archInput.addEventListener("change", async () => {
       s.accountsShowArchived = archInput.checked;
       await this.apply();
+      this.flashSaved();
     });
 
     // Types used to be a tab of its own; it is how the page reads, so it sits
@@ -995,69 +1185,8 @@ class AccountsManageModal extends Modal {
     );
     this.renderTypeRows(types);
 
-    // Classification and mapping used to live in Obsidian Settings; they are
-    // account setup, so they belong with the accounts.
-    const cls = this.sectionInfo(
-      body,
-      "Classification",
-      "Comma-separated keywords that sort a broker account into live, funded, eval or demo. First match wins."
-    );
-    const ruleBox = cls.createDiv({ cls: "tj-rule-group" });
-    for (const rule of this.plugin.getAccountRules()) {
-      const rrow = ruleBox.createDiv({ cls: "tj-rule-row" });
-      rrow.createSpan({ text: rule.type, cls: "tj-rule-type" });
-      const input = rrow.createEl("input", {
-        cls: "tj-rule-input",
-        attr: { type: "text", value: rule.keywords.join(", ") },
-      });
-      input.addEventListener("change", async () => {
-        const keywords = input.value.split(",").map((x) => x.trim()).filter(Boolean);
-        if (!s.accountRules.length) {
-          s.accountRules = DEFAULT_ACCOUNT_RULES.map((x) => ({ type: x.type, keywords: [...x.keywords] }));
-        }
-        const target = s.accountRules.find((x) => x.type === rule.type);
-        if (target) target.keywords = keywords;
-        await this.apply();
-      });
-    }
-
-    const mapping = this.sectionInfo(
-      body,
-      "Account mapping",
-      "Bind a broker account name to one of your accounts. A bound name counts under that account's scope instead of the keyword rules."
-    );
-    void this.renderMapping(mapping);
-  }
-
-  /** Broker account names seen in trades, each bindable to a real account. */
-  private async renderMapping(host: HTMLElement): Promise<void> {
-    const trades = await this.plugin.loadTrades();
-    const names = [...new Set(trades.map((t) => t.account).filter((a) => !!a))].sort();
-    if (names.length === 0) {
-      host.createDiv({ cls: "tj-hint", text: "No accounts found in your trades yet — import or add trades first." });
-      return;
-    }
-    for (const name of names) {
-      const mapped = this.plugin.mappedAccount(name);
-      const row = host.createEl("div", { cls: "tj-map-row" });
-      const nameBox = row.createDiv({ cls: "tj-map-name" });
-      nameBox.createDiv({ cls: "tj-map-acc", text: name });
-      const chip = nameBox.createDiv({ cls: mapped ? `tj-acct-chip ${mapped.type}` : "tj-acct-chip unknown" });
-      chip.textContent = mapped ? `Bound to ${mapped.name}` : `Rules say: ${this.plugin.resolveAccountType(name)}`;
-      const sel = row.createEl("select", { cls: "dropdown", attr: { "aria-label": "Bind this account to a prop account" } });
-      attachTip(sel, { title: "Bind this account", sub: "Which account these broker trades belong to." });
-      sel.createEl("option", { value: "", text: "Auto (by rules)" });
-      for (const acc of this.plugin.settings.propAccounts) {
-        const opt = sel.createEl("option", { value: acc.id, text: `${acc.name} · ${acc.type}` });
-        if (mapped?.id === acc.id) opt.setAttr("selected", "selected");
-      }
-      if (mapped) sel.value = mapped.id;
-      sel.addEventListener("change", async () => {
-        if (sel.value) this.plugin.settings.accountMappings[name] = sel.value;
-        else delete this.plugin.settings.accountMappings[name];
-        await this.apply();
-        await this.plugin.reloadAllViews();
-      });
-    }
+    // Account classification and name mapping are import-repair tools, not
+    // normal account configuration — a trader setting up an account never needs
+    // them. They live in Settings → Imports, with the rest of the import tools.
   }
 }

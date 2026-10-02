@@ -27,34 +27,53 @@ function firstNonEmpty(row: Record<string, string>, keys: string[]): string {
   return "";
 }
 
+/** One CSV line into its cells, exactly as the reader always read it. */
+function splitLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQ && line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQ = !inQ;
+      }
+    } else if (c === "," && !inQ) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * The header row's own cells, tokenised and trimmed the way a data row's are.
+ *
+ * The gate and the parser must read a file the same way: a signature the gate
+ * recognises but the reader cannot find is a file that is announced as a
+ * report and then imports as nothing — or, worse, one whose canonical fixture
+ * is refused by the very flow it was written for.
+ */
+function headerCells(text: string): string[] {
+  const first = text.split(/\r?\n/)[0] || "";
+  return splitLine(first).map((h) => h.trim());
+}
+
+/** True when the header carries one of the reader's own aliases for that field. */
+function headerHas(cells: string[], aliases: string[]): boolean {
+  return cells.some((c) => aliases.includes(c));
+}
+
 function parseCsv(text: string): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return rows;
-
-  const splitLine = (line: string): string[] => {
-    const out: string[] = [];
-    let cur = "";
-    let inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') {
-        if (inQ && line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQ = !inQ;
-        }
-      } else if (c === "," && !inQ) {
-        out.push(cur);
-        cur = "";
-      } else {
-        cur += c;
-      }
-    }
-    out.push(cur);
-    return out;
-  };
 
   const header = splitLine(lines[0]).map((h) => h.trim());
   for (let i = 1; i < lines.length; i++) {
@@ -83,6 +102,10 @@ const EXEC_KEYS = {
   // only, and a half-counted cost is worse than none. The cash history is read
   // separately (parseCashHistoryCsv).
   orderId: ["Order ID", "OrderId", "orderId", "OrderID", "_orderId", "ordStatusID"],
+  // The execution's own id, when the export names it separately from the order
+  // (e.g. Tradovate's Fills export, Rithmic, NinjaTrader). It is the strongest
+  // import identity, so it is read before the order id.
+  fillId: ["Fill ID", "FillId", "fillId", "fill_id", "Execution ID", "ExecutionId", "executionId", "Exec ID"],
   orderType: ["Order Type", "OrderType", "orderType", "order_type", "Type"],
 };
 
@@ -142,6 +165,19 @@ export interface FillCosts {
   commission: number;
 }
 
+/**
+ * One cost line the platform wrote. Its `key` is deterministic (stamp, contract,
+ * kind, amount), so the same line appearing in two cash exports — or twice in
+ * one — counts once when the batch is merged.
+ */
+export interface CashCostRow {
+  key: string;
+  kind: string;
+  amount: number;
+  stamp: string;
+  contract: string;
+}
+
 export interface CashCosts {
   /** Cost per fill, keyed by timestamp + contract (the platform's own identity). */
   byFill: Map<string, FillCosts>;
@@ -151,10 +187,34 @@ export interface CashCosts {
   charged: number;
   /** The platform's own account balance — the last running `Amount` it wrote. */
   finalBalance?: number;
+  /** The individual cost rows, each with a deterministic identity. */
+  rows?: CashCostRow[];
 }
 
 const CASH_CONTRACT_KEYS = ["Contract", "contract"];
 const CASH_STAMP_KEYS = ["Timestamp", "timestamp", "Date/Time", "date/time"];
+/** The two spellings the reader takes the cost's own kind from. */
+const CASH_KIND_KEYS = ["Cash Change Type", "Cash Change"];
+
+/**
+ * How a fill finds the money it was actually charged.
+ *
+ * Both sides name the same contract in their own way — an Orders ticket spells
+ * it out (`NQU6`), a Fills row may carry only the root (`NQ`) or nothing at
+ * all, and the cash history writes whichever its own report used. So the key
+ * settles on the **root**, which is what the trade is filed under anyway, and a
+ * fills row with no `Contract` column still lands on the same key as the cash
+ * line stamped for it. Attaching by identity is the whole point: a cost that
+ * belongs to one fill must never be found by proximity in time.
+ *
+ * Two contracts of one root sharing a stamp share a key. The money is still
+ * exact — the reader splits it by size (see `parseTradeovateCsv`) — but the
+ * split is a judgement call, which is why the cash rows keep their own identity
+ * for the merge to count once.
+ */
+function cashKey(stamp: string, contract: string): string {
+  return `${normStamp(stamp)}|${rootSymbol(contract || "")}`;
+}
 
 /** `08/19/2026 14:46:08` → `2026-08-19 14:46:08`, so any report's stamp matches. */
 function normStamp(raw: string): string {
@@ -164,14 +224,13 @@ function normStamp(raw: string): string {
   return `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")} ${h.padStart(2, "0")}:${mi}:${s}`;
 }
 
-function cashKey(stamp: string, contract: string): string {
-  return `${normStamp(stamp)}|${(contract || "").trim().toUpperCase()}`;
-}
-
 /** The cash history is the one file whose header says what it is. */
 export function isCashHistoryCsv(text: string): boolean {
+  // The reader's own spelling of the column, so a header it can read is a
+  // header the gate calls cash.
+  if (headerHas(headerCells(text), CASH_KIND_KEYS)) return true;
   const head = (text.split(/\r?\n/)[0] || "").toLowerCase();
-  return head.includes("cash change type") || (head.includes("delta") && head.includes("amount"));
+  return head.includes("delta") && head.includes("amount");
 }
 
 /**
@@ -179,12 +238,19 @@ export function isCashHistoryCsv(text: string): boolean {
  * user renames an export and the name lies. `cash` is the platform's money
  * ledger, never trades; `orders` carries every ticket, `fills` every execution.
  * Anything else is not something this journal can read, and says so.
+ *
+ * The identity it looks for is the one the reader already reads —
+ * `EXEC_KEYS.fillId` and `EXEC_KEYS.orderId`, matched as whole header cells, the
+ * way `firstNonEmpty` matches them in a row. So `Order ID` and `orderId` are
+ * both an Orders report, and `Fill ID`, `fillId` and `Execution ID` are all a
+ * Fills report; there is no second list that can drift from the parser, and no
+ * file is announced as a report the reader would then find nothing in.
  */
 export function csvKind(text: string): "cash" | "orders" | "fills" | "unknown" {
   if (isCashHistoryCsv(text)) return "cash";
-  const head = (text.split(/\r?\n/)[0] || "").toLowerCase();
-  if (head.includes("fill id")) return "fills";
-  if (head.includes("status") && head.includes("order id")) return "orders";
+  const cells = headerCells(text);
+  if (headerHas(cells, EXEC_KEYS.fillId)) return "fills";
+  if (headerHas(cells, EXEC_KEYS.orderId) && cells.some((c) => c.toLowerCase() === "status")) return "orders";
   return "unknown";
 }
 
@@ -199,6 +265,8 @@ export function csvKind(text: string): "cash" | "orders" | "fills" | "unknown" {
  */
 export function parseCashHistoryCsv(text: string): CashCosts {
   const byFill = new Map<string, FillCosts>();
+  const rows: CashCostRow[] = [];
+  const seenRows = new Set<string>();
   let lines = 0;
   let charged = 0;
   let finalBalance: number | undefined;
@@ -220,13 +288,22 @@ export function parseCashHistoryCsv(text: string): CashCosts {
       kind === "exchange fee" || kind === "clearing fee" || kind === "nfa fee" || kind === "commission";
     if (!isCost) continue;
 
-    lines++;
     // The cash history writes every cost as a negative delta. The journal keeps
     // costs as positive amounts and subtracts them, the way the fills file and
     // every broker statement write them.
     const amount = Math.abs(delta);
+    const stamp = firstNonEmpty(row, CASH_STAMP_KEYS);
+    const contract = firstNonEmpty(row, CASH_CONTRACT_KEYS);
+    // A line is one decision: the same stamp, contract, kind and amount twice is
+    // the same money, never two fees.
+    const rowKey = `${cashKey(stamp, contract)}|${kind}|${amount}`;
+    if (seenRows.has(rowKey)) continue;
+    seenRows.add(rowKey);
+    rows.push({ key: rowKey, kind, amount, stamp, contract });
+
+    lines++;
     charged += amount;
-    const key = cashKey(firstNonEmpty(row, CASH_STAMP_KEYS), firstNonEmpty(row, CASH_CONTRACT_KEYS));
+    const key = cashKey(stamp, contract);
     const entry = byFill.get(key) ?? { exchange: 0, clearing: 0, nfa: 0, commission: 0 };
     if (kind === "exchange fee") entry.exchange += amount;
     else if (kind === "clearing fee") entry.clearing += amount;
@@ -235,7 +312,55 @@ export function parseCashHistoryCsv(text: string): CashCosts {
     byFill.set(key, entry);
   }
 
-  return { byFill, lines, charged: round2(charged), finalBalance };
+  return { byFill, lines, charged: round2(charged), finalBalance, rows };
+}
+
+/**
+ * Merge several cash histories into one, counting each cost line once. The row
+ * identity (stamp, contract, kind, amount) is deterministic, so the same export
+ * dropped twice — or two overlapping exports — cannot double the bill.
+ */
+export function mergeCashCosts(list: CashCosts[]): CashCosts {
+  const byFill = new Map<string, FillCosts>();
+  const rows: CashCostRow[] = [];
+  const seen = new Set<string>();
+  let lines = 0;
+  let charged = 0;
+  let finalBalance: number | undefined;
+
+  for (const costs of list) {
+    if (Number.isFinite(costs.finalBalance)) finalBalance = costs.finalBalance;
+    if (costs.rows) {
+      for (const row of costs.rows) {
+        if (seen.has(row.key)) continue;
+        seen.add(row.key);
+        rows.push(row);
+        lines++;
+        charged += row.amount;
+        const key = cashKey(row.stamp, row.contract);
+        const entry = byFill.get(key) ?? { exchange: 0, clearing: 0, nfa: 0, commission: 0 };
+        if (row.kind === "exchange fee") entry.exchange += row.amount;
+        else if (row.kind === "clearing fee") entry.clearing += row.amount;
+        else if (row.kind === "nfa fee") entry.nfa += row.amount;
+        else entry.commission += row.amount;
+        byFill.set(key, entry);
+      }
+      continue;
+    }
+    // A caller without per-row detail (older shape): merge the aggregate.
+    lines += costs.lines;
+    charged += costs.charged;
+    for (const [key, value] of costs.byFill) {
+      const entry = byFill.get(key) ?? { exchange: 0, clearing: 0, nfa: 0, commission: 0 };
+      entry.exchange += value.exchange;
+      entry.clearing += value.clearing;
+      entry.nfa += value.nfa;
+      entry.commission += value.commission;
+      byFill.set(key, entry);
+    }
+  }
+
+  return { byFill, lines, charged: round2(charged), finalBalance, rows };
 }
 
 export function parseTradeovateCsv(
@@ -393,8 +518,12 @@ export function parseTradeovateCsv(
 
     // The platform's own identity for this fill — its timestamp and contract as
     // written. The cash history stamps its cost lines with the same pair, which
-    // is how a fill finds the money it was actually charged.
-    const costKey = cashKey(firstNonEmpty(row, EXEC_KEYS.timestamp), firstNonEmpty(row, CASH_CONTRACT_KEYS));
+    // is how a fill finds the money it was actually charged. A Fills export
+    // carries no `Contract` column, so the row's own symbol is the identity the
+    // cash lines are keyed on; a cost is then found by what it *is*, never by
+    // falling inside a trade's window.
+    const costContract = firstNonEmpty(row, CASH_CONTRACT_KEYS) || symbol;
+    const costKey = cashKey(firstNonEmpty(row, EXEC_KEYS.timestamp), costContract);
 
     executions.push({
       timestamp,
@@ -407,6 +536,7 @@ export function parseTradeovateCsv(
       commission,
       fees,
       orderId: firstNonEmpty(row, EXEC_KEYS.orderId),
+      fillId: firstNonEmpty(row, EXEC_KEYS.fillId) || undefined,
       orderType: firstNonEmpty(row, EXEC_KEYS.orderType),
       costKey,
       timestampSource,
@@ -440,7 +570,7 @@ export function parseTradeovateCsv(
 
   if (!hasExecSig && executions.length === 0) {
     warnings.push(
-      "Could not recognize the CSV format. Use the Tradeovate export from Reports → Orders or Fills."
+      "Could not recognize this CSV. Tradebook reads Tradovate exports: Orders or Fills for trades, and Cash History in the costs slot. The Performance report cannot be read."
     );
   }
 
@@ -776,7 +906,7 @@ function pairRoundTrips(
           pnl: round2(fillGross),
           fees: round2(fillCost * share),
           orderType: fill.orderType || undefined,
-          fillId: fill.orderId || undefined,
+          fillId: fill.fillId || fill.orderId || undefined,
         });
       }
 
@@ -813,6 +943,9 @@ function pairRoundTrips(
           // with the trade so a later number can be read with the provenance it
           // deserves — and so the UI can say where the trade came from.
           origin: "broker",
+          // The account's own fill, read from the platform's export. That is
+          // actual data, not a reconstruction.
+          dataSource: "broker",
           date: formatDate(pos.openTime, civilZone),
           entryTime: formatTime(pos.openTime, civilZone),
           exitTime: formatTime(fill.timestamp, civilZone),
@@ -877,7 +1010,7 @@ function pairRoundTrips(
           price: fill.price,
           fees: round2(fillCost * share),
           orderType: fill.orderType || undefined,
-          fillId: fill.orderId || undefined,
+          fillId: fill.fillId || fill.orderId || undefined,
         });
         lots.push({ sign, qty: remaining, price: fill.price, time: fill.timestamp });
       }

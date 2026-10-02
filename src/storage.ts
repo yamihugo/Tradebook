@@ -117,6 +117,9 @@ export function tradeToMarkdown(t: Trade): string {
     `review: ${quoteYaml(t.review ?? "")}`,
     t.orderType ? `order_type: "${t.orderType}"` : null,
     t.fillId ? `fill_id: ${quoteYaml(t.fillId)}` : null,
+    // The import's stable identity, written only when it exists. A note that
+    // predates the key keeps its absence; the importer recomputes it then.
+    t.importKey ? `import_key: ${quoteYaml(t.importKey)}` : null,
     t.notes ? `notes: ${quoteYaml(t.notes)}` : null,
     t.timezone ? `timezone: "${t.timezone}"` : null,
     // Canonical instants + their provenance. Written only when they exist: a
@@ -130,8 +133,14 @@ export function tradeToMarkdown(t: Trade): string {
     `screenshot: ${quoteYaml(t.screenshot ?? "")}`,
     ...screenshotsLines(t),
     num("rating", t.rating ?? 0),
-    `reviewed: ${t.reviewed ? "true" : "false"}`,
+    // Only the trader's own word is written. "Absent" means "let the checklist
+    // decide", which is a real third state: writing `false` for an unset flag
+    // turned every fully written-up trade into a permanent "Needs review".
+    typeof t.reviewed === "boolean" ? `reviewed: ${t.reviewed ? "true" : "false"}` : null,
     t.origin ? `origin: "${t.origin}"` : null,
+    // Explicit provenance, written only when known. A note that predates the
+    // key keeps its absence; nothing is guessed on the way out.
+    t.dataSource ? `data_source: "${t.dataSource}"` : null,
     // All three array keys are always emitted, even when empty, so the schema is
     // stable and a reader can tell "absent" from "explicitly empty".
     `tags: ${inlineArray(t.tags)}`,
@@ -151,7 +160,10 @@ export function tradeToMarkdown(t: Trade): string {
       `copy_multiplier: ${t.copyMultiplier ?? 1}`,
       `copy_symbol_map: "${t.copySymbolMap ?? ""}"`,
       `copy_origin: ${t.copyOrigin ?? "generated"}`,
-      `copy_pnl_adjustment: ${t.copyPnlAdjustment ?? 0}`
+      `copy_pnl_adjustment: ${t.copyPnlAdjustment ?? 0}`,
+      // Supersession is written only when it happened; a live leg keeps no key.
+      ...(t.supersededBy ? [`superseded_by: ${quoteYaml(t.supersededBy)}`] : []),
+      ...(t.supersededAt ? [`superseded_at: "${t.supersededAt}"`] : [])
     );
   } else if (t.copyBaseKey) {
     // A base trade keeps its own stable group key (so legs survive edits/renames).
@@ -416,6 +428,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     review: get("review") || bodySection(body, "Review"),
     orderType: normalizeOrderType(get("order_type")),
     fillId: get("fill_id"),
+    importKey: get("import_key") || undefined,
     notes: get("notes"),
     timezone: get("timezone"),
     entryInstant: get("entry_instant") || undefined,
@@ -428,8 +441,15 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     rating: parseInt(get("rating"), 10) || 0,
     // `accepted` was a short-lived second flag; a note that carries it means the
     // same thing as reviewed, so it is folded in on read and never written again.
-    reviewed: get("reviewed") === "true" || get("accepted") === "true",
+    // Three states, kept distinct on purpose: true (the trader's word closes
+    // it), false (the trader's word holds it open), absent (the checklist
+    // decides). Folding absent into false was what pinned finished trades in
+    // the review queue.
+    reviewed: has("reviewed") || has("accepted")
+      ? get("reviewed") === "true" || get("accepted") === "true"
+      : undefined,
     origin: (get("origin") as Trade["origin"]) || undefined,
+    dataSource: (get("data_source") || get("dataSource") || undefined) as Trade["dataSource"],
     tags: legacyTags,
     // Read with fallbacks, never destructive: an untouched legacy note keeps its
     // old `tags`/`mistake` meaning until the review UI writes the new keys.
@@ -445,6 +465,8 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     copySymbolMap: get("copy_symbol_map") || get("copySymbolMap"),
     copyOrigin: (get("copy_origin") || get("copyOrigin") || "") as Trade["copyOrigin"],
     copyPnlAdjustment: parseFloat(get("copy_pnl_adjustment")) || 0,
+    supersededBy: get("superseded_by") || get("supersededBy") || undefined,
+    supersededAt: get("superseded_at") || get("supersededAt") || undefined,
   };
 }
 

@@ -47,6 +47,22 @@ export function priceFromRisk(
 }
 
 /**
+ * How an edited fee total is split back into the two stored fields.
+ *
+ * The number the trader typed is the platform's total for the trade, and the
+ * total must survive exactly. The recorded commission is kept when it fits
+ * (`total >= commission`), with fees taking the remainder; below the commission
+ * the commission becomes the total and fees is zero. Commission is never
+ * discarded while it can be preserved.
+ */
+export function splitFeeTotal(total: number, commission: number): { commission: number; fees: number } {
+  const v = Number.isFinite(total) ? Math.max(0, round2(total)) : 0;
+  const c = round2(Math.max(0, Number.isFinite(commission) ? commission : 0));
+  if (v >= c) return { commission: c, fees: round2(v - c) };
+  return { commission: v, fees: 0 };
+}
+
+/**
  * Every key this trade answers to, most specific first.
  *
  * The fill id is the platform's own identity and never collides. A hand-entered

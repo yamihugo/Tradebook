@@ -423,12 +423,6 @@
   font-size: var(--tj-fs-strong);
 }
 /* Which export to bring: the one that carries the most information. */
-.tj-drop-hint {
-  margin-top: 10px;
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3);
-  line-height: 1.5;
-}
 .tj-import-progress {
   color: var(--tj-fg-3);
 }
@@ -445,19 +439,6 @@
   color: var(--tj-fg-3);
   margin-top: 8px;
 }
-.tj-acct-chip {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: var(--tj-fs-small);
-  border: 1px solid var(--background-modifier-border);
-}
-.tj-acct-chip.all { background: color-mix(in srgb, var(--text-muted) 15%, transparent); color: var(--tj-fg-3); }
-.tj-acct-chip.demo { background: color-mix(in srgb, var(--interactive-accent) 9%, transparent); color: color-mix(in srgb, var(--interactive-accent) 68%, var(--text-normal)); }
-.tj-acct-chip.eval { background: color-mix(in srgb, var(--interactive-accent) 15%, transparent); color: color-mix(in srgb, var(--interactive-accent) 72%, var(--text-normal)); }
-.tj-acct-chip.funded { background: rgba(16, 185, 129, 0.15); color: var(--color-green-bright, #34d17a); }
-.tj-acct-chip.unknown { background: var(--background-modifier-border); color: var(--tj-fg-3); }
-.tj-account-meta .tj-acct-chip { margin-left: 8px; }
 .tj-success {
   background: rgba(16, 185, 129, 0.1);
   border: 1px solid var(--color-green-bright, #34d17a);
@@ -478,28 +459,6 @@
   margin: auto;
   max-width: 92%;
   text-align: center;
-}
-
-/* ---------------- Settings ---------------- */
-.tj-rule-group {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.tj-rule-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.tj-rule-type {
-  width: 90px;
-  font-weight: var(--tj-w-medium);
-  text-transform: capitalize;
-}
-.tj-rule-input {
-  flex: 1;
-  max-width: 400px;
 }
 
 /* ---------------- Dashboard title + add buttons ---------------- */
@@ -528,10 +487,6 @@
   padding: 1px 8px;
   opacity: 0.9;
   cursor: help;
-}
-.tj-add-trade {
-  font-size: var(--tj-fs-strong);
-  padding: 4px 12px;
 }
 
 /* ---------------- Dashboard grid ---------------- */
@@ -692,10 +647,16 @@
   pointer-events: none;
   transition: opacity 0.12s ease;
 }
+/* In edit mode the ✕ is always visible: hover-only means a touch screen has no
+   way to remove a card at all, which is the one job edit mode exists for. */
+.tj-grid.is-editing .tj-mini.tj-del,
 .tj-grid.is-editing .tj-gridcard:hover .tj-mini.tj-del,
 .tj-grid.is-editing .tj-mini.tj-del:focus-visible {
-  opacity: 1;
+  opacity: 0.55;
   pointer-events: auto;
+}
+.tj-grid.is-editing .tj-gridcard:hover .tj-mini.tj-del {
+  opacity: 1;
 }
 .tj-gridcard[draggable] {
   cursor: grab;
@@ -841,101 +802,11 @@
   width: 130px;
   resize: vertical;
 }
-.tj-form-label {
-  font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3);
-  font-weight: var(--tj-w-medium);
-}
 .tj-tabpane {
   display: block;
 }
 .tj-tabhidden {
   display: none !important;
-}
-.tj-printpick {
-  width: 100%;
-}
-.tj-printpick-empty {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  border: 1.5px dashed var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  transition: border-color 0.15s, background 0.15s;
-}
-.tj-printpick-empty.over {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
-}
-.tj-printpick-hint {
-  color: var(--tj-fg-3);
-  font-size: var(--tj-fs-body);
-  flex: 1;
-  min-width: 140px;
-}
-.tj-printpick-preview {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  background: var(--background-primary);
-}
-.tj-printpick-thumbwrap {
-  flex: 0 0 64px;
-  width: 64px;
-}
-.tj-printpick-thumb {
-  width: 64px;
-  height: 48px;
-  object-fit: cover;
-  border-radius: 4px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  display: block;
-}
-.tj-printpick-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 180px;
-}
-.tj-printpick-name {
-  font-family: var(--font-monospace);
-  font-size: var(--tj-fs-body);
-  flex: 1;
-  min-width: 140px;
-}
-.tj-printpick.compact .tj-printpick-hint {
-  font-size: var(--tj-fs-small);
-}
-.tj-printpick.compact .tj-printpick-empty {
-  padding: 6px 8px;
-}
-.tj-printpick.compact .tj-printpick-preview {
-  padding: 4px 8px;
-}
-.tj-printpick.compact .tj-printpick-thumbwrap {
-  flex-basis: 44px;
-  width: 44px;
-}
-.tj-printpick.compact .tj-printpick-thumb {
-  width: 44px;
-  height: 32px;
-}
-.tj-printpick.compact .tj-printpick-meta {
-  min-width: 120px;
-}
-.tj-printpick.compact .tj-printpick-name {
-  font-size: var(--tj-fs-small);
-  min-width: 80px;
-  padding: 1px 4px;
 }
 
 /* ---------------- View switcher (Main / Calendar / Accounts) ---------------- */
@@ -966,24 +837,6 @@
   font-weight: var(--tj-w-medium);
 }
 
-
-/* ---------------- Settings: rule editor ---------------- */
-.tj-rule-editor {
-  margin-top: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  background: var(--background-secondary);
-}
-.tj-rule-editor h4 {
-  margin: 0 0 6px;
-}
-.tj-rule-editor-foot {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  justify-content: flex-end;
-}
 
 /* ---------------- Account Configuration ---------------- */
 .tj-account-hint {
@@ -1047,30 +900,6 @@
   gap: 8px;
   margin-top: 12px;
 }
-.tj-map-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-.tj-map-row:last-child {
-  border-bottom: none;
-}
-.tj-map-name {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.tj-map-acc {
-  font-weight: var(--tj-w-medium);
-  font-size: var(--tj-fs-strong);
-}
-.tj-map-row select.dropdown {
-  max-width: 300px;
-}
 .tj-recent-bar {
   display: flex;
   align-items: center;
@@ -1101,6 +930,8 @@
   max-width: 360px;
   flex: 1 1 auto;
 }
+.tj-account-dash .tj-account-picker .tj-mg-dd { width: 100%; }
+.tj-account-dash .tj-account-picker .tj-mg-dd-btn { max-width: none; width: 100%; }
 .tj-account-dash .tj-account-back { margin-bottom: 8px; }
 .tj-chart-target {
   stroke: var(--text-success);
@@ -1319,7 +1150,15 @@
 /* Account settings — label-left rows + drawers */
 .tj-as-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--background-modifier-border); }
 .tj-as-row:last-of-type { border-bottom: none; }
-.tj-as-rowlabel { width: 116px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); flex-shrink: 0; }
+/* Room for the longest real label ("Highest value before") so it does not wrap
+   mid-field; the helper line under it stays the quiet one. */
+.tj-as-rowlabel { width: 150px; font-size: var(--tj-fs-body); color: var(--tj-fg-2); flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; }
+/* A visible (i) on the few fields whose meaning is not obvious: help that is
+   only a hover cannot be found, so it gets a mark of its own. */
+.tj-as-infoico { color: var(--tj-fg-3); cursor: help; line-height: 1; display: inline-flex; align-items: center; flex: 0 0 auto; }
+.tj-as-infoico svg { width: 13px; height: 13px; }
+.tj-as-infoico:hover { color: var(--tj-fg-1); }
+.tj-as-infoico:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 3px; }
 .tj-as-rowval { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .tj-as-nameinput { background: transparent !important; border: none !important; box-shadow: none !important; text-align: right; color: var(--text-normal); font-size: var(--tj-fs-strong); font-family: inherit; width: 100%; padding: 3px 6px; border-radius: 7px; }
 .tj-as-nameinput:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
@@ -1345,8 +1184,55 @@
 .tj-as-tab-dng.is-active { color: var(--color-red-bright, #ff5d48) !important; border-bottom-color: var(--color-red-bright, #ff5d48) !important; }
 
 .tj-as-panes { padding: 18px; max-height: 60vh; overflow-y: auto; }
-.tj-as-section { font-size: var(--tj-fs-small); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tj-fg-3); font-weight: var(--tj-w-bold); margin-bottom: 10px; }
+/* Section labels read like the rest of Tradebook: a normal line, not a shouted
+   one. The account-settings modal had rows of ALL-CAPS labels with wide
+   letter-spacing, which made every heading louder than its fields. */
+.tj-as-section {
+  font-size: var(--tj-fs-body);
+  font-weight: var(--tj-w-medium);
+  color: var(--text-normal);
+  margin: 18px 0 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.tj-as-panes > .tj-as-section:first-child,
+.tj-as-pane > .tj-as-section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+/* The modal's own group heading needs a little air above it, the way the page's
+   sections do — a heading that touches the row above it reads as a label for it. */
+.tj-account-wizard .tj-as-section:not(:first-child) { margin-top: 18px; }
+/* The wizard's small labels are wide-tracked caps by design; inside the
+   account-settings modal they read as headings, so they are quietened here. */
+.tj-acc-settings .tj-wz-label {
+  font-size: var(--tj-fs-small);
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--tj-fg-3);
+}
+/* Optional history, behind one line. A disclosure, not another block of fields. */
+.tj-as-disclosure { margin-top: 16px; }
+.tj-as-disclosure-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: inherit; font-size: var(--tj-fs-small); color: var(--tj-fg-2);
+  background: none !important; border: none !important; box-shadow: none !important;
+  padding: 4px 0 !important; cursor: pointer; text-align: left;
+}
+.tj-as-disclosure-btn::before {
+  content: "\203A"; color: var(--tj-fg-3); font-size: var(--tj-fs-body);
+  display: inline-block; transition: transform 140ms ease;
+}
+.tj-as-disclosure-btn.is-open::before { transform: rotate(90deg); }
+.tj-as-disclosure-btn:hover { color: var(--text-normal); }
+.tj-as-disclosure-panel { padding: 2px 0 4px 12px; }
+.tj-as-disclosure-panel.is-hidden { display: none; }
+.tj-as-disclosure-intro {
+  margin: 2px 0 8px;
+  font-size: var(--tj-fs-small);
+  line-height: 1.5;
+  color: var(--tj-fg-3);
+}
 .tj-as-hint { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 5px; line-height: 1.5; }
+/* A hint that is the reason a form cannot be saved yet. */
+.tj-as-hint-warn { color: var(--tj-tone-mid); }
 /* The General tab reuses the wizard's type tiles and custom-size field, tuned
    for the narrower account modal: the tiles are compact here, not the hero of a
    creation flow. */
@@ -1673,10 +1559,6 @@
 .tj-form-row .mod-cta { flex-shrink: 0; }
 
 /* Fase 7: live accounts */
-.tj-acct-chip.live {
-  background: var(--color-green-bright, #34d17a);
-  color: #fff;
-}
 .tj-live-btn {
   border-color: var(--color-green-bright, #34d17a);
   color: var(--color-green-bright, #34d17a);
@@ -1958,6 +1840,11 @@
   width: 13px;
   height: 13px;
 }
+/* A reconstructed copy is a model, not a broker fill: the amber tone marks it
+   apart from the neutral provenance icon without adding a word. */
+.tj-td-origin.is-reconstructed {
+  color: var(--tj-tone-mid);
+}
 .tj-td-hero-badge {
   display: inline-flex;
   align-items: center;
@@ -2059,6 +1946,21 @@
 }
 .tj-td-hero-v.pos { color: var(--color-green-bright, #34d17a); }
 .tj-td-hero-v.neg { color: var(--color-red-bright, #ff5d48); }
+/* Incomplete cost record on a single trade: one quiet line under the numbers it
+   qualifies, in the caution tone rather than the error tone. */
+.tj-td-hero-warn {
+  flex-basis: 100%;
+  font-size: var(--tj-fs-small);
+  line-height: 1.5;
+  color: var(--tj-tone-mid);
+}
+.tj-td-hero-context {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  font-variant-numeric: tabular-nums;
+}
 @media (max-width: 720px) {
   .tj-td-hero {
     flex-direction: column;
@@ -3161,23 +3063,33 @@
   height: 16px;
 }
 /* Add widget — no fill, subtle accent outline (matches the edit-mode accent). */
-.tj-addwidget {
+/* Add widget — the one primary action in the header, so it is the one filled
+   button there. Layouts (saved snapshots) is quieter: it is a switcher, not the
+   action the trader came here to take. */
+.tj-addwidget,
+.tj-layoutbtn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   height: 30px;
   padding: 0 12px;
-  border: 1px solid var(--interactive-accent) !important;
-  border-radius: 7px;
-  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  background: var(--interactive-accent) !important;
   background-image: none !important;
   box-shadow: none !important;
-  color: var(--interactive-accent);
+  color: var(--text-on-accent);
   font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-medium);
   cursor: pointer;
-  transition: background-color 140ms ease;
 }
+.tj-layoutbtn {
+  background: transparent !important;
+  border-color: var(--background-modifier-border) !important;
+  color: var(--text-muted);
+}
+.tj-layoutbtn:hover { color: var(--text-normal); border-color: var(--interactive-accent) !important; }
+.tj-layoutbtn.is-active { color: var(--interactive-accent); border-color: var(--interactive-accent) !important; }
 .tj-addwidget:hover {
   background: var(--background-modifier-hover) !important;
 }
@@ -3201,6 +3113,24 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+/* The Filters popover: one scroller for the whole card, and a hairline between
+   its two groups. The account list used to scroll inside a card that had no
+   height of its own, which reads as a scrollbar that belongs to nothing. */
+.tj-popover-filters {
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+}
+.tj-pop-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tj-pop-rule {
+  height: 1px;
+  margin: 4px 2px;
+  background: color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
 }
 .tj-pop-section {
   font-size: var(--tj-fs-small);
@@ -3362,25 +3292,6 @@
 }
 
 /* ---- Edit toolbar (replaces the old palette bar) ---- */
-.tj-editbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 12px 0 4px;
-}
-.tj-addwidget {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border: none;
-  border-radius: 8px;
-  padding: 7px 14px;
-  font-size: var(--tj-fs-strong);
-  font-weight: var(--tj-w-medium);
-  cursor: pointer;
-}
 .tj-addwidget:hover {
   filter: brightness(1.08);
 }
@@ -3393,74 +3304,8 @@
   width: 15px;
   height: 15px;
 }
-.tj-editbar-hint {
-  font-size: var(--tj-fs-body);
-  color: var(--tj-fg-3);
-}
 
 /* ---- Widget picker overlay ---- */
-.tj-picker-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-}
-.tj-picker {
-  width: min(440px, 92vw);
-  max-height: 70vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-}
-.tj-picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px 4px;
-}
-.tj-picker-head h3 {
-  margin: 0;
-  font-size: var(--tj-fs-big);
-  font-weight: var(--tj-w-bold);
-}
-.tj-picker-search {
-  margin: 8px 14px;
-  padding: 8px 11px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-modifier-form-field);
-  color: var(--text-normal);
-  font-size: var(--tj-fs-strong);
-  outline: none;
-}
-.tj-picker-list {
-  overflow-y: auto;
-  padding: 4px 8px 12px;
-}
-.tj-picker-item {
-  padding: 9px 11px;
-  border-radius: 8px;
-  font-size: var(--tj-fs-strong);
-  color: var(--text-normal);
-  cursor: pointer;
-}
-.tj-picker-item:hover {
-  background: var(--background-modifier-hover);
-}
-.tj-picker-empty {
-  padding: 14px;
-  text-align: center;
-  color: var(--tj-fg-3);
-  font-size: var(--tj-fs-strong);
-}
 
 /* ==========================================================================
    Seamless period bar
@@ -4087,13 +3932,14 @@
   font-size: var(--tj-fs-body);
   line-height: 1;
 }
-/* In edit mode the remove button is live on every card but only paints while
-   the card is hovered (or the button itself is keyboard-focused). */
+/* In edit mode the ✕ is always there — dimmed, and full strength on hover.
+   It used to be hover-only, which on a touch screen left no way to remove a
+   card at all, and in edit mode that is the job that exists to be done. */
 .tj-grid.is-editing .tj-card-del,
 .tj-metrics-band.is-editing .tj-card-del {
   display: inline-flex;
-  opacity: 0;
-  pointer-events: none;
+  opacity: 0.5;
+  pointer-events: auto;
   transition: opacity 0.12s ease;
 }
 .tj-grid.is-editing .tj-gridcard:hover .tj-card-del,
@@ -4101,7 +3947,6 @@
 .tj-metrics-band.is-editing .tj-metric-slot:hover .tj-card-del,
 .tj-metrics-band.is-editing .tj-card-del:focus-visible {
   opacity: 1;
-  pointer-events: auto;
 }
 .tj-card-del:hover {
   color: var(--text-normal);
@@ -4235,19 +4080,28 @@
   flex-direction: column;
   gap: 2px;
 }
+/* Real buttons now, so the house button reset applies: no fill, no shadow,
+   full width, Obsidian's own focus ring kept. */
 .tj-widgetmenu-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  width: 100%;
   padding: 7px 10px;
+  border: 0;
   border-radius: 6px;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  font-family: inherit;
   font-size: var(--tj-fs-strong);
+  text-align: left;
   color: var(--text-normal);
   cursor: pointer;
 }
 .tj-widgetmenu-item:hover {
-  background: var(--background-modifier-hover);
+  background: var(--background-modifier-hover) !important;
 }
 .tj-widgetmenu-item.is-added {
   color: var(--tj-fg-3);
@@ -4265,6 +4119,23 @@
 .tj-widgetmenu-sections {
   overflow-y: auto;
   max-height: 60vh;
+}
+.tj-widgetmenu-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tj-widgetmenu-count {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  cursor: help;
+}
+.tj-widgetmenu-hint {
+  padding: 0 12px 10px;
+  font-size: var(--tj-fs-small);
+  line-height: 1.5;
+  color: var(--tj-fg-3);
 }
 .tj-widgetmenu-section {
   margin-bottom: 16px;
@@ -4486,19 +4357,6 @@
 .tj-addpanel .tj-import-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Large print preview inside the form */
-.tj-addpanel .tj-printpick-preview {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-}
-.tj-addpanel .tj-printpick-thumbwrap { flex: none; width: 100%; }
-.tj-addpanel .tj-printpick-thumb {
-  width: 100%;
-  height: 230px;
-  object-fit: contain;
-  cursor: zoom-in;
-  background: var(--background-secondary);
-}
 
 /* Full-screen print viewer */
 .tj-print-overlay {
@@ -4570,15 +4428,16 @@
 
 /* The zone is the one answer that has to be right before a number means
    anything, so it gets a box of its own instead of sharing a line. */
+/* Time and Costs are ANSWERS, not decisions: a row that reads the same
+   language as the two boxes above it made them look like peers of the account
+   mapping, and they are not. No card, no border \u2014 just a clear row. */
 .tj-import-zonebox {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 9px 12px;
-  margin-bottom: 10px;
+  padding: 6px 2px 8px;
+  margin-bottom: 2px;
 }
 .tj-import-zonetitle {
   font-weight: var(--tj-w-medium);
@@ -4602,11 +4461,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  font-weight: var(--tj-w-medium);
   font-size: var(--tj-fs-strong);
   color: var(--tj-fg-1);
 }
 .tj-import-groupico { display: inline-flex; line-height: 0; color: var(--tj-fg-3); }
 .tj-import-groupico svg { width: 14px; height: 14px; }
+/* The detected leader, named. The box is about a group, and the group starts
+   with who leads it. */
+.tj-import-grouplead { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; }
+.tj-import-leadername { font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--text-normal); }
 .tj-import-groupsub {
   margin: 6px 0 8px;
   font-size: var(--tj-fs-small);
@@ -4615,12 +4479,7 @@
 }
 
 /* The fees: one switch, one line, and the drop zone only while it is on. */
-.tj-import-costsbox {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
-  padding: 9px 12px;
-  margin-bottom: 10px;
-}
+.tj-import-costsbox { padding: 6px 2px 8px; margin-bottom: 2px; }
 .tj-import-costshead {
   display: flex;
   align-items: center;
@@ -4659,6 +4518,50 @@
 
 /* Two decisions, two blocks: the trades, then the platform's costs. */
 .tj-import-block { margin-bottom: 14px; }
+/* The import journey, in three words: Files → Review → Import. Orientation
+   only — it never gates, it just says where the reader is. */
+.tj-import-stages { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 2px 0 14px; }
+.tj-import-stage { display: inline-flex; align-items: center; gap: 5px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-import-stage.is-done { color: var(--tj-fg-2); }
+.tj-import-stage.is-on { color: var(--tj-fg-1); }
+.tj-import-stagenum {
+  display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px;
+  border-radius: 50%; border: 1px solid var(--background-modifier-border);
+  font-size: var(--tj-fs-label); color: var(--tj-fg-3); font-variant-numeric: tabular-nums;
+}
+.tj-import-stage.is-on .tj-import-stagenum { border-color: var(--interactive-accent); color: var(--interactive-accent); }
+.tj-import-stage.is-done .tj-import-stagenum {
+  border-color: color-mix(in srgb, var(--text-success) 45%, transparent);
+  color: var(--text-success);
+}
+.tj-import-stagesep { color: var(--tj-fg-4); font-size: var(--tj-fs-small); }
+/* A sub-area inside Review: named, with a quiet status. These are answers, not
+   top-level steps — the strip above owns the journey. */
+.tj-import-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+}
+.tj-import-steplabel {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+}
+.tj-import-stepstatus {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+.tj-import-stepstatus.is-ready { color: var(--text-success); }
+.tj-import-stepstatus.is-input { color: var(--tj-fg-2); }
+.tj-import-stepstatus.is-warn { color: var(--tj-tone-mid); }
+.tj-import-stepstatus.is-auto,
+.tj-import-stepstatus.is-optional { color: var(--tj-fg-3); }
+/* The next unresolved answer is the one the eye should land on. */
+.tj-import-step.is-needs .tj-import-steplabel { color: var(--text-normal); }
+.tj-import-step.is-needs .tj-import-stepstatus.is-input,
+.tj-import-step.is-needs .tj-import-stepstatus.is-warn { font-weight: var(--tj-w-medium); }
 .tj-import-blocktitle {
   font-size: var(--tj-fs-label);
   letter-spacing: 0.08em;
@@ -4775,6 +4678,31 @@
   background: none !important;
 }
 .tj-import-cashswap:hover { color: var(--tj-fg-1); }
+/* The trades file can be swapped without closing the flow: same ghost word. */
+.tj-import-chipswap {
+  margin-inline-start: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  cursor: pointer;
+}
+.tj-import-modal .tj-import-chipswap {
+  height: auto !important;
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-3) !important;
+}
+.tj-import-modal .tj-import-chipswap:hover {
+  color: var(--tj-fg-1) !important;
+  text-decoration: underline;
+  background: none !important;
+}
+.tj-import-chipswap:hover { color: var(--tj-fg-1); }
 .tj-import-modal .tj-dropzone.is-cash {
   margin-top: 10px;
   padding: 18px 14px;
@@ -4835,9 +4763,12 @@
   padding: 12px 14px;
   margin-top: 14px;
 }
+/* Answered, this box stops being a card. It used to keep its border and radius
+   while the group and the tick list \u2014 both bordered \u2014 sat inside it. */
 .tj-import-pick.is-set {
-  border-color: var(--background-modifier-border);
+  border-color: transparent;
   background: transparent;
+  padding: 0;
 }
 .tj-import-pickhead {
   display: flex;
@@ -4914,9 +4845,6 @@
 }
 /* With a single account in the file the row has no label above the count, so
    the count is the row's only words and has to carry itself. */
-.tj-import-mapname.is-plain .tj-import-mapcount {
-  color: var(--tj-fg-2);
-}
 .tj-import-accs {
   border: 1px solid var(--background-modifier-border);
   border-radius: 9px;
@@ -4980,12 +4908,22 @@
   color: var(--tj-tone-mid);
   border-color: color-mix(in srgb, var(--tj-tone-mid) 40%, transparent);
 }
+/* A state, not a number: an account that is not in any group. It used to wear
+   the ratio chip's tabular styling, which made a sentence look like a value. */
+.tj-accstate {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
 .tj-role.is-copier {
   color: var(--interactive-accent);
   border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
 }
 .tj-ratio { color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-variant-numeric: tabular-nums; }
 /* How much of this file a copier actually mirrors — its window is honest. */
+.tj-import-since {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
 .tj-import-window { color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-variant-numeric: tabular-nums; }
 .tj-import-window.is-warn { color: var(--tj-tone-mid); }
 .tj-import-note {
@@ -5074,6 +5012,17 @@
 .tj-import-tbl .neg,
 .tj-import-net.neg { color: var(--color-red, #ad3527); }
 .tj-import-side { font-size: var(--tj-fs-small); padding: 1px 7px; border-radius: 5px; }
+/* What happens to this row. The list used to show rows that would never be
+   written exactly like the ones that would, with a Net below counting only the
+   writable ones. */
+.tj-import-rowstate {
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.04em;
+  color: var(--tj-fg-3);
+  cursor: help;
+}
+.tj-import-rowstate.is-in { color: var(--tj-fg-2); }
+.tj-import-rowstate.is-out { color: var(--tj-tone-mid); }
 .tj-import-side.is-long { color: var(--color-green, #34d17a); background: rgba(52, 209, 122, 0.12); }
 .tj-import-side.is-short { color: var(--color-red, #ad3527); background: rgba(255, 93, 72, 0.12); }
 .tj-import-reviewfoot {
@@ -5092,6 +5041,53 @@
 .tj-import-emptyline { padding: 12px; font-size: var(--tj-fs-body); color: var(--tj-fg-2); }
 .tj-import-actions { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .tj-import-spacer { flex: 1 1 auto; }
+/* Explicit reconciliation — the copy-match confirmation modal. */
+/* One paragraph for what linking does. It is the only irreversible-looking word
+   in this modal, so it is explained before the list, not after a click. */
+.tj-copymatch-explainer {
+  margin: 0 0 12px;
+  padding: 9px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+  font-size: var(--tj-fs-small);
+  line-height: 1.55;
+  color: var(--tj-fg-2);
+}
+.tj-copymatch-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--tj-sp-2);
+  margin-top: var(--tj-sp-4);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.tj-copymatch-row {
+  display: flex;
+  align-items: center;
+  gap: var(--tj-sp-3);
+  padding: var(--tj-sp-3);
+  border: 1px solid var(--tj-dot);
+  border-radius: var(--tj-sp-1);
+}
+.tj-copymatch-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tj-copymatch-line {
+  font-size: var(--tj-fs-strong);
+  color: var(--tj-fg-1);
+}
+.tj-copymatch-reason {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-2);
+}
+.tj-copymatch-ratio {
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
+}
+.tj-copymatch-acts {
+  display: flex;
+  gap: var(--tj-sp-2);
+}
 .tj-import-footnote {
   margin-top: 10px;
   font-size: var(--tj-fs-small);
@@ -5116,6 +5112,13 @@
 }
 .tj-import-doneico { display: inline-flex; }
 .tj-import-doneico svg { width: 15px; height: 15px; }
+/* The receipt, kept apart: detected, selected, imported, skipped. */
+.tj-import-summary { flex: 1 1 100%; display: flex; flex-direction: column; gap: 2px; }
+.tj-import-summaryrow { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); }
+.tj-import-summaryk { flex: 0 0 68px; color: var(--tj-fg-3); }
+.tj-import-summaryv { color: var(--tj-fg-1); font-variant-numeric: tabular-nums; }
+.tj-import-summaryv.pos { color: var(--color-green-bright, #34d17a); }
+.tj-import-summaryv.is-warn { color: var(--tj-tone-mid); }
 .tj-import-nostrategy {
   display: flex;
   align-items: center;
@@ -5883,7 +5886,6 @@ textarea.tj-anno-textinput {
 .tj-settings .setting-item { padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent); }
 .tj-settings .setting-item:first-of-type { border-top: none; }
 .tj-settings .setting-item-name { font-size: var(--tj-fs-strong); }
-.tj-settings .setting-item-description { font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
 /* Settings — drill-down list (clean, no boxes) */
 .tj-set-list { display: flex; flex-direction: column; margin: 4px 0 4px; }
 .tj-set-title { font-size: var(--tj-fs-strong); font-weight: var(--tj-w-medium); color: var(--text-normal); }
@@ -5938,6 +5940,10 @@ textarea.tj-anno-textinput {
   margin: 0 0 8px; padding: 0 10px;
   font-size: var(--tj-fs-small); line-height: 1.5; color: var(--tj-fg-3);
 }
+/* The one line that introduces a page, under the header and above the first
+   group label. That label does the separating, so this hands its own gap back
+   instead of stacking two on top of each other. */
+.tj-set-lead { margin-bottom: 0; }
 .tj-settings .setting-item.tj-set-opt {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 10px;
@@ -5947,6 +5953,28 @@ textarea.tj-anno-textinput {
 }
 .tj-settings .setting-item.tj-set-opt:hover { background: var(--background-modifier-hover); }
 .tj-set-opt .setting-item-info { flex: 1 1 auto; min-width: 0; }
+/* A selection on a settings line reads right-aligned against a fixed measure, so
+   two rows of different label lengths still line their pickers up. */
+.tj-set-opt .setting-item-control { flex: 0 0 auto; min-width: 190px; }
+.tj-set-opt .setting-item-control.tj-mg-dd.is-block { min-width: 190px; }
+/* The picker reads as a control without becoming a box: a persistent hairline
+   under the value, a chevron, and a hover that brightens both. Before this it
+   was plain text until hovered, so the right side looked like part of the
+   sentence. */
+.tj-set-opt .tj-mg-dd-btn {
+  text-align: left;
+  padding: 4px 4px 5px !important;
+  border-radius: 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent) !important;
+}
+.tj-set-opt .tj-mg-dd-btn:hover {
+  background: var(--background-modifier-hover);
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
+}
+.tj-set-opt .tj-mg-dd-btn:focus-visible {
+  border-bottom-color: var(--interactive-accent) !important;
+}
+.tj-set-opt .tj-mg-dd-chev { margin-left: auto; color: var(--tj-fg-2); }
 .tj-set-opt-icon {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0; width: 24px; height: 24px; color: var(--tj-fg-3);
@@ -6052,40 +6080,194 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-set-sup-btn:hover .tj-set-sup-btn-icon { color: var(--interactive-accent); }
 .tj-set-sup-btn-icon svg { width: 18px; height: 18px; }
 
-/* ---- Default risk by symbol: one block per instrument, mini + micro apart ---- */
-.tj-set-riskblock {
+/* ---- Settings → Imports: two folded tools, one editor at a time ---- */
+/* Each section reads as the label plus one card — the grammar Support uses at
+   the foot of the settings home, and the same surface/radius as `.tj-set-about`.
+   The label introduces a surface that holds the row; it never sits over a naked
+   hairline, and the row never floats in the page. */
+.tj-set-disclosure {
+  position: relative;
+  margin-top: 6px;
+  overflow: hidden;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
 }
-.tj-set-riskblock-head {
+/* The row inside the card is a settings row, unchanged: 12px/10px padding, a
+   24px icon column, the same title over description hierarchy, the same 12px
+   gaps. Only the last cell differs — a value and a chevron, not a control. */
+.tj-set-disclosure-btn {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding-bottom: 6px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  /* A floor, never a ceiling: the breathing room below is in the text block, so
+     a description that wraps grows the row instead of being squeezed. */
+  min-height: 74px;
+  padding: 12px 10px;
+  font: inherit;
+  border: 0;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease;
 }
-.tj-set-riskblock-name {
+.tj-set-disclosure-btn:hover { background: var(--background-modifier-hover); }
+.tj-set-disclosure-btn:hover .tj-set-opt-icon { color: var(--interactive-accent); }
+/* Open, the row stays lit: the editor below it is inside the same card, and a
+   row that snaps back to its resting colour next to it reads as a change rather
+   than as the thing it opened. */
+.tj-set-disclosure-btn.is-open { background: color-mix(in srgb, var(--interactive-accent) 8%, transparent); }
+.tj-set-disclosure-btn.is-open .tj-set-opt-icon { color: var(--interactive-accent); }
+.tj-set-disclosure-left {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* The paragraph margin a description carries in every other settings row. This
+     one is a span in a flex column, so it had none and the row collapsed to
+     bare content height — visibly shorter than General despite the identical
+     12px/10px padding. It lives on the block, not on the row, so `align-items:
+     center` keeps centring the icon over title + description + this space, the
+     way it does over General's paragraph. */
+  padding-bottom: 11px;
+}
+.tj-set-disclosure-title {
   font-size: var(--tj-fs-strong);
   font-weight: var(--tj-w-medium);
+  /* A button inherits a tighter line-height than the row it stands in for, so
+     the title's line box was the one thing on this row the theme did not size. */
+  line-height: 1.4;
   color: var(--text-normal);
 }
-.tj-set-riskblock-pair {
-  font-size: var(--tj-fs-small);
+/* The same measure as every other settings description, so the two tools carry
+   the same weight as the rows on General. */
+.tj-set-disclosure-sub {
+  font-size: var(--tj-fs-body);
+  line-height: 1.4;
   color: var(--tj-fg-3);
-  font-variant-numeric: tabular-nums;
 }
+/* The state is a value and it sits in the value slot: the same measure a control
+   keeps and the same hairline under the words a picker draws. Without that the
+   right side was a loose word beside a chevron, and the row read as a link. It
+   is still not a badge — a capsule here would make the two quietest tools in
+   Settings the loudest things on the page. */
+.tj-set-state {
+  flex: 0 0 auto;
+  width: 162px;
+  padding: 4px 4px 5px;
+  text-align: right;
+  font-size: var(--tj-fs-body);
+  color: var(--tj-fg-3);
+  border-radius: 5px 5px 0 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent);
+  white-space: nowrap;
+  transition: color 140ms ease, border-bottom-color 140ms ease;
+}
+.tj-set-state.is-set { color: var(--tj-fg-2); }
+.tj-set-disclosure-btn:hover .tj-set-state {
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+}
+/* A narrow pane cannot afford a full control column, so the value gives the
+   space back to the name instead of pushing the description onto four lines. */
+@media (max-width: 560px) {
+  .tj-set-state { width: 118px; }
+}
+.tj-set-disclosure-chev {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--tj-fg-3);
+  transition: transform 180ms ease;
+}
+.tj-set-disclosure-chev svg { width: 16px; height: 16px; }
+.tj-set-disclosure-btn.is-open .tj-set-disclosure-chev {
+  color: var(--tj-fg-2);
+  transform: rotate(180deg);
+}
+
+/* The editor opens inside the card it belongs to: one hairline off its row, the
+   content starting on that row's own text edge (10px of padding + a 24px icon +
+   a 12px gap) and ending on its own right edge. The card is the floor — there is
+   no second container, no grey wall and no new page underneath. */
+.tj-set-disclosure-panel {
+  padding: 10px 10px 14px 46px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+}
+.tj-set-disclosure-panel.is-hidden { display: none; }
+/* Flush with the rest of the panel's content now that the panel carries the
+   indent itself. */
+.tj-set-disclosure-panel .tj-set-note,
+.tj-set-disclosure-panel .tj-set-subhead { padding-left: 0; padding-right: 0; }
+/* Inside a panel the hint is a line of help, not a headline. */
+.tj-set-disclosure-panel .tj-hint { margin-bottom: 8px; font-size: var(--tj-fs-small); }
+/* An editor sitting inside a card keeps the same hairline a settings control
+   draws, so the right side of its own rows is a value and not loose text. */
+.tj-set-disclosure-panel .tj-mg-dd-btn {
+  padding: 4px 4px 5px !important;
+  border-radius: 5px;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent) !important;
+}
+.tj-set-disclosure-panel .tj-mg-dd-btn:hover {
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
+}
+
+.tj-set-subhead {
+  margin: 14px 0 4px;
+  padding: 0 10px;
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-bold);
+  color: var(--tj-fg-2);
+}
+/* The panel's opening line, and its verdict line — a little more air than a
+   note between two sections. */
+.tj-set-summary { margin-bottom: 10px; }
+.tj-set-disclosure-panel > .tj-set-summary:first-child { margin-top: 0; }
+
+/* ---- Risk by symbol: one grid, families as quiet lines ---- */
+/* The legend and every row are the same three columns, so "Points from entry"
+   and "Money per trade" sit over their inputs for all twelve contracts. */
+.tj-set-riskgrid,
 .tj-set-riskrow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px 92px;
   align-items: center;
-  gap: 10px;
-  padding: 7px 0;
+  gap: 8px 10px;
 }
+.tj-set-riskgrid.is-legend {
+  margin-bottom: 2px;
+  font-size: var(--tj-fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+}
+/* A family is a line of words, not a card: the label names the market and the
+   pair on the right says which two contracts the two rows below belong to. */
+.tj-set-riskfam {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 14px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+}
+.tj-set-riskfam-name {
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-2);
+}
+.tj-set-riskfam-pair {
+  font-size: var(--tj-fs-micro);
+  color: var(--tj-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.tj-set-riskrow { padding: 7px 0; }
 .tj-set-riskrow + .tj-set-riskrow {
-  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
 }
 .tj-set-riskname {
   display: flex;
@@ -6097,6 +6279,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   font-size: var(--tj-fs-strong);
   font-weight: var(--tj-w-medium);
 }
+/* Only drawn once there is a rule to state, so an empty contract is one line. */
 .tj-set-riskhint {
   font-size: var(--tj-fs-micro);
   color: var(--tj-fg-3);
@@ -6109,8 +6292,117 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   box-sizing: border-box;
   font-size: var(--tj-fs-small);
 }
+@media (max-width: 560px) {
+  .tj-set-riskgrid,
+  .tj-set-riskrow { grid-template-columns: minmax(0, 1fr) 68px 78px; }
+}
 
+/* ---- Account matching & repair ---- */
+/* A micro-label above each list, so twelve names read as two groups of facts
+   rather than twelve form fields. */
+.tj-set-microhead {
+  margin: 12px 0 2px;
+  font-size: var(--tj-fs-label);
+  font-weight: var(--tj-w-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tj-fg-3);
+}
+.tj-set-maprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 6px 0;
+}
+.tj-set-maprow + .tj-set-maprow {
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+}
+.tj-set-mapname {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tj-set-maplabel {
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-medium);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tj-set-mapmeta {
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+/* The type is a word in the account's own colour, not a capsule: the reader
+   needs the verdict, not another rectangle. */
+.tj-set-maptype { margin-left: 6px; }
+.tj-set-maptype.is-unread { margin-left: 0; color: var(--tj-tone-mid); }
+.tj-set-maprow .tj-mg-dd.is-block { min-width: 180px; }
 
+/* ---- How a name's type is read ---- */
+/* One keyword list per kind, flat like every other settings row. The kind is a
+   fixed gutter, so three lists of different lengths still line up. */
+.tj-set-kwgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tj-set-kwrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tj-set-kwtype {
+  flex: 0 0 88px;
+  font-size: var(--tj-fs-strong);
+  font-weight: var(--tj-w-medium);
+  color: var(--text-normal);
+}
+.tj-set-kwinput {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 400px;
+  font-size: var(--tj-fs-small);
+}
+
+/* ---- Quiet actions inside a tool panel ---- */
+/* The way out of a repair editor (clear the assumptions, restore the keywords)
+   is one line of text. It is deliberately not a settings row: a box here would
+   outweigh the twelve rows above it. */
+.tj-set-toolfoot {
+  display: flex;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+}
+.tj-set-linkbtn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-small);
+  cursor: pointer;
+  transition: color 120ms ease;
+}
+.tj-set-linkbtn:hover { color: var(--interactive-accent); }
+.tj-set-maprow .tj-set-linkbtn {
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.tj-set-maprow .tj-set-linkbtn:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, var(--background-modifier-border));
+}
 
 /* Surface tint (set by themes that define one) */
 .tj-app .tj-gridcard,
@@ -7485,6 +7777,37 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-k { font-size: var(--tj-fs-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--tj-fg-3); font-weight: var(--tj-w-medium); margin-bottom: 8px; }
 
 /* Account page: the copy memory, right under the title. */
+/* Where these numbers come from — one quiet line, and everything behind the ⓘ.
+   Metadata, so metadata tone: it must never compete with the account's own state. */
+.tj-acc-meta {
+  display: flex; align-items: center; gap: 6px;
+  margin: 0 0 14px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+.tj-acc-meta-line { position: relative; display: inline-flex; align-items: center; }
+.tj-acc-meta-line:hover { color: var(--tj-fg-2); }
+.tj-acc-meta-pop {
+  position: absolute; top: calc(100% + 8px); left: 0; z-index: 60;
+  display: none; min-width: 280px; max-width: 340px;
+  padding: 10px 12px;
+  background: var(--background-secondary, #24262a);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, .45);
+  font-size: var(--tj-fs-small);
+  color: var(--text-normal);
+  cursor: default;
+}
+.tj-acc-meta-line:hover .tj-acc-meta-pop,
+.tj-acc-meta-line:focus-within .tj-acc-meta-pop { display: block; }
+.tj-acc-meta-fact { display: flex; gap: 10px; padding: 2px 0; }
+.tj-acc-meta-k { flex: 0 0 128px; color: var(--tj-fg-3); }
+.tj-acc-meta-note {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+  color: var(--tj-fg-3);
+}
 .tj-acc-copybar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; flex-wrap: wrap; }
 .tj-acc-copybar .tj-acc-k { margin-bottom: 0; }
 .tj-acc-copychip {
@@ -7770,6 +8093,15 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-dscore-fill { height: 100%; border-radius: 7px; transition: width .4s ease; }
 .tj-acc-dscore-num { font-size: var(--tj-fs-head); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; }
 
+/* Not calculated, not zero. A figure with no tracked trades behind it reads "—"
+   in the quiet tone: the card keeps its place and its label, and nothing paints
+   an arc or a fill at zero, because a zero would read as bad trading. */
+.tj-acc-mvalue.is-na,
+.tj-acc-dial-num.is-na,
+.tj-acc-disc-num.is-na,
+.tj-acc-dscore-num.is-na,
+.tj-ha-fact-v.is-na { color: var(--tj-fg-3); }
+
 /* Hero left column: equity + breakdowns (fills the space under the chart) */
 .tj-acc-heroleft { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
 .tj-acc-herobreak {
@@ -7947,11 +8279,21 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    --------------------------------------------------------------------------- */
 /* The modal takes the width the window can give, and nothing inside it may
    scroll sideways — that is what cut the Display tab in half. */
-.modal-container:has(.tj-manage) .modal { width: min(780px, 94vw); }
-/* Only the body scrolls. Obsidian's own `.modal-content` would otherwise add a
-   second, empty scrollbar around a panel that already fits. */
-.modal-container:has(.tj-manage) .modal-content { overflow: hidden; }
-.tj-manage { width: 100%; overflow-x: hidden; }
+.tj-manage-modal,
+.modal-container:has(.tj-manage) .modal {
+  width: min(780px, 94vw);
+}
+/* ONE scroller for the whole modal: the frame is a flex column, the body is the
+   only thing that scrolls, and Obsidian's own `.modal-content` overflow is shut
+   off. Before this, the content pane and the body both scrolled. */
+.modal-content.tj-manage {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 82vh;
+  overflow: hidden;
+  overflow-x: hidden;
+}
 .tj-manage-head h2 { margin: 0 0 4px; }
 .tj-manage-title {
   display: flex;
@@ -7970,7 +8312,17 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   height: 17px;
 }
 .tj-manage-sub { margin: 0 0 10px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); line-height: 1.45; }
-.tj-manage-body { max-height: 70vh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 2px; }
+.tj-manage-head,
+.tj-manage-foot { flex: 0 0 auto; }
+.tj-manage-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
 .tj-manage-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 .tj-manage-sect { margin-bottom: var(--tj-sp-5); }
@@ -8040,11 +8392,42 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-mg-typerow { border: 1px solid var(--background-modifier-border); border-radius: 14px; padding: 6px 12px; background: rgba(255, 255, 255, .02); }
 .tj-mg-lname { flex: 1 1 auto; min-width: 0; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); }
 .tj-mg-lsize { font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
+/* A copier is one row of facts plus one row of controls, in separate zones. The
+   ratio stepper and "Remove" must never be within a few pixels of each other:
+   nudging a number should not be able to remove an account. */
 .tj-mg-mrow {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 6px 0 6px 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 8px 0 8px 8px;
   border-top: 1px solid rgba(255, 255, 255, .05);
 }
-.tj-mg-mname { flex: 1 1 auto; min-width: 0; font-size: var(--tj-fs-body); }
+.tj-mg-mwho { min-width: 0; }
+.tj-mg-mtop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tj-mg-mname { flex: 1 1 auto; min-width: 0; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); }
+/* Each copier's own start, on its own line: two copiers in the same group start
+   on different dates, so the date belongs to the copier and never to the group. */
+.tj-mg-msub { margin-top: 2px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-mg-mratiozone { display: flex; align-items: center; gap: 8px; }
+.tj-mg-mratiolabel { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-mg-mratiox { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-mg-stepper {
+  display: inline-flex; align-items: center;
+  padding: 2px; border-radius: 7px;
+  border: 1px solid transparent;
+}
+.tj-mg-stepper:hover { border-color: var(--background-modifier-border); background: rgba(255, 255, 255, .03); }
+.tj-mg-step {
+  width: 24px; height: 24px; min-width: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; font-size: var(--tj-fs-body); line-height: 1;
+  color: var(--tj-fg-2);
+  background: transparent !important; border: none !important; box-shadow: none !important;
+  border-radius: 5px; cursor: pointer;
+}
+.tj-mg-step:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07); }
+.tj-mg-macts { display: flex; align-items: center; gap: 8px; }
 .tj-mg-ratio {
   width: 62px; flex: 0 0 auto; font-family: inherit; font-size: var(--tj-fs-body); text-align: right;
   background: transparent !important; border: none !important;
@@ -8091,6 +8474,13 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* Ghost dropdown — our own control (see src/lib/dropdown.ts). A native select
    arrives wearing Obsidian's box, which fights every other control we have. */
 .tj-mg-dd { position: relative; flex: 0 0 auto; min-width: 0; }
+/* One control, two measures. `is-block` fills the row it lives in (a Settings
+   line), `is-sm` is the in-form size (a wizard or modal row). Neither forks the
+   markup or the behaviour — only the padding and the width. */
+.tj-mg-dd.is-block { flex: 1 1 auto; width: 100%; }
+.tj-mg-dd.is-block .tj-mg-dd-btn { max-width: none; width: 100%; }
+.tj-mg-dd.is-sm .tj-mg-dd-btn { font-size: var(--tj-fs-small); padding: 2px 2px !important; }
+.tj-mg-dd.is-sm .tj-mg-dd-list { min-width: 200px; max-width: 300px; }
 .tj-mg-dd-btn {
   display: flex; align-items: center; gap: 6px; max-width: 300px;
   font: inherit; font-size: var(--tj-fs-body); color: var(--text-normal);
@@ -8117,6 +8507,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-mg-dd-item { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 7px; cursor: pointer; }
 .tj-mg-dd-item:hover { background: rgba(255, 255, 255, .06); }
+/* The option the keyboard is on. Same quiet wash as the hover, so pointer and
+   keyboard never look like two different states. */
+.tj-mg-dd-item.is-active { background: rgba(255, 255, 255, .06); }
+.tj-mg-dd-item.is-active .tj-mg-dd-lbl { color: var(--text-normal); }
 .tj-mg-dd-txt { flex: 1 1 auto; min-width: 0; }
 .tj-mg-dd-lbl { font-size: var(--tj-fs-body); color: var(--tj-fg-2); }
 .tj-mg-dd-item.on .tj-mg-dd-lbl { color: var(--text-normal); font-weight: var(--tj-w-medium); }
@@ -8154,6 +8548,26 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   border-radius: 7px; padding: 3px 8px; cursor: pointer; box-shadow: none !important;
 }
 .tj-mg-act:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07) !important; }
+/* The one thing the reader came here to do. Accent, and only here. */
+.tj-mg-act.is-primary {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent) !important;
+  padding: 5px 14px;
+}
+.tj-mg-act.is-primary:hover { filter: brightness(1.08); background: var(--interactive-accent) !important; }
+.tj-mg-act.is-primary:disabled {
+  color: var(--tj-fg-3); background: transparent !important;
+  border-color: var(--background-modifier-border) !important;
+  cursor: not-allowed; filter: none;
+}
+/* The composer ends on its action: the group of buttons that creates or backs
+   out, separated from the configuration above it. */
+.tj-mg-actions {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+}
 .tj-mg-act.is-quiet { color: var(--tj-fg-3); }
 .tj-mg-act.is-quiet:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1) !important; }
 .tj-mg-act.is-danger { color: var(--color-red, #ff5d48); }
@@ -8177,6 +8591,14 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-mg-confirm-txt { flex: 1 1 220px; font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-2); }
 .tj-mg-hint { font-size: var(--tj-fs-small); line-height: 1.45; color: var(--tj-fg-3); margin: 0 0 4px; }
 .tj-mg-empty { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+/* Per-copier review (composer step 3): the start date and ratio read back
+   before the group is created, one quiet line each. */
+.tj-mg-review { display: flex; flex-direction: column; gap: 3px; margin: 4px 0 6px; }
+.tj-mg-reviewrow { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); }
+.tj-mg-reviewname { flex: 1 1 auto; min-width: 0; color: var(--text-normal); }
+.tj-mg-reviewmeta { color: var(--tj-fg-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A quiet "Saved" cue for the write-through inline edits. */
+.tj-mg-saved { margin-left: 10px; font-size: var(--tj-fs-small); color: var(--text-success); opacity: .9; }
 
 /* New-group composer: the same card shape as a group, so it reads as "one more
    group", not a different kind of form. It is walked in order — leader, then
@@ -8192,35 +8614,84 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-mg-stepblock.is-locked .tj-mg-empty { cursor: not-allowed; }
 /* The composer must fit the modal: the copier list scrolls, the card does not. */
 .tj-mg-stepblock .tj-wz-leader-list { max-height: 120px; }
-.tj-mg-step { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.tj-mg-stephead { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .tj-mg-stepnum {
-  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; display: inline-flex;
-  align-items: center; justify-content: center; font-size: var(--tj-fs-micro);
+  flex: 0 0 auto; width: 19px; height: 19px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-bold); color: var(--tj-fg-1); background: rgba(255, 255, 255, .1);
   border: 1px solid var(--background-modifier-border); font-variant-numeric: tabular-nums;
 }
-.tj-mg-stepfill { display: none; }
 .tj-mg-steptitle {
-  font-size: var(--tj-fs-small); font-weight: var(--tj-w-bold); letter-spacing: 0.1em;
-  text-transform: uppercase; color: var(--tj-fg-2);
+  font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--text-normal);
 }
-/* The leader picker: cards you click, not a dropdown. Choosing the wrong thing
-   here is expensive, so the choice is the thing you can see. */
-.tj-mg-leadgrid { display: flex; flex-wrap: wrap; gap: 8px; }
+/* The leader picker: three lightweight tiles across the row, wrapping only when
+   the modal is narrow. A ring on the left is the selection marker (always
+   present, so picking never shifts the tile); the name leads and the size stays
+   quiet underneath. */
+.tj-mg-leadgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+}
 .tj-mg-leadcard {
-  display: flex; flex-direction: column; gap: 2px; min-width: 150px; padding: 6px 10px;
+  /* Obsidian paints a bare <button> with its own filled surface, shadow, border
+     and min-height under a selector more specific than one class, so a plain
+     `background: transparent` loses and the tile reads as a grey slab. This is
+     the same local reset as .tj-ha-row / .tj-td-markreviewed — it never touches
+     any other button. `box-sizing: border-box` keeps width:100% inside its grid
+     track, so nothing overflows the modal's clip edge. */
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  position: relative;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  width: 100%; min-width: 0; padding: 9px 11px; text-align: left;
+  /* Stable across rows and across selection: the card is at least tall enough for
+     the clamped 2-line name plus the size line, so a long name never changes the
+     tile's height and a selected tile never resizes. */
+  min-height: 66px;
   border: 1px solid var(--background-modifier-border); border-radius: 10px;
-  background: rgba(255, 255, 255, .015); cursor: pointer;
-  transition: border-color .15s, background .15s, box-shadow .15s;
+  background: transparent !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+  color: var(--text-normal);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
 }
-.tj-mg-leadcard:hover { border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, .2)); }
+.tj-mg-leadcard:hover {
+  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, .2));
+  background: rgba(255, 255, 255, .04) !important;
+}
+.tj-mg-leadcard:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
 .tj-mg-leadcard.on {
   border-color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
 }
-.tj-mg-leadcard-nm { font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--text-normal); }
-.tj-mg-leadcard-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
+.tj-mg-leadcard.on::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 2px; background: var(--interactive-accent);
+}
+.tj-mg-leadcard-marker {
+  flex: 0 0 auto; width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid var(--background-modifier-border);
+  color: var(--text-on-accent); font-size: var(--tj-fs-micro); line-height: 1;
+}
+.tj-mg-leadcard.on .tj-mg-leadcard-marker {
+  border-color: var(--interactive-accent); background: var(--interactive-accent);
+}
+.tj-mg-leadcard-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.tj-mg-leadcard.on .tj-mg-leadcard-nm { font-weight: var(--tj-w-medium); }
+/* A long firm+program name must never leave the tile. Two lines, then an
+   ellipsis; the full name stays in the tooltip and the button's accessible
+   name. overflow-wrap: anywhere keeps one very long token inside the clamp. */
+.tj-mg-leadcard-nm {
+  font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--text-normal);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
+}
+.tj-mg-leadcard-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tj-mg-lockedlead {
   display: inline-flex; align-items: baseline; gap: 7px; margin-bottom: 6px; padding: 3px 9px;
   border-radius: 999px; border: 1px solid var(--background-modifier-border);
@@ -8230,6 +8701,57 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-mg-lockedlead-sub {
   font-size: var(--tj-fs-label); letter-spacing: 0.1em; text-transform: uppercase; color: var(--tj-fg-3);
 }
+/* New-group composer: one copier, one block. The account, its ratio and its own
+   start are the same decision, so they sit in the same row — not split across a
+   summary several lines below. */
+.tj-mg-copiers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+.tj-mg-coprow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .012);
+  cursor: pointer;
+}
+.tj-mg-coprow:hover { border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, .2)); }
+.tj-mg-coprow.on {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
+}
+.tj-mg-coprow-body { min-width: 0; }
+.tj-mg-coprow-nm { font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--text-normal); }
+.tj-mg-coprow-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 1px; }
+.tj-mg-coprow-cfg {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+}
+.tj-mg-cfgrow { display: flex; align-items: center; gap: 10px; }
+.tj-mg-cfglabel {
+  flex: 0 0 84px;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+}
+.tj-mg-cfgval { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.tj-mg-cfgstart .tj-mg-dd { width: 100%; max-width: 320px; }
+.tj-mg-cfgstart .tj-mg-dd-btn { width: 100%; justify-content: space-between; }
+@media (max-width: 520px) {
+  .tj-mg-coprow { grid-template-columns: auto minmax(0, 1fr); }
+  .tj-mg-coprow-cfg { grid-column: 1 / -1; }
+}
+
 /* Copier rows: a checkbox on the left says "this one joins", nothing else. */
 .tj-mg-copier {
   display: flex; align-items: center; gap: 9px; padding: 4px 8px; border-radius: 7px;
@@ -8623,6 +9145,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   border-collapse: separate;
   border-spacing: 0;
 }
+/* Trade Log only: column widths come from the <colgroup>. Under fixed layout
+   they act as weights, so the table fills its container and slack is shared in
+   proportion (no blank filler); the account widget keeps auto layout. */
+.tj-tbl.is-fixed {
+  table-layout: fixed;
+}
 .tj-tbl thead th {
   position: sticky;
   top: 0;
@@ -8662,6 +9190,9 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--tj-fg-3);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  /* Fixed columns must never spill into their neighbour; long names ellipsise. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tj-tbl tbody td.l {
   text-align: left;
@@ -8679,6 +9210,34 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--text-normal);
   font-weight: var(--tj-w-medium);
 }
+/* Accounts column — provenance, quiet. One account is a name in the metadata
+   tone; several is the name plus how many others, still no pill: the cell is the
+   control and the border would only add weight to a secondary fact. */
+.tj-tbl-acc { color: var(--tj-fg-2); }
+.tj-tbl-copies {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 2px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+  vertical-align: middle;
+  font-family: inherit;
+  font-size: var(--tj-fs-small);
+  font-weight: var(--tj-w-medium);
+  color: var(--tj-fg-2);
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+.tj-tbl-copies:hover { color: var(--text-normal); background: rgba(255, 255, 255, 0.06) !important; }
+.tj-tbl-copies.is-open { color: var(--text-normal); border-color: var(--background-modifier-border) !important; }
+.tj-tbl-copies-more { color: var(--tj-fg-3); font-weight: var(--tj-w-regular); }
+.tj-tbl-copies-chev { display: inline-flex; line-height: 0; }
+.tj-tbl-copies-chev svg { width: 12px; height: 12px; }
+/* A symbol that was copied elsewhere: the cell says so without a badge. */
+.tj-tbl-sym.is-folded, td.is-folded .tj-tbl-sym { color: var(--text-normal); }
 .tj-tbl-side.long {
   color: var(--color-green-bright, #34d17a);
 }
@@ -8745,12 +9304,29 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   box-shadow: 0 -20px 0 0 var(--background-primary);
 }
 /* A checkbox in a clickable row is a target in its own right (SC 2.5.8). */
-.tj-tbl-selcol { width: 34px; min-width: 34px; max-width: 34px; padding: 0 !important; text-align: center; }
+/* Selection mode. The column is wider than the box on purpose and the hit area
+   fills it: a mis-aimed click must never open a trade, it must either select
+   clearly or do nothing. The checkbox is the focus ring's anchor too. */
+.tj-tbl-selcol {
+  width: 40px; min-width: 40px; max-width: 40px;
+  padding: 0 !important; text-align: center;
+}
+.tj-tbl-selhit {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 28px; cursor: pointer;
+  border-radius: 6px;
+}
+.tj-tbl-selhit:hover { background: rgba(255, 255, 255, .06); }
+.tj-tbl-selhit:focus-within { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+/* The box stays 14px — it is a tick, not a button — and the hit area around it
+   (`.tj-tbl-selhit`, 28px tall and a full column wide) is the target. The audit
+   reads the painted box, so the box is kept at the 24px floor it measures. */
 .tj-tbl-check {
   display: block;
   width: 24px;
   height: 24px;
-  margin: 0 auto;
+  margin: 0;
+  accent-color: var(--interactive-accent);
   cursor: pointer;
 }
 
@@ -8940,6 +9516,24 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   font-weight: var(--tj-w-medium);
   color: var(--tj-fg-3);
 }
+/* The accounts behind a folded decision, opened under its row. */
+.tj-tbl-copiesrow td {
+  padding-top: 2px;
+  padding-bottom: 8px;
+  border-top: none;
+  background: rgba(255, 255, 255, 0.012);
+}
+.tj-tbl-copylist { display: flex; flex-direction: column; gap: 2px; padding-left: 10px; }
+.tj-tbl-copyline { display: flex; align-items: baseline; gap: 8px; font-size: var(--tj-fs-small); }
+.tj-tbl-copykind {
+  flex: 0 0 62px;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-label);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.tj-tbl-copyname { color: var(--tj-fg-1); }
+.tj-tbl-copyratio { color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
 .tj-tbl-fill-tag {
   display: inline-block;
   padding: 1px 6px;
@@ -9144,6 +9738,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-attention.is-clear .tj-attn-label {
   display: none;
 }
+.tj-attn-shortcut.is-on .tj-attn-count { color: var(--text-normal); }
 /* Needs-attention filters use the same text-tab treatment as period controls. */
 .tj-attn-shortcut {
   position: relative;
@@ -9173,8 +9768,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   background: transparent;
   content: "";
 }
+/* Amber: these are the numbers that want attention. It is the only colour in
+   the row, so the eye goes to the thing that is waiting rather than to the
+   words around it. */
 .tj-attn-count {
-  color: var(--tj-fg-1);
+  color: var(--tj-tone-mid);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-bold);
   line-height: 1;
@@ -9227,6 +9825,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* The rows inside a panel keep their own frame but drop the page-wide bleed. */
 .tj-panel .tj-tbl {
   margin: 0;
+}
+/* The Trade Log ledger is wider than a narrow pane: let it overflow to the page
+   scroller (which still carries the sticky header) instead of clipping columns
+   or squeezing every column to fit. */
+.tj-panel.is-bleed {
+  overflow: visible;
 }
 /* The shell holds the ledger and, when open, the filters drawer beside it. */
 .tj-tl-shell {
@@ -9513,16 +10117,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* The one filter that belongs to no section: a position on the whole drawer. */
 .tj-tl-exclude-demos {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0 12px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--background-modifier-border);
   font-size: var(--tj-fs-small);
   color: var(--tj-fg-2);
 }
-.tj-tl-exclude-demos input[type="checkbox"] { accent-color: var(--interactive-accent); }
-.tj-tl-exclude-demos label { cursor: pointer; }
+.tj-tl-exclude-demos input[type="checkbox"] { accent-color: var(--interactive-accent); margin-top: 1px; }
+.tj-tl-exclude-demos label { cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+/* The second line answers the question the control raises: demos are already out
+   of the totals, so this only decides what the list shows. */
+.tj-tl-demonote { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
 .tj-tl-opts {
   display: flex;
   flex-wrap: wrap;
@@ -10541,6 +11148,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   border-radius: 999px;
   padding: 1px 7px;
 }
+.tj-td-accratio {
+  flex: 0 0 auto;
+  font-size: var(--tj-fs-small);
+  color: var(--tj-fg-3);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ------------------------------------------------------- ledger bar --
 
@@ -11361,13 +11974,40 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-add-ctl .tj-mg-dd {
   width: 100%;
 }
+/* The pickers sat beside the inputs wearing a different control: the shared
+   dropdown is borderless by default, so Account, Strategy, Order type and
+   Session rendered boxless and a few pixels shorter than every other field in
+   the same grid. In this form it wears the same box. */
 .tj-add-ctl .tj-mg-dd-btn {
   width: 100%;
   justify-content: space-between;
+  min-height: 34px;
+  padding: 7px 9px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 7px !important;
+  background: var(--background-primary) !important;
+  box-shadow: none !important;
+  font-family: inherit;
+  font-size: var(--tj-fs-body) !important;
+}
+.tj-add-ctl .tj-mg-dd-btn:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border)) !important;
+}
+.tj-add-ctl .tj-mg-dd.is-open > .tj-mg-dd-btn,
+.tj-add-ctl .tj-mg-dd-btn:focus-visible {
+  border-color: var(--interactive-accent) !important;
 }
 .tj-add-ctl datalist {
   display: none;
 }
+/* A trade typed before an account's tracking date. Said in place, in the
+   colour of a caution rather than an error: nothing is blocked. */
+.tj-add-boundary {
+  margin-top: 6px;
+  font-size: var(--tj-fs-small); line-height: 1.5;
+  color: var(--tj-tone-mid);
+}
+.tj-add-boundary.is-hidden { display: none; }
 .tj-add-hint {
   margin-top: 5px;
   font-size: var(--tj-fs-small);
@@ -11593,11 +12233,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   align-items: center;
   gap: var(--tj-sp-2);
   margin-top: var(--tj-sp-3);
-}
-.tj-add-ro {
-  font-size: var(--tj-fs-body);
-  color: var(--text-normal);
-  font-variant-numeric: tabular-nums;
 }
 
 /* ---- rating ---- */

@@ -12,11 +12,12 @@
  */
 
 import type TradebookPlugin from "../main";
-import { CopyConfigEntry, PropAccount, Trade, TradeFill } from "../types";
+import { CopyConfigEntry, CopyPeriod, PropAccount, Trade, TradeFill } from "../types";
 import { futuresSpec, knownFuturesSpec } from "../futures";
 import { deleteTradeFile, saveTrade, setTradeFields, tradeKey } from "../storage";
 import { todayKey } from "../tz";
 import { fillSet, tradePoints } from "./fills";
+import { isReplaceableLeg } from "./copySupersession";
 
 // mini ↔ micro, read from the futures registry rather than kept in a second list
 // here — a contract priced there is crossable here with nothing to forget. The
@@ -127,6 +128,57 @@ export function isActiveCopier(account: PropAccount, baseAccountId: string, date
   return effectiveCopyConfig(account, date) !== null;
 }
 
+/** The floor of recorded time: "copy everything the leader ever did". */
+export const COPY_ALL_START = "0000-01-01";
+
+/** How a copier reads on any surface: one ratio, one start, one leader. */
+export interface CopierPresentation {
+  ratio: number;
+  /** ISO start date, or "" when nothing records one. */
+  since: string;
+  /** True when `since` is the floor of time ("the whole history"). */
+  sinceIsBeginning: boolean;
+  baseId?: string;
+  baseName?: string;
+}
+
+/**
+ * The single place a copier's ratio and start are resolved, so every surface
+ * shows the same number and the same date. Priority:
+ *   active (open) copy period → latest config-history entry → legacy scalar.
+ * The engine already reads the same order; this only says it out loud.
+ */
+export function copierPresentation(
+  account: PropAccount,
+  resolveBaseName?: (id: string) => string
+): CopierPresentation {
+  const open = (account.copyPeriods ?? []).find((p) => !p.end);
+  const history = [...(account.copyConfigHistory ?? [])].sort((a, b) => a.from.localeCompare(b.from));
+  const last = history.length ? history[history.length - 1] : undefined;
+
+  let ratio: number;
+  let since: string;
+  if (open) {
+    ratio = open.multiplier ?? last?.ratio ?? account.copyMultiplier ?? 1;
+    since = open.start ?? last?.from ?? account.createdAt ?? "";
+  } else if (last) {
+    ratio = last.ratio ?? account.copyMultiplier ?? 1;
+    since = last.from;
+  } else {
+    ratio = account.copyMultiplier ?? 1;
+    since = account.createdAt ?? "";
+  }
+
+  const baseId = account.copyBaseId;
+  return {
+    ratio,
+    since,
+    sinceIsBeginning: since === COPY_ALL_START,
+    baseId,
+    baseName: baseId && resolveBaseName ? resolveBaseName(baseId) : undefined,
+  };
+}
+
 /** Today as YYYY-MM-DD. `zone` is the Journal Timezone: today *there*, so copy
  *  periods open and close on the journal's calendar and never on this
  *  machine's. An empty zone means "as recorded" and falls back to the host date. */
@@ -142,6 +194,128 @@ export function dayBefore(iso: string): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** One correction `normalizeCopyPeriods` had to make. Debug only — no UI. */
+export interface NormalizeReason {
+  kind: "deduped" | "removed-invalid" | "truncated-overlap" | "closed-open" | "history-added";
+  start?: string;
+  detail?: string;
+}
+
+export interface NormalizeResult {
+  changed: boolean;
+  reasons: NormalizeReason[];
+  counts: { removed: number; truncated: number; closed: number; deduped: number; historyAdded: number };
+}
+
+/**
+ * A copier's periods are written by several callers, each appending. That can
+ * leave a timeline no engine can read honestly: two open stretches, overlaps, a
+ * period that ends before it begins. This folds the bag back into an ordered,
+ * non-overlapping timeline with at most one open stretch (the last one), and
+ * makes sure every stretch has a matching config-history entry — add-if-missing,
+ * never overwriting a ratio the trader set. Idempotent: a second run changes
+ * nothing and reports `changed: false`.
+ */
+export function normalizeCopyPeriods(account: PropAccount): NormalizeResult {
+  const input = account.copyPeriods ?? [];
+  const reasons: NormalizeReason[] = [];
+  const counts = { removed: 0, truncated: 0, closed: 0, deduped: 0, historyAdded: 0 };
+
+  // 1 · an entry without a start cannot be placed on a timeline.
+  const keyed: Array<{ p: CopyPeriod; i: number }> = [];
+  input.forEach((p, i) => {
+    if (!(p.start ?? "").trim()) {
+      counts.removed++;
+      reasons.push({ kind: "removed-invalid", detail: "missing start" });
+      return;
+    }
+    keyed.push({ p, i });
+  });
+
+  // 2 · order by start, keeping the original order for equal starts (stable).
+  keyed.sort((a, b) => (a.p.start as string).localeCompare(b.p.start as string) || a.i - b.i);
+
+  // 3 · the same start twice is one decision: the last occurrence wins.
+  const deduped: CopyPeriod[] = [];
+  for (const { p } of keyed) {
+    const last = deduped[deduped.length - 1];
+    if (last && last.start === p.start) {
+      deduped[deduped.length - 1] = p;
+      counts.deduped++;
+      reasons.push({ kind: "deduped", start: p.start });
+    } else {
+      deduped.push(p);
+    }
+  }
+
+  // 4/5/6 · close overlaps, keep only the last stretch open, drop impossible ones.
+  const out: CopyPeriod[] = [];
+  for (let i = 0; i < deduped.length; i++) {
+    const p = deduped[i];
+    const next = deduped[i + 1];
+    let end = p.end;
+    if (next) {
+      const boundary = dayBefore(next.start as string);
+      if (!end || end > boundary) {
+        if (!end) {
+          counts.closed++;
+          reasons.push({ kind: "closed-open", start: p.start });
+        } else {
+          counts.truncated++;
+          reasons.push({ kind: "truncated-overlap", start: p.start, detail: `end ${p.end} → ${boundary}` });
+        }
+        end = boundary;
+      }
+    }
+    if (end && (p.start as string) > end) {
+      counts.removed++;
+      reasons.push({ kind: "removed-invalid", start: p.start, detail: `start > end (${p.start} > ${end})` });
+      continue;
+    }
+    out.push({ ...p, end });
+  }
+
+  const samePeriods =
+    input.length === out.length &&
+    input.every((p, i) => {
+      const q = out[i];
+      return p.start === q.start && p.end === q.end && p.baseId === q.baseId && p.multiplier === q.multiplier;
+    });
+  account.copyPeriods = out;
+
+  // 7 · a stretch with no history entry would be read by the engine with an old
+  // ratio. Add the missing one; never overwrite what is already recorded.
+  const history = account.copyConfigHistory ?? [];
+  const known = new Set(history.map((h) => h.from));
+  const added: CopyConfigEntry[] = [];
+  for (const p of out) {
+    const start = p.start as string;
+    if (known.has(start)) continue;
+    known.add(start);
+    added.push({
+      from: start,
+      // A legacy stretch carries no multiplier of its own; the account's
+      // configured ratio is the one the engine read for it before this history
+      // entry existed, so it must survive the backfill. Never let the fold turn
+      // a configured ratio into 1×.
+      ratio: p.multiplier ?? account.copyMultiplier ?? 1,
+      crossOrder: true,
+      crossMode: "exposure",
+      sizing: account.copySizing ?? "ratio",
+      fixedQty: account.copyFixedQty,
+      round: account.copyRound ?? "down",
+      minQty: account.copyMinQty ?? 0,
+    });
+    counts.historyAdded++;
+    reasons.push({ kind: "history-added", start });
+  }
+  if (added.length) {
+    account.copyConfigHistory = [...history, ...added].sort((a, b) => a.from.localeCompare(b.from));
+  }
+
+  return { changed: !samePeriods || added.length > 0, reasons, counts };
+}
+
 /**
  * Start following a leader: any open period is closed the day before, and a new
  * one opens on `start`. Legs already generated belong to the period that made
@@ -154,10 +328,30 @@ export function openCopyPeriod(
   start: string,
   zone = ""
 ): void {
-  const today = todayIso(zone);
-  const periods = account.copyPeriods ?? [];
-  account.copyPeriods = periods.map((p) => (p.end ? p : { ...p, end: dayBefore(today) }));
+  // A stretch that begins after the new link is a plan the new link supersedes:
+  // keeping it would let an old, later period (and its ratio) shadow the one the
+  // trader just chose. Drop it, then manage what remains.
+  const periods = (account.copyPeriods ?? []).filter((p) => !p.start || p.start <= start);
+
+  // Editing the ratio of the stretch already open (same leader, same start)
+  // updates it in place: no duplicate, and it is never closed before it began.
+  const openIdx = periods.findIndex(
+    (p) => !p.end && p.start === start && (!p.baseId || p.baseId === baseId)
+  );
+  if (openIdx >= 0) {
+    account.copyPeriods = periods.map((p, i) => (i === openIdx ? { ...p, baseId, multiplier } : p));
+    return;
+  }
+
+  // Close whatever is open the day before the new period starts — never before
+  // its own start, which would leave an impossible start > end stretch.
+  account.copyPeriods = periods.map((p) => {
+    if (p.end) return p;
+    const end = dayBefore(start);
+    return p.start && end < p.start ? p : { ...p, end };
+  });
   account.copyPeriods.push({ start, end: undefined, baseId, multiplier });
+  normalizeCopyPeriods(account);
 }
 
 /** Stop copying: close whatever is open. Existing legs stay exactly as they are. */
@@ -166,6 +360,7 @@ export function closeCopyPeriods(account: PropAccount, zone = ""): void {
   const periods = account.copyPeriods ?? [];
   if (!periods.length) return;
   account.copyPeriods = periods.map((p) => (p.end ? p : { ...p, end: dayBefore(today) }));
+  normalizeCopyPeriods(account);
 }
 
 /**
@@ -186,6 +381,52 @@ export function unlinkCopier(account: PropAccount, zone = ""): void {
   account.copyFixedQty = undefined;
   account.copyRound = undefined;
   account.copyMinQty = undefined;
+}
+
+/**
+ * A leader that is gone (deleted or archived) must not leave its followers
+ * pointing at a dead account. Each follower is unlinked exactly as a manual
+ * remove would (stretch closed, role cleared); the caller decides what to do
+ * with the leader itself. Pure and idempotent.
+ */
+export function detachFollowers(accounts: PropAccount[], baseId: string, zone = ""): number {
+  let changed = 0;
+  for (const a of accounts) {
+    if (a.copyBaseId !== baseId) continue;
+    unlinkCopier(a, zone);
+    changed++;
+  }
+  return changed;
+}
+
+/**
+ * Copiers whose leader is not among the active accounts — a deleted account or
+ * one moved to the archive. Only a copier with a base id that does not resolve
+ * counts: an account with no base id is not treated as broken here.
+ */
+export function findDanglingCopiers(accounts: PropAccount[], activeIds: Set<string>): PropAccount[] {
+  return accounts.filter((a) => a.copyRole === "copier" && !!a.copyBaseId && !activeIds.has(a.copyBaseId));
+}
+
+/** Unlink every copier whose leader no longer exists among the active accounts. */
+export function healDanglingCopiers(accounts: PropAccount[], activeIds: Set<string>, zone = ""): number {
+  let changed = 0;
+  for (const a of findDanglingCopiers(accounts, activeIds)) {
+    unlinkCopier(a, zone);
+    changed++;
+  }
+  return changed;
+}
+
+/**
+ * Legs whose base note no longer exists in the journal. A frozen copy of a base
+ * that was deleted is still an honest record, so this only reports; nothing is
+ * removed. Used by diagnostics to tell whether the links are intact.
+ */
+export function findOrphanLegs(trades: Trade[]): Trade[] {
+  const baseKeys = new Set<string>();
+  for (const t of trades) if (!isLeg(t)) baseKeys.add(legBaseKey(t));
+  return trades.filter((t) => isLeg(t) && !baseKeys.has(legBaseKey(t)));
 }
 
 /**
@@ -219,8 +460,13 @@ export function startCopying(
     round: account.copyRound ?? "down",
     minQty: account.copyMinQty ?? 0,
   };
-  const history = (account.copyConfigHistory ?? []).filter((h) => h.from !== from);
+  // Keep only the stretches that began before this link. A later entry belongs
+  // to a superseded plan; leaving it in would shadow the ratio just chosen for
+  // every trade from its date on (the bug this fixes).
+  const history = (account.copyConfigHistory ?? []).filter((h) => h.from < from);
   account.copyConfigHistory = [...history, entry].sort((a, b) => a.from.localeCompare(b.from));
+  // Keep the timeline and its history in step after the write.
+  normalizeCopyPeriods(account);
 }
 
 /** Accounts that should receive a copy of this base trade. */
@@ -444,6 +690,10 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     copyMultiplier: ratio,
     copySymbolMap: cross ? `${base.symbol} → ${symbol}` : "",
     copyOrigin: "generated",
+    // A generated leg is a model of the leader's trade, never the follower's own
+    // fill. `copyOrigin` keeps its existing meaning; this states the same fact in
+    // the provenance field every surface can read.
+    dataSource: "reconstructed",
     copyPnlAdjustment: round2(pnl - round2(base.pnl * ratio)),
   };
 }
@@ -494,8 +744,10 @@ export async function generateLegs(
     }
     const prev = existing.find((e) => (e.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase());
     if (prev) {
-      if (prev.copyOrigin === "imported") {
-        result.skipped++; // real fills are never overwritten
+      if (!isReplaceableLeg(prev)) {
+        // A real fill is never overwritten; a superseded model is frozen
+        // history and is never resurrected by a regeneration.
+        result.skipped++;
         continue;
       }
       await deleteTradeFile(plugin.app, prev.id);

@@ -1,7 +1,7 @@
 import { App, Notice, Plugin, PluginManifest, TFile, addIcon, normalizePath } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
-import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields } from "./storage";
+import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
 import { tradePoints } from "./lib/fills";
 import { computeAccountMetrics, computeDrawdownEpisodes } from "./lib/accountMetrics";
 import { PROP_FIRMS, makeAccount, uniqueAccountName } from "./props";
@@ -10,16 +10,24 @@ import { firmLogoUrl } from "./lib/firmLogos";
 import {
   buildLeg,
   crossSymbol,
+  detachFollowers,
   effectiveCopyConfig,
   expandVirtualLegs,
+  healDanglingCopiers,
   isActiveCopier,
   isLeg,
   isVirtualLeg,
   legBaseKey,
   membersForBase as copyMembersForBase,
+  normalizeCopyPeriods,
+  todayIso,
   uniqueTrades,
+  unlinkCopier,
 } from "./lib/copy";
+import { generatedSiblings, mergeGeneratedIntoActual } from "./lib/copySupersession";
+import { CopierMatchProposal, linkFollower, proposeMatchesForAccount, sameDecision } from "./lib/copyReconcile";
 import { analyticsTrades, AnalyticsScope } from "./lib/scope";
+import { accountBoundary, isTrackedTrade as isTrackedTradeOn, openingCapital, trackingStartOf } from "./lib/tracking";
 import {
   BackupNote,
   BackupPayload,
@@ -35,6 +43,7 @@ import type { DashItem } from "./views/dashboard";
 import { AccountDashboardView, ACCOUNT_DASH_VIEW_TYPE } from "./views/accountDashboard";
 import { openAddTradeModal } from "./views/addTradeModal";
 import { openImportCsvModal } from "./views/importUi";
+import { openCopyMatchModal } from "./views/copyMatchModal";
 import { TradeLogView, TRADE_LOG_VIEW_TYPE, type TradeLogNav } from "./views/tradeLogView";
 import { AccountsListView, ACCOUNTS_LIST_VIEW_TYPE } from "./views/accountsListView";
 import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView";
@@ -153,6 +162,8 @@ export interface TradebookSettings {
       setups?: string[];
       /** Leave demo-account trades out of the ledger and its counts (Trade Log only). */
       excludeDemos?: boolean;
+      /** Filter-state schema. 2 = demo accounts hidden by default. */
+      version?: number;
     };
     /** How the Side column renders: arrows (▲/▼) or letters (LONG/SHORT). */
     sideDisplay?: "arrows" | "letters";
@@ -426,6 +437,11 @@ export default class TradebookPlugin extends Plugin {
       id: "import-csv",
       name: "Import trades from CSV",
       callback: () => this.openImport(),
+    });
+    this.addCommand({
+      id: "review-copy-matches",
+      name: "Review real fills for copy matches",
+      callback: () => this.openCopyMatches(),
     });
 
     this.addCommand({
@@ -1101,10 +1117,40 @@ export default class TradebookPlugin extends Plugin {
     return mapped ? mapped.name : (name || "").trim();
   }
 
+  /** The tracking boundary for a stored account label ("" = no boundary). */
+  trackingStartOfLabel(label: string): string {
+    return trackingStartOf(this.mappedAccount(label || ""));
+  }
+
+  /**
+   * True when a trade is inside its account's tracked population. A trade before
+   * its account's "Start Tracking From Here" boundary is real history, but it is
+   * not counted in analytics. No boundary means every trade is tracked, exactly
+   * as before.
+   */
+  isTrackedTrade(t: Trade): boolean {
+    return isTrackedTradeOn(t, this.trackingStartOfLabel(t.account || ""));
+  }
+
+  /** The account value at the tracking boundary — the value anchor. */
+  openingCapitalOf(accountId: string): number {
+    const all = [...(this.settings.propAccounts || []), ...(this.settings.archivedAccounts || [])];
+    return openingCapital(all.find((a) => a.id === accountId));
+  }
+
   /** The accounts still in play. The archive is a shelf, not a balance. */
   activeAccounts(): PropAccount[] {
     return this.settings.propAccounts;
   }
+
+  /**
+   * The Trade Log's selection, and whether selection mode is on. Both live here,
+   * not on the view: a multi-select is a piece of work in progress, and letting it
+   * die because a leaf rebuilt — or because the reader opened a trade to check
+   * something — is the fastest way to make nobody use it.
+   */
+  tradeLogSelection: Set<string> = new Set<string>();
+  tradeLogSelectMode = false;
 
   /**
    * True when a trade belongs to an account the trader has archived. An
@@ -1382,97 +1428,140 @@ export default class TradebookPlugin extends Plugin {
     return copyMembersForBase(this, base);
   }
 
-  /** Parse "HH:MM" (or "HH:MM:SS") into minutes-from-midnight. NaN when empty. */
-  private _minutesOf(t: string): number {
-    const m = /^(\d{1,2}):(\d{2})/.exec((t || "").trim());
-    return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+  /**
+   * Explicit reconciliation — PROPOSE. Reads the journal and returns the real
+   * follower fills whose leader trade is known. Pure: it writes nothing. The
+   * trader confirms each one before `applyCopierMatch` touches a note.
+   */
+  async proposeCopierMatches(): Promise<CopierMatchProposal[]> {
+    const accounts = this.settings.propAccounts || [];
+    if (!accounts.length) return [];
+    const trades = await this.loadTrades();
+    const out: CopierMatchProposal[] = [];
+    for (const acc of accounts) {
+      if (acc.copyRole !== "copier" || !acc.copyBaseId) continue;
+      const base = accounts.find((a) => a.id === acc.copyBaseId);
+      if (!base) continue;
+      const baseTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === base.id);
+      const followerTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === acc.id);
+      if (!baseTrades.length || !followerTrades.length) continue;
+      out.push(...proposeMatchesForAccount(accounts, acc.id, baseTrades, followerTrades));
+    }
+    return out;
   }
 
-  /** Normalise a symbol to its mini root so NQ ↔ MNQ compare equal. */
-  private _miniRoot(symbol: string): string {
-    return crossSymbol((symbol || "").trim().toUpperCase(), false);
+  /** Open the confirmation surface. */
+  openCopyMatches(): void {
+    openCopyMatchModal(this, () => void this.reloadAllViews());
   }
 
   /**
-   * ROLE-DRIVEN reconciliation. When an account is a `copier`, the real notes
-   * that landed in it (broker imports, manual entry) are matched to the leader's
-   * trades and marked as legs — so they are never double-counted with the
-   * virtual legs the engine would otherwise synthesize.
+   * Explicit reconciliation — APPLY. Reloads the journal, re-finds both notes by
+   * their stable ids and re-validates the match before writing. Writes one
+   * confirmed link: gives the base a stable key if it has none, marks the
+   * follower as an imported leg, and lets an actual supersede any generated
+   * model of the same leg (Phase 3).
    *
-   * Matching: same date + direction + symbol family, entry time within ±2 min.
-   * Idempotent: already-marked notes are left alone; imported legs always win.
+   * It **never touches temporal copy configuration** (`copyPeriods` /
+   * `copyConfigHistory`) and never deletes a note. Safe failures:
+   *  - a note deleted after proposal → `"missing"`, nothing written;
+   *  - a note edited so it no longer matches → `"changed"`, nothing written;
+   *  - an already-linked follower → `"already"`, nothing written.
    */
-  async reconcileCopierTrades(accountId: string): Promise<{ matched: number; unmatched: number }> {
-    const acc = (this.settings.propAccounts || []).find((a) => a.id === accountId);
-    if (!acc || acc.copyRole !== "copier" || !acc.copyBaseId) return { matched: 0, unmatched: 0 };
-    const base = (this.settings.propAccounts || []).find((a) => a.id === acc.copyBaseId);
-    if (!base) return { matched: 0, unmatched: 0 };
-
+  async applyCopierMatch(
+    proposal: CopierMatchProposal
+  ): Promise<"applied" | "already" | "missing" | "changed"> {
     const trades = await this.loadTrades();
-    const baseTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === base.id);
-    const copyTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === acc.id);
-    if (!baseTrades.length || !copyTrades.length) return { matched: 0, unmatched: 0 };
+    const follower = trades.find((t) => t.id === proposal.followerId);
+    const base = trades.find((t) => t.id === proposal.baseId);
+    if (!follower || !base) return "missing";
+    if (follower.isCopiedTrade) return "already";
+    if (isLeg(base) || !sameDecision(base, follower)) return "changed";
 
-    let matched = 0;
-    let unmatched = 0;
-    let earliest = "";
-    const used = new Set<string>();
+    let baseKey = String(base.copyBaseKey ?? "").trim();
+    if (!baseKey) {
+      baseKey = "ck_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      await setTradeFields(this.app, base.id, { copy_base_key: baseKey });
+      base.copyBaseKey = baseKey;
+    }
 
-    for (const copy of copyTrades) {
-      const ct = this._minutesOf(copy.entryTime);
-      const hit = baseTrades.find((b) => {
-        if (used.has(b.id)) return false;
-        if (b.date !== copy.date) return false;
-        if ((b.direction || "") !== (copy.direction || "")) return false;
-        if (this._miniRoot(b.symbol) !== this._miniRoot(copy.symbol)) return false;
-        const bt = this._minutesOf(b.entryTime);
-        // Both missing: no time to compare, so date+direction+symbol decides.
-        // Only one missing: the times cannot agree, so it is not the same fill.
-        if (Number.isNaN(ct) && Number.isNaN(bt)) return true;
-        if (Number.isNaN(ct) || Number.isNaN(bt)) return false;
-        return Math.abs(ct - bt) <= 2;
-      });
-      if (!hit) {
-        unmatched++;
-        continue;
-      }
-      used.add(hit.id);
-      if (!hit.copyBaseKey) {
-        hit.copyBaseKey = "ck_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-        await setTradeFields(this.app, hit.id, { copy_base_key: hit.copyBaseKey });
-      }
-      const cfg = effectiveCopyConfig(acc, copy.date);
-      await setTradeFields(this.app, copy.id, {
-        is_copied_trade: true,
-        copied_from_account: base.name,
-        copy_base_key: hit.copyBaseKey,
-        copy_origin: "imported",
-        copy_multiplier: cfg?.ratio ?? acc.copyMultiplier ?? 1,
-      });
-      if (!earliest || copy.date < earliest) earliest = copy.date;
-      matched++;
+    const linked = linkFollower(follower, proposal, baseKey);
+    await setTradeFields(this.app, linked.id, {
+      is_copied_trade: true,
+      copied_from_account: proposal.baseName,
+      copy_base_key: baseKey,
+      copy_origin: "imported",
+      copy_multiplier: proposal.ratio,
+      data_source: "broker",
+    });
+
+    // The actual fill is now the authority for this leg: any generated model of
+    // the same account is merged (user data kept) and marked superseded.
+    const fresh = await this.loadTrades();
+    const models = generatedSiblings(fresh, linked, (name) =>
+      this.mappedAccount(name)?.id ?? (name || "").trim().toLowerCase()
+    );
+    for (const model of models) await this.supersedeGeneratedLeg(linked, model);
+
+    this.clearTradeCache();
+    return "applied";
+  }
+
+  /**
+   * Phase 3 — an actual fill supersedes the generated model of the same leg.
+   * The model is not deleted: the trader's words (notes, review, tags, prints)
+   * are merged into the actual where the actual lacks them, then the model is
+   * stamped `superseded_by`. Idempotent: a model already superseded by this
+   * actual is left alone.
+   */
+  private async supersedeGeneratedLeg(actual: Trade, generated: Trade): Promise<void> {
+    if (String(generated.supersededBy ?? "") === String(actual.id)) return;
+    const merged = mergeGeneratedIntoActual(actual, generated);
+
+    const fields: Record<string, string | number | boolean> = {};
+    const scalars: Array<[keyof Trade, string]> = [
+      ["notes", "notes"],
+      ["thesis", "thesis"],
+      ["review", "review"],
+      ["setup", "setup"],
+      ["mistake", "mistake"],
+      ["sessionOverride", "session_override"],
+    ];
+    const mergedRec = merged as unknown as Record<string, string | undefined>;
+    const actualRec = actual as unknown as Record<string, string | undefined>;
+    for (const [prop, key] of scalars) {
+      const value = mergedRec[prop];
+      if (typeof value === "string" && value.trim() && !(actualRec[prop] ?? "").trim()) fields[key] = value;
     }
-    if (matched) {
-      this.clearTradeCache();
-      // Heal the copy window from the evidence: the first real copy marks when
-      // copying began. An account cannot have copied a trade before it existed.
-      let cfgDirty = false;
-      if (!(acc.copyPeriods || []).length && earliest) {
-        acc.copyPeriods = [{ start: earliest }];
-        cfgDirty = true;
-      }
-      if (earliest && acc.createdAt && acc.createdAt > earliest) {
-        acc.createdAt = earliest;
-        cfgDirty = true;
-      }
-      if (cfgDirty) await this.saveSettings();
+    if (merged.reviewed && !actual.reviewed) fields.reviewed = true;
+    if (merged.psychologyAcknowledged && !actual.psychologyAcknowledged) fields.psychology_acknowledged = true;
+    if (merged.mistakesAcknowledged && !actual.mistakesAcknowledged) fields.mistakes_acknowledged = true;
+    if (merged.rating && merged.rating > 0 && !(actual.rating && actual.rating > 0)) fields.rating = merged.rating;
+    if (Object.keys(fields).length) await setTradeFields(this.app, actual.id, fields);
+
+    const arrays: Record<string, string[]> = {};
+    for (const key of ["tags", "psychology_tags", "mistake_tags"] as const) {
+      const before = actual[key] ?? [];
+      const after = merged[key] ?? [];
+      if (after.length !== before.length) arrays[key] = after;
     }
-    return { matched, unmatched };
+    const actualFile = this.app.vault.getAbstractFileByPath(actual.id);
+    if (actualFile instanceof TFile) {
+      if (Object.keys(arrays).length) await updateTradeArrayFields(this.app, actualFile, arrays);
+      if ((merged.screenshots?.length ?? 0) !== (actual.screenshots?.length ?? 0)) {
+        await updateTradeScreenshots(this.app, actualFile, merged.screenshots ?? []);
+      }
+    }
+
+    await setTradeFields(this.app, generated.id, {
+      superseded_by: String(actual.id),
+      superseded_at: todayIso(this.settings.timeZone),
+    });
   }
 
   /**
    * One-time backfill for accounts that only exist in the vault as raw broker
-   * export names (e.g. Tradovate's "DEMO1234567"): adopt them as real accounts so
+   * export names (e.g., Tradovate's "DEMO1234567"): adopt them as real accounts so
    * their notes stop being orphans — and promote every accountMappings key into
    * the owning account's `aliases`, so old/broker names resolve forever without
    * ever being displayed.
@@ -1680,11 +1769,22 @@ export default class TradebookPlugin extends Plugin {
       settingsDirty = true;
     }
 
-    // Every load: mark real copier notes as legs (role-driven, idempotent).
+    // Real fills are no longer linked to copies on load. Matching is explicit:
+    // the trader reviews proposals (Accounts → Copy groups → Review real fills)
+    // and only a confirmation writes a link.
+
+    // Every load: heal any copy timeline the writers left invalid (open overlaps,
+    // start > end, stray stretches). Idempotent — only saves when it changed.
     for (const acc of this.settings.propAccounts) {
-      if (acc.copyRole !== "copier" || !acc.copyBaseId) continue;
-      await this.reconcileCopierTrades(acc.id);
+      if (!(acc.copyPeriods || []).length) continue;
+      if (normalizeCopyPeriods(acc).changed) settingsDirty = true;
     }
+
+    // Every load: unlink copiers whose leader no longer exists among the active
+    // accounts — a deleted account, or one moved to the archive. Conservative:
+    // only a base id that does not resolve is touched. Idempotent.
+    const activeIds = new Set(this.settings.propAccounts.map((a) => a.id));
+    if (healDanglingCopiers(this.settings.propAccounts, activeIds, this.settings.timeZone)) settingsDirty = true;
 
     // Repair a one-sided link: a funded that remembers its eval, where the eval
     // forgot (or never recorded) its funded. Nothing is created — only linked.
@@ -2037,8 +2137,12 @@ export default class TradebookPlugin extends Plugin {
     const { buildLeg, effectiveCopyConfig, isActiveCopier, legBaseKey } = await import("./lib/copy");
     const out: Trade[] = [];
     for (const t of trades) {
-      // Give the broadcast trade a stable group key so copies can be deduped.
-      const baseKey = t.copyBaseKey || legBaseKey(t);
+      // Give the broadcast trade a stable, unique group key so copies can be
+      // deduped. A saved note keys by its path; a freshly parsed trade has no
+      // id yet, and the content fallback in legBaseKey can collide two
+      // same-minute decisions — so mint a random key for it instead.
+      const baseKey =
+        t.copyBaseKey || (t.id ? String(t.id) : "ck_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
       t.copyBaseKey = baseKey;
       out.push(t);
       const baseAccount = this.mappedAccount(t.account);
@@ -2059,14 +2163,19 @@ export default class TradebookPlugin extends Plugin {
         if (follows) {
           if (!baseAccount || !isActiveCopier(acc, baseAccount.id, t.date)) continue;
         }
-        // Any other tick is the user stating a fact — "this trade happened in
-        // this account too" — so it mirrors 1:1 (or by its own multiplier) and
-        // an account opened later does not lose the trades it was ticked on.
-        const cfg: import("./types").CopyConfigEntry = effectiveCopyConfig(acc, t.date) ?? {
-          from: t.date,
-          ratio: acc.copyMultiplier ?? 1,
-        };
+        // A real active copier mirrors with the config effective on the trade's
+        // date. Any other tick is the user stating a fact — "this trade happened
+        // in this account too" — so it mirrors 1:1: a freed ex-copier must not
+        // inherit a stale ratio from a link that no longer exists.
+        const cfg: import("./types").CopyConfigEntry = follows
+          ? effectiveCopyConfig(acc, t.date) ?? { from: t.date, ratio: acc.copyMultiplier ?? 1 }
+          : { from: t.date, ratio: 1 };
         const copy = buildLeg(t, acc, cfg);
+        // Same guard `generateLegs` and `synthesizeLegs` already apply: a leg of
+        // zero contracts is not a trade. A ratio below one mini on a symbol with
+        // no micro (or a fixed size of zero) would otherwise write a note that
+        // carries P&L with no size.
+        if (!copy.symbol || copy.quantity <= 0) continue;
         copy.copyBaseKey = baseKey;
         copy.copiedFromAccount = t.account;
         copy.copyOrigin = "generated";
@@ -2225,8 +2334,18 @@ export default class TradebookPlugin extends Plugin {
   }
 
   async deleteTrade(tradeId: string): Promise<boolean> {
+    const trades = await this.loadTrades();
+    const t = trades.find((x) => x.id === tradeId);
     const success = await deleteTradeFile(this.app, tradeId);
     if (success) {
+      // A base note carries its copies: deleting it deletes the generated legs
+      // it produced, so the journal does not keep orphans. Imported legs are
+      // real fills and are never touched. Done after the base is gone, so a
+      // failed base delete never costs the legs.
+      if (t && !isLeg(t)) {
+        const { deleteLegs } = await import("./lib/copy");
+        await deleteLegs(this, legBaseKey(t));
+      }
       new Notice("Trade note deleted.");
       await this.reloadAllViews();
     } else {
@@ -2310,7 +2429,11 @@ export default class TradebookPlugin extends Plugin {
     const trades = (await this.loadTrades())
       .filter((t) => {
         if (!Number.isFinite(t.pnl) || !t.date) return false;
-        if (acc.createdAt && t.date < acc.createdAt) return false;
+        // The tracked boundary when there is one, so a pre-tracking trade can
+        // never put a date on a lifecycle conclusion that did not happen while
+        // Tradebook was watching. No boundary = the account's start, as before.
+        const floor = accountBoundary(acc);
+        if (floor && t.date < floor) return false;
         const mapped = this.mappedAccount(t.account);
         if (mapped) return mapped.id === accountId;
         return (t.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase();
@@ -2457,15 +2580,11 @@ export default class TradebookPlugin extends Plugin {
     // Copy: the group this account led goes entirely; as a member it is simply
     // gone with the account.
     this.settings.copyGroups = (this.settings.copyGroups || []).filter((g) => g.baseAccountId !== accountId);
-    // Anyone who followed it loses the link rather than keeping a dead base id.
-    const cutBase = (a: PropAccount) => {
-      if (a.copyBaseId === accountId) {
-        a.copyBaseId = undefined;
-        a.copyRole = undefined;
-      }
-    };
-    this.settings.propAccounts.forEach(cutBase);
-    (this.settings.archivedAccounts || []).forEach(cutBase);
+    // Anyone who followed it loses the link rather than keeping a dead base id:
+    // the stretch is closed and the role cleared exactly as a manual remove.
+    const zone = this.settings.timeZone;
+    detachFollowers(this.settings.propAccounts, accountId, zone);
+    detachFollowers(this.settings.archivedAccounts || [], accountId, zone);
     this.clearTradeCache();
   }
 
@@ -2478,6 +2597,12 @@ export default class TradebookPlugin extends Plugin {
   async archiveAccount(accountId: string): Promise<void> {
     const acc = this.settings.propAccounts.find((a) => a.id === accountId);
     if (!acc) return;
+    // An archived account is out of the journal: a leader cannot keep followers
+    // pointing at it, and a copier cannot keep a live link that would silently
+    // resume on unarchive. Both are unlinked; unarchiving does not rebuild them.
+    const zone = this.settings.timeZone;
+    detachFollowers(this.settings.propAccounts, accountId, zone);
+    if (acc.copyRole === "copier") unlinkCopier(acc, zone);
     this.settings.archivedAccounts = this.settings.archivedAccounts || [];
     this.settings.archivedAccounts.push({ ...acc });
     this.settings.propAccounts = this.settings.propAccounts.filter((a) => a.id !== accountId);

@@ -215,7 +215,7 @@ export const PROP_FIRMS: PropFirm[] = [
   },
   {
     id: "tradovate",
-    name: "Tradeovate",
+    name: "Tradovate",
     programs: [
       {
         id: "demo",

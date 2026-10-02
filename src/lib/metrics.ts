@@ -193,8 +193,9 @@ function fmtHour(h: number): string {
 
 export const METRICS: MetricDef[] = [
   { id: "m.netpnl", label: "Net P&L", compute: (t, dayKey, financials) => {
-    const v = (financials ?? summarizeMetricTrades(t, dayKey)).net.total;
-    return { value: money(v), tone: v >= 0 ? "pos" : "neg" };
+    const summary = financials ?? summarizeMetricTrades(t, dayKey);
+    if (summary.decisionCount === 0 && summary.net.total === 0) return { value: "—", tone: "neutral" };
+    return { value: money(summary.net.total), tone: summary.net.total >= 0 ? "pos" : "neg" };
   }},
   { id: "m.winrate", label: "Win Rate", compute: (t, dayKey, financials) => {
     // The Net contract: positive ÷ decided aggregated decisions, breakevens out.

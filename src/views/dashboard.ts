@@ -31,10 +31,13 @@ import { knownFuturesSpec } from "../futures";
 import { METRIC_TITLES, metricById } from "../lib/metrics";
 import { holdMinutesOf, tradeHourInZone } from "../lib/instant";
 import { accountResolver, accountScope, analyticsTrades, journalDayKey } from "../lib/scope";
+import { excludeSuperseded } from "../lib/copySupersession";
 import { summarizeFinancials, FinancialScope, FinancialSummary } from "../lib/money";
+import { isTrackedTrade, trackingStartOf, historyAvailability, trackedReading, NO_TRACKED_DATA_NOTE } from "../lib/tracking";
 import { computeTrends, rankTrendMoves, isBetter } from "../lib/trends";
 import { computeScore, recentScoreWindow } from "../lib/score";
-import { computeDrawdownEpisodes, computeRecordedAccountMovement } from "../lib/accountMetrics";
+import { accountValueSeries, computeDrawdownEpisodes, computeRecordedAccountMovement } from "../lib/accountMetrics";
+import { accountCashflows } from "../lib/accountCashflows";
 import { typeLabel, typeRank } from "../lib/accountTypes";
 import { resolveAccountView } from "../lib/accountRules";
 import { renderTreemap } from "../lib/chartKit";
@@ -165,18 +168,23 @@ const HOME_METRICS = HOME_METRIC_MENU_GROUPS.flatMap((group) => group.ids);
  * first, then time/process, then accounts and cash, then the whole metric
  * catalogue. Existing saved Home widgets remain valid whatever their order.
  */
+/**
+ * The chart half of that list, under the same headings: a trader looking for a
+ * curve should find it by the question it answers, not scroll a flat column.
+ */
+const HOME_WIDGET_MENU_GROUPS: Array<{ title: string; ids: string[] }> = [
+  { title: "Performance", ids: ["netpnl", "longpnl", "shortpnl", "costs", "drawdown", "size"] },
+  { title: "Origin", ids: ["breakdown", "rmultiples", "trends"] },
+  { title: "Process and time", ids: ["calendar", "heatmap", "score", "focus", "tags", "tilt", "revenge"] },
+  { title: "Accounts and cash", ids: ["accounts", "payouts"] },
+];
+
 const HOME_WIDGET_MENU = [
-  // Performance — evolution curves
-  "netpnl", "longpnl", "shortpnl", "costs", "drawdown", "size",
-  // Origin — where the money came from
-  "breakdown", "rmultiples", "trends",
-  // Process / Time — when and how
-  "calendar", "heatmap", "score", "focus", "tags", "tilt", "revenge",
-  // Accounts & cash
-  "accounts", "payouts",
+  ...HOME_WIDGET_MENU_GROUPS.flatMap((group) => group.ids),
   // Metrics — the full per-card catalogue, in Result → Trades → Streaks → Risk → Timing → Days order
   ...HOME_METRICS,
 ];
+
 
 /**
  * Deprecated widget ids → their canonical replacement. Rewritten on load so a
@@ -421,6 +429,12 @@ const PER_TRADE_METRICS = new Set([
   "m.losshold",
   "m.sharpe",
 ]);
+/**
+ * Metrics whose Net is read per decision (the original trade), not summed
+ * across a decision's copies. The label says so, because Home is otherwise a
+ * portfolio surface and the difference matters the moment a trade was copied.
+ */
+const DECISION_SCOPE_METRICS = new Set(["m.sharpe", "m.besthour", "m.worsthour"]);
 /** Metrics that show a "vs previous period" sub-stat. The eight Home headline
  *  metrics all carry one, plus the trend metrics whose sample is large enough
  *  for a comparison to mean anything — a single outlier day is not a trend. */
@@ -715,7 +729,9 @@ export abstract class WidgetGridView extends ItemView {
       this.calendarManual = state.calendarManual === true;
       const hf = this.plugin.settings.homeFilters;
       this._accountIds = Array.isArray(hf?.accountIds) ? [...hf.accountIds] : [];
-      this._accountTypes = Array.isArray(hf?.accountTypes) ? [...hf.accountTypes] : [];
+      // An older build could persist "all" here, where it matches no account at
+      // all. It is read back as no filter rather than as an empty page.
+      this._accountTypes = Array.isArray(hf?.accountTypes) ? hf.accountTypes.filter((x) => x !== "all") : [];
     }
     window.addEventListener("resize", this._onWinResize);
     await this.refresh();
@@ -841,6 +857,7 @@ export abstract class WidgetGridView extends ItemView {
       // population: a selected demo account stays in on purpose.
       explicitAccountScope: explicit,
       isArchived: (trade) => this.plugin.isArchivedTrade(trade),
+      isTracked: (trade) => this.trackedTrade(trade),
     });
   }
 
@@ -881,13 +898,24 @@ export abstract class WidgetGridView extends ItemView {
     return (t.account || "").trim().toLowerCase() === (acc.name || "").trim().toLowerCase();
   }
 
+  /**
+   * True when a trade is inside its account's tracked population. An account
+   * with no "Start Tracking From Here" boundary keeps today's behaviour (every
+   * trade is tracked); an account with one excludes the pre-boundary history
+   * from every portfolio population, so Home/Analytics agree with the account.
+   */
+  private trackedTrade(t: Trade): boolean {
+    const start = trackingStartOf(this.plugin.mappedAccount(t.account));
+    return !start || isTrackedTrade(t, start);
+  }
+
   /** Trades filtered by account / account-type (no date range). */
   baseTrades(): Trade[] {
     this.ensureTradeCache();
     const cacheKey = `${this._accountIds.join(",")}|${this._accountTypes.join(",")}`;
     const hit = this._baseCache.get(cacheKey);
     if (hit) return hit;
-    const list = this.filterByHomeScope(this.trades.filter((t) => isFiniteNumber(t.pnl) && t.date));
+    const list = this.filterByHomeScope(this.trades.filter((t) => isFiniteNumber(t.pnl) && t.date && this.trackedTrade(t)));
     this._baseCache.set(cacheKey, list);
     return list;
   }
@@ -983,46 +1011,6 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   /** Period change in the journal-recorded value of the selected accounts. */
-  private remainingAccountPnl(): number {
-    const accounts = this.plugin.settings.propAccounts ?? [];
-    const included = accounts.filter((account) => {
-      const noScope = !this._accountIds.length && !this._accountTypes.length;
-      if (noScope) return this.plugin.settings.excludeDemosFromPortfolio === false || account.type !== "demo";
-      if (this._accountIds.length && !this._accountIds.includes(account.id)) return false;
-      if (this._accountTypes.length) {
-        const liveOk = this._accountTypes.includes("live") && (account.type === "live" || account.type === "personal");
-        if (!liveOk && !this._accountTypes.includes(account.type)) return false;
-      }
-      return true;
-    });
-    const bounds = this.rangeBounds();
-    const asOf = this.asOfKey();
-    const inPeriod = (date: string): boolean =>
-      !!date && !!bounds && dateWithinPeriod(date, bounds) && date <= asOf;
-
-    let remaining = 0;
-    const accountIds = new Set(included.map((account) => account.id));
-    for (const account of included) {
-      for (const trade of this.trades) {
-        if (!this.accountMatches(trade, account)) continue;
-        if (account.createdAt && trade.date < account.createdAt) continue;
-        if (inPeriod(trade.date)) remaining += netPnl(trade);
-      }
-    }
-    for (const payout of this.plugin.settings.payouts ?? []) {
-      if (accountIds.has(payout.accountId) && inPeriod(payout.date)) remaining -= Math.abs(payout.amount);
-    }
-    for (const deposit of this.plugin.settings.deposits ?? []) {
-      if (accountIds.has(deposit.accountId) && inPeriod(deposit.date)) remaining += Math.abs(deposit.amount);
-    }
-    for (const adjustment of this.plugin.settings.feeAdjustments ?? []) {
-      if (accountIds.has(adjustment.accountId) && inPeriod(adjustment.date) && Number.isFinite(adjustment.amount)) {
-        remaining += adjustment.amount;
-      }
-    }
-    return remaining;
-  }
-
   private selectedPeriodLabel(): string {
     if (this.dateRange === "all") return "All Time";
     if (this.dateRange === "custom" && this.customFrom && this.customTo) {
@@ -1051,7 +1039,12 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   /**
-   * The Accounts overview's contract: recorded balance less configured capital.
+   * The Accounts overview's contract, two anchors side by side: the balance is
+   * the account's recorded VALUE (its opening balance at tracking + everything
+   * recorded since), while `capital` — the sum below — is the sum of those value
+   * anchors, the baseline the Home drawdown curve is measured from. It must
+   * never be a sum of `account.size`: the rule anchor is not the value.
+   *
    * This is all-time, and includes Net trades, payouts, deposits and signed
    * account adjustments. Keep its daily series from the same shared calculation
    * so the Home sparkline ends at the displayed value.
@@ -1064,24 +1057,29 @@ export abstract class WidgetGridView extends ItemView {
     let capital = 0;
 
     for (const account of this.homeAccounts()) {
-      const trades = this.trades.filter((trade) => {
-        if (!this.accountMatches(trade, account)) return false;
-        // Membership on the journal day — the very key the movement below
-        // buckets by, so a trade can never be counted in a day it was filtered
-        // out of (or the reverse).
-        return !account.createdAt || this.scoreDayKey(trade) >= account.createdAt;
-      });
+      const trades = excludeSuperseded(
+        this.trades.filter((trade) => {
+          if (!this.accountMatches(trade, account)) return false;
+          // Membership on the journal day — the very key the movement below
+          // buckets by, so a trade can never be counted in a day it was filtered
+          // out of (or the reverse).
+          return !account.createdAt || this.scoreDayKey(trade) >= account.createdAt;
+        })
+      );
       const movement = computeRecordedAccountMovement({
         trades,
-        size: account.size || 0,
+        size: this.plugin.openingCapitalOf(account.id),
         dayKey: (trade) => this.scoreDayKey(trade),
-        cashflows: [
-          ...this.plugin.payoutsFor(account.id).map((payout) => ({ date: payout.date, amount: -Math.abs(payout.amount) })),
-          ...this.plugin.depositsFor(account.id).map((deposit) => ({ date: deposit.date, amount: Math.abs(deposit.amount) })),
-          ...this.plugin.feeAdjustmentsFor(account.id).map((adjustment) => ({ date: adjustment.date, amount: adjustment.amount })),
-        ],
+        trackingStart: trackingStartOf(account),
+        cashflows: accountCashflows(
+          this.plugin.payoutsFor(account.id),
+          this.plugin.depositsFor(account.id),
+          this.plugin.feeAdjustmentsFor(account.id)
+        ),
       });
-      capital += account.size || 0;
+      // The curve's baseline: the same value anchor the movements above were
+      // built on, so the daily series and its starting point agree.
+      capital += this.plugin.openingCapitalOf(account.id);
       accountTrades.push(...trades);
       snapshots.push({ account, balance: movement.balance, days: movement.days });
       for (const day of movement.days) {
@@ -1760,12 +1758,27 @@ export abstract class WidgetGridView extends ItemView {
         : this._accountTypes.length
           ? `Filtered to ${this.scoreAccountLabel()}.`
           : undefined;
+    // An account that started tracking from here has no performance to show yet.
+    // Say so where the numbers would have been, instead of leaving "no trades in
+    // this period" to be read as an empty journal. The note only speaks when
+    // every account in the scope declared a boundary: one legacy account still
+    // speaks, so the page reads exactly as it did before.
+    const inScope = this._accountIds.length
+      ? (this.plugin.settings.propAccounts ?? []).filter((a) => this._accountIds.includes(a.id))
+      : this.homeAccounts();
+    const boundaries = inScope.map(trackingStartOf).filter(Boolean);
+    const boundary = inScope.length && boundaries.length === inScope.length
+      ? boundaries.sort()[0]
+      : "";
+    const trackingNote = boundary
+      ? `Tracking starts ${formatDate(boundary, this.plugin.settings.dateFormat)} — no tracked trades yet, so performance is not calculated.`
+      : "";
     renderEmptyBox(main, {
       title: hasAny ? "No trades in this period" : "No trading data available",
       sub: hasAny
         ? "Nothing matches the selected period or filters. Try a wider range, or add/import trades."
         : "Import your previous trades to explore your performance now, or record a new trade manually.",
-      note: filterNote,
+      note: [filterNote, trackingNote].filter(Boolean).join(" ") || undefined,
       primaryText: "Import existing trades",
       primaryIcon: "download",
       onPrimary: () => this.plugin.openImport(),
@@ -1867,19 +1880,8 @@ export abstract class WidgetGridView extends ItemView {
     const header = main.createDiv({ cls: "tj-header" + (this._intro ? " tj-intro" : "") });
 
     const left = header.createDiv({ cls: "tj-header-greeting" });
-    if (this.viewKey() === "home") {
-      left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
-      left.createDiv({ cls: "tj-header-sub", text: this.greetingNote() });
-    } else {
-      const pnl = this.remainingAccountPnl();
-      const amount = left.createDiv({ cls: "tj-header-sub" });
-      amount.setText(`Remaining P&L ${fmtMoney2(pnl)} · ${this.selectedPeriodLabel()} · ${this.scoreAccountLabel()}`);
-      attachTip(amount, {
-        title: "Remaining Account P&L",
-        value: fmtMoney2(pnl),
-        sub: "Recorded result remaining in the selected accounts after trading, fees, payouts and adjustments.",
-      });
-    }
+    left.createDiv({ cls: "tj-header-greet", text: this.greetingText() });
+    left.createDiv({ cls: "tj-header-sub", text: this.greetingNote() });
 
     const actions = header.createDiv({ cls: "tj-header-actions" });
 
@@ -1887,12 +1889,15 @@ export abstract class WidgetGridView extends ItemView {
     this.renderPeriodBar(actions);
 
     // Filters — plain icon, blends in with the rest of the UI.
+    const activeFilters = this._accountIds.length + this._accountTypes.length;
     const fbtn = actions.createEl("button", {
-      cls: "tj-filterbtn" + (this.filtersOpen ? " is-active" : ""),
-      attr: { type: "button", "aria-label": "Filters" },
+      cls: "tj-filterbtn" + (this.filtersOpen || activeFilters ? " is-active" : ""),
+      attr: { type: "button", "aria-label": activeFilters ? `Filters (${activeFilters} on)` : "Filters" },
     });
-    attachTip(fbtn, { title: "Filters", sub: "Accounts, direction, strategies and more." });
+    attachTip(fbtn, { title: "Filters", sub: "Which accounts these pages count. Dates are set in the bar next to this." });
     setIcon(fbtn, "sliders-horizontal");
+    // The badge is the memory: a filtered page has to say so without opening it.
+    if (activeFilters) fbtn.createSpan({ cls: "tj-filterbtn-count", text: String(activeFilters) });
     fbtn.addEventListener("click", (e) => {
       e.stopPropagation();
       this.filtersOpen = !this.filtersOpen;
@@ -1900,6 +1905,30 @@ export abstract class WidgetGridView extends ItemView {
       this.periodMenuOpen = false;
       this.rerenderHeaderOnly();
     });
+
+    // Layouts is about SAVED SNAPSHOTS of the page, not about editing it, so it
+    // is not locked behind edit mode any more: switching layout is something a
+    // trader does while reading. It sits outside the edit controls and wears a
+    // quieter button, because "what this page is" and "what is on this page" are
+    // two different questions and used to look like one row of twins.
+    if (this.viewKey() === "home") {
+      const lbtn = actions.createEl("button", {
+        cls: "tj-layoutbtn" + (this.layoutsOpen ? " is-active" : ""),
+        attr: { type: "button", "aria-label": "Layouts" },
+      });
+      const lic = lbtn.createSpan({ cls: "tj-btn-icon" });
+      setIcon(lic, "layout-panel-left");
+      lbtn.createSpan({ text: "Layouts" });
+      lbtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.layoutsOpen = !this.layoutsOpen;
+        this.widgetMenuOpen = false;
+        this.filtersOpen = false;
+        this.periodMenuOpen = false;
+        this.rerenderHeaderOnly();
+      });
+      attachTip(lbtn, { title: "Layouts", sub: "Saved versions of this page. Switch between them, or save what you have now." });
+    }
 
     // In edit mode, a labelled "Add widget" opens a dropdown that stays open,
     // so several widgets can be added in one go.
@@ -1919,24 +1948,6 @@ export abstract class WidgetGridView extends ItemView {
         this.rerenderHeaderOnly();
       });
       attachTip(abtn, { title: "Add widget", sub: "Stays open — add as many as you like." });
-      if (this.viewKey() === "home") {
-        const lbtn = actions.createEl("button", {
-          cls: "tj-addwidget" + (this.layoutsOpen ? " is-active" : ""),
-          attr: { type: "button", "aria-label": "Layouts" },
-        });
-        const lic = lbtn.createSpan({ cls: "tj-btn-icon" });
-        setIcon(lic, "layout-panel-left");
-        lbtn.createSpan({ text: "Layouts" });
-        lbtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.layoutsOpen = !this.layoutsOpen;
-          this.widgetMenuOpen = false;
-          this.filtersOpen = false;
-          this.periodMenuOpen = false;
-          this.rerenderHeaderOnly();
-        });
-        attachTip(lbtn, { title: "Layouts", sub: "Switch, copy, rename or reset your Home layouts." });
-      }
     }
 
     // Edit layout toggle
@@ -2009,11 +2020,26 @@ export abstract class WidgetGridView extends ItemView {
     });
     const pop = header.createDiv({ cls: "tj-popover tj-widgetmenu" });
     pop.addEventListener("click", (e) => e.stopPropagation());
-    pop.createDiv({ cls: "tj-pop-section", text: "Add widget" });
+    const menuHead = pop.createDiv({ cls: "tj-widgetmenu-head" });
+    menuHead.createDiv({ cls: "tj-pop-section", text: "Add widget" });
     // A fixed headline metric lives in Home's band, so "already added" must
     // look at the whole stored layout, not the grid half of it.
     const present = new Set(this.storedLayout().map((i) => i.i));
     const ids = this.viewKey() === "home" ? HOME_WIDGET_MENU : [...this.allowedIds()];
+    // How much of this page is already here, in one number. A ✓ scattered down
+    // a 54-row list was the only ownership signal there was.
+    const addedCount = ids.filter((id) => present.has(id)).length;
+    const countChip = menuHead.createSpan({ cls: "tj-widgetmenu-count", text: `${addedCount} of ${ids.length} on this page` });
+    attachTip(countChip, {
+      title: "What is on this page",
+      sub: "Ticked rows are already here. To take one off, use the ✕ on the card itself.",
+    });
+    // The three things edit mode does, said once, where the trader is looking
+    // for them: otherwise the only guidance is an empty page and a tooltip.
+    pop.createDiv({
+      cls: "tj-widgetmenu-hint",
+      text: "Drag a card to move it, pull its corner to resize, ✕ to remove it.",
+    });
     // Two sections only: every visual/process widget is a Chart, every `m.*` a
     // Metric. The Metrics section is grouped by question (see HOME_METRIC_MENU_GROUPS).
     const sections: Array<{ title: string; ids: string[] }> = [
@@ -2023,13 +2049,19 @@ export abstract class WidgetGridView extends ItemView {
     for (const id of ids) sections[id.startsWith("m.") ? 1 : 0].ids.push(id);
     const emit = (list: HTMLElement, id: string): void => {
       const added = present.has(id);
-      const item = list.createDiv({ cls: "tj-widgetmenu-item" + (added ? " is-added" : "") });
-      const name = this.viewKey() === "home" && id === "m.netpnl"
+      const label = this.viewKey() === "home" && id === "m.netpnl"
         ? "P&L"
         : this.viewKey() === "home" && id === "score"
           ? "Score"
           : CARD_TITLES[id];
-      item.createSpan({ cls: "tj-widgetmenu-name", text: name });
+      // A button, not a div with a click handler: every addable widget was
+      // reachable with the mouse only.
+      const item = list.createEl("button", {
+        cls: "tj-widgetmenu-item" + (added ? " is-added" : ""),
+        text: "",
+        attr: { type: "button", "aria-pressed": String(added) },
+      });
+      item.createSpan({ cls: "tj-widgetmenu-name", text: label });
       if (added) item.createSpan({ cls: "tj-widgetmenu-check", text: "✓" });
       else item.addEventListener("click", () => this.addWidget(id));
     };
@@ -2053,7 +2085,15 @@ export abstract class WidgetGridView extends ItemView {
       const sectionBody = wrap.createDiv({
         cls: "tj-widgetmenu-section-body" + (collapsed ? " is-collapsed" : ""),
       });
-      if (this.viewKey() === "home" && section.title === "Metrics") {
+      if (this.viewKey() === "home" && section.title === "Charts") {
+        // The same logic as the metric groups: a category heading per question.
+        for (const group of HOME_WIDGET_MENU_GROUPS) {
+          if (!group.ids.length) continue;
+          sectionBody.createDiv({ cls: "tj-widgetmenu-subsection-title", text: group.title });
+          const list = sectionBody.createDiv({ cls: "tj-widgetmenu-list" });
+          for (const id of group.ids) emit(list, id);
+        }
+      } else if (this.viewKey() === "home" && section.title === "Metrics") {
         // Metrics read as a table of contents: Result → Trades → Streaks →
         // Risk → Timing → Days → Gross, each group under its own heading.
         for (const group of HOME_METRIC_MENU_GROUPS) {
@@ -2080,6 +2120,12 @@ export abstract class WidgetGridView extends ItemView {
     const pop = header.createDiv({ cls: "tj-popover tj-layouts" });
     pop.addEventListener("click", (e) => e.stopPropagation());
     pop.createDiv({ cls: "tj-pop-section", text: "Home layouts" });
+    // What a layout IS, in one line, above the list. A fresh vault opens this to
+    // an empty box with a Save button and no idea what saving would produce.
+    pop.createDiv({
+      cls: "tj-widgetmenu-hint",
+      text: "A layout is one saved arrangement of this page. Save what you have now, and switch between layouts instead of rebuilding the page each time.",
+    });
 
     const active = plugin.activeHomeLayoutName();
     const list = pop.createDiv({ cls: "tj-layouts-list" });
@@ -2671,7 +2717,8 @@ export abstract class WidgetGridView extends ItemView {
     else chart.createDiv({ cls: "tj-chart-empty", text: "No data" });
     // Tiny, unobtrusive title — added after drawing so the
     // chart's container.empty() does not wipe it.
-    const title = dir === "long" ? "Long Net Trading P&L" : dir === "short" ? "Short Net Trading P&L" : "Net Trading P&L";
+    const base = dir === "long" ? "Long Net Trading P&L" : dir === "short" ? "Short Net Trading P&L" : "Net Trading P&L";
+    const title = this.viewKey() === "home" ? `Portfolio ${base}` : base;
     const titleEl = wrap.createDiv({ cls: "tj-eq-title", text: title });
     attachTip(titleEl, {
       title,
@@ -2751,7 +2798,12 @@ export abstract class WidgetGridView extends ItemView {
     // Polite announcer for keyboard reordering (focus has no visual movement).
     this._bandLive = band.createDiv({ cls: "tj-sr-only", attr: { "aria-live": "polite" } });
     for (const item of bandItems) {
-      const label = METRIC_TITLES[item.i] ?? CARD_TITLES[item.i] ?? item.i;
+      const label =
+        this.viewKey() === "home" && item.i === "m.netpnl"
+          ? "Portfolio Net P&L"
+          : this.viewKey() === "home" && DECISION_SCOPE_METRICS.has(item.i)
+            ? `${METRIC_TITLES[item.i] ?? CARD_TITLES[item.i] ?? item.i} (decision)`
+            : METRIC_TITLES[item.i] ?? CARD_TITLES[item.i] ?? item.i;
       const slot = band.createDiv({
         cls: "tj-metric-slot",
         attr: { "data-wid": item.i, role: "listitem", "aria-label": label },
@@ -2869,7 +2921,15 @@ export abstract class WidgetGridView extends ItemView {
     // the only view left, so every `m.*` reaches the band — the fixed-text class
     // is unconditional.
     const wrap = body.createDiv({ cls: "tj-metric is-fixed-text" });
-    const labelText = def?.label ?? CARD_TITLES[id] ?? id;
+    // Home reads the portfolio, so its Net P&L says so — the same number means
+    // a different scope on an account page or the decision-based Trade Log.
+    const baseLabel = def?.label ?? CARD_TITLES[id] ?? id;
+    const labelText =
+      this.viewKey() === "home" && id === "m.netpnl"
+        ? "Portfolio Net P&L"
+        : this.viewKey() === "home" && DECISION_SCOPE_METRICS.has(id)
+          ? `${baseLabel} (decision)`
+          : baseLabel;
     const labelEl = wrap.createDiv({ cls: "tj-metric-label", text: labelText });
     const val = wrap.createDiv({ cls: "tj-metric-value" });
     const financials = this.financialsFor(trades);
@@ -2882,7 +2942,7 @@ export abstract class WidgetGridView extends ItemView {
       (!financials.decisions.length || (!Number.isFinite(factor) && factor !== Infinity));
     const res = missingFactor ? { value: "—", tone: "neutral" as const } : calculated;
     const financialTips: Record<string, string> = {
-      "m.netpnl": "Trading result after commission and fees. Payouts and deposits are not trading results.",
+      "m.netpnl": "Portfolio result after commission and fees — every account a decision reached. Payouts and deposits are not trading results.",
       "m.profitfactor": "Net trading profit factor for this selection.",
       "m.grossprofitfactor": "Gross trading profit factor before fees.",
       "m.expectancy": "Average Net Trading P&L per trade.",
@@ -2895,9 +2955,9 @@ export abstract class WidgetGridView extends ItemView {
       "m.largestwin": "Largest Net result of a single account leg.",
       "m.largestloss": "Largest Net loss of a single account leg.",
       "m.maxdd": "Largest drawdown in Net Trading P&L.",
-      "m.sharpe": "Sharpe ratio using Net Trading P&L.",
-      "m.besthour": "Hour with the highest Net Trading P&L.",
-      "m.worsthour": "Hour with the lowest Net Trading P&L.",
+      "m.sharpe": "Sharpe ratio using the original trade's Net result, per decision. A copy's result belongs to its own account.",
+      "m.besthour": "Hour with the highest original-trade Net result, per decision.",
+      "m.worsthour": "Hour with the lowest original-trade Net result, per decision.",
       "m.winrate": "Share of decided trades that ended Net positive; breakevens excluded.",
       "m.winstreak": "Longest run of Net-positive decisions; breakevens pause, never break.",
       "m.lossstreak": "Longest run of Net-negative decisions; breakevens pause, never break.",
@@ -3027,13 +3087,37 @@ export abstract class WidgetGridView extends ItemView {
       this.filtersOpen = false;
       this.rerenderHeaderOnly();
     });
-    const pop = header.createDiv({ cls: "tj-popover" });
+    const pop = header.createDiv({ cls: "tj-popover tj-popover-filters" });
     pop.addEventListener("click", (e) => e.stopPropagation());
 
-    // ---- Account (multi: OR within, AND with type) ----
+    // The box is named, like its three siblings. A floating card of two 10px
+    // labels with no title was the weakest header control in the plugin.
+    const popTitle = pop.createDiv({ cls: "tj-pop-title-row" });
+    popTitle.createDiv({ cls: "tj-pop-section", text: "Filters" });
+    // One control to undo both groups: the two Clear buttons only ever cleared
+    // their own, and neither of them explained itself.
+    if (this._accountIds.length || this._accountTypes.length) {
+      const clearAll = popTitle.createEl("button", {
+        cls: "tj-pop-clear",
+        text: "Clear all",
+        attr: { type: "button" },
+      });
+      attachTip(clearAll, { title: "Clear all filters", sub: "Shows every account again. Your dates are not touched." });
+      clearAll.addEventListener("click", () => {
+        this._accountIds = [];
+        this._accountTypes = [];
+        this.persistHomeFilters();
+        this.renderPreservingScroll();
+      });
+    }
+
+    // ---- Which accounts (multi: OR within, AND with type) ----
+    // Two groups, named for what they actually answer, separated by a hairline:
+    // specific accounts above, the kinds of account below. "Account" and
+    // "Account type" said almost the same word and sat eight pixels apart.
     const accSection = pop.createDiv({ cls: "tj-pop-fields" });
     const accHead = accSection.createDiv({ cls: "tj-pop-label-row" });
-    accHead.createDiv({ cls: "tj-pop-label", text: "Account" });
+    accHead.createDiv({ cls: "tj-pop-label", text: "Which accounts" });
     if (this._accountIds.length) {
       accHead
         .createEl("button", { cls: "tj-pop-clear", text: "Clear", attr: { type: "button" } })
@@ -3069,10 +3153,14 @@ export abstract class WidgetGridView extends ItemView {
     }
     if (!accounts.length) accList.createSpan({ cls: "tj-pop-empty", text: "No accounts yet" });
 
+    // The two groups are separate decisions, so a rule between them: the only
+    // structural separation this popover needs.
+    accSection.createDiv({ cls: "tj-pop-rule" });
+
     // ---- Account type (multi) ----
     const typeSection = pop.createDiv({ cls: "tj-pop-fields" });
     const typeHead = typeSection.createDiv({ cls: "tj-pop-label-row" });
-    typeHead.createDiv({ cls: "tj-pop-label", text: "Account type" });
+    typeHead.createDiv({ cls: "tj-pop-label", text: "Which kinds of account" });
     if (this._accountTypes.length) {
       typeHead
         .createEl("button", { cls: "tj-pop-clear", text: "Clear", attr: { type: "button" } })
@@ -3083,7 +3171,11 @@ export abstract class WidgetGridView extends ItemView {
         });
     }
     const pills = typeSection.createDiv({ cls: "tj-pop-pills" });
-    for (const f of accountFilters()) {
+    // "All" is a single-select reset on the Trade Log; here the types are a
+    // multi-select, so "All" has no meaning as a chip — and offered as one it
+    // matched nothing and blanked the page. The honest control for "no type
+    // filter" is the Clear button on this group.
+    for (const f of accountFilters().filter((x) => x.id !== "all")) {
       const on = this._accountTypes.includes(f.id);
       const pill = pills.createEl("button", {
         cls: "tj-pop-pill" + (on ? " is-on" : ""),
@@ -4121,7 +4213,7 @@ export abstract class WidgetGridView extends ItemView {
 
   renderFocusAreasWidget(body: HTMLElement, trades: Trade[], header?: HTMLElement): void {
     if (!trades.length) {
-      body.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+      body.createDiv({ cls: "tj-empty", text: "No trades in this period — widen the period or clear filters." });
       return;
     }
     // One decision per row, read from the original note: a copy is born
@@ -4159,7 +4251,13 @@ export abstract class WidgetGridView extends ItemView {
         hint: "A default risk set for the symbol counts as defined — such a trade is not in this row.",
         n: open.filter((t) => !hasStop(t)).length,
       },
-      { label: "Unreviewed", icon: "clipboard-check", lens: { label: "Unreviewed", test: unreviewed }, n: open.filter(unreviewed).length },
+      {
+        label: "Unreviewed",
+        icon: "clipboard-check",
+        lens: { label: "Unreviewed", test: unreviewed },
+        hint: "Trades missing one or more review fields.",
+        n: open.filter(unreviewed).length,
+      },
     ]
       .filter((row) => row.n > 0)
       .sort((a, b) => b.n - a.n);
@@ -4367,7 +4465,7 @@ export abstract class WidgetGridView extends ItemView {
     attachTip(balance, {
       title: "Journal-recorded value",
       value: fmtMoneyAbs(selected.balance, 2),
-      sub: "Recorded balance from configured capital and logged movements — not live broker equity.",
+      sub: "Recorded balance: the account's value when Tradebook started tracking it, plus every recorded trading result, payout, deposit and correction since. Not live broker equity.",
     });
     const open = head.createEl("button", { cls: "tj-ha-open", text: "Open ↗", attr: { type: "button" } });
     open.addEventListener("click", (e) => {
@@ -4380,27 +4478,49 @@ export abstract class WidgetGridView extends ItemView {
     // height — `preserveAspectRatio="none"` stretches the axis text otherwise.
     const chart = hero.createDiv({ cls: "tj-ha-chart" });
 
-    const netTrading = movement.trades
-      .filter((t) => this.accountMatches(t, selected.account))
-      .reduce((sum, t) => sum + netPnl(t), 0);
+    // "Net trading" is the tracked population of this account, the same one the
+    // balance above is built from — pre-boundary history is not trading here yet,
+    // and an account with no tracked trade has no Net to report (never $0.00).
+    const start = trackingStartOf(selected.account);
+    const accountTrades = movement.trades.filter(
+      (t) => this.accountMatches(t, selected.account) && (!start || isTrackedTrade(t, start))
+    );
+    const untracked = historyAvailability(selected.account, accountTrades.length) === "not-tracked";
+    const netTrading = accountTrades.reduce((sum, t) => sum + netPnl(t), 0);
     const capital = selected.account.size || 0;
+    // The account VALUE anchor: the declared balance at the tracking boundary, or
+    // the configured size when there is none. `capital` above is the rule anchor
+    // and belongs to the "Capital" fact; every VALUE figure here — the curve, and
+    // the change since tracking — is measured from this one, so the two can never
+    // end at different numbers for the same account.
+    const valueAnchor = this.plugin.openingCapitalOf(selected.account.id);
     const payouts = this.plugin.payoutsFor(selected.account.id).reduce((sum, p) => sum + Math.abs(p.amount), 0);
-    const changeVsSize = selected.balance - capital;
+    // What the account has gained since Tradebook began tracking it. Measured
+    // from the value anchor, never from the configured size — otherwise an
+    // account tracked from halfway reports the gap between the two as a result.
+    const valueChange = selected.balance - valueAnchor;
     const type = selected.account.type;
     // Payouts exist only for the accounts the account page offers them on
     // (funded / live / personal); an eval reports progress toward its target.
     const payoutType = type === "funded" || type === "live" || type === "personal";
     const target = resolveAccountView(selected.account).rules.target;
-    const targetPct = type === "eval" && target > 0 ? (netTrading / target) * 100 : null;
+    const targetPct = type === "eval" && target > 0 && !untracked ? (netTrading / target) * 100 : null;
 
     const facts = hero.createDiv({ cls: "tj-ha-facts" });
-    const fact = (label: string, text: string, tone = ""): void => {
+    const fact = (label: string, text: string, tone = ""): HTMLElement => {
       const cell = facts.createDiv({ cls: "tj-ha-fact" });
       cell.createDiv({ cls: "tj-ha-fact-k", text: label });
       cell.createDiv({ cls: ("tj-ha-fact-v " + tone).trim(), text });
+      return cell;
     };
     const toneOf = (n: number): string => (n > 0 ? "tj-pos" : n < 0 ? "tj-neg" : "");
-    fact("Net trading", fmtMoney2(netTrading), toneOf(netTrading));
+    const netFact = facts.createDiv({ cls: "tj-ha-fact" });
+    netFact.createDiv({ cls: "tj-ha-fact-k", text: "Net trading" });
+    netFact.createDiv({
+      cls: ("tj-ha-fact-v " + (untracked ? "is-na" : toneOf(netTrading))).trim(),
+      text: trackedReading(selected.account, accountTrades.length, fmtMoney2(netTrading)),
+    });
+    if (untracked) attachTip(netFact, { title: "Net trading", sub: NO_TRACKED_DATA_NOTE });
     if (payoutType) fact("Payouts", fmtMoneyAbs(payouts, 2));
     else if (type === "eval") {
       fact(
@@ -4409,8 +4529,16 @@ export abstract class WidgetGridView extends ItemView {
         targetPct !== null && targetPct >= 100 ? "tj-pos" : "",
       );
     }
-    fact("Capital", fmtMoneyAbs(capital, 2));
-    fact("Change vs size", fmtMoney2(changeVsSize), toneOf(changeVsSize));
+    const capitalFact = fact("Capital", fmtMoneyAbs(capital, 2));
+    attachTip(capitalFact, {
+      title: "Account capital",
+      sub: "The size this account was configured with \u2014 what your firm's rules are written against. It does not change when the account gains or loses.",
+    });
+    fact("Value change", fmtMoney2(valueChange), toneOf(valueChange));
+    attachTip(facts.lastChild as HTMLElement, {
+      title: "Value change",
+      sub: "Recorded value less this account's value when Tradebook started tracking it. Payouts, deposits and corrections move it; the configured account size does not.",
+    });
 
     if (accounts.length > 1) {
       const list = wrap.createDiv({ cls: "tj-ha-list" });
@@ -4447,11 +4575,11 @@ export abstract class WidgetGridView extends ItemView {
       chart.empty();
       if (selected.days.length) {
         renderLineChart(chart, {
-          values: [capital, ...selected.days.map((day) => capital + day.cumulative)],
+          values: accountValueSeries(selected.days, valueAnchor),
           dates: [selected.days[0].date, ...selected.days.map((day) => day.date)],
-          baseline: capital,
-          baseLine: capital,
-          fadeFloor: capital,
+          baseline: valueAnchor,
+          baseLine: valueAnchor,
+          fadeFloor: valueAnchor,
           key: `home-account-balance:${selected.account.id}`,
           format: this.plugin.settings.dateFormat,
           animations: this.plugin.settings.animations !== false,
@@ -4784,7 +4912,7 @@ export abstract class WidgetGridView extends ItemView {
         dayKey: (t) => this.scoreDayKey(t),
       });
       if (!tiles.length) {
-        panel.createDiv({ cls: "tj-empty", text: "No trades in this period." });
+        panel.createDiv({ cls: "tj-empty", text: "No trades in this period — widen the period or clear filters." });
         return;
       }
       // Timeline tabs keep every bucket: hours only exist where trades exist, and

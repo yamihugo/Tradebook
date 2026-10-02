@@ -1,15 +1,11 @@
 import { ItemView, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
-import { fmtMoney, fmtMoney2, fmtMoneyCompact, fmtPrice, isFiniteNumber } from "../tz";
+import { fmtMoney2, fmtMoneyCompact, fmtPrice, isFiniteNumber } from "../tz";
 import { dateSearchTokens, formatDate } from "../lib/dates";
-import { dateInZone, periodBounds } from "../lib/periods";
-import { netPnl } from "../lib/fees";
-import { tradeDayInZone } from "../lib/instant";
+import { dateInZone } from "../lib/periods";
 import { legBaseKey } from "../lib/copy";
-import { attachTip, TipParts } from "../lib/tip";
 import { reviewStatus } from "../lib/review";
-import { tradeRows } from "../lib/tradeTable";
 import wordmarkUrl from "../../assets/brand/TradebookWordmark.png";
 
 export const TRADEBOOK_SIDEBAR_VIEW_TYPE = "tradebook-sidebar-view";
@@ -17,7 +13,10 @@ export const TRADEBOOK_SIDEBAR_VIEW_TYPE = "tradebook-sidebar-view";
 type NavGroup = "OVERVIEW" | "PINNED" | "TOOLS" | "RECENT";
 
 /** One row in the menu. A fixed page (Home, Trade Log…) or an optional page the
- *  user pinned from "Customize". `run` is the whole action — we never impose. */
+ *  user pinned from "Customize". `run` is the whole action — we never impose.
+ *
+ *  No tooltip: the label says where the row goes, and a hover card that repeats
+ *  it in numbers is noise on the way to the page. */
 interface NavEntry {
   id: string;
   label: string;
@@ -26,7 +25,6 @@ interface NavEntry {
   run: () => void;
   count?: string | null;
   countTone?: "money" | "warn";
-  tip?: TipParts;
   optional?: boolean;
 }
 
@@ -228,43 +226,12 @@ export class TradebookSidebarView extends ItemView {
 
   // ---------------------------------------------------------------- entries
 
-  private inBounds(date: string, bounds: { start: string | null; end: string | null }): boolean {
-    if (!date) return false;
-    if (bounds.start && date < bounds.start) return false;
-    if (bounds.end && date > bounds.end) return false;
-    return true;
-  }
-
   private today(): string {
     return dateInZone((this.plugin.settings as any).timeZone || "UTC");
   }
 
-  /**
-   * Decisions still missing a review step, counted the way the Home's Focus
-   * Areas counts them: one per decision (the original note), never per copy leg.
-   *
-   * The old counter asked `!t.reviewed`, which is a leg field, and `reviewed` is
-   * `false` on every imported and copied trade — so the badge read ≈ the whole
-   * journal while claiming to be about review.
-   */
-  private unreviewedDecisions(trades: Trade[]): number {
-    return tradeRows(trades).filter((r) => !reviewStatus(r.rep).complete).length;
-  }
-
   /** The fixed pages: destinations, tools and the two review shortcuts. */
   private fixedEntries(): NavEntry[] {
-    const trades = this._trades ?? [];
-    const today = this.today();
-    const zone = this.plugin.settings.timeZone;
-    const dayOf = (t: Trade): string => tradeDayInZone(t, zone);
-    const week = periodBounds("thisweek", today, "", "", this.plugin.settings.weekStart ?? "monday");
-    const weekTrades = trades.filter((t) => this.inBounds(dayOf(t), week));
-    const weekNet = weekTrades.reduce((s, t) => s + netPnl(t), 0);
-    const todayTrades = trades.filter((t) => dayOf(t) === today);
-    const todayNet = todayTrades.reduce((s, t) => s + netPnl(t), 0);
-    const accounts = this.plugin.settings.propAccounts ?? [];
-    const accountTotal = accounts.reduce((s, a) => s + (isFiniteNumber(a.size) ? a.size : 0), 0);
-
     return [
       {
         id: "home",
@@ -272,12 +239,6 @@ export class TradebookSidebarView extends ItemView {
         icon: "home",
         group: "OVERVIEW",
         run: () => this.plugin.openHome(),
-        tip: {
-          title: "This week",
-          value: fmtMoney(weekNet, 0),
-          tone: weekNet >= 0 ? "pos" : "neg",
-          sub: `${weekTrades.length} trades · ${this.unreviewedDecisions(weekTrades)} to review`,
-        },
       },
       {
         id: "tradelog",
@@ -285,12 +246,6 @@ export class TradebookSidebarView extends ItemView {
         icon: "notebook-text",
         group: "OVERVIEW",
         run: () => this.plugin.openTradeLog(),
-        tip: {
-          title: "Trade Log · today",
-          value: fmtMoney(todayNet, 0),
-          tone: todayNet >= 0 ? "pos" : "neg",
-          sub: `${todayTrades.length} trades · ${this.unreviewedDecisions(todayTrades)} to review`,
-        },
       },
       {
         id: "setups",
@@ -305,11 +260,6 @@ export class TradebookSidebarView extends ItemView {
         icon: "wallet",
         group: "OVERVIEW",
         run: () => this.plugin.openAccounts(),
-        tip: {
-          title: "Accounts",
-          value: fmtMoneyCompact(accountTotal),
-          sub: `${accounts.length} open`,
-        },
       },
       {
         id: "addtrade",
@@ -576,14 +526,12 @@ export class TradebookSidebarView extends ItemView {
   }
 
   private renderItem(section: HTMLElement, entry: NavEntry, group: NavGroup): void {
-    const hasTip = !!entry.tip && !this.customizing;
     const btn = section.createEl("button", {
       cls: "tj-nav-item" + (this.active === entry.id ? " active" : ""),
-      attr: hasTip ? { type: "button" } : { type: "button", "aria-label": entry.label },
+      attr: { type: "button", "aria-label": entry.label },
     });
     btn.dataset.id = entry.id;
     btn.dataset.group = group;
-    if (hasTip) btn.createSpan({ cls: "tj-sr-only", text: entry.label });
 
     if (this.customizing) {
       btn.draggable = true;
@@ -601,8 +549,6 @@ export class TradebookSidebarView extends ItemView {
       if (entry.countTone === "money") count.addClass("is-money");
       if (entry.countTone === "warn") count.addClass("is-warn");
     }
-
-    if (hasTip && entry.tip) attachTip(btn, entry.tip);
 
     if (this.customizing) {
       // One X per row, floating over the right edge. It never takes

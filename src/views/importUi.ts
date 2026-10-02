@@ -1,14 +1,28 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
-import { csvKind, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
+import { csvKind, mergeCashCosts, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
 import type { CashCosts } from "../csv";
-import type { ImportCosts, PropAccount, TimeIssues, Trade } from "../types";
+import type { ImportCosts, ParsedResult, PropAccount, TimeIssues, Trade } from "../types";
 import { TIMEZONE_OPTIONS, detectSystemZone, fmtMoney2, zoneShortLabel } from "../tz";
-import { isActiveCopier } from "../lib/copy";
+import { copierPresentation } from "../lib/copy";
+import { excludeSuperseded } from "../lib/copySupersession";
+import { effectiveSelection, newImportSelection } from "../lib/importSelection";
+import { primaryImportIdentity } from "../lib/importIdentity";
+import {
+  missingCopiers,
+  planBatch,
+  type BatchFileTrades,
+  type BatchPlan,
+} from "../lib/importBatch";
 import { formatDate } from "../lib/dates";
+import { computeRecordedAccountMovement } from "../lib/accountMetrics";
+import { accountCashflows } from "../lib/accountCashflows";
+import { tradeDayInZone } from "../lib/instant";
+import { trackingStartOf } from "../lib/tracking";
 import { mountDropdown } from "../lib/dropdown";
 import { attachTip } from "../lib/tip";
 import { netPnl } from "../lib/fees";
+import { importSummary, writeOutcome } from "../lib/importReport";
 import { applyAssumedRisk, type AssumedRiskResult } from "../lib/risk";
 import type { DropdownItem } from "../lib/dropdown";
 
@@ -23,6 +37,8 @@ import type { DropdownItem } from "../lib/dropdown";
 
 interface ParsedFile {
   name: string;
+  /** Every trade file in the batch, in drop order. */
+  files: string[];
   trades: Trade[];
   skipped: number;
   unfilled: number;
@@ -52,11 +68,15 @@ class ImportCsvModal extends Modal {
 
   /** CSV account name → journal account id ("" = leave unassigned). */
   private mapping = new Map<string, string>();
-  /** Accounts that also took these trades (copy members arrive pre-ticked). */
+  /** The ticked extra targets: configured copiers by default, then the trader's word. */
   private includeIds = new Set<string>();
-  /** Which base set we already pre-ticked, so an untick is never undone. */
-  private groupSeeded = "";
+  /** The session's explicit ticks and unticks, scoped to the mapped leader set. */
+  private selection = newImportSelection();
   private parsed: ParsedFile | null = null;
+  /** The batch plan: detected accounts, dedupe counts and the write split. */
+  private plan: BatchPlan | null = null;
+  /** The parsed trades of each dropped file, for grouping by detected account. */
+  private batchFiles: BatchFileTrades[] = [];
   private importable: Trade[] = [];
   private duplicates = 0;
   /** The journal as it stands, loaded once so the balance preview can count it. */
@@ -66,12 +86,15 @@ class ImportCsvModal extends Modal {
   private goBtn: HTMLButtonElement | null = null;
   /** The reason the action is asleep, shown only while it is. */
   private helperEl: HTMLElement | null = null;
+  /** The stage strip: Files → Review → Import. */
+  private stageEl: HTMLElement | null = null;
+  /** True once a write has been confirmed, so the strip can close out. */
+  private imported = false;
 
-  // The trades and the costs are two separate decisions: the file with the
+  // The trades and the costs are two separate decisions: the files with the
   // trades, and — only if the trader wants the exact bill — the platform's own
   // cash history for the same period.
-  private tradesText = "";
-  private tradesName = "";
+  private tradeFiles: { name: string; text: string }[] = [];
   private wantCosts = false;
   private cashName = "";
   private cashCosts: CashCosts | null = null;
@@ -137,18 +160,24 @@ class ImportCsvModal extends Modal {
       text: "Reports → Orders is recommended. Reports → Fills works too.",
     });
 
-    // Step one is the file and nothing else: the times and the costs are
-    // decided once there is a file to decide about.
+    // The journey, so the reader always knows where he is and what is left. It
+    // is orientation, not a gate — every stage is still on one page, and each
+    // section below carries the number it has here.
+    this.stageEl = c.createDiv({ cls: "tj-import-stages" });
+    this.renderStages();
+
+    // Files come first and nothing else: the times and the costs are decided
+    // once there is a file to decide about.
     const trades = c.createDiv({ cls: "tj-import-block" });
-    this.tradesTitleEl = trades.createDiv({ cls: "tj-import-blocktitle", text: "Trades" });
+    this.tradesTitleEl = this.stepHead(trades, "Files");
     this.fileEl = trades.createDiv({ cls: "tj-import-file" });
     this.renderDropzone(this.fileEl);
 
-    // The account comes before the times and the costs: it is the decision
-    // every other number on this screen depends on, so it gets asked first.
+    // Inside Review, the account comes before the times and the costs: it is the
+    // decision every other number on this screen depends on, so it is asked first.
     this.pickEl = c.createDiv();
 
-    // Step two's home. It stays empty until a file is recognised.
+    // The Time and Costs sub-areas. They stay empty until a file is recognised.
     this.setupEl = c.createDiv({ cls: "tj-import-setup" });
 
     this.bodyEl = c.createDiv({ cls: "tj-import-result" });
@@ -160,6 +189,11 @@ class ImportCsvModal extends Modal {
    * cost at all, because a half-counted one would be a number nobody was billed.
    */
   private renderCosts(host: HTMLElement): void {
+    this.stepHead(host, "Costs", {
+      text: !this.wantCosts ? "Optional" : this.cashCosts ? "Ready" : "Needs a file",
+      tone: !this.wantCosts ? "optional" : this.cashCosts ? "ready" : "warn",
+      needs: this.wantCosts && !this.cashCosts,
+    });
     const box = host.createDiv({ cls: "tj-import-costsbox" });
     const head = box.createDiv({ cls: "tj-import-costshead" });
     const sw = head.createEl("label", { cls: "tj-import-switch" });
@@ -262,6 +296,7 @@ class ImportCsvModal extends Modal {
     const detected = detectSystemZone();
     // Its own box, with a title: the zone is the one thing a reader has to get
     // right before the numbers mean anything, so it does not share a line.
+    this.stepHead(host, "Time", { text: "Automatic", tone: "auto" });
     const box = host.createDiv({ cls: "tj-import-zonebox" });
     // One row: the label, the zone, and where it lands. The zone is one answer,
     // not a form, so it does not get a form's worth of space.
@@ -282,7 +317,7 @@ class ImportCsvModal extends Modal {
         // A file's times carry no zone of their own, so changing this changes
         // every timestamp in the list below. Re-read it now instead of waiting
         // for the next import.
-        if (this.tradesText) void this.parseTrades();
+        if (this.tradeFiles.length) void this.parseTrades();
       },
       { placeholder: "This computer", title: "The zone this file's times were written in" }
     );
@@ -297,11 +332,11 @@ class ImportCsvModal extends Modal {
   private renderDropzone(host: HTMLElement): void {
     host.empty();
     const drop = host.createEl("div", { cls: "tj-dropzone" });
-    drop.createDiv({ text: "Drop your CSV here", cls: "tj-drop-text" });
-    drop.createDiv({ text: "Orders or Fills — one file is enough", cls: "tj-drop-sub" });
-    drop.createDiv({
-      cls: "tj-drop-hint",
-      text: "Reports → Orders carries every ticket with its fill time, price, status, order type and stop. Reports → Fills is the raw executions. Either one pairs the round-trips; the Performance report cannot be read.",
+    drop.createDiv({ text: "Drop your CSV files here", cls: "tj-drop-text" });
+    const sub = drop.createDiv({ text: "One file or many — all read as one batch", cls: "tj-drop-sub" });
+    attachTip(sub, {
+      title: "Which report",
+      sub: "Reports → Orders carries every ticket with its fill time, price, status, order type and stop. Reports → Fills is the raw executions. Either one pairs the round-trips; the Performance report cannot be read.",
     });
     const fileInput = drop.createEl("input", {
       type: "file",
@@ -332,12 +367,90 @@ class ImportCsvModal extends Modal {
     });
   }
 
+  /**
+   * The stage strip. A stage is done once its answer exists, and the first
+   * unfinished one is "on" — so the reader's eye lands on the next move.
+   */
+  /**
+   * One section's numbered head, matching the strip at the top of the modal.
+   * Four words of orientation used to be the only structure on a page with seven
+   * stages, and three of the sections had no name at all.
+   */
+  private stepHead(
+    host: HTMLElement,
+    label: string,
+    status?: { text: string; tone: "ready" | "auto" | "input" | "optional" | "warn"; needs?: boolean }
+  ): HTMLElement {
+    const head = host.createDiv({ cls: "tj-import-step" });
+    head.createSpan({ cls: "tj-import-steplabel", text: label });
+    if (status) {
+      head.createSpan({ cls: `tj-import-stepstatus is-${status.tone}`, text: status.text });
+      if (status.needs) head.setAttr("data-needs", "true");
+    }
+    return head;
+  }
+
+  private renderStages(): void {
+    const host = this.stageEl;
+    if (!host) return;
+    host.empty();
+    const parsed = !!this.parsed;
+    // A trader makes three real decisions, not seven: choose the files, settle
+    // the review, write it. The sub-areas inside Review (account mapping, the
+    // group, time, costs, preview) are answers below, never top-level steps.
+    const reviewed = parsed && this.baseIds().length > 0;
+    const done = [parsed, reviewed, this.imported];
+    const labels = ["Files", "Review", "Import"];
+    let current = done.findIndex((d) => !d);
+    if (current < 0) current = labels.length - 1;
+    labels.forEach((label, i) => {
+      if (i) host.createSpan({ cls: "tj-import-stagesep", text: "›" });
+      const step = host.createSpan({
+        cls: "tj-import-stage" + (done[i] ? " is-done" : "") + (i === current ? " is-on" : ""),
+      });
+      step.createSpan({ cls: "tj-import-stagenum", text: String(i + 1) });
+      step.createSpan({ text: label });
+    });
+    // The first sub-area still waiting for an answer becomes the visual focus, so
+    // the eye lands on the decision that is actually next.
+    for (const el of Array.from(this.contentEl.querySelectorAll(".tj-import-step.is-needs"))) el.removeClass("is-needs");
+    this.contentEl.querySelector(".tj-import-step[data-needs='true']")?.addClass("is-needs");
+  }
+
+  /**
+   * Drop the chosen trades file and go back to the drop zone, without closing
+   * the import flow. The cash history is a separate decision and stays.
+   */
+  private resetTradesFile(): void {
+    this.tradeFiles = [];
+    this.batchFiles = [];
+    this.parsed = null;
+    this.plan = null;
+    this.importable = [];
+    this.duplicates = 0;
+    this.imported = false;
+    this.mapping.clear();
+    this.includeIds.clear();
+    this.selection = newImportSelection();
+    this.markAllReviewed = false;
+    this.helperEl = null;
+    this.goBtn = null;
+    this.actionsEl = null;
+    if (this.tradesTitleEl) this.tradesTitleEl.style.display = "";
+    if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too.");
+    if (this.bodyEl) this.bodyEl.empty();
+    if (this.pickEl) this.pickEl.empty();
+    if (this.setupEl) this.setupEl.empty();
+    if (this.fileEl) this.renderDropzone(this.fileEl);
+    this.renderStages();
+  }
+
   // ------------------------------------------------------------------ parse
 
   /**
-   * One drop, and normally one file: the trades. If the cash history happens to
-   * arrive in the same drop it is taken as the costs file, so dropping both at
-   * once still works. They are told apart by their header, never by their name.
+   * One drop, many files. Every Orders/Fills file is read as part of one batch;
+   * the cash history (one or more) is merged into the costs side. Nothing is
+   * written here.
    */
   private async handleFiles(files: File[]): Promise<void> {
     if (this.busy || !this.fileEl || !this.bodyEl) return;
@@ -352,16 +465,16 @@ class ImportCsvModal extends Modal {
       const texts: { name: string; text: string }[] = [];
       for (const f of files) texts.push({ name: f.name, text: await f.text() });
 
-      const cash = texts.find((t) => csvKind(t.text) === "cash");
-      const exec = texts.find((t) => {
+      const cashTexts = texts.filter((t) => csvKind(t.text) === "cash");
+      const execTexts = texts.filter((t) => {
         const k = csvKind(t.text);
         return k === "orders" || k === "fills";
       });
-      if (!exec) {
+      if (!execTexts.length) {
         body.empty();
         const err = body.createDiv({ cls: "tj-error" });
-        const stray = texts.find((t) => t !== cash);
-        if (cash && !stray) {
+        const stray = texts.find((t) => csvKind(t.text) === "unknown");
+        if (cashTexts.length && !stray) {
           // The one file is the money ledger: it belongs in the costs slot, and
           // without the Orders/Fills export there are no trades to reconstruct.
           err.createEl("h3", { text: "That is the cash history" });
@@ -386,24 +499,23 @@ class ImportCsvModal extends Modal {
         return;
       }
 
-      if (cash) {
+      if (cashTexts.length) {
         this.wantCosts = true;
-        this.cashName = cash.name;
+        this.cashName = cashTexts.map((c) => c.name).join(", ");
         this.cashError = "";
-        this.cashCosts = parseCashHistoryCsv(cash.text);
+        this.cashCosts = mergeCashCosts(cashTexts.map((c) => parseCashHistoryCsv(c.text)));
         if (this.costToggle) this.costToggle.checked = true;
         this.renderCostsBlock();
       }
 
-      // A new trades file is a new decision. Nothing is pre-picked: a name in
-      // the CSV matching an account in the journal is a coincidence of text, not
-      // an instruction, and guessing it here is how trades land in the wrong
-      // place while the screen says everything went fine.
+      // A new batch is a new decision. Nothing is pre-picked: a name in the CSV
+      // matching an account in the journal is a coincidence of text, not an
+      // instruction, and guessing it here is how trades land in the wrong place
+      // while the screen says everything went fine.
       this.mapping.clear();
-      this.groupSeeded = "";
+      this.selection = newImportSelection();
 
-      this.tradesName = exec.name;
-      this.tradesText = exec.text;
+      this.tradeFiles = execTexts;
       await this.parseTrades();
       this.busy = false;
     } catch (err) {
@@ -427,43 +539,123 @@ class ImportCsvModal extends Modal {
     this.cashName = file.name;
     this.cashCosts = parseCashHistoryCsv(text);
     this.renderCostsBlock();
-    if (this.tradesText) await this.parseTrades();
+    if (this.tradeFiles.length) await this.parseTrades();
+  }
+
+  /** Fold the parsed results of every file into one batch view. */
+  private combineParsed(
+    results: { name: string; result: ParsedResult }[],
+    names: string[]
+  ): Omit<ParsedFile, "risk" | "costFileName"> {
+    const trades: Trade[] = [];
+    const warnings: string[] = [];
+    const accountsSeen: { name: string; type: string }[] = [];
+    const seenAccounts = new Set<string>();
+    const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0 };
+    let skipped = 0;
+    let unfilled = 0;
+    let unpaired = 0;
+    const costList: ImportCosts[] = [];
+    for (const { result } of results) {
+      trades.push(...result.trades);
+      for (const w of result.warnings) if (!warnings.includes(w)) warnings.push(w);
+      for (const a of result.accountsSeen) {
+        if (seenAccounts.has(a.name)) continue;
+        seenAccounts.add(a.name);
+        accountsSeen.push({ name: a.name, type: String(a.type) });
+      }
+      skipped += result.skipped;
+      unfilled += result.unfilled;
+      unpaired += result.unpaired;
+      if (result.timeIssues) {
+        timeIssues.gap += result.timeIssues.gap;
+        timeIssues.ambiguous += result.timeIssues.ambiguous;
+        timeIssues.noZone += result.timeIssues.noZone;
+      }
+      if (result.costs) costList.push(result.costs);
+    }
+    const totalIssues = timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone;
+    const costs = costList.length ? this.mergeImportCosts(costList) : undefined;
+    return {
+      name: names.length === 1 ? names[0] : `${names.length} files`,
+      files: names,
+      trades,
+      warnings,
+      accountsSeen,
+      skipped,
+      unfilled,
+      unpaired,
+      ...(totalIssues ? { timeIssues } : {}),
+      costs,
+    };
+  }
+
+  /** Combine the per-file cost summaries; `charged` is the merged cash, once. */
+  private mergeImportCosts(list: ImportCosts[]): ImportCosts {
+    let charged = 0;
+    let recorded = 0;
+    let finalBalance: number | undefined;
+    const orphans: ImportCosts["orphans"] = [];
+    const seenOrphans = new Set<string>();
+    for (const c of list) {
+      charged = Math.max(charged, c.charged);
+      recorded += c.recorded;
+      if (Number.isFinite(c.finalBalance)) finalBalance = c.finalBalance;
+      for (const o of c.orphans) {
+        const key = `${o.date}|${o.contract}|${o.amount}`;
+        if (seenOrphans.has(key)) continue;
+        seenOrphans.add(key);
+        orphans.push(o);
+      }
+    }
+    return {
+      charged: this.round2(charged),
+      recorded: this.round2(recorded),
+      ...(finalBalance !== undefined ? { finalBalance } : {}),
+      orphans,
+    };
   }
 
   /**
-   * Read the trades file — with the platform's costs when we have them — and
-   * show the review. Nothing is written: this only says what was recognised.
+   * Read every trades file — with the platform's costs when we have them — as
+   * one batch, and show the review. Nothing is written: this only says what was
+   * recognised.
    */
   private async parseTrades(): Promise<void> {
-    if (!this.bodyEl || !this.tradesText) return;
+    if (!this.bodyEl || !this.tradeFiles.length) return;
     const body = this.bodyEl;
     const importZone = this.plugin.settings.importZone;
-    const result = parseTradeovateCsv(
-      this.tradesText,
-      this.plugin.getAccountRules(),
-      {
-        sourceZone: importZone || detectSystemZone(),
-        // "This computer" (the default) is the reader's answer, not the file's:
-        // the note must not later read it as a zone the export declared.
-        systemSource: !importZone,
-        journalZone: this.plugin.settings.timeZone,
-      },
-      this.cashCosts ?? undefined
-    );
+    const zones = {
+      sourceZone: importZone || detectSystemZone(),
+      // "This computer" (the default) is the reader's answer, not the file's:
+      // the note must not later read it as a zone the export declared.
+      systemSource: !importZone,
+      journalZone: this.plugin.settings.timeZone,
+    };
+    const rules = this.plugin.getAccountRules();
+    const results: { name: string; result: ParsedResult }[] = [];
+    const batchFiles: BatchFileTrades[] = [];
+    for (const f of this.tradeFiles) {
+      const result = parseTradeovateCsv(f.text, rules, zones, this.cashCosts ?? undefined);
+      results.push({ name: f.name, result });
+      batchFiles.push({ name: f.name, trades: result.trades });
+    }
+    this.batchFiles = batchFiles;
     body.empty();
 
-    if (result.trades.length === 0) {
+    const combined = this.combineParsed(results, this.tradeFiles.map((f) => f.name));
+    if (!combined.trades.length) {
       const err = body.createDiv({ cls: "tj-error" });
       err.createEl("h3", { text: "No trades recognised" });
-      for (const w of result.warnings) err.createEl("p", { text: w });
+      for (const w of combined.warnings) err.createEl("p", { text: w });
       err.createDiv({
         text: [
-          result.skipped ? `${result.skipped} row(s) could not be read` : "",
-          result.unfilled ? `${result.unfilled} order(s) never filled` : "",
-          result.unpaired ? `${result.unpaired} fill(s) still open` : "",
+          combined.skipped ? `${combined.skipped} row(s) could not be read` : "",
+          combined.unfilled ? `${combined.unfilled} order(s) never filled` : "",
+          combined.unpaired ? `${combined.unpaired} fill(s) still open` : "",
         ]
           .filter(Boolean)
-          .join(" · ") || "The file has no executions this journal can pair.",
+          .join(" · ") || "The files have no executions this journal can pair.",
         cls: "tj-error-detail",
       });
       err.createDiv({
@@ -473,29 +665,14 @@ class ImportCsvModal extends Modal {
       return;
     }
 
-    // A rule the trader set for the contract fills in only what the file does
+    // A rule the trader set for the contract fills in only what the files do
     // not say, and says so on the trade itself. It runs here, on the parsed
     // trades, so the preview below and the notes written later read the same
     // numbers.
-    const risk = applyAssumedRisk(result.trades, this.plugin.settings.defaultRiskBySymbol);
-
-    this.parsed = {
-      name: this.tradesName,
-      trades: result.trades,
-      risk,
-      skipped: result.skipped,
-      unfilled: result.unfilled,
-      unpaired: result.unpaired,
-      timeIssues: result.timeIssues,
-      warnings: result.warnings,
-      accountsSeen: result.accountsSeen.map((a) => ({ name: a.name, type: String(a.type) })),
-      costs: result.costs,
-      costFileName: this.cashName || undefined,
-    };
-    // Re-reading the same file is not a new decision: the zone, the costs and
-    // the cash history all land here, and each of them used to wipe the account
-    // that had just been picked. Only a name that no longer exists in the file
-    // is dropped, so nothing dead is kept.
+    const risk = applyAssumedRisk(combined.trades, this.plugin.settings.defaultRiskBySymbol);
+    this.parsed = { ...combined, risk, costFileName: this.cashName || undefined };
+    // Re-reading is not a new decision: only a name that no longer exists in the
+    // batch is dropped, so nothing dead is kept.
     const names = new Set(this.parsed.accountsSeen.map((a) => a.name));
     for (const key of [...this.mapping.keys()]) {
       if (!names.has(key)) this.mapping.delete(key);
@@ -503,12 +680,25 @@ class ImportCsvModal extends Modal {
     await this.refreshAll();
   }
 
-  /** What Tradovate report this is, read from its header — never from its name. */
+  /**
+   * What Tradovate report this is, read from its header — never from its name.
+   *
+   * Asked of `csvKind`, the very gate that admitted the file, rather than of a
+   * second reading of the same header: a chip that called an accepted Orders
+   * export "CSV" would be the one place where the screen disagreed with the
+   * reader about what the reader had in hand.
+   */
   private fileKind(text: string): string {
-    const head = (text.split(/\r?\n/)[0] || "").toLowerCase();
-    if (head.includes("status") && head.includes("order id")) return "Orders export";
-    if (head.includes("fill id")) return "Fills export";
+    const kind = csvKind(text);
+    if (kind === "orders") return "Orders export";
+    if (kind === "fills") return "Fills export";
     return "CSV";
+  }
+
+  /** The kind of a whole batch: one name when they agree, "CSV" when they mix. */
+  private batchKind(): string {
+    const kinds = new Set(this.tradeFiles.map((f) => this.fileKind(f.text)));
+    return kinds.size === 1 ? [...kinds][0] : "CSV";
   }
 
   private accounts(): PropAccount[] {
@@ -542,30 +732,9 @@ class ImportCsvModal extends Modal {
     if (this.helperEl) this.helperEl.style.display = this.activeTargets().size === 0 ? "" : "none";
   }
 
-  /** Accounts that follow a leader, used to pre-tick a recognised copy group. */
-  private membersOf(baseIds: Set<string>): Set<string> {
-    const out = new Set<string>();
-    for (const base of this.accounts()) {
-      if (!baseIds.has(base.id)) continue;
-      for (const copier of this.accounts()) {
-        if (copier.copyRole === "copier" && copier.copyBaseId === base.id) out.add(copier.id);
-      }
-    }
-    return out;
-  }
-
-  /**
-   * How many of this file's trades a copier would actually mirror. A copier
-   * that started on 6 September never received the 1 September trades — better
-   * to say so here than to let the reader find out from a wrong number later.
-   * Returns null for an account that is not a copier of a base in this file.
-   */
-  private copyWindow(acc: PropAccount, baseIds: Set<string>): { inWindow: number; total: number } | null {
-    if (acc.copyRole !== "copier" || !acc.copyBaseId || !baseIds.has(acc.copyBaseId)) return null;
-    const total = this.importable.length;
-    let inWindow = 0;
-    for (const t of this.importable) if (isActiveCopier(acc, acc.copyBaseId, t.date)) inWindow++;
-    return { inWindow, total };
+  /** How many of this batch's new trades land in a journal account. */
+  private importedForAccount(accountId: string): number {
+    return this.plan?.groups.find((g) => g.mappedAccountId === accountId)?.importable ?? 0;
   }
 
   /**
@@ -620,65 +789,80 @@ class ImportCsvModal extends Modal {
     return items;
   }
 
-  /** The days this file covers, short: "19 Aug → 14 Sep 2026". */
-  private spanLabel(trades: Trade[]): string {
-    const days = trades.map((t) => t.date).filter(Boolean).sort();
-    if (!days.length) return "no day yet";
-    const lo = days[0];
-    const hi = days[days.length - 1];
-    if (lo === hi) return formatDate(hi, "D MMM YYYY");
-    const a = formatDate(lo, "D MMM YYYY");
-    const b = formatDate(hi, "D MMM YYYY");
-    // One year is enough to say once.
-    return lo.slice(0, 4) === hi.slice(0, 4) ? `${a.replace(` ${lo.slice(0, 4)}`, "")} → ${b}` : `${a} → ${b}`;
-  }
-
   /**
-   * Where the file's trades go, and — only once that is answered — who else
-   * took them. This half of the modal is a single question at a time on purpose:
-   * the reader was clicking copiers thinking he was choosing a leader, and no
-   * amount of labelling fixes a screen that asks two things at once.
+   * Where the batch's trades go. One row per **detected account** — not per
+   * file — so fifty accounts are fifty answers, once. A previously mapped
+   * broker account is offered as a suggestion and only applied when confirmed.
    */
   private renderPick(): void {
     if (!this.pickEl) return;
     const host = this.pickEl;
     host.empty();
-    if (!this.parsed) return;
+    if (!this.parsed || !this.plan) return;
     const accounts = this.accounts();
     if (!accounts.length) return;
 
+    const groups = this.plan.groups;
     const chosen = this.baseIds();
+    // The step head sits OUTSIDE the box: once the box de-accents itself
+    // (answered) it must not take the stage number with it, or the page loses
+    // its structure exactly when the trader starts reading the rest.
+    this.stepHead(
+      host,
+      "Account mapping",
+      chosen.length
+        ? { text: "Ready", tone: "ready" }
+        : { text: "Needs your choice", tone: "input", needs: true }
+    );
     const box = host.createDiv({ cls: "tj-import-pick" + (chosen.length ? " is-set" : "") });
     const head = box.createDiv({ cls: "tj-import-pickhead" });
     setIcon(head.createSpan({ cls: "tj-import-pickico" }), "crosshair");
     head.createSpan({ cls: "tj-import-picktitle", text: "Where these trades go" });
     head.createSpan({
       cls: "tj-import-pickstate" + (chosen.length ? " is-set" : " is-empty"),
-      text: chosen.length ? `${chosen.length} of ${this.parsed.accountsSeen.length} chosen` : "Nothing chosen yet",
+      text: chosen.length
+        ? `${chosen.length} of ${groups.length} account${groups.length === 1 ? "" : "s"} chosen`
+        : "Nothing chosen yet",
     });
 
-    const several = this.parsed.accountsSeen.length > 1;
-    for (const [index, seen] of this.parsed.accountsSeen.entries()) {
-      const trades = this.importable.filter((t) => t.account === seen.name);
+    for (const group of groups) {
       const row = box.createDiv({ cls: "tj-import-maprow" });
-      const assigned = !!this.mapping.get(seen.name);
+      const assigned = !!this.mapping.get(group.name);
       row.createSpan({ cls: "tj-import-mapdot" + (assigned ? " is-on" : "") });
-      const name = row.createDiv({ cls: "tj-import-mapname" + (several ? "" : " is-plain") });
-      // The broker's own account number never reaches the screen: it is the key
-      // we file the answer under, not something a trader reads. With a single
-      // name there is nothing to tell apart, so the row carries only the facts;
-      // with more than one, they are numbered in the order the file lists them.
-      if (several) name.createDiv({ cls: "tj-import-maplabel", text: `Account ${index + 1}` });
+      const name = row.createDiv({ cls: "tj-import-mapname" });
+      // The detected account is the key the mapping is filed under, and the one
+      // thing that tells fifty similar rows apart — so the batch shows it.
+      name.createDiv({ cls: "tj-import-maplabel", text: group.name });
+      const range = group.firstDate
+        ? group.firstDate === group.lastDate
+          ? formatDate(group.firstDate, "D MMM YYYY")
+          : `${formatDate(group.firstDate, "D MMM YYYY")} → ${formatDate(group.lastDate, "D MMM YYYY")}`
+        : "no day yet";
       name.createDiv({
         cls: "tj-import-mapcount",
-        text: `${trades.length} trade${trades.length === 1 ? "" : "s"} · ${this.spanLabel(trades)}`,
+        text: `${group.tradeCount} trade${group.tradeCount === 1 ? "" : "s"} · ${range} · ${group.files.length} file${
+          group.files.length === 1 ? "" : "s"
+        }`,
       });
+      attachTip(name, { title: group.name, sub: group.files.join(", ") });
+      // A remembered mapping is a suggestion, never an instruction: it is shown
+      // and only written when the trader confirms it.
+      const suggested = assigned ? null : this.plugin.mappedAccount(group.name);
+      if (suggested) {
+        const sug = name.createDiv({ cls: "tj-import-mapcount" });
+        sug.createSpan({ text: `Suggested account: ${suggested.name}` });
+        const use = sug.createEl("button", { cls: "tj-import-chipswap", text: "Use", attr: { type: "button" } });
+        use.addEventListener("click", () => {
+          this.mapping.set(group.name, suggested.id);
+          void this.refreshAll();
+        });
+      }
       const dd = mountDropdown(
         row,
         this.accountItems(accounts),
-        this.mapping.get(seen.name) ?? "",
+        this.mapping.get(group.name) ?? "",
         (id) => {
-          this.mapping.set(seen.name, id);
+          this.mapping.set(group.name, id);
           void this.refreshAll();
         },
         { placeholder: "Choose an account", title: "Where these trades are recorded" }
@@ -686,7 +870,7 @@ class ImportCsvModal extends Modal {
       dd.addClass("tj-import-mapdd");
     }
 
-    const leftOut = this.importable.filter((t) => !this.mapping.get(t.account)).length;
+    const leftOut = this.plan.unassigned;
     if (!chosen.length) {
       box.createDiv({
         cls: "tj-import-pickhint",
@@ -704,61 +888,69 @@ class ImportCsvModal extends Modal {
     this.renderExtraTargets(host, accounts);
   }
 
-  /** Who else took these trades — only reachable once a target exists. */
+  /**
+   * Who else took these trades. A configured copier of a mapped leader is
+   * listed with what the batch actually holds for it and arrives ticked: the
+   * relationship is the journal's own configuration, offered back — never a
+   * copy link read out of the CSV. A follower with no imported data is still
+   * reported, and its history is generated only if the tick stands at Import.
+   */
   private renderExtraTargets(host: HTMLElement, accounts: PropAccount[]): void {
     const baseIds = new Set(this.baseIds());
-    const members = this.membersOf(baseIds);
+    // The mapping says where the batch's trades live; the ticks say where they
+    // are copied to. `effectiveSelection` already keeps a mapped destination out
+    // of the tick list — writing it there would double the same trade.
     const others = accounts.filter((a) => !baseIds.has(a.id));
 
-    // The mapping says where the file's trades live; the ticks say where they are
-    // copied to. An account that became a base stops being a tick — keeping the
-    // id here would write the same trade twice into the same account.
-    for (const id of baseIds) this.includeIds.delete(id);
-
-    // A recognised copy group arrives ticked (once per group, so unticking a leg
-    // survives the next repaint).
-    if (members.size) {
-      const seedKey = [...baseIds].sort().join("|");
-      if (this.groupSeeded !== seedKey) {
-        this.groupSeeded = seedKey;
-        for (const id of members) this.includeIds.add(id);
-      }
-    }
-
-    // Two containers, because two different questions are being answered: the
-    // accounts that were following this base on the day, and the accounts that
-    // are simply also in the file. Ten ticked rows in one list hides that.
-    const groupAccs = others.filter((a) => !!a.copyBaseId && baseIds.has(a.copyBaseId));
+    const groupAccs = others.filter((a) => a.copyRole === "copier" && !!a.copyBaseId && baseIds.has(a.copyBaseId));
     const freeAccs = others.filter((a) => !groupAccs.includes(a));
     const leaders = accounts.filter((a) => baseIds.has(a.id)).map((a) => a.name);
 
-    if (members.size) {
-      const copiers = accounts.filter((a) => members.has(a.id)).map((a) => a.name);
+    if (groupAccs.length) {
+      // The leader first, in its own line, then the copiers it leads: the point
+      // of this box is that these accounts are a group, not four loose checkboxes.
+      const undecided = groupAccs.some((a) => this.importedForAccount(a.id) === 0 && !this.includeIds.has(a.id));
+      this.stepHead(host, "Trading Group", {
+        text: undecided ? "Needs your choice" : "Ready",
+        tone: undecided ? "input" : "ready",
+        needs: undecided,
+      });
       const groupBox = host.createDiv({ cls: "tj-import-group" });
       const groupHead = groupBox.createDiv({ cls: "tj-import-grouphead" });
       setIcon(groupHead.createSpan({ cls: "tj-import-groupico" }), "users");
-      groupHead.createSpan({ text: "This Trading Group" });
+      groupHead.createSpan({ text: "Trading Group detected" });
+      const leadLine = groupBox.createDiv({ cls: "tj-import-grouplead" });
+      leadLine.createSpan({ cls: "tj-role is-leader", text: "Leader" });
+      leadLine.createSpan({ cls: "tj-import-leadername", text: leaders.join(", ") });
+      // The ticks come from the Trading Group's own configuration, so the line
+      // says where they came from and what pressing Import will do — never that
+      // the CSV revealed a relationship. Unticked, nothing is written for it.
       groupBox.createDiv({
         cls: "tj-import-groupsub",
-        text: `These trades land in ${leaders.join(", ")} and are copied to ${copiers.join(
-          ", "
-        )}. Untick any you don't want — nothing is enforced.`,
+        text: "Copiers are ticked from your Trading Group settings. Import reconstructs the leader's missing history for each ticked account — nothing is generated until you press Import.",
       });
-      this.renderAccountRows(groupBox, groupAccs, baseIds);
+      this.renderAccountRows(groupBox, groupAccs);
     }
 
     if (freeAccs.length) {
       const accBox = host.createDiv({ cls: "tj-import-accs" });
-      accBox.createDiv({
+      // Named for what it does, not what it is: ticking a plain account records
+      // the trade there one for one at the same size. That is not a copy, and a
+      // reader who assumed otherwise would misread their own ledger.
+      const mapHead = accBox.createDiv({
         cls: "tj-import-maphead",
-        text: members.size ? "Other accounts" : "Also record these trades in",
+        text: "Also record these trades in, one for one",
       });
-      this.renderAccountRows(accBox, freeAccs, baseIds);
+      attachTip(mapHead, {
+        title: "Not a copy",
+        sub: "A tick here records the trade in that account at the same size. Only accounts that follow a leader produce generated copy legs.",
+      });
+      this.renderAccountRows(accBox, freeAccs);
     }
   }
 
   /** One tickable row per account. The row is the target; the dot is the state. */
-  private renderAccountRows(host: HTMLElement, list: PropAccount[], baseIds: Set<string>): void {
+  private renderAccountRows(host: HTMLElement, list: PropAccount[]): void {
     for (const a of list) {
       const row = host.createEl("label", { cls: "tj-import-acc" });
       const box = row.createEl("input", { type: "checkbox" });
@@ -767,6 +959,9 @@ class ImportCsvModal extends Modal {
       // control; the dot is the state, and it is the same green everywhere.
       const dot = row.createSpan({ cls: "tj-import-accdot" + (box.checked ? " is-on" : "") });
       box.addEventListener("change", () => {
+        // The explicit choice is remembered for the span of this mapping, so a
+        // later repaint keeps it instead of re-ticking the configured default.
+        this.selection.overrides.set(a.id, box.checked);
         if (box.checked) this.includeIds.add(a.id);
         else this.includeIds.delete(a.id);
         dot.toggleClass("is-on", box.checked);
@@ -777,16 +972,38 @@ class ImportCsvModal extends Modal {
       if (a.copyRole === "base") who.createSpan({ cls: "tj-role is-leader", text: "Leader" });
       if (a.copyRole === "copier") {
         who.createSpan({ cls: "tj-role is-copier", text: "Copier" });
-        if (Number.isFinite(a.copyMultiplier)) who.createSpan({ cls: "tj-ratio", text: `×${a.copyMultiplier}` });
+        const ratioChip = who.createSpan({ cls: "tj-ratio", text: `×${copierPresentation(a).ratio}` });
+        attachTip(ratioChip, {
+          title: `Ratio \u00d7${copierPresentation(a).ratio}`,
+          sub: "Contracts copied per leader contract. It sizes the copy legs this account would receive.",
+        });
       }
-      // A copier only mirrors the part of the file it was actually following.
-      // Saying so now is the difference between "it worked" and "it silently
-      // did nothing".
-      const win = this.copyWindow(a, baseIds);
-      if (win) {
-        who.createSpan({
-          cls: "tj-import-window" + (win.inWindow === 0 ? " is-warn" : ""),
-          text: `copies ${win.inWindow} of ${win.total}`,
+      // What the batch holds for this account, so a missing follower reads as a
+      // fact rather than a silent omission.
+      const imported = this.importedForAccount(a.id);
+      if (imported > 0) {
+        who.createSpan({ cls: "tj-import-window", text: `${imported} imported` });
+        // Each copier has its own start, and the generated history can only
+        // begin there. Showing the ratio without it described a leg the engine
+        // would refuse to write.
+        if (a.copyRole === "copier") {
+          const cp = copierPresentation(a);
+          who.createSpan({
+            cls: "tj-import-since",
+            text: cp.sinceIsBeginning ? "copies from the beginning" : cp.since ? `copies from ${formatDate(cp.since, this.plugin.settings.dateFormat)}` : "start not recorded",
+          });
+        }
+      } else if (a.copyRole === "copier") {
+        // Expected while a configured copier is preselected: the follower's own
+        // export is simply not in this batch. It only reads as a warning once the
+        // account has been left unticked and its history will not be generated.
+        const selected = this.includeIds.has(a.id);
+        const chip = who.createSpan({ cls: "tj-import-window" + (selected ? "" : " is-warn"), text: "No imported data found" });
+        attachTip(chip, {
+          title: selected ? "No imported data" : "No imported data — left out",
+          sub: selected
+            ? "This account has no files in the batch. Its history is reconstructed from the leader's trades."
+            : "This account has no files in the batch, and it is not ticked, so its history is not generated.",
         });
       }
     }
@@ -820,19 +1037,27 @@ class ImportCsvModal extends Modal {
     this.fileEl.empty();
     const chip = this.fileEl.createDiv({ cls: "tj-import-chip" });
     setIcon(chip.createSpan({ cls: "tj-import-chipico" }), "file-text");
-    chip.createSpan({ cls: "tj-import-chipkind", text: this.fileKind(this.tradesText) });
+    chip.createSpan({ cls: "tj-import-chipkind", text: this.batchKind() });
     chip.createSpan({ text: this.parsed.name, cls: "tj-import-chipname" });
+    if (this.parsed.files.length > 1) {
+      attachTip(chip, { title: `${this.parsed.files.length} files`, sub: this.parsed.files.join(", ") });
+    }
     if (this.parsed.costFileName) {
       chip.createSpan({ cls: "tj-import-chipmore", text: "+" });
       chip.createSpan({ cls: "tj-import-chipkind", text: "Cash History" });
       chip.createSpan({ text: this.parsed.costFileName, cls: "tj-import-chipname" });
     }
+    // The wrong file should not mean closing the flow. Dropping it and picking
+    // another is the same decision, revisited — and it keeps everything else
+    // (the costs file, the chosen strategy) in place.
+    const swapFile = chip.createEl("button", { cls: "tj-import-chipswap", text: "Change file", attr: { type: "button" } });
+    swapFile.addEventListener("click", () => this.resetTradesFile());
 
     // Step two. The file is in hand, so the reader gets what belongs to it:
     // where its times were written, and whether the platform's bill is coming
     // with it. The recommendation has done its job and shrinks to one line.
     if (this.headSubEl) this.headSubEl.setText("Nothing is written until you press the button.");
-    if (this.tradesTitleEl) this.tradesTitleEl.style.display = "none";
+    if (this.tradesTitleEl) this.tradesTitleEl.style.display = "";
     if (this.setupEl && !this.setupEl.childElementCount) {
       this.renderZone(this.setupEl);
       this.renderCosts(this.setupEl);
@@ -848,6 +1073,7 @@ class ImportCsvModal extends Modal {
         this.close();
         this.plugin.openAccounts();
       });
+      this.renderStages();
       return;
     }
 
@@ -864,7 +1090,7 @@ class ImportCsvModal extends Modal {
     setIcon(costLine.createSpan({ cls: "tj-import-costs-ico" }), "receipt");
     if (!costs) {
       costLine.createSpan({
-        text: "Costs are not recorded: an Orders or Fills export carries the commission but not the exchange, clearing and NFA lines, and half a cost would be a wrong number. Drop the Cash History report with it and the whole bill is recorded exactly.",
+        text: "Costs are not recorded: the export carries commission but not the exchange, clearing and NFA lines, and half a cost would be a wrong number.",
       });
     } else {
       const inAccount = this.round2(Math.max(0, costs.charged - costs.recorded));
@@ -916,22 +1142,42 @@ class ImportCsvModal extends Modal {
     // number on this screen depends on the answer. Until it is answered the
     // group and the extra accounts are not even drawn: a question that has not
     // been asked cannot be answered wrongly.
-    if (!this.baseIds().length) {
-      // A tick hangs off a chosen account. With nothing chosen it is a leftover
-      // from an earlier pick, and a leftover must never light the button.
-      this.includeIds.clear();
-      this.groupSeeded = "";
-    }
+    // A configured copier of a mapped leader comes ticked: the relationship was
+    // an explicit decision already, and the tick only says "use it". The trade's
+    // own copy window still decides which legs it actually gets. A tick hangs
+    // off a chosen account: with nothing mapped, no default and no leftover
+    // lights the button. An explicit untick survives every repaint — until the
+    // mapped leader set changes, when the defaults are recomputed afresh.
+    this.includeIds = effectiveSelection(accounts, this.baseIds(), this.selection);
     this.renderPick();
 
     const t = this.importable;
-    const net = t.reduce((s, x) => s + (Number.isFinite(x.pnl) ? netPnl(x) : 0), 0);
+    const plan = this.plan;
+    // The financial preview reads only what a confirmed mapping will write:
+    // an unassigned row must not move the shown Net.
+    const writable = plan?.selected ?? t;
+    const net = writable.reduce((s, x) => s + (Number.isFinite(x.pnl) ? netPnl(x) : 0), 0);
 
+    this.stepHead(body, "Preview", { text: "Ready", tone: "ready" });
     const box = body.createDiv({ cls: "tj-import-review" });
     const top = box.createDiv({ cls: "tj-import-reviewtop" });
-    top.createSpan({ cls: "tj-import-reviewcount", text: `${t.length} trade${t.length === 1 ? "" : "s"} recognised` });
-    if (this.duplicates) {
-      top.createSpan({ cls: "tj-import-pill", text: `${this.duplicates} already in the journal` });
+    const detected = plan?.detected ?? t.length;
+    top.createSpan({
+      cls: "tj-import-reviewcount",
+      text: `${detected} trade${detected === 1 ? "" : "s"} across ${this.parsed.files.length} file${
+        this.parsed.files.length === 1 ? "" : "s"
+      }`,
+    });
+    // The reconciliation summary: what was found, what is already here, what a
+    // mapping will import and what it will leave out. It adds up by design.
+    if (plan && plan.duplicates) {
+      top.createSpan({ cls: "tj-import-pill", text: `${plan.duplicates} already in the journal` });
+    }
+    if (plan && plan.assigned) {
+      top.createSpan({ cls: "tj-import-pill", text: `${plan.assigned} ready to import` });
+    }
+    if (plan && plan.unassigned) {
+      top.createSpan({ cls: "tj-import-pill is-warn", text: `${plan.unassigned} without an account` });
     }
     // Honest arithmetic: an order with no fill and a fill with no close are two
     // different facts, and neither of them is a malformed row.
@@ -1068,6 +1314,7 @@ class ImportCsvModal extends Modal {
         ["Qty", "num"],
         ["Entry → Exit", "num"],
         ["P&L", "num"],
+        ["", ""],
       ] as [string, string][]) {
         hr.createEl("th", { text: label, cls });
       }
@@ -1084,10 +1331,25 @@ class ImportCsvModal extends Modal {
         tr.createEl("td", { cls: "num", text: `${trade.entryPrice} → ${trade.exitPrice}` });
         const pnl = Number.isFinite(trade.pnl) ? trade.pnl : 0;
         tr.createEl("td", { cls: "num " + (pnl >= 0 ? "pos" : "neg"), text: fmtMoney2(pnl) });
+        // The list mixed rows that will be written with rows that will not, with
+        // nothing on screen saying which was which \u2014 and the Net below counts
+        // only the writable ones. Each row now carries its own fate.
+        const chosen = !!this.mapping.get(trade.account || "");
+        const state = tr.createEl("td", { cls: "state" });
+        const chip = state.createSpan({
+          cls: "tj-import-rowstate" + (chosen ? " is-in" : " is-out"),
+          text: chosen ? "Will import" : "No account yet",
+        });
+        if (!chosen) {
+          attachTip(chip, {
+            title: "Not written",
+            sub: "This row has no confirmed account, so it is not part of this import \u2014 and it is not in the Net below.",
+          });
+        }
       }
       if (t.length > 8) {
         const more = tbody.createEl("tr", { cls: "is-more" });
-        more.createEl("td", { attr: { colspan: "6" }, text: `… ${t.length - 8} more` });
+        more.createEl("td", { attr: { colspan: "7" }, text: `… ${t.length - 8} more` });
       }
 
       const foot = box.createDiv({ cls: "tj-import-reviewfoot" });
@@ -1107,7 +1369,11 @@ class ImportCsvModal extends Modal {
     const cancel = foot.createEl("button", { cls: "tj-actionbtn", text: "Cancel" });
     cancel.addEventListener("click", () => this.close());
     foot.createDiv({ cls: "tj-import-spacer" });
-    const go = foot.createEl("button", { cls: "tj-actionbtn is-primary", text: `Import ${t.length} trade${t.length === 1 ? "" : "s"}` });
+    const toWrite = plan?.assigned ?? t.length;
+    const go = foot.createEl("button", {
+      cls: "tj-actionbtn is-primary",
+      text: `Import ${toWrite} trade${toWrite === 1 ? "" : "s"}`,
+    });
     this.goBtn = go;
     go.addEventListener("click", () => void this.commit(go));
 
@@ -1121,6 +1387,7 @@ class ImportCsvModal extends Modal {
     // The one sentence that has to survive, outside the row and below it.
     body.createDiv({ cls: "tj-import-footnote", text: "Nothing is written until you press the button." });
     this.updateGo();
+    this.renderStages();
   }
 
   private round2(n: number): number {
@@ -1139,50 +1406,69 @@ class ImportCsvModal extends Modal {
     const id = ids[0];
     const acc = this.accounts().find((a) => a.id === id);
     if (!acc) return null;
-    let net = 0;
-    for (const t of this.existing) {
+    const zone = this.plugin.settings.timeZone;
+    const legs: Trade[] = [];
+    for (const t of excludeSuperseded(this.existing)) {
       const mapped = this.plugin.mappedAccount(t.account || "");
-      if (mapped && mapped.id === id && Number.isFinite(t.pnl)) net += netPnl(t);
+      if (mapped && mapped.id === id && Number.isFinite(t.pnl) && t.date) legs.push(t);
     }
-    for (const t of this.importable) {
-      if (Number.isFinite(t.pnl)) net += netPnl(t);
+    // Only the trades a confirmed mapping will actually write affect the
+    // balance preview; an unassigned row never lands in this account.
+    const writable = this.plan?.selected ?? this.importable;
+    for (const t of writable) {
+      if (Number.isFinite(t.pnl) && t.date) legs.push(t);
     }
     const inAccount = this.round2(Math.max(0, costs.charged - costs.recorded));
-    const journal =
-      (acc.size || 0) +
-      net -
-      this.plugin.accountPayoutsTotal(id) +
-      this.plugin.accountDepositsTotal(id) +
-      this.plugin.accountFeeAdjustmentsTotal(id) -
-      inAccount;
-    return { journal: this.round2(journal), platform: costs.finalBalance as number };
+    // The ONE balance formula, on the account's own value anchor — the same call
+    // the account page and the Accounts overview make. A hand-rolled sum from the
+    // configured size would report a false mismatch on any account that started
+    // being tracked from halfway, and would double-count the history that is
+    // already inside its opening balance.
+    const movement = computeRecordedAccountMovement({
+      trades: legs,
+      size: this.plugin.openingCapitalOf(id),
+      dayKey: (t) => tradeDayInZone(t, zone),
+      trackingStart: trackingStartOf(acc),
+      cashflows: accountCashflows(
+        this.plugin.payoutsFor(id),
+        this.plugin.depositsFor(id),
+        this.plugin.feeAdjustmentsFor(id)
+      ),
+    });
+    // Platform costs no trade could claim are money that left with no date of
+    // their own; they stay a plain deduction from the recorded balance.
+    return { journal: this.round2(movement.balance - inAccount), platform: costs.finalBalance as number };
   }
 
+  /**
+   * The whole batch, deduped globally against the journal and across every file
+   * in order — through the Phase 2 identity system, the only one there is. The
+   * plan also groups the rows by detected account for the mapping UI.
+   */
   private async splitDuplicates(): Promise<void> {
     if (!this.parsed) return;
     const existing = await this.plugin.loadTradesExpanded();
     this.existing = existing;
-    const seen = new Set<string>();
-    for (const t of existing) {
-      const key = this.dedupeKey(t);
-      if (key) seen.add(key);
-    }
-    this.importable = [];
-    this.duplicates = 0;
-    for (const t of this.parsed.trades) {
-      const key = this.dedupeKey(t);
-      if (key && seen.has(key)) {
-        this.duplicates += 1;
-        continue;
-      }
-      if (key) seen.add(key);
-      this.importable.push(t);
-    }
+    const mapping: Record<string, string> = {};
+    for (const [key, id] of this.mapping) mapping[key] = id;
+    const plan = planBatch({
+      files: this.batchFiles,
+      existing,
+      resolveAccount: (label) => this.resolveImportAccount(label),
+      mapping,
+    });
+    this.plan = plan;
+    // `importable` stays the whole non-duplicate pool (mapped or not): the
+    // preview table and the balance check read it, while the plan carries the
+    // assigned/unassigned split.
+    this.importable = [...plan.selected, ...plan.skipped];
+    this.duplicates = plan.duplicates;
   }
 
-  /** A trade is the same trade when it carries the same fill id. */
-  private dedupeKey(t: Trade): string {
-    return t.fillId ? `${t.fillId}` : "";
+  /** The journal account id a stored/parsed label resolves to. */
+  private resolveImportAccount(label: string): string {
+    const mapped = this.plugin.mappedAccount(label || "");
+    return mapped ? mapped.id : `unmapped:${(label || "").trim().toLowerCase()}`;
   }
 
   // ----------------------------------------------------------------- commit
@@ -1198,7 +1484,7 @@ class ImportCsvModal extends Modal {
       const id = this.mapping.get(t.account);
       const acc = id ? accounts.find((a) => a.id === id) : undefined;
       if (!acc) continue;
-      assigned.push({
+      const assignedTrade: Trade = {
         ...t,
         account: acc.name,
         accountType: acc.type,
@@ -1206,7 +1492,12 @@ class ImportCsvModal extends Modal {
         // One answer for the whole file: reviewed, and the checklist stays as
         // the notes are.
         ...(this.markAllReviewed ? { reviewed: true as const } : {}),
-      });
+      };
+      // Record the identity the note is deduped by, so the next import of the
+      // same trade recognises it even without a broker id.
+      const importKey = primaryImportIdentity(assignedTrade, () => acc.id) ?? t.importKey;
+      if (importKey) assignedTrade.importKey = importKey;
+      assigned.push(assignedTrade);
     }
     if (!assigned.length || this.activeTargets().size === 0) {
       new Notice("Select at least one target account before importing.");
@@ -1239,15 +1530,26 @@ class ImportCsvModal extends Modal {
           expected.delete(k);
         }
       }
-      if (count === 0 || expected.size > 0) {
+      const outcome = writeOutcome(count, expected.size);
+      if (outcome !== "complete") {
+        // Honesty first: `count` is what the write created. Zero means nothing
+        // landed, and a plain retry is safe. Above zero the notes are on disk
+        // even when a read-back could not confirm some of them — so never claim
+        // "nothing was written", and never offer a blind retry that would write
+        // every trade again as a "_2" note. Re-reading the file lets the
+        // journal's own duplicate check see what already landed and skip it.
+        if (outcome === "none") {
+          new Notice("Nothing was written — no note could be confirmed on disk. Try again.");
+          btn.disabled = false;
+          btn.setText("Retry");
+          this.busy = false;
+          return;
+        }
         new Notice(
-          `Nothing was written — ${expected.size || "no"} trade${
-            expected.size === 1 ? "" : "s"
-          } could not be confirmed on disk. Try again.`
+          `${count} note${count === 1 ? "" : "s"} written, but ${expected.size} could not be confirmed. The written notes are kept; re-importing will skip them.`
         );
-        btn.disabled = false;
-        btn.setText("Retry");
         this.busy = false;
+        await this.parseTrades();
         return;
       }
 
@@ -1270,30 +1572,69 @@ class ImportCsvModal extends Modal {
 
       // A quiet receipt instead of a new surface: the review stays where it is
       // and the button row becomes the confirmation, so the modal keeps looking
-      // like itself between the before and the after.
+      // like itself between the before and the after. The four numbers are kept
+      // apart — what the file held, what was chosen, what was written, and what
+      // was left out — so "imported" can never be read as "everything".
       const legs = withLegs.length - assigned.length;
       const noStrategyIds = assigned
         .filter((t) => !(t.setup || "").trim())
         .map((t) => byKey.get(this.noteKey(t)))
         .filter((x): x is string => !!x);
+      const issues = this.parsed.timeIssues;
+      const timeCount = issues ? issues.gap + issues.ambiguous + issues.noZone : 0;
+      const receipt = importSummary({
+        detected: this.plan?.detected ?? this.parsed.trades.length,
+        importable: this.plan?.importable ?? this.importable.length,
+        assigned: assigned.length,
+        written: assigned.length,
+        copyLegs: legs,
+        duplicates: this.duplicates,
+        unfilled: this.parsed.unfilled,
+        unpaired: this.parsed.unpaired,
+        unreadable: this.parsed.skipped,
+        unpinned: timeCount,
+      });
+      this.imported = true;
       const foot = this.actionsEl;
       if (foot) {
         foot.empty();
-        const done = foot.createDiv({ cls: "tj-import-done" });
-        setIcon(done.createSpan({ cls: "tj-import-doneico" }), "check");
-        done.createSpan({
-          text: [
-            `${assigned.length} trade${assigned.length === 1 ? "" : "s"} imported`,
-            legs > 0 ? `+${legs} copy leg${legs === 1 ? "" : "s"}` : "",
-            this.duplicates ? `${this.duplicates} duplicate${this.duplicates === 1 ? "" : "s"} skipped` : "",
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        });
+        const summary = foot.createDiv({ cls: "tj-import-summary" });
+        const head = summary.createDiv({ cls: "tj-import-done" });
+        setIcon(head.createSpan({ cls: "tj-import-doneico" }), "check");
+        head.createSpan({ text: "Import complete" });
+        const row = (label: string, value: string, tone = "") => {
+          const r = summary.createDiv({ cls: "tj-import-summaryrow" });
+          r.createSpan({ cls: "tj-import-summaryk", text: label });
+          r.createSpan({ cls: "tj-import-summaryv" + (tone ? " " + tone : ""), text: value });
+        };
+        row("Detected", `${receipt.detected} trade${receipt.detected === 1 ? "" : "s"} in the batch`);
+        // "Selected" means chosen for an account, so it agrees with what was
+        // written; a picked trade left without one is reported under Skipped.
+        row("Selected", `${receipt.selected} for these accounts`);
+        row(
+          "Imported",
+          `${receipt.written} written${receipt.copyLegs > 0 ? ` · +${receipt.copyLegs} copy leg${receipt.copyLegs === 1 ? "" : "s"}` : ""}`,
+          "pos"
+        );
+        row("Skipped", receipt.skipped.length ? receipt.skipped.join(" · ") : "none", receipt.skipped.length ? "is-warn" : "");
+        // A configured follower with no imported data is named, never quietly
+        // reconstructed — UNLESS the trader ticked it, in which case its
+        // generated history was just written. Reporting a ticked copier as
+        // "not generated" contradicted the import that had already happened.
+        const missing = missingCopiers(
+          accounts,
+          new Set(this.mapping.values())
+        ).filter((a) => !this.includeIds.has(a.id));
+        if (missing.length) {
+          const warn = summary.createDiv({ cls: "tj-import-nostrategy" });
+          warn.createSpan({
+            text: `No imported data for ${missing.map((a) => a.name).join(", ")} — their history was not generated. Tick them above if you want it.`,
+          });
+        }
         // The trades the file could not file: one click to give them a strategy,
         // in the ledger itself, where the picker already lives.
         if (noStrategyIds.length) {
-          const warn = foot.createDiv({ cls: "tj-import-nostrategy" });
+          const warn = summary.createDiv({ cls: "tj-import-nostrategy" });
           warn.createSpan({
             text: `${noStrategyIds.length} trade${noStrategyIds.length === 1 ? "" : "s"} without a strategy.`,
           });
@@ -1303,10 +1644,11 @@ class ImportCsvModal extends Modal {
             void this.plugin.openTradeLogForIds(noStrategyIds);
           });
         }
-        // One file, one import: the way out is forward, not back.
+        // One batch, one import: the way out is forward, not back.
         const doneBtn = foot.createEl("button", { cls: "tj-actionbtn", text: "Done" });
         doneBtn.addEventListener("click", () => this.close());
       }
+      this.renderStages();
     } catch (err) {
       new Notice(`Import failed: ${(err as Error).message}`);
       btn.disabled = false;

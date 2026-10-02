@@ -1,5 +1,7 @@
 import { apiVersion } from "obsidian";
 import type TradebookPlugin from "../main";
+import type { Trade } from "../types";
+import { findOrphanLegs } from "./copy";
 
 /**
  * A plain-text snapshot of the journal, for bug reports.
@@ -29,14 +31,15 @@ export async function buildDiagnostics(plugin: TradebookPlugin): Promise<string>
   const s = plugin.settings;
   const out: string[] = [];
 
-  let notes = 0;
+  let physical: Trade[] = [];
   let legs = 0;
   try {
-    notes = (await plugin.loadTrades()).length;
+    physical = await plugin.loadTrades();
     legs = (await plugin.loadTradesExpanded()).length;
   } catch (err) {
     out.push(`! Could not read the trades folder: ${err instanceof Error ? err.message : String(err)}`);
   }
+  const notes = physical.length;
 
   const active = s.propAccounts ?? [];
   const archived = s.archivedAccounts ?? [];
@@ -62,6 +65,7 @@ export async function buildDiagnostics(plugin: TradebookPlugin): Promise<string>
   out.push(line("Accounts", `${active.length} active, ${archived.length} archived`));
   out.push(line("Trade notes", notes));
   out.push(line("Trades expanded", `${legs} (includes virtual copy legs)`));
+  out.push(line("Orphan copy legs", findOrphanLegs(physical).length));
   out.push(line("Payouts", (s.payouts ?? []).length));
   out.push(line("Deposits", (s.deposits ?? []).length));
   out.push(line("Strategies", (s.strategies ?? []).length));

@@ -8,18 +8,31 @@ import { attachTip } from "../lib/tip";
 import { fmtMoney, isFiniteNumber, todayKey } from "../tz";
 import { tradeDayInZone } from "../lib/instant";
 import { renderLineChart } from "../lib/lineChart";
-import { computeAccountMetrics, AccountMetrics } from "../lib/accountMetrics";
+import { computeAccountMetrics, drawdownUsage, AccountMetrics } from "../lib/accountMetrics";
+import { accountCashflows } from "../lib/accountCashflows";
 import { netPnl } from "../lib/fees";
 import { tradeCostCoverage } from "../lib/money";
 import { netOutcomes } from "../lib/process";
 import { analyticsTrades } from "../lib/scope";
+import { accountBoundary, isTrackedTrade, trackingStartOf, trackedReading, openingPeakOf } from "../lib/tracking";
 import { mountDropdown } from "../lib/dropdown";
 import { BAR_SLOTS, MINI_SLOTS, layoutFor } from "../lib/cardSlots";
+import { copierPresentation } from "../lib/copy";
+import { excludeSuperseded } from "../lib/copySupersession";
 import { openAccountWizard } from "./accountWizard";
 import { openAccountsDisplay, openCopyGroups } from "./accountsManage";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
+import { formatDate } from "../lib/dates";
 
 export const ACCOUNTS_LIST_VIEW_TYPE = "tradebook-accounts-list-view";
+
+/**
+ * One drawdown ladder for the whole card: the tinted edge, the progress bar and
+ * the alert chip all read the same two numbers, so "warning" can never mean
+ * three different things on one tile.
+ */
+const DD_WARN = 0.4;
+const DD_CRIT = 0.75;
 
 type ChartPeriod = "all" | "1y" | "6m" | "3m" | "1m";
 
@@ -78,8 +91,18 @@ interface AccStats {
   withdrawn: number;
   /** Money put in (deposits), which also sits in the balance. */
   deposited: number;
-  /** Recorded account value: size + Net trading + cashflows and signed adjustments. */
+  /** Recorded account value: the account's value at its tracking boundary, plus
+   *  tracked trading and cashflows and signed adjustments since. */
   value: number;
+  /**
+   * What the account has GAINED since Tradebook started tracking it: tracked Net
+   * plus post-boundary cashflows. Measured from the account's own value anchor,
+   * never from the configured size — otherwise an account tracked from halfway
+   * would report the difference between the two as profit it never made.
+   */
+  result: number;
+  /** The account's declared opening value (the value anchor), or its size. */
+  anchor: number;
   target: number;
   maxLoss: number;
   dailyLoss: number;
@@ -129,14 +152,17 @@ export class AccountsListView extends ItemView {
   // ---------------------------------------------------------------- helpers
   private tradesFor(acc: PropAccount): Trade[] {
     const name = (acc.name || "").trim().toLowerCase();
-    return this.trades.filter((t) => {
-      if (!isFiniteNumber(t.pnl) || !t.date) return false;
-      const mapped = this.plugin.mappedAccount(t.account);
-      const matches = mapped ? mapped.id === acc.id : (t.account || "").trim().toLowerCase() === name;
-      if (!matches) return false;
-      if (acc.createdAt && t.date < acc.createdAt) return false;
-      return true;
-    });
+    return excludeSuperseded(
+      this.trades.filter((t) => {
+        if (!isFiniteNumber(t.pnl) || !t.date) return false;
+        const mapped = this.plugin.mappedAccount(t.account);
+        const matches = mapped ? mapped.id === acc.id : (t.account || "").trim().toLowerCase() === name;
+        if (!matches) return false;
+        const boundary = accountBoundary(acc);
+        if (boundary && !isTrackedTrade(t, boundary)) return false;
+        return true;
+      })
+    );
   }
 
   private statsFor(acc: PropAccount): AccStats {
@@ -161,11 +187,17 @@ export class AccountsListView extends ItemView {
     const withdrawn = this.plugin.accountPayoutsTotal(acc.id);
     const deposited = this.plugin.accountDepositsTotal(acc.id);
     const symbols = new Set(list.map((t) => (t.symbol || "").toUpperCase()).filter(Boolean)).size;
+    // The value anchor is read once and used for both the balance and the result,
+    // so the two can never be measured from different baselines.
+    const anchor = this.plugin.openingCapitalOf(acc.id);
     // One metrics engine for the whole app: the card reads from it instead of
     // re-deriving wins, drawdown or anything else on its own.
     const m = computeAccountMetrics({
       trades: list,
       size: acc.size,
+      capital: anchor,
+      trackingStart: trackingStartOf(acc),
+      openingPeak: openingPeakOf(acc) ?? undefined,
       target: size.target,
       maxLoss: size.maxLoss,
       ddLockOffset: size.ddLockOffset,
@@ -177,11 +209,11 @@ export class AccountsListView extends ItemView {
       dayKey: (t) => this.dayKeyOf(t),
       todayKey: this.todayKey(),
       withdrawn,
-      cashflows: [
-        ...this.plugin.payoutsFor(acc.id).map((p) => ({ date: p.date, amount: -Math.abs(p.amount) })),
-        ...this.plugin.depositsFor(acc.id).map((d) => ({ date: d.date, amount: Math.abs(d.amount) })),
-        ...this.plugin.feeAdjustmentsFor(acc.id).map((a) => ({ date: a.date, amount: a.amount })),
-      ],
+      cashflows: accountCashflows(
+        this.plugin.payoutsFor(acc.id),
+        this.plugin.depositsFor(acc.id),
+        this.plugin.feeAdjustmentsFor(acc.id)
+      ),
     });
     return {
       net,
@@ -192,10 +224,15 @@ export class AccountsListView extends ItemView {
       last,
       withdrawn,
       deposited,
-      // What is actually in the account: the size you were given, plus what you
-      // made, minus what you took out, plus what you put in. A payout is money
-      // that left — the card must not keep showing it as if it were still there.
+      // What is actually in the account: the value it held when tracking began,
+      // plus what you made since, minus what you took out, plus what you put in.
+      // A payout is money that left — the card must not keep showing it as if it
+      // were still there.
       value: m.balance,
+      // The gain since tracking, from that same anchor. Zero on a brand-new
+      // tracked account, whatever the configured size says.
+      result: m.balance - anchor,
+      anchor,
       target: size?.target ?? 0,
       maxLoss: size?.maxLoss ?? 0,
       dailyLoss: size?.dailyLoss ?? 0,
@@ -254,12 +291,12 @@ export class AccountsListView extends ItemView {
       attr: { type: "button" },
     });
     setIcon(groupsBtn, "users");
-    groupsBtn.createSpan({ cls: "tj-sr-only", text: "Copy groups" });
+    groupsBtn.createSpan({ cls: "tj-sr-only", text: "Trading groups" });
     if (all.length < 2) {
       groupsBtn.disabled = true;
-      attachTip(groupsBtn, { title: "Copy groups", sub: "Add a second account to copy between." });
+      attachTip(groupsBtn, { title: "Trading groups", sub: "Add a second account to copy between." });
     } else {
-      attachTip(groupsBtn, { title: "Copy groups", sub: "Which account leads, who copies it, and how." });
+      attachTip(groupsBtn, { title: "Trading groups", sub: "Which account leads, who copies it, and how." });
       groupsBtn.addEventListener("click", () => openCopyGroups(this.plugin));
     }
 
@@ -346,7 +383,9 @@ export class AccountsListView extends ItemView {
     const demoCount = all.length - portfolio.length;
     const firms = new Set(portfolio.map((a) => firmLabel(a.firmId) || a.firmId));
 
-    // Reference capital is the sum of each included account's original size.
+    // Reference capital is the sum of each included account's configured size —
+    // the RULE anchor, which is what the account's own rules are written
+    // against. It is deliberately not the balance baseline (see `result`).
     const capital = portfolio.reduce((s, a) => s + (a.size || 0), 0);
     const w = this.chartWindow();
     // Totals follow the chart window. The account cards do not: an account's
@@ -394,16 +433,28 @@ export class AccountsListView extends ItemView {
       ? `${portfolio.length} included · ${demoCount} demo excluded`
       : `${portfolio.length} included · ${firms.size} firm${firms.size === 1 ? "" : "s"}`;
     // This is the current journal-recorded value, not a live broker snapshot.
-    const inAccounts = portfolio.reduce((s, a) => s + (stats.get(a.id)?.value ?? a.size), 0);
-    const accountValueChange = inAccounts - capital;
-    const accountValueChangePct = capital > 0 ? (accountValueChange / capital) * 100 : 0;
-    cell("Account Capital", fmtMoney(capital), sub("configured sizes", "included accounts"), "", "Total configured capital across included accounts.");
+    const inAccounts = portfolio.reduce((s, a) => s + (stats.get(a.id)?.value ?? 0), 0);
+    // What these accounts have GAINED since Tradebook started tracking them:
+    // each account measured from its own value anchor, so an account tracked
+    // from halfway can never report the gap between its opening balance and its
+    // configured size as profit. For an account with no tracking boundary the
+    // anchor IS its size, and this is exactly the old figure.
+    const trackedResult = portfolio.reduce((s, a) => s + (stats.get(a.id)?.result ?? 0), 0);
+    const accountValueChange = trackedResult;
+    cell("Account Capital", fmtMoney(capital), sub("configured sizes", "included accounts"), "", "Total configured capital across included accounts. This is the account size your firm's rules are written against — the account's recorded value can sit above or below it.");
     cell(
       "Remaining Account P&L",
       fmtMoney(accountValueChange),
-      sub("current recorded value · all time"),
+      sub("since tracking started", "all time"),
       accountValueChange >= 0 ? "tj-pos" : "tj-neg",
-      "Result remaining in your accounts after recorded trading results, fees, payouts and adjustments.",
+      "Tracked trading results, fees, payouts and adjustments since each account's tracking start. Measured from the account's own opening balance, so an account tracked from halfway is never credited with the difference between its opening balance and its configured size.",
+    );
+    cell(
+      "Recorded Value",
+      fmtMoney(inAccounts),
+      sub("current recorded value", "all time"),
+      "",
+      "What these accounts are worth now: each account's balance at its tracking start plus everything recorded since. Not live broker equity.",
     );
     cell("Accounts Included", String(portfolio.length), accountSub, "", `Only active accounts in the current portfolio population. ${this.plugin.settings.excludeDemosFromPortfolio === false ? "Demo accounts are included." : "Demo accounts are excluded."}`);
     cell("Paid Out", withdrawn ? fmtMoney(withdrawn) : "$0", sub(`${payoutCount} recorded payout${payoutCount === 1 ? "" : "s"}`, windowNote), withdrawn > 0 ? "tj-pos" : "", "Recorded historical payouts: money already withdrawn from accounts. They reduce current account balances but do not reduce trading P&L or establish trader income/withdrawable eligibility. Follows the selected window.");
@@ -635,7 +686,7 @@ export class AccountsListView extends ItemView {
       };
       if (ghost.length > 1) item("#8a8a8a", "previous-period Net P&L only", "dash");
       if (events.some((event) => event.kind === "deposit")) item("#34d17a", "deposit");
-      if (events.some((event) => event.kind === "payout")) item("#d9a441", "payout");
+      if (events.some((event) => event.kind === "payout")) item("var(--tj-tone-mid)", "payout");
       if (events.some((event) => event.kind === "adjustment")) item("var(--tj-fg-3)", "balance adjustment");
     }
   }
@@ -776,7 +827,8 @@ export class AccountsListView extends ItemView {
         if (!st) return 0;
         if (mode === "balance") return st.value;
         if (mode === "net") return st.net;
-        return st.maxLoss > 0 ? st.m.ddToLimit / st.maxLoss : -1;
+        const dd = drawdownUsage(st.m, st.maxLoss);
+        return dd ? dd.pct / 100 : -1;
       };
       const dv = key(b) - key(a);
       if (Math.abs(dv) > 1e-9) return dv;
@@ -900,7 +952,7 @@ export class AccountsListView extends ItemView {
     const accs = sec.accounts;
     if (sec.demo || accs.every((a) => this.isDemo(a))) return "not counted in totals";
     const counted = this.portfolioAccounts(accs);
-    const total = counted.reduce((s, a) => s + (stats.get(a.id)?.value ?? a.size), 0);
+    const total = counted.reduce((s, a) => s + (stats.get(a.id)?.value ?? 0), 0);
     const net = counted.reduce((s, a) => s + (stats.get(a.id)?.net ?? 0), 0);
     if (sec.heroId) {
       const copiers = Math.max(0, accs.length - 1);
@@ -1034,8 +1086,17 @@ export class AccountsListView extends ItemView {
     const m = st.m;
 
     const edge = tile.createDiv({ cls: "tj-acct-tile-edge" });
-    const ddUsed = st.maxLoss > 0 ? st.m.ddToLimit / st.maxLoss : 0;
-    edge.style.background = ddUsed > 0.75 ? "var(--color-red, #ff5d48)" : ddUsed > 0.4 ? "#d9a441" : "var(--color-green-bright, #34d17a)";
+    // Same source as the dashboard's "Room to loss floor": the floor model, not
+    // peak-to-balance. A locked trailing floor leaves room even when the peak
+    // has faded, so this edge never calls an account spent before its floor is.
+    const dd = drawdownUsage(st.m, st.maxLoss);
+    const ddUsed = dd ? dd.pct / 100 : 0;
+    edge.style.background =
+      ddUsed > DD_CRIT
+        ? "var(--color-red, #ff5d48)"
+        : ddUsed > DD_WARN
+          ? "var(--tj-tone-mid)"
+          : "var(--color-green-bright, #34d17a)";
 
     // ---- firm logo, tucked in the corner so it identifies without shouting ----
     const firmName = firmLabel(acc.firmId) || "";
@@ -1059,10 +1120,14 @@ export class AccountsListView extends ItemView {
     if (t2) txt.createDiv({ cls: "tj-acct-hd-2", text: t2 });
     const bal = head.createDiv({ cls: "tj-acct-bal" });
     bal.createDiv({ cls: "tj-acct-bal-v", text: fmtMoney(st.value) });
-    const pctOfSize = ((st.net / (acc.size || 1)) * 100).toFixed(1);
+    // The percentage is measured against the account's own value anchor — the
+    // value it was trading from — so a tracked-in-halfway account is not judged
+    // against a configured size it never started at. With no boundary the anchor
+    // IS the size, and this is the old figure.
+    const pctOfValue = ((st.net / (st.anchor || 1)) * 100).toFixed(1);
     bal.createDiv({
       cls: "tj-acct-bal-g " + (st.net < 0 ? "tj-neg" : "tj-pos"),
-      text: `Net ${st.net ? fmtMoney(st.net) : "$0"} · ${st.net < 0 ? "" : "+"}${pctOfSize}%`,
+      text: `Net ${st.net ? fmtMoney(st.net) : "$0"} · ${st.net < 0 ? "" : "+"}${pctOfValue}%`,
     });
     const accountLegs = this.tradesFor(acc);
     const incomplete = accountLegs.filter((trade) => {
@@ -1071,7 +1136,7 @@ export class AccountsListView extends ItemView {
     }).length;
     attachTip(bal, {
       title: "Net account trading result and balance",
-      sub: `Lower figure: Net trading P&L vs original account size. Upper figure: recorded balance incl. cash movements — not live broker equity.${!accountLegs.length ? " No trade legs recorded." : incomplete ? ` Cost fields missing on ${incomplete} leg${incomplete === 1 ? "" : "s"}; not confirmed zero.` : " Costs recorded."}`,
+      sub: `Lower figure: Net trading P&L since tracking, and the same result as a share of the account's value when it started being tracked. Upper figure: recorded balance incl. cash movements — not live broker equity.${!accountLegs.length ? " No trade legs recorded." : incomplete ? ` Cost fields missing on ${incomplete} leg${incomplete === 1 ? "" : "s"}; not confirmed zero.` : " Costs recorded."}`,
     });
 
     const tags = tile.createDiv({ cls: "tj-acct-tile-tags" });
@@ -1084,7 +1149,21 @@ export class AccountsListView extends ItemView {
         const ico = tag.createSpan({ cls: "tj-tag-ico" });
         setIcon(ico, "crown");
       }
-      tag.createSpan({ text: isLeader ? "Leader" : `Copier ${acc.copyMultiplier ?? 1}x` });
+      // One source for the ratio and the start (see `copierPresentation`), and
+      // the leader it follows is one hover away on the card itself.
+      const cp = copierPresentation(acc, (id) => (this.plugin.settings.propAccounts ?? []).find((a) => a.id === id)?.name ?? id);
+      tag.createSpan({ text: isLeader ? "Leader" : `Copier ×${cp.ratio}` });
+      if (!isLeader) {
+        const since = cp.since
+          ? cp.sinceIsBeginning
+            ? "the beginning"
+            : formatDate(cp.since, this.plugin.settings.dateFormat)
+          : "";
+        attachTip(tag, {
+          title: "Copier",
+          sub: `Copies ${cp.baseName ?? "an unknown account"}${since ? ` · since ${since}` : ""}`,
+        });
+      }
       const tint = this.groupTint(acc);
       if (tint) {
         tag.style.borderColor = tint;
@@ -1180,17 +1259,16 @@ export class AccountsListView extends ItemView {
    * on the Home page, later.
    */
   private alertFor(acc: PropAccount, st: AccStats): { kind: string; label: string; why: string } | null {
-    // Near limit: drawdown at 80% of the account's limit.
-    if (st.maxLoss > 0) {
-      const pct = (st.m.ddToLimit / st.maxLoss) * 100;
-      if (pct >= 80) {
-        const room = Math.max(0, st.maxLoss - st.m.ddToLimit);
-        return {
-          kind: "limit",
-          label: `${pct.toFixed(0)}% of limit used`,
-          why: `${fmtMoney(st.m.ddToLimit)} of ${fmtMoney(st.maxLoss)} used · ${fmtMoney(room)} room left. Nothing is blocked here — the platform is the one that enforces the limit.`,
-        };
-      }
+    // Near limit: drawdown past the crit line — the same line, and the same
+    // floor-model source, the edge and the bar draw, so an amber card and a chip
+    // never disagree with the account dashboard.
+    const dd = drawdownUsage(st.m, st.maxLoss);
+    if (dd && dd.pct >= DD_CRIT * 100) {
+      return {
+        kind: "limit",
+        label: `${dd.pct.toFixed(0)}% of limit used`,
+        why: `${fmtMoney(dd.used)} of ${fmtMoney(st.maxLoss)} used · ${fmtMoney(dd.room)} room left. Nothing is blocked here — the platform is the one that enforces the limit.`,
+      };
     }
 
     return null;
@@ -1227,15 +1305,28 @@ export class AccountsListView extends ItemView {
       drawdown:
         st.maxLoss > 0
           ? (() => {
-              const pct = clamp((st.m.ddToLimit / st.maxLoss) * 100, 0, 100);
-              const band = pct > 75 ? "crit" : pct > 40 ? "warn" : "safe";
+              const dd = drawdownUsage(st.m, st.maxLoss);
+              if (!dd) {
+                // The floor model is unknown (intraday trailing / no rule type):
+                // say so rather than print a peak-to-balance guess as if it were
+                // the limit. Same stance the account dashboard takes.
+                return {
+                  label: "Drawdown level",
+                  value: "Unavailable",
+                  pct: 0,
+                  fill: "dd safe",
+                  title: "The drawdown floor needs a type in this account's rules before any limit usage can be read.",
+                };
+              }
+              const pct = clamp(dd.pct, 0, 100);
+              const band = dd.pct > DD_CRIT * 100 ? "crit" : dd.pct > DD_WARN * 100 ? "warn" : "safe";
               return {
                 label: "Drawdown level",
-                value: `${pct.toFixed(0)}% · ${fmtMoney(Math.max(0, st.m.ddRemaining))} room`,
+                value: `${dd.pct.toFixed(0)}% · ${fmtMoney(dd.room)} room`,
                 pct,
                 fill: `dd ${band}`,
                 tone: band === "safe" ? undefined : band,
-                title: `${fmtMoney(st.m.ddToLimit)} used of -$${st.maxLoss.toLocaleString()} · ${fmtMoney(Math.max(0, st.m.ddRemaining))} room left`,
+                title: `${fmtMoney(dd.used)} used of -$${st.maxLoss.toLocaleString()} · ${fmtMoney(dd.room)} room left`,
               };
             })()
           : {
@@ -1261,21 +1352,41 @@ export class AccountsListView extends ItemView {
               fill: "blue",
               title: "This account has no daily loss limit — set one in its rules and this bar tracks what is left of today's budget.",
             },
-      greenDays: {
-        label: "Green days",
-        value: `${m.dayWinRate.toFixed(0)}% of days`,
-        pct: m.dayWinRate,
-        fill: "teal",
-        title: `${m.dayCount} trading day${m.dayCount === 1 ? "" : "s"} · ${fmtMoney(m.bestDay)} best · ${fmtMoney(m.worstDay)} worst`,
-      },
-      ddFromPeak: {
-        label: "Trade drawdown from peak",
-        value: `${((m.ddCurrent / (m.peak || 1)) * 100).toFixed(1)}%`,
-        pct: (m.ddCurrent / (m.peak || 1)) * 100,
-        fill: "dd warn",
-        tone: m.ddCurrent > 0 ? "warn" : undefined,
-        title: `${fmtMoney(m.ddCurrent)} below the ${fmtMoney(m.peak)} trading peak · deepest was ${fmtMoney(m.maxDrawdown)}`,
-      },
+      // Recorded performance, not a rule: with no tracked days there is no rate to
+      // quote, and "0% of days" would read as a failed habit instead of an empty
+      // sample.
+      greenDays: !m.dayCount
+        ? {
+            label: "Green days",
+            value: "No tracked days",
+            pct: 0,
+            fill: "teal",
+            title: "Nothing tracked yet, so there are no days to measure. Days recorded before this account's tracking start stay in the journal as history.",
+          }
+        : {
+            label: "Green days",
+            value: `${m.dayWinRate.toFixed(0)}% of days`,
+            pct: m.dayWinRate,
+            fill: "teal",
+            title: `${m.dayCount} trading day${m.dayCount === 1 ? "" : "s"} · ${fmtMoney(m.bestDay)} best · ${fmtMoney(m.worstDay)} worst`,
+          },
+      ddFromPeak: !st.count
+        ? {
+            label: "Trade drawdown from peak",
+            value: "No tracked trades",
+            pct: 0,
+            fill: "dd warn",
+            tone: undefined,
+            title: "The trade-drawdown reading needs tracked trades. The account's own drawdown rule is the Drawdown level bar above.",
+          }
+        : {
+            label: "Trade drawdown from peak",
+            value: `${((m.ddCurrent / (m.peak || 1)) * 100).toFixed(1)}%`,
+            pct: (m.ddCurrent / (m.peak || 1)) * 100,
+            fill: "dd warn",
+            tone: m.ddCurrent > 0 ? "warn" : undefined,
+            title: `${fmtMoney(m.ddCurrent)} below the ${fmtMoney(m.peak)} trading peak · deepest was ${fmtMoney(m.maxDrawdown)}`,
+          },
     };
 
     // The signed-off two bars for this type, in order. No substitutes.
@@ -1289,13 +1400,15 @@ export class AccountsListView extends ItemView {
   /** The four quiet numbers under the bars, one set per account type. */
   private miniFor(acc: PropAccount, st: AccStats): Array<[string, string]> {
     const m = st.m;
+    // An account tracking from a boundary with no tracked trade has no profit
+    // factor to quote — "∞" would read as a perfect record nobody has run yet.
     const catalog: Record<string, [string, string]> = {
       trades: ["Trades", String(st.count)],
       win: ["Win", st.count ? `${st.winRate.toFixed(0)}%` : "—"],
       dayWin: ["Day win", m.dayCount ? `${m.dayWinRate.toFixed(0)}%` : "—"],
       withdrawn: ["Paid out", m.withdrawn ? fmtMoney(m.withdrawn) : "—"],
       avgR: ["Avg R", Number.isFinite(m.avgRiskR) && m.avgRiskR !== 0 ? `${m.avgRiskR > 0 ? "+" : ""}${m.avgRiskR.toFixed(1)}R` : "—"],
-      profitFactor: ["Profit factor", Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : "∞"],
+      profitFactor: ["Profit factor", trackedReading(acc, st.count, Number.isFinite(m.profitFactor) ? m.profitFactor.toFixed(2) : "∞")],
       toTarget: ["To target", m.daysToTarget !== null ? `${m.daysToTarget}d` : "—"],
       last: ["Last", this.lastSeen(st.last)],
       symbols: ["Symbols", st.symbols ? String(st.symbols) : "—"],

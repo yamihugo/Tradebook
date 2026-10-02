@@ -31,6 +31,24 @@ import { netPnl } from "./fees";
 export interface AccountMetricsInput {
   trades: Trade[];
   size: number;
+  /** The account value at the tracking boundary (the value anchor). Falls back
+   *  to `size` when the account has no opening balance. `size` remains the
+   *  prop-rule anchor for target and floor. */
+  capital?: number;
+  /**
+   * The tracking boundary (ISO). Trades and cashflows before it are already
+   * represented by the opening state, so they are excluded here: no double
+   * count. Absent = no boundary. Compared on the **journal day** (`dayKey`), the
+   * one clock the rest of the engine buckets on, so a note can never enter Net
+   * and stay out of the balance.
+   */
+  trackingStart?: string;
+  /**
+   * The account's highest value before `trackingStart`, declared by the trader.
+   * A trailing floor follows that peak and Tradebook has no record of it, so it
+   * is supplied, never inferred. Absent = a floor that needs it is unavailable.
+   */
+  openingPeak?: number;
   target?: number;
   maxLoss?: number;
   /** Where a trailing drawdown stops trailing, in dollars ABOVE the starting
@@ -144,6 +162,34 @@ export interface AccountMetrics {
   withdrawn: number;
 }
 
+/** One coherent read of an account's drawdown, from the floor model only. */
+export interface DrawdownUsage {
+  /** Dollars of the limit consumed under the configured floor. */
+  used: number;
+  /** Dollars left between the balance and the floor. */
+  room: number;
+  /** Share of the configured limit consumed, in percent (can exceed 100). */
+  pct: number;
+}
+
+/**
+ * The single source a card may read for "how much of the limit is used": the
+ * floor model (`drawdownUsed`/`drawdownRoom`), the same numbers the account
+ * dashboard shows. The peak-to-balance `ddToLimit` answers a different question
+ * and, after a locked trailing floor, says an account is spent when it is not —
+ * so it must never drive an edge, an alert or a bar. Returns null when the floor
+ * model is unavailable (intraday trailing, unknown rule).
+ */
+export function drawdownUsage(
+  m: Pick<AccountMetrics, "drawdownUsed" | "drawdownRoom">,
+  maxLoss: number
+): DrawdownUsage | null {
+  if (!(maxLoss > 0) || m.drawdownUsed === null || m.drawdownRoom === null) return null;
+  const used = Math.max(0, m.drawdownUsed);
+  const room = Math.max(0, m.drawdownRoom);
+  return { used, room, pct: (used / maxLoss) * 100 };
+}
+
 // ---- Drawdown episodes ----
 export interface DrawdownEpisode {
   startPeak: number;
@@ -167,15 +213,23 @@ export interface DrawdownAnalysis {
 
 export interface RecordedAccountMovementInput {
   trades: Trade[];
+  /**
+   * The base the balance is built from — the account's VALUE anchor
+   * (`openingCapital(account)`: its declared opening balance, else its size). It
+   * is not the rule anchor: pass the value, never `account.size` by habit. The
+   * name is historical and kept, so callers pair it with `openingCapitalOf`.
+   */
   size: number;
   dayKey: (trade: Trade) => string;
   cashflows?: Array<{ date: string; amount: number }>;
+  /** Boundary: trades and cashflows before it are already the opening state. */
+  trackingStart?: string;
 }
 
 export interface RecordedAccountMovement {
-  /** Configured capital plus recorded trading and account cash movements. */
+  /** The base value plus recorded trading and account cash movements. */
   balance: number;
-  /** Recorded balance minus configured capital. */
+  /** Recorded balance minus that base value. */
   change: number;
   /** Peak recorded balance change over the dated movement series. */
   peakChange: number;
@@ -235,17 +289,21 @@ export function windowRecordedAccountMovement(
   return { capital, openingBalance, closingBalance: balance, points };
 }
 
-/** Shared Accounts-page balance contract: size + Net trades + signed cashflows. */
+/** The one balance contract: value anchor + Net trades + signed cashflows. */
 export function computeRecordedAccountMovement(input: RecordedAccountMovementInput): RecordedAccountMovement {
+  const start = input.trackingStart && /^\d{4}-\d{2}-\d{2}$/.test(input.trackingStart) ? input.trackingStart : "";
   const tradeByDay = new Map<string, number>();
   for (const trade of input.trades) {
     if (!Number.isFinite(trade.pnl) || !trade.date) continue;
     const date = input.dayKey(trade);
+    if (start && date < start) continue;
     tradeByDay.set(date, (tradeByDay.get(date) ?? 0) + netPnl(trade));
   }
   const cashByDay = new Map<string, number>();
   for (const cashflow of input.cashflows ?? []) {
     if (!cashflow.date || !Number.isFinite(cashflow.amount)) continue;
+    // A pre-boundary payout/deposit/fee is already inside the opening balance.
+    if (start && cashflow.date < start) continue;
     cashByDay.set(cashflow.date, (cashByDay.get(cashflow.date) ?? 0) + cashflow.amount);
   }
   const dates = [...new Set([...tradeByDay.keys(), ...cashByDay.keys()])].sort();
@@ -258,6 +316,23 @@ export function computeRecordedAccountMovement(input: RecordedAccountMovementInp
   const change = cumulative;
   const peakChange = Math.max(0, ...days.map((day) => day.cumulative));
   return { balance: input.size + change, change, peakChange, days };
+}
+
+/**
+ * The account-value points for an equity curve: the opening value, then each
+ * recorded day's close.
+ *
+ * Both curves (the account page and Home's Accounts widget) build their series
+ * here, from the same movement the balance headline reads. The contract this
+ * makes impossible to break: the last point of the curve is the number printed
+ * above it, and the first is the account's declared opening value — never the
+ * configured size, which is the rule anchor, not the value.
+ */
+export function accountValueSeries(
+  days: ReadonlyArray<{ cumulative: number }>,
+  capital: number
+): number[] {
+  return [capital, ...days.map((day) => capital + day.cumulative)];
 }
 
 /** Compute drawdown episodes from a daily equity series (date→balance). */
@@ -364,7 +439,18 @@ const minutesOf = (t: string): number | null => {
 
 export function computeAccountMetrics(input: AccountMetricsInput): AccountMetrics {
   const { trades, size, target = 0, maxLoss = 0, dailyLoss = 0, consistency = 0 } = input;
-  const scoped = trades.filter((t) => Number.isFinite(t.pnl) && !!t.date);
+  // The value anchor: the opening balance when the account declared one, else
+  // the configured size (today's behaviour). Rules keep reading `size`.
+  const capital = typeof input.capital === "number" && Number.isFinite(input.capital) ? input.capital : size;
+  const trackingStart =
+    input.trackingStart && /^\d{4}-\d{2}-\d{2}$/.test(input.trackingStart) ? input.trackingStart : "";
+  // One clock for the boundary: the same journal day every bucket, period and
+  // calendar uses. A note whose recorded date and journal day straddle the
+  // boundary must land on the same side of it everywhere, or it could count
+  // toward Net and win rate while its money never reached the balance.
+  const scoped = trades.filter(
+    (t) => Number.isFinite(t.pnl) && !!t.date && (!trackingStart || input.dayKey(t) >= trackingStart)
+  );
 
   // ---- per-day buckets ----
   // One accumulator: balance, drawdown, target, consistency, today, the daily
@@ -399,34 +485,62 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // these: money leaving is not a loss.
   const accountMovement = computeRecordedAccountMovement({
     trades: scoped,
-    size,
+    size: capital,
     dayKey: input.dayKey,
     cashflows: input.cashflows,
+    trackingStart,
   });
   const balance = accountMovement.balance;
   const balancePeak = accountMovement.peakChange;
-  const peakBalance = Math.max(size, size + balancePeak);
-  const peak = Math.max(0, ...cumSeries);
-  // Floor: trailing EOD drawdown that never rises above break-even.
-  // The floor trails the peak until it reaches the lock point: break-even by
-  // default, or the firm's offset above the starting balance (Tradeify: +$100).
-  // A firm that never locks ("eod-trailing-open") keeps trailing the peak, so
-  // there the floor is simply the peak minus the limit.
-  const floorBase = peakBalance;
+  // ---- The loss floor: a rule, read against a value it may not fully know ----
+  //
+  // `size` defines the rule (the lock point, the static floor). `capital` is
+  // the value. A *trailing* floor additionally follows the account's high-water
+  // mark, and with a tracking boundary the peak reached before that date is
+  // history Tradebook does not have. So:
+  //
+  //  A. exactly calculable — `static` (the rule is the rule), and a trailing
+  //     rule that locks once `capital - maxLoss` reaches the lock point: from
+  //     there the lock dominates and no unknown peak can lower it.
+  //  B. needs the high-water mark — an open trailing rule (it never locks), or a
+  //     locked one still trailing. With no boundary the journal knows the peak.
+  //     With one, only the trader's declared `openingPeak` does.
+  //
+  // When B has no declared peak the floor is reported as unavailable. It is
+  // never guessed: an account whose real floor sits far below would otherwise
+  // read as healthy while the firm had already failed it.
+  const declaredPeak =
+    typeof input.openingPeak === "number" && Number.isFinite(input.openingPeak) ? input.openingPeak : null;
+  const peakFromTrackedHistory = capital + balancePeak;
+  const lockPoint = size + (input.ddLockOffset ?? 0);
+  const lockDominates = capital - maxLoss >= lockPoint;
+  const peakBalance =
+    !trackingStart || declaredPeak !== null
+      ? Math.max(capital, declaredPeak ?? Number.NEGATIVE_INFINITY, peakFromTrackedHistory)
+      : null;
+  const floorKnown =
+    maxLoss > 0 &&
+    input.ddRuleKnown !== false &&
+    !input.ddIntraday &&
+    (input.ddStatic || (input.ddNoLock ? false : lockDominates) || peakBalance !== null);
   const floor =
-    maxLoss > 0
-      ? input.ddStatic
+    maxLoss <= 0 || !floorKnown
+      ? 0
+      : input.ddStatic
         ? size - maxLoss
         : input.ddNoLock
-          ? floorBase - maxLoss
-          : Math.min(size + (input.ddLockOffset ?? 0), floorBase - maxLoss)
-      : 0;
+          ? (peakBalance as number) - maxLoss
+          : // A trailing floor with a lock: once the lock dominates, the peak is
+            // irrelevant and the answer is the lock itself — no history needed.
+            lockDominates
+            ? lockPoint
+            : Math.min(lockPoint, (peakBalance as number) - maxLoss);
+  const peak = Math.max(0, ...cumSeries);
   const ddCurrent = Math.max(0, peak - net);
   /** Dollars between the real balance and the loss limit — what the firm sees. */
-  const ddToLimit = Math.max(0, peakBalance - balance);
+  const ddToLimit = peakBalance === null ? 0 : Math.max(0, peakBalance - balance);
   /** Dollars between the real balance and the floor — the room left before failing. */
-  const ddRemaining = maxLoss > 0 ? Math.max(0, balance - floor) : 0;
-  const floorKnown = maxLoss > 0 && input.ddRuleKnown !== false && !input.ddIntraday;
+  const ddRemaining = maxLoss > 0 && floorKnown ? Math.max(0, balance - floor) : 0;
   const drawdownFloor = floorKnown ? floor : null;
   const drawdownRoom = floorKnown ? Math.max(0, balance - floor) : null;
   // A locked trailing floor can leave more room than the original max-loss.
@@ -542,7 +656,7 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     drawdownRoom,
     // Alias of ddRemaining: the old trade-only buffer was the last hybrid of
     // trade net and balance-derived floor. Kept as a field for compatibility.
-    buffer: maxLoss > 0 ? Math.max(0, balance - floor) : 0,
+    buffer: maxLoss > 0 && floorKnown ? Math.max(0, balance - floor) : 0,
     todayNet: input.todayKey ? (byDay.get(input.todayKey)?.net ?? 0) : 0,
     dailyLossRemaining: dailyLoss > 0 ? Math.max(0, Math.min(dailyLoss, dailyLoss + (input.todayKey ? byDay.get(input.todayKey)?.net ?? 0 : 0))) : 0,
     worstDayPctOfLimit: dailyLoss > 0 ? (Math.abs(Math.min(0, worstNetDay)) / dailyLoss) * 100 : 0,

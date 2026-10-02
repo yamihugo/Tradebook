@@ -6,6 +6,18 @@ import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice } from "../tz";
 import { legBaseKey } from "../lib/copy";
 import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots } from "../storage";
 import { normalizeTags, reviewOptions } from "../lib/tags";
+
+/**
+ * Whether this trade carries a complete cost record.
+ *
+ * Commission without fees is the ordinary shape of an imported broker fill: the
+ * export carries the commission and not the exchange, clearing and NFA lines.
+ * The numbers are still computed from what is recorded \u2014 but they are a
+ * floor, and the page has to say so rather than let a partial cost look final.
+ */
+function hasRecordedCosts(t: Trade): boolean {
+  return Number.isFinite(t.commission) && Number.isFinite(t.fees);
+}
 import { PrintAnnotator } from "./printAnnotator";
 import { attachTip } from "../lib/tip";
 import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass, tradePoints } from "../lib/fills";
@@ -15,7 +27,7 @@ import { formatDate } from "../lib/dates";
 import { holdFmtOf, tradeR } from "../lib/tradeTable";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
-import { feeForTrade, priceFromRisk } from "../lib/fees";
+import { feeForTrade, netPnl, priceFromRisk, round2, splitFeeTotal } from "../lib/fees";
 import { optionalSummary, reviewStatus } from "../lib/review";
 
 export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
@@ -288,7 +300,7 @@ export class TradeDetailView extends ItemView {
       attachTip(riskFlag, {
         title: "Risk assumed, not recorded",
         value: fmtPrice(t.stopLoss as number),
-        sub: "This risk comes from a rule set for the symbol, not from a stop filed with the broker. Everything derived from it is a model of the trade, not the trade.",
+        sub: "This stop was derived from a risk rule — a dollar amount the journal turned into a price — not from a stop filed with the broker. Everything derived from it is a model of the trade, not the trade.",
       });
     } else if (hasStop) {
       const stop = t.stopLoss as number;
@@ -384,12 +396,19 @@ export class TradeDetailView extends ItemView {
       attr: { type: "button", "aria-label": "Delete trade" },
     });
     setIcon(delBtn, "trash");
+    // The warning says what the engine actually does: a base note takes its
+    // generated copies with it; a copy note is only itself (its siblings stay).
+    const isCopied = t.isCopiedTrade === true;
     attachTip(delBtn, {
       title: "Delete trade",
-      sub: "Moves the note to the vault trash, along with every linked copy.",
+      sub: isCopied
+        ? "Moves this copy's note to the vault trash. The original and its other copies stay."
+        : "Moves the note to the vault trash, along with the copies generated from it. Real imported copies stay.",
     });
     delBtn.addEventListener("click", async () => {
-      const extra = t.isCopiedTrade ? " This will also remove all linked copies." : "";
+      const extra = isCopied
+        ? " Only this copy will be removed."
+        : " Its generated copies will be removed too.";
       if (window.confirm(`Delete trade ${t.symbol} (${t.date}, $${t.pnl})?${extra}`)) {
         await this.plugin.deleteTrade(t.id);
         if (backToAccount) await this.plugin.openAccountDashboard(undefined, origin.accountId as string);
@@ -401,7 +420,6 @@ export class TradeDetailView extends ItemView {
     const body = main.createDiv({ cls: "tj-td-body" });
 
     // ---- Hero bar — title and badges left, headline figures right ----
-    const heroTone = t.pnl >= 0 ? "pos" : "neg";
     const dirLabel = t.direction === "long" ? "Long" : t.direction === "short" ? "Short" : "—";
     const reviewState = reviewStatus(t);
     const hero = body.createDiv({ cls: "tj-td-hero" });
@@ -412,15 +430,28 @@ export class TradeDetailView extends ItemView {
       text: `${t.date}${t.entryTime ? ", " + t.entryTime : ""}`,
     });
     // Where the trade came from, when the note knows. Quiet — an icon and a
-    // tooltip — because it is provenance, not a headline.
-    if (t.origin) {
-      const origin = heroTitle.createSpan({ cls: "tj-td-origin" });
-      setIcon(origin, t.origin === "broker" ? "download" : "pencil");
+    // tooltip — because it is provenance, not a headline. `dataSource` is the
+    // explicit statement; `origin` is the legacy fallback for notes written
+    // before it existed. A reconstructed copy is the one that must never read
+    // as a broker fill.
+    const source = t.dataSource ?? (t.origin === "broker" ? "broker" : t.origin === "manual" ? "manual" : undefined);
+    if (source) {
+      const origin = heroTitle.createSpan({
+        cls: "tj-td-origin" + (source === "reconstructed" ? " is-reconstructed" : ""),
+      });
+      setIcon(origin, source === "broker" ? "download" : source === "reconstructed" ? "sparkles" : "pencil");
       attachTip(origin, {
-        title: t.origin === "broker" ? "Written by an import" : "Recorded by hand",
+        title:
+          source === "broker"
+            ? "Written by an import"
+            : source === "reconstructed"
+            ? "Reconstructed copy"
+            : "Recorded by hand",
         sub:
-          t.origin === "broker"
+          source === "broker"
             ? "This trade came in from the platform's own CSV export."
+            : source === "reconstructed"
+            ? "Generated by the copy engine from the configuration — a model of the leader's trade, not the follower's own fill."
             : "This trade was typed into the journal.",
       });
     }
@@ -461,7 +492,7 @@ export class TradeDetailView extends ItemView {
       const statusBadge = heroTitle.createSpan({ cls: statusCls, text: statusText });
       attachTip(statusBadge, {
         title: "Needs review",
-        sub: `Missing: ${missing.join(", ")}. The stop is a plan, not a review step — it is stated on its own line.`,
+        sub: `Needs: ${missing.join(", ")}. The stop is a plan, not a review step — it is stated on its own line.`,
       });
     }
     const heroMetrics = hero.createDiv({ cls: "tj-td-hero-metrics" });
@@ -469,14 +500,37 @@ export class TradeDetailView extends ItemView {
       const metric = heroMetrics.createDiv({ cls: "tj-td-hero-metric" });
       metric.createSpan({ cls: "tj-td-hero-k", text: label });
       metric.createSpan({ cls: "tj-td-hero-v" + (tone ? " " + tone : ""), text: value });
+      return metric;
     };
     const heroPts = t.pnlPoints;
     const heroPtsStr = typeof heroPts === "number" && Number.isFinite(heroPts)
       ? `${heroPts >= 0 ? "+" : ""}${heroPts.toFixed(2)} pts`
       : "—";
-    heroMetric("P&L", fmtMoney2(t.pnl), heroTone);
+    // Net is the headline — what the trade actually made after recorded costs.
+    // Gross and the costs stay as the secondary line, never hidden.
+    const heroGross = t.pnl;
+    const heroCosts = round2((t.commission || 0) + (t.fees || 0));
+    const heroNet = netPnl(t);
+    const netMetric = heroMetric("Net P&L", fmtMoney2(heroNet), heroNet >= 0 ? "pos" : "neg");
+    attachTip(netMetric, {
+      title: "Net P&L",
+      // The honest version says which costs are actually in it. A trade whose
+      // fees were never recorded used to read exactly like one that recorded
+      // everything, and nothing on the page said so.
+      sub: !hasRecordedCosts(t)
+        ? `Gross ${fmtMoney2(heroGross)}, less whatever costs this trade recorded \u2014 commission alone is common when an import carries no fee lines, so this figure is a floor, not a final result.`
+        : `After recorded commission and fees. Gross ${fmtMoney2(heroGross)}; recorded costs ${fmtMoneyAbs(heroCosts)}. Payouts and deposits are not trading results.`,
+    });
+    if (!hasRecordedCosts(t)) {
+      // Said once, quietly, next to the numbers it qualifies.
+      heroMetrics.createDiv({
+        cls: "tj-td-hero-warn",
+        text: "Costs on this trade are incomplete \u2014 commission is recorded, fees are not. Net is a floor.",
+      });
+    }
     heroMetric("Points", heroPtsStr, (heroPts ?? 0) >= 0 ? "pos" : "neg");
     heroMetric("Hold Time", holdFmtOf(t));
+    heroMetrics.createDiv({ cls: "tj-td-hero-context", text: `Gross ${fmtMoney2(heroGross)} · costs ${fmtMoneyAbs(heroCosts)}` });
 
     // Two-column layout
     const cols = body.createDiv({ cls: "tj-td-cols" });
@@ -534,11 +588,9 @@ export class TradeDetailView extends ItemView {
           if (raw !== currentValue.replace(/[^0-9.-]/g, "")) {
             await onSave(raw);
           } else {
-            // Revert — put span back
-            const newSpan = document.createElement("span");
-            newSpan.className = "tj-td-flip-val";
-            newSpan.textContent = currentValue;
-            input.replaceWith(newSpan);
+            // Revert — put the original span back, so its text (which may carry
+            // a "· corrected" suffix) and its click-to-edit both survive.
+            input.replaceWith(valSpan);
           }
         };
         input.addEventListener("blur", () => void save());
@@ -779,15 +831,18 @@ export class TradeDetailView extends ItemView {
     const feesSpan = editableRow(execCard, "Fees", `$${realFees.toFixed(2)}`, async (raw) => {
       const val = parseFloat(raw.replace(/[$]/g, ""));
       if (Number.isFinite(val)) {
-        // Split evenly or put all in fees
-        await this.saveFields({ fees: String(val), commission: "0" });
+        // The edited number is the platform's total. Keep the recorded
+        // commission and put the rest in fees, so the split survives the edit
+        // and the total stays exactly what was typed.
+        const split = splitFeeTotal(val, t.commission || 0);
+        await this.saveFields({ fees: String(split.fees), commission: String(split.commission) });
         this.render();
       }
     }, {
       numeric: true,
       tip:
         fees.allocated !== 0
-          ? `$${fees.real.toFixed(2)} the platform reported, plus $${fees.allocated.toFixed(2)} this trade's share of the account's balance correction. Editing sets the platform figure.`
+          ? `$${fees.real.toFixed(2)} the platform reported, plus $${fees.allocated.toFixed(2)} this trade's share of the account's balance correction. Editing sets the platform total; the recorded commission is kept.`
           : undefined,
     });
     if (fees.allocated !== 0) {
@@ -1315,15 +1370,16 @@ export class TradeDetailView extends ItemView {
     const btn = host.createEl("button", { cls: "tj-td-accbadge", attr: { type: "button" } });
     const icon = btn.createSpan({ cls: "tj-td-accbadge-ico" });
     setIcon(icon, "users");
+    // Same word as the Trade Log chip, so the two surfaces read as one idea.
     btn.createSpan({ text: `${records.length} accounts` });
     attachTip(btn, {
-      title: `One trade, ${records.length} accounts`,
-      sub: "Click to see what it did in each leg. Money is real; the count is one trade.",
+      title: `This trade in ${records.length} accounts`,
+      sub: "Money is what it made in each account; the ledger counts the decision once.",
     });
 
     const pop = host.createDiv({ cls: "tj-td-accpop" });
     pop.style.display = "none";
-    pop.createDiv({ cls: "tj-td-accpop-t", text: "This trade in each account" });
+    pop.createDiv({ cls: "tj-td-accpop-t", text: "Original and copies" });
 
     const table = pop.createDiv({ cls: "tj-td-acctable" });
     const head2 = table.createDiv({ cls: "tj-td-acctable-row is-head" });
@@ -1332,7 +1388,16 @@ export class TradeDetailView extends ItemView {
       const row = table.createDiv({ cls: "tj-td-acctable-row" });
       const name = row.createSpan({ cls: "tj-td-acctable-name" });
       name.createSpan({ text: this.plugin.displayAccount(r.account) || "—" });
-      if (!r.isCopiedTrade) name.createSpan({ cls: "tj-td-acctag", text: "original" });
+      // Original → copies, with each leg's frozen ratio, exactly as the ledger
+      // shows it. The figures below are the detail this page can afford.
+      if (!r.isCopiedTrade) {
+        name.createSpan({ cls: "tj-td-acctag", text: "Original" });
+      } else {
+        name.createSpan({ cls: "tj-td-acctag", text: "Copied" });
+        if (Number.isFinite(r.copyMultiplier)) {
+          name.createSpan({ cls: "tj-td-accratio", text: `×${r.copyMultiplier}` });
+        }
+      }
       const set = fillSet(r);
       row.createSpan({ cls: "tj-td-acctable-num", text: String(r.quantity ?? set.entryQty ?? "—") });
       row.createSpan({ cls: "tj-td-acctable-num", text: fmtPrice(set.avgEntry || r.entryPrice) });
@@ -1342,7 +1407,7 @@ export class TradeDetailView extends ItemView {
       });
     }
     pop.createDiv({ cls: "tj-td-execs-note" })
-      .setText("Your trading numbers count this trade once; the money is what it made in each account.");
+      .setText("Your trading numbers count this decision once; the money is what it made in each account.");
 
     const close = () => { pop.style.display = "none"; document.removeEventListener("mousedown", onDoc); };
     const onDoc = (e: MouseEvent) => { if (!host.contains(e.target as Node)) close(); };

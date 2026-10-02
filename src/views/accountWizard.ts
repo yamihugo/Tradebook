@@ -14,6 +14,7 @@ import { AccountRules, AccountType, PropAccount } from "../types";
 import { uniqueAccountName } from "../props";
 import { freeNumeric } from "../lib/numeric";
 import { isPropType } from "../lib/accountRules";
+import { attachTip } from "../lib/tip";
 import { FIRM_CATALOG, firmLabel, firmLogoUrl } from "../lib/firmLogos";
 import { ACCOUNT_SIZES, CREATION_TYPES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { formatDate, mountDateField } from "../lib/dates";
@@ -441,7 +442,14 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
    */
   const renderAccount = () => {
     const sizeSect = body.createDiv({ cls: "tj-wz-sect" });
-    sizeSect.createDiv({ cls: "tj-wz-sectitle", text: "Account size" });
+    const sizeTitle = sizeSect.createDiv({ cls: "tj-wz-sectitle", text: "Account size" });
+    // The one distinction the whole page depends on, said where the number is
+    // typed. The wizard had no tooltip of any kind: size and value were the
+    // same word here and two different numbers everywhere else.
+    attachTip(sizeTitle, {
+      title: "Account size",
+      sub: "The size your firm's rules are written against \u2014 what you were allocated. It is not the money in the account: a funded account's value moves above or below it.",
+    });
     const sizeF = sizeSect.createDiv({ cls: "tj-wz-field" });
     dropdown(
       sizeF,
@@ -581,17 +589,24 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
       const c = box.createDiv({ cls: "tj-wz-sumcard" });
       c.createDiv({ cls: "tj-wz-sumtitle", text: title });
       const rows = c.createDiv({ cls: "tj-wz-sumrows" });
-      return (label: string, v: string) => {
+      return (label: string, v: string): HTMLElement => {
         const r = rows.createDiv({ cls: "tj-wz-sumrow" });
         r.createSpan({ cls: "tj-wz-sumk", text: label });
         r.createSpan({ cls: "tj-wz-sumv", text: v });
+        return r;
       };
     };
 
     const size = values.size;
     const accLine = card(TYPE_CATALOG.find((t) => t.id === values.type)?.label ?? values.type);
     accLine("Logo", values.custom ? `Initials (${(values.initials || initialsFrom(values.name || baseName())).toUpperCase()})` : firmLabel(values.logoId) ?? values.logoId);
-    accLine(isProp(values.type) ? "Initial balance" : "Starting balance", `$${size.toLocaleString()}`);
+    // One name for one number: this is the account size, and the review line
+    // used to call it "Initial balance" or "Starting balance" depending on type.
+    const sizeLine = accLine("Account size", `$${size.toLocaleString()}`);
+    attachTip(sizeLine, {
+      title: "Account size",
+      sub: "What your firm's rules are written against. Tradebook records the account's own value separately, from its opening balance onwards.",
+    });
     if (isProp(values.type)) {
       const t = amountOf(values.rules.target, values.rules.targetPct, values.size);
       const m = amountOf(values.rules.maxLoss, values.rules.maxLossPct, values.size);

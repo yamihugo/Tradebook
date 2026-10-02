@@ -5,7 +5,7 @@
   </picture>
   <h3>A local, private futures journal for Obsidian.</h3>
   <p>
-    <a href="#features">Features</a> &nbsp;·&nbsp;
+    <a href="#what-you-get">What you get</a> &nbsp;·&nbsp;
     <a href="#install">Install</a> &nbsp;·&nbsp;
     <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
     <a href="ROADMAP.md">Roadmap</a> &nbsp;·&nbsp;
@@ -22,19 +22,71 @@
   <img src="assets/readme/01-home.png" alt="Tradebook Home" width="860">
 </div>
 
-**Tradebook** records what you actually did. Your trades are plain Markdown notes in your vault — no account, no cloud, no telemetry. It reports the numbers; it never blocks a trade, imposes a rule or holds anything back.
+**Tradebook** records what you actually did. Your trades are plain Markdown notes in your
+vault — there is no Tradebook account, no cloud service and no telemetry. It reports your
+numbers; it never blocks a trade, imposes a rule or holds anything back.
 
-## Features
+## What you get
 
-- **Import your broker's CSV** — Tradovate Orders/Fills; fills are paired FIFO and the broker's stops and targets are read from the export.
-- **Accounts that mean something** — eval · funded · demo, with firm logos, their real rules and limits, and copy groups.
-- **A ledger you can review** — the Trade Log and a Trade Detail page; one word closes a decision (**Reviewed**).
-- **A Home that reads your trading** — net P&L curve, calendar heatmap, focus areas and a trading score.
-- **Local and private** — Markdown in your vault; nothing leaves your computer, no internet connection required.
+### Understand your trading
+
+- A **Briefing** (Home) that opens on the state of your trading rather than a wall of
+  widgets: Net Trading P&L, the equity curve, a performance calendar, breakdowns by day,
+  setup, session and symbol, and a Trading Score built from your review.
+- **Net Trading P&L** is the headline. Costs the broker reported are already inside it;
+  anything the journal could not measure says so instead of reading as zero.
+
+### Keep a real trading record
+
+- A **Trade Log** for the whole ledger, and a **Trade Detail** page per trade.
+- **Manual Trade** for anything you did not import, with the same fields and the same rules
+  as an imported trade.
+- **Setups, notes and review** live on the trade itself, so the record and the thinking stay
+  together. One word marks a trade **Reviewed**.
+- **Fills** are kept where the source records them, so a scaled entry can be inspected.
+
+### Track accounts properly
+
+- **Eval, funded and demo accounts** with firm logos, and their real rules and limits.
+- A **tracking boundary** with a declared opening value: trades and cash movements from
+  before it stay in your journal, and stay out of every calculated figure. An account with no
+  tracked data reads "—", never a misleading zero.
+- **Deposits, payouts and corrections are tracked per account and always reported apart
+  from trading P&L.** Money leaving is not a loss.
+
+### Copy Trading
+
+- Copy groups are **explicit configuration**: you declare the leader and the copiers, each
+  with its own ratio and start date. Nothing is ever inferred from a file.
+- A generated leg is a **model** of what the follower would have done, and is labelled as
+  one. Real broker evidence is authoritative.
+- **Reconciliation is on demand**: when a follower's own fill exists, you confirm the link
+  yourself, the actual wins, and the generated model is kept as history.
+
+### Import Tradovate
+
+Tradovate is the broker this release supports.
+
+- **Orders** and **Fills** exports are read, and **Fills are paired FIFO**.
+- **Cash History** supplies the real commission and fees the broker charged.
+- **Broker stops and targets** are read from the export where it carries them.
+- **Deterministic identity** — the same export produces the same trades, so re-running an
+  import skips what already landed instead of duplicating it.
+- **Multi-account handling**: one import can span several broker accounts, and each row
+  belongs to the account it came from.
+- **A preview before Import.** Account mapping, time, costs and the trades themselves are
+  all answered before anything is written to your vault.
+
+### Local by design
+
+- Your trades are Markdown in your vault. The plugin makes no network requests and sends no
+  telemetry; it needs no account and no internet connection.
 
 ## Install
 
-Tradebook is a plugin for [Obsidian](https://obsidian.md), installed and kept up to date through [BRAT](https://tfthacker.com/BRAT). It runs on desktop and mobile, needs no account, and works offline.
+Tradebook is a plugin for [Obsidian](https://obsidian.md), installed and kept up to date
+through [BRAT](https://tfthacker.com/BRAT). It is not desktop-only, needs no account, and
+works offline.
 
 If you don't use Obsidian yet, start at step 1. If you already do, skip to step 2.
 
@@ -62,11 +114,11 @@ Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from th
 
 | Command | What it opens |
 | --- | --- |
-| `Tradebook: Open Home` | Your dashboard — P&L curve, heatmap, score |
+| `Tradebook: Open Home` | Your briefing — P&L curve, calendar, score |
 | `Tradebook: Open Accounts` | Account cards and dashboards |
 | `Tradebook: Open Trade Log` | The full trade ledger |
 | `Tradebook: Manual Trade` | Log a trade by hand |
-| `Tradebook: Import trades from CSV` | Import a broker export |
+| `Tradebook: Import trades from CSV` | Import a Tradovate export |
 
 ### Updating
 
@@ -84,9 +136,15 @@ Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from th
 
 ## Getting started
 
-1. **Add an account.** Open **Tradebook: Open Accounts** and choose **Add account**. Pick the type (eval, funded or demo), the firm, and its rules and limits.
-2. **Import your trades.** Run **Tradebook: Import trades from CSV** with your broker's export. Review the preview, then import — each trade becomes a Markdown note under `<year>/<month>/trades/`.
-3. **Review what you did.** Open the **Trade Log**, open a trade and mark it **Reviewed**. Home keeps score from there.
+1. **Add an account.** Open **Tradebook: Open Accounts** and choose **Add account**. Pick the
+   type (eval, funded or demo), the firm, and its rules and limits.
+2. **Bring in your trades.** Run **Tradebook: Import trades from CSV** with your Tradovate
+   Orders/Fills (and Cash History, if you want the real costs), or run **Tradebook: Manual
+   Trade** and log one by hand. Read the preview, then import — each trade becomes a Markdown
+   note under `<year>/<month>/trades/`.
+3. **Review what you did.** Open the **Trade Log**, open a trade and mark it **Reviewed**.
+4. **Read Home.** The Briefing shows where your trading stands, and what is worth your
+   attention next.
 
 ## Data and privacy
 
@@ -96,7 +154,10 @@ Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from th
 
 ## Known limitations
 
-Some numbers are modelled rather than measured (copy-trading legs; costs the broker never reported). See [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
+Some numbers are modelled rather than measured (copy-trading legs; costs the broker never
+reported), and some costs cannot be tied to one trade with certainty. Read
+[KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) before you file a bug — it exists so a model is
+never mistaken for a mistake.
 
 ## Support
 
