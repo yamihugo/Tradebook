@@ -8,13 +8,11 @@
     <a href="#what-you-get">What you get</a> &nbsp;·&nbsp;
     <a href="#install">Install</a> &nbsp;·&nbsp;
     <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
-    <a href="ROADMAP.md">Roadmap</a> &nbsp;·&nbsp;
-    <a href="#support">Support</a>
+    <a href="ROADMAP.md">Roadmap</a>
   </p>
 </div>
 
 <p align="center">
-  <a href="https://github.com/yamihugo/Tradebook"><img src="https://img.shields.io/github/stars/yamihugo/Tradebook?style=flat-square" alt="Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-3fb950?style=flat-square" alt="License: MIT"></a>
 </p>
 
@@ -22,160 +20,137 @@
   <img src="assets/readme/01-home.png" alt="Tradebook Home" width="860">
 </div>
 
-**Tradebook** records what you actually did. Your trades are plain Markdown notes in your
-vault — there is no Tradebook account, no cloud service and no telemetry. It reports your
-numbers; it never blocks a trade, imposes a rule or holds anything back.
+**Tradebook** is a free, open-source futures trading journal for Obsidian. Import your
+trades, track your accounts and review your decisions. Your trades stay as Markdown notes
+in your vault, with no Tradebook account, cloud service or telemetry.
 
 ## What you get
 
 ### Understand your trading
 
-- A **Briefing** (Home) that opens on the state of your trading rather than a wall of
-  widgets: Net Trading P&L, the equity curve, a performance calendar, breakdowns by day,
-  setup, session and symbol, and a Trading Score built from your review.
-- **Net Trading P&L** is the headline. Costs the broker reported are already inside it;
-  anything the journal could not measure says so instead of reading as zero.
+- **Home** brings together Net Trading P&L, an equity curve, a performance calendar,
+  breakdowns and a Trading Score.
+- Explore results by setup, session, symbol and day, then open the trades behind them.
+- Reported commissions and fees are included in Net Trading P&L. Missing cost data is
+  identified so you can see when a result is incomplete.
 
-### Keep a real trading record
+### Keep a trading record
 
-- A **Trade Log** for the whole ledger, and a **Trade Detail** page per trade.
-- **Manual Trade** for anything you did not import, with the same fields and the same rules
-  as an imported trade.
-- **Setups, notes and review** live on the trade itself, so the record and the thinking stay
-  together. One word marks a trade **Reviewed**.
-- **Fills** are kept where the source records them, so a scaled entry can be inspected.
+- Browse your **Trade Log** and open any trade to inspect its details.
+- Add trades manually or import them from a supported export.
+- Keep setups, notes and screenshots alongside each trade, then mark it **Reviewed**.
+- Inspect individual fills when they are available in the source.
 
-### Track accounts properly
+### Track your accounts
 
-- **Eval, funded and demo accounts** with firm logos, and their real rules and limits.
-- A **tracking boundary** with a declared opening value: trades and cash movements from
-  before it stay in your journal, and stay out of tracked performance calculations. An account with no
-  tracked data reads "—", never a misleading zero.
-- **Deposits, payouts and corrections are tracked per account and always reported apart
-  from trading P&L.** Money leaving is not a loss.
+- Manage **eval, funded and demo accounts**, with their firms, rules and limits.
+- Choose when tracking begins and set an opening value. Earlier records stay in your
+  journal without affecting performance tracked from that point.
+- Track deposits, payouts and corrections separately from trading P&L.
 
-### Copy Trading
+### Record Copy Trading
 
-- Copy groups are **explicit configuration**: you declare the leader and the copiers, each
-  with its own ratio and start date. Nothing is ever inferred from a file.
-- A generated leg is a **model** of what the follower would have done, and is labelled as
-  one. Real broker evidence is authoritative.
-- **Reconciliation is on demand**: when a follower's own fill exists, you confirm the link
-  yourself, the actual wins, and the generated model is kept as history.
+- Define the leader and follower accounts, with a ratio and start date for each follower.
+- Generated follower trades are labelled as models of what the follower would have done.
+- When you import a follower's actual fills, you can confirm the matching records.
+  The actual fills then take precedence, while the generated model stays in the history.
 
 ### Import Tradovate
 
-Tradovate is the broker this release supports.
+The supported formats are **Tradovate Orders, Fills and Cash History**.
 
-- **Orders** and **Fills** exports are read, and **Fills are paired FIFO**.
-- **Cash History** supplies the real commission and fees the broker charged.
-- **Broker stops and targets** are read from the export where it carries them.
-- **Deterministic identity** — the same export produces the same trades, so re-running an
-  import skips what already landed instead of duplicating it.
-- **Multi-account handling**: one import can span several broker accounts, and each row
-  belongs to the account it came from.
-- **A preview before Import.** Account mapping, time, costs and the trades themselves are
-  all answered before anything is written to your vault.
+- Import trades across multiple accounts and check the account mapping before saving.
+- Include Cash History to bring in reported commissions and fees.
+- Read stops and targets where the export provides them.
+- Reimport the same export without duplicating trades already imported.
+- Review the trades, timestamps and costs in a preview before writing anything to your vault.
 
-### Local by design
-
-- Your trades are Markdown in your vault. The plugin makes no network requests and sends no
-  telemetry; it needs no account and no internet connection.
+Other export formats are not currently supported. See [import limitations](KNOWN-LIMITATIONS.md#import-formats)
+and the [import roadmap](ROADMAP.md#imports) for more detail.
 
 ## Install
 
-Tradebook is a plugin for [Obsidian](https://obsidian.md), installed and kept up to date
-through [BRAT](https://tfthacker.com/BRAT). It is not desktop-only, needs no account, and
-works offline.
-
-If you don't use Obsidian yet, start at step 1. If you already do, skip to step 2.
+Tradebook currently uses [BRAT](https://tfthacker.com/BRAT) for installation and updates
+while its submission to the official Obsidian Community Plugins directory is under review.
 
 ### 1. Install Obsidian
 
-Download Obsidian **1.7.2 or newer** from [obsidian.md](https://obsidian.md) and open a vault — a new, empty vault is fine.
+Download [Obsidian](https://obsidian.md) **1.7.2 or newer** and open a vault. A new, empty
+vault is fine. If you already use Obsidian, continue below.
 
 ### 2. Install BRAT
 
-Open *Settings → Community plugins*. If **Restricted mode** is on, turn it off first; Obsidian loads no community plugin until you do. Then select **Browse**, search for **BRAT**, and choose **Install**, then **Enable**.
+Open *Settings → Community plugins* and turn off **Restricted mode** if needed.
+Select **Browse**, search for **BRAT**, then choose **Install** and **Enable**.
 
 ### 3. Add Tradebook
 
-Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for testing**. Paste this repository and confirm:
+Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for testing**.
+Paste this repository and confirm:
 
 ```
 yamihugo/Tradebook
 ```
 
-BRAT downloads the latest release and lists the plugin for you.
+BRAT downloads the latest release.
 
-### 4. Enable and open
+### 4. Enable Tradebook
 
-Back in *Settings → Community plugins*, turn on **Tradebook**. Open it from the ribbon icons or the command palette:
-
-| Command | What it opens |
-| --- | --- |
-| `Tradebook: Open Home` | Your briefing — P&L curve, calendar, score |
-| `Tradebook: Open Accounts` | Account cards and dashboards |
-| `Tradebook: Open Trade Log` | The full trade ledger |
-| `Tradebook: Manual Trade` | Log a trade by hand |
-| `Tradebook: Import trades from CSV` | Import a Tradovate export |
+Turn on **Tradebook** in *Settings → Community plugins*. Its menu opens in Obsidian's
+left sidebar. Use it to navigate between **Home**, **Accounts** and **Trade Log**, or to
+add and import trades.
 
 ### Updating
 
-- **Through BRAT:** run **BRAT: Check for updates**, or let BRAT update on startup.
-- **Manually:** replace only `main.js`, `manifest.json` and `styles.css`.
-- **Never** replace `data.json`. It holds your settings and accounts, and updating never touches your trades.
+BRAT can check for updates on startup, or you can run **BRAT: Check for updates**.
+For a manual update, replace only `main.js`, `manifest.json` and `styles.css`;
+keep your existing `data.json`.
 
 ### Troubleshooting
 
-- **Nothing loads:** confirm **Restricted mode** is off, then enable Tradebook.
-- **Tradebook is not listed:** BRAT didn't finish. Run **BRAT: Add a beta plugin for testing** again and check the developer console.
-- **The plugin doesn't load:** check Obsidian is **1.7.2 or newer**.
-- **Restore your settings:** *Settings → Tradebook → Advanced → Import backup*, or **Restore previous settings** after an import.
-- **Uninstalling deletes the plugin folder, including `data.json`.** Export a backup first from *Settings → Tradebook → Advanced → Export*.
+- **Tradebook is not listed:** try adding the repository through BRAT again.
+- **The plugin does not load:** check that Obsidian is at least version 1.7.2,
+  Restricted mode is off and Tradebook is enabled.
+- **The sidebar is hidden:** expand Obsidian's left sidebar and select the Tradebook tab.
+
+Tradebook can run in Obsidian on mobile, but phone and tablet layouts still need work.
+Mobile optimization is on the [roadmap](ROADMAP.md).
 
 ## Getting started
 
-1. **Add an account.** Open **Tradebook: Open Accounts** and choose **Add account**. Pick the
-   type (eval, funded or demo), the firm, and its rules and limits.
-2. **Bring in your trades.** Run **Tradebook: Import trades from CSV** with your Tradovate
-   Orders/Fills (and Cash History, if you want the real costs), or run **Tradebook: Manual
-   Trade** and log one by hand. Read the preview, then import — each trade becomes a Markdown
-   note under `<year>/<month>/trades/`.
-3. **Review what you did.** Open the **Trade Log**, open a trade and mark it **Reviewed**.
-4. **Read Home.** The Briefing shows where your trading stands, and what is worth your
-   attention next.
+1. **Add an account.** Choose **Accounts** in the Tradebook sidebar, then **Add account**.
+   Select its type, firm, rules and limits.
+2. **Bring in your trades.** Choose **Import CSV** for Tradovate Orders/Fills and, when
+   available, Cash History. Check the preview before importing. You can also choose
+   **Manual Trade** to add a trade yourself.
+3. **Review a trade.** Open it from the **Trade Log**, add your notes and mark it **Reviewed**.
+4. **Visit Home.** Review your results and explore the trades behind them.
 
-## Data and privacy
+## Your data and backups
 
-- Your trades are plain Markdown notes in your vault. Updating the plugin never touches them, and never touches `data.json`.
-- Disabling the plugin keeps `data.json`; re-enabling restores everything.
-- Uninstalling deletes the plugin folder, including `data.json` — export a backup first.
+Tradebook works locally and makes no network requests. Your trade notes remain in your
+vault when you disable or uninstall the plugin.
+
+Settings and account configuration are stored in the plugin's `data.json`. Disabling
+the plugin preserves that file; uninstalling removes the plugin folder, including it.
+
+Before uninstalling, export a settings backup from *Settings → Tradebook → Advanced → Export*.
+Use **Import backup** in the same section to restore it. Keep a separate backup of your
+vault for the trade notes and attachments.
 
 ## Known limitations
 
-Some numbers are modelled rather than measured (copy-trading legs; costs the broker never
-reported), and some costs cannot be tied to one trade with certainty. Read
-[KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md) before you file a bug — it exists so a model is
-never mistaken for a mistake.
+Generated copy trades are models, and reported costs cannot always be assigned to an
+individual trade with certainty. [Known limitations](KNOWN-LIMITATIONS.md) explains
+how these cases, missing data and import formats are handled.
 
-## Support
-
-If Tradebook helps your trading, you're welcome to support it.
-
-<p align="center">
-  <a href="https://www.buymeacoffee.com/yamihugo"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" height="40"></a>
-  <a href="https://ko-fi.com/yamihugo"><img src="https://storage.ko-fi.com/cdn/kofi3.png?v=3" alt="Ko-fi" height="40"></a>
-</p>
-
-<div align="center">
-  <a href="https://star-history.com/#yamihugo/Tradebook&Date">
-    <img src="https://api.star-history.com/svg?repos=yamihugo/Tradebook&type=Date" alt="Star History Chart" width="600">
-  </a>
-</div>
+If something is not working as expected, [open an issue](https://github.com/yamihugo/Tradebook/issues)
+with what happened and the steps to reproduce it. Please remove personal and account
+information from screenshots or sample files.
 
 ## License
 
 MIT — see [LICENSE](LICENSE).
 
-Prop-firm and broker names and logos belong to their owners and are shown only to identify the firm an account trades with.
+Prop-firm and broker names and logos belong to their owners and are used to identify
+accounts. Their inclusion does not imply affiliation or endorsement.

@@ -1,62 +1,54 @@
 # Roadmap
 
-**This is direction, not a promise.** Priorities can move as Tradebook is used in the
-real world. This is a direction, not a delivery checklist. What has actually shipped lives
-in the [CHANGELOG](CHANGELOG.md).
+My first priority is making Tradebook reliable and comfortable to use every day.
+This is the direction I want to take it, with room to adjust as people use it and share
+feedback. Released changes are listed in the [changelog](CHANGELOG.md).
 
-## Near term
+## Current priorities
 
-- Light mode polish
-- Mobile and tablet optimization
-- Keyboard and mouse navigation across the core UI
-- Fix real-world bugs and UX regressions found after 1.0
-- Entry/exit time pickers
-- Sort and group accounts by size
-- Make scale-in / scale-out easier to inspect
-- Saved Trade Log filter views
+- Fix bugs and UI issues reported through everyday use.
+- Improve keyboard and mouse navigation across the core interface.
+- Improve light mode.
+- Add a first-run guide and contextual help.
+- Polish interactions and lightweight animations.
+- Optimize layouts and navigation for phones and tablets.
+- Continue improving trade and account analysis where the available data supports it.
 
-## Trading & analytics
+Smaller improvements may ship first, while larger changes need more development and
+testing. The list is not a fixed release order, and there are no delivery dates yet.
 
-- Drawdown / underwater curve
-- Rolling averages
-- Continue improving trade and account analysis where the journal has reliable data
+## Future development
 
-## Strategies & review
+Once the core workflow is stable and the improvements above are in place, I want to
+build out the strategy and review side of Tradebook. This is a larger phase of development
+that will take time.
 
-- Missing Trades — setups identified but not taken
-- Strategy Tabs
-- Strategy Lab — isolated strategy exploration and testing
-- Strategy-specific review templates
-- Psychology and behavioural review improvements
+- **Strategy Tabs** — dedicated spaces for reviewing individual strategies.
+- **Strategy Lab** — a space for exploring and testing strategies.
+- **Missing Trades** — record setups you identified but did not take.
+- Review templates tailored to each strategy.
+- Improvements to psychology and behavioural review.
 
-## Workflow & personalization
+## Ideas under consideration
 
-- Custom keyboard shortcuts
-- User-defined external bookmarks / sidebar links — these simply open a site in your
-  default browser. Tradebook does not fetch, read or embed those sites.
-- Lightweight animation and interaction polish
-- Optional visual themes
+These are possibilities I may explore later. They are not committed features, and some
+may never become part of Tradebook.
 
-## Onboarding & help
-
-- First-run guide
-- Contextual help mode
+- Custom keyboard shortcuts.
+- Optional visual themes.
+- External bookmarks or sidebar links that open in your browser.
+- Offline voice notes.
 
 ## Imports
 
-- Additional broker export adapters beyond Tradovate
+Tradebook currently supports **Tradovate Orders, Fills and Cash History**.
+See [import limitations](KNOWN-LIMITATIONS.md#import-formats) for the current scope.
 
-Each source is added on its own, and only counts as supported once its real export
-format, account identity, timestamps, costs and regression behaviour have been verified
-against real data. Tradebook is not a generic CSV importer.
+Import improvements will be guided by reported issues and anonymized export samples.
+Additional formats will only be listed as supported once their account information,
+timestamps, trades and costs have been checked against real exports. Documentation alone
+is not enough to confirm compatibility.
 
-## Longer-term exploration
-
-- Offline voice notes
-
-## Not planned
-
-- **MAE/MFE without excursion data** — needs data the journal deliberately does not
-  collect.
-- **A separate mobile app** — Obsidian already runs on mobile.
-- **Prop-firm enforcement** — this is a journal, not a firm. It reports; it never imposes.
+If you would like another format supported, [open an issue](https://github.com/yamihugo/Tradebook/issues)
+with the platform and export type. Remove personal and account identifiers before
+sharing any sample files.
