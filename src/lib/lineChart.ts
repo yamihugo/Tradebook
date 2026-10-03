@@ -78,7 +78,7 @@ function getGlobalChartTip(): HTMLElement {
     globalChartTip = document.createElement("div");
     globalChartTip.id = "tj-eq-global-tip";
     globalChartTip.className = "tj-eq-chart-tip";
-    globalChartTip.style.display = "none";
+    globalChartTip.setCssStyles({ display: "none" });
     document.body.appendChild(globalChartTip);
   }
   return globalChartTip;
@@ -97,9 +97,9 @@ function getGlobalEqCard(): EqCardRefs {
   if (!globalEqCard || !globalEqCard.el.isConnected) {
     const el = document.createElement("div");
     el.className = "tj-eq-card";
-    el.style.position = "fixed";
-    el.style.zIndex = "1000";
-    el.style.display = "none";
+    el.setCssStyles({ position: "fixed" });
+    el.setCssStyles({ zIndex: "1000" });
+    el.setCssStyles({ display: "none" });
     const val = document.createElement("div");
     val.className = "tj-eq-card-val";
     const date = document.createElement("div");
@@ -175,7 +175,7 @@ function svgEl(tag: string, attrs: Record<string, string>): SVGElement {
 export function renderLineChart(container: HTMLElement, opts: LineChartOpts): void {
   const { values, dates } = opts;
   if (!values.length) return;
-  if (globalChartTip) globalChartTip.style.display = "none";
+  if (globalChartTip) globalChartTip.setCssStyles({ display: "none" });
   const w = container.clientWidth || 520;
   const h = container.clientHeight || 170;
 
@@ -251,8 +251,8 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
   svg.appendChild(aUp);
   svg.appendChild(aDn);
   if (opts.hideArea) {
-    aUp.style.display = "none";
-    aDn.style.display = "none";
+    aUp.setCssStyles({ display: "none" });
+    aDn.setCssStyles({ display: "none" });
   }
 
   // Dashed reference line on the baseline (account value). Always drawn when
@@ -312,14 +312,14 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
         chartTip.createDiv({ cls: "tj-eq-tip-label", text: "Drawdown level" });
         chartTip.createDiv({ cls: "tj-eq-tip-value tj-eq-tip-dd", text: fmtMoney2(ddVal) });
         chartTip.createDiv({ cls: "tj-eq-tip-label", text: `Gap: ${fmtMoney2(ddDiff)}` });
-        chartTip.style.display = "block";
+        chartTip.setCssStyles({ display: "block" });
         positionTip(e);
       });
       t.addEventListener("mousemove", (e: MouseEvent) => {
         positionTip(e);
       });
       t.addEventListener("mouseleave", () => {
-        chartTip.style.display = "none";
+        chartTip.setCssStyles({ display: "none" });
       });
       svg.appendChild(t);
     }
@@ -420,10 +420,10 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     }
   }
   const dot = svgEl("circle", { class: "tj-eq-dot", r: "4" });
-  dot.style.display = "none";
+  dot.setCssStyles({ display: "none" });
   svg.appendChild(dot);
   const guide = svgEl("line", { class: "tj-eq-guide", y1: String(topY), y2: String(botY) });
-  guide.style.display = "none";
+  guide.setCssStyles({ display: "none" });
   svg.appendChild(guide);
   container.appendChild(svg as unknown as Node);
 
@@ -458,10 +458,10 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     const cyy = y(v);
     guide.setAttribute("x1", String(cx));
     guide.setAttribute("x2", String(cx));
-    guide.style.display = "block";
+    guide.setCssStyles({ display: "block" });
     dot.setAttribute("cx", String(cx));
     dot.setAttribute("cy", String(cyy));
-    dot.style.display = "block";
+    dot.setCssStyles({ display: "block" });
     cardVal.setText(fmtMoney2(v));
     // Colour by position vs the baseline: below the account value = loss (red).
     cardVal.toggleClass("tj-pos", v >= base);
@@ -475,7 +475,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
         row.createEl("b", { cls: tone, text: value });
       }
     }
-    card.style.display = "block";
+    card.setCssStyles({ display: "block" });
     const cw = card.offsetWidth || 132;
     const chh = card.offsetHeight || 92;
     // Viewport coords — the card is body-level and position: fixed. Follow the
@@ -491,9 +491,9 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     card.style.top = `${top}px`;
   });
   svg.addEventListener("mouseleave", () => {
-    guide.style.display = "none";
-    dot.style.display = "none";
-    card.style.display = "none";
+    guide.setCssStyles({ display: "none" });
+    dot.setCssStyles({ display: "none" });
+    card.setCssStyles({ display: "none" });
   });
 
   render(values);

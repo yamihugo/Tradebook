@@ -396,8 +396,8 @@ export class PrintAnnotator {
     let viewStart = { x: 0, y: 0 };
 
     const updateCursor = () => {
-      if (panning) { canvas.style.cursor = "grabbing"; return; }
-      if (spaceDown) { canvas.style.cursor = "grab"; return; }
+      if (panning) { canvas.setCssStyles({ cursor: "grabbing" }); return; }
+      if (spaceDown) { canvas.setCssStyles({ cursor: "grab" }); return; }
       canvas.style.cursor = tool === "select" ? hoverCursor : "crosshair";
     };
 
@@ -1007,21 +1007,21 @@ export class PrintAnnotator {
       const cr = canvas.getBoundingClientRect();
       const ta = document.createElement("textarea");
       ta.className = "tj-anno-textinput";
-      ta.style.position = "absolute";
+      ta.setCssStyles({ position: "absolute" });
       ta.style.left = `${e.clientX - cr.left}px`;
       ta.style.top = `${e.clientY - cr.top}px`;
-      ta.style.minWidth = "80px";
-      ta.style.minHeight = "24px";
-      ta.style.padding = "2px 4px";
-      ta.style.background = "rgba(0,0,0,0.6)";
+      ta.setCssStyles({ minWidth: "80px" });
+      ta.setCssStyles({ minHeight: "24px" });
+      ta.setCssStyles({ padding: "2px 4px" });
+      ta.setCssStyles({ background: "rgba(0,0,0,0.6)" });
       ta.style.color = currentStrokeColor;
-      ta.style.border = "1px dashed currentColor";
-      ta.style.outline = "none";
-      ta.style.fontSize = "16px";
-      ta.style.fontFamily = "inherit";
-      ta.style.lineHeight = "1.2";
-      ta.style.resize = "none";
-      ta.style.zIndex = "10";
+      ta.setCssStyles({ border: "1px dashed currentColor" });
+      ta.setCssStyles({ outline: "none" });
+      ta.setCssStyles({ fontSize: "16px" });
+      ta.setCssStyles({ fontFamily: "inherit" });
+      ta.setCssStyles({ lineHeight: "1.2" });
+      ta.setCssStyles({ resize: "none" });
+      ta.setCssStyles({ zIndex: "10" });
       ta.setAttribute("rows", "1");
       ta.removeAttribute("placeholder");
       wrap.appendChild(ta);

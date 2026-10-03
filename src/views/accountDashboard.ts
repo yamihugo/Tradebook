@@ -1461,7 +1461,7 @@ export class AccountDashboardView extends ItemView {
         positive.style.left = `${zeroPct}%`;
         positive.style.width = `${Math.max(0, 100 - zeroPct)}%`;
         const negative = evalTrack.createDiv({ cls: "tj-acc-eval-negative" });
-        negative.style.left = "0";
+        negative.setCssStyles({ left: "0" });
         negative.style.width = `${zeroPct}%`;
         const zero = evalTrack.createDiv({ cls: "tj-acc-eval-zero" });
         zero.style.left = `${zeroPct}%`;

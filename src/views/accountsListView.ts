@@ -545,7 +545,7 @@ export class AccountsListView extends ItemView {
     // Filled once the series is built; hidden until then so an empty account
     // never shows a dangling sign.
     const val = headR.createDiv({ cls: "tj-acct-chart-val" });
-    val.style.display = "none";
+    val.setCssStyles({ display: "none" });
 
     const periodHost = headR.createDiv({ cls: "tj-acct-chart-period" });
     mountDropdown(
@@ -635,7 +635,7 @@ export class AccountsListView extends ItemView {
     // The value lives up in the header (next to the window chip), so the plot is
     // left entirely to the curve.
     val.createSpan({ cls: last >= 0 ? "tj-pos" : "tj-neg", text: fmtMoney(last) });
-    val.style.display = "";
+    val.setCssStyles({ display: "" });
 
     const chart = card.createDiv({ cls: "tj-acct-chart" });
     renderLineChart(chart, {
@@ -673,14 +673,14 @@ export class AccountsListView extends ItemView {
         const el = sp.createEl("i");
         el.style.background = color;
         if (shape === "dash") {
-          el.style.width = "14px";
-          el.style.height = "2px";
-          el.style.borderRadius = "1px";
-          el.style.opacity = ".75";
+          el.setCssStyles({ width: "14px" });
+          el.setCssStyles({ height: "2px" });
+          el.setCssStyles({ borderRadius: "1px" });
+          el.setCssStyles({ opacity: ".75" });
         } else {
-          el.style.width = "8px";
-          el.style.height = "8px";
-          el.style.borderRadius = "50%";
+          el.setCssStyles({ width: "8px" });
+          el.setCssStyles({ height: "8px" });
+          el.setCssStyles({ borderRadius: "50%" });
         }
         sp.createSpan({ text });
       };
@@ -1061,7 +1061,7 @@ export class AccountsListView extends ItemView {
   private errorTile(acc: PropAccount, err: unknown): HTMLElement {
     const tile = document.createElement("div");
     tile.className = "tj-acct-tile is-error";
-    tile.createDiv({ cls: "tj-acct-tile-edge" }).style.background = "var(--color-red, #ff5d48)";
+    tile.createDiv({ cls: "tj-acct-tile-edge" }).setCssStyles({ background: "var(--color-red, #ff5d48)" });
     tile.createDiv({ cls: "tj-acct-hd-1", text: acc.name });
     const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     tile.createDiv({ cls: "tj-acct-error-msg", text: msg });

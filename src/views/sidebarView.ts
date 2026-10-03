@@ -366,7 +366,7 @@ export class TradebookSidebarView extends ItemView {
       this.renderRestore(sections, hidden, new Set(this.pinnedList()));
     } else {
       const results = body.createDiv({ cls: "tj-nav-results" });
-      results.style.display = "none";
+      results.setCssStyles({ display: "none" });
       if (searchInput) this.wireSearch(searchInput, results, sections, entries);
     }
   }
@@ -674,12 +674,12 @@ export class TradebookSidebarView extends ItemView {
       const query = raw.trim().toLowerCase();
       if (!query) {
         this._searchFilter = "all";
-        results.style.display = "none";
+        results.setCssStyles({ display: "none" });
         results.removeClass("is-entering");
-        sections.style.display = "";
+        sections.setCssStyles({ display: "" });
         return;
       }
-      sections.style.display = "none";
+      sections.setCssStyles({ display: "none" });
       if (!this._trades) {
         try {
           this._trades = await this.plugin.loadTradesExpanded();
@@ -691,7 +691,7 @@ export class TradebookSidebarView extends ItemView {
       if (!all.length) {
         results.empty();
         results.createDiv({ cls: "tj-nav-results-empty", text: "No matches" });
-        results.style.display = "";
+        results.setCssStyles({ display: "" });
         return;
       }
       this._allGroups = all;
@@ -699,7 +699,7 @@ export class TradebookSidebarView extends ItemView {
       const groups =
         this._searchFilter === "all" ? all : all.filter((g) => g.title === this._searchFilter);
       this.renderResults(results, groups);
-      results.style.display = "";
+      results.setCssStyles({ display: "" });
       // A gentle fade+slide on every fresh result set (CSS honours reduced motion
       // and the Animations setting through the class).
       results.removeClass("is-entering");

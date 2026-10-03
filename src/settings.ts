@@ -146,7 +146,9 @@ export class SettingsTab extends PluginSettingTab {
     const icon = head.createDiv({ cls: "tj-set-head-icon" });
     setIcon(icon, sec?.icon ?? "settings");
     const body = head.createDiv({ cls: "tj-set-head-body" });
-    body.createEl("h2", { cls: "tj-set-head-title", text: sec?.title ?? "" });
+    const heading = new Setting(body).setName(sec?.title ?? "").setHeading();
+    heading.settingEl.addClass("tj-set-head-setting");
+    heading.nameEl.addClass("tj-set-head-title");
     if (sec?.desc) body.createDiv({ cls: "tj-set-head-desc", text: sec.desc });
 
     const content = containerEl.createDiv({ cls: "tj-set-section" });
@@ -1029,7 +1031,7 @@ export class SettingsTab extends PluginSettingTab {
    */
   private pickBackupFile(): void {
     const input = document.body.createEl("input", { attr: { type: "file", accept: ".json,application/json" } });
-    input.style.display = "none";
+    input.setCssStyles({ display: "none" });
     input.addEventListener("change", async () => {
       const file = input.files && input.files[0];
       input.remove();

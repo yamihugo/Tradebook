@@ -239,7 +239,7 @@ export const TRADE_COLUMNS: TradeColumn[] = [
       const span = td.createSpan({ cls: "tj-tbl-print" + (url ? " is-on" : "") });
       if (url) {
         setIcon(span, "image");
-        span.style.cursor = "pointer";
+        span.setCssStyles({ cursor: "pointer" });
         span.addEventListener("click", (e) => {
           e.stopPropagation();
           void plugin.openTradeDetail({ id: t.id });

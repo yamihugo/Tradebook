@@ -48,7 +48,7 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
         foundAny = true;
         const img = left.createEl("img", { attr: { src: resolved, alt: "trade screenshot" }, cls: "tj-trade-modal-img" });
         img.addEventListener("error", () => {
-          img.style.opacity = "0.2";
+          img.setCssStyles({ opacity: "0.2" });
         });
       }
     }

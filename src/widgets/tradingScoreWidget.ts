@@ -48,7 +48,7 @@ function renderAxisRows(box: HTMLElement, result: ScoreResult, animate: boolean)
       fill.style.background = SCORE_BAND_TOKEN[bandOf(axis.value)];
       const width = `${Math.max(2, Math.min(100, axis.value))}%`;
       if (animate) {
-        fill.style.width = "0%";
+        fill.setCssStyles({ width: "0%" });
         requestAnimationFrame(() => {
           if (fill.isConnected) fill.style.width = width;
         });
@@ -267,7 +267,7 @@ export function renderTradingScore(
   if (!hasRadar) {
     // Small card: the five axes read as bars; the scope is the only thing to drop.
     renderAxisRows(box, result, animate);
-    if (body.clientHeight > 0 && body.scrollHeight > body.clientHeight && scope) scope.style.display = "none";
+    if (body.clientHeight > 0 && body.scrollHeight > body.clientHeight && scope) scope.setCssStyles({ display: "none" });
     return;
   }
 

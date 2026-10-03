@@ -266,7 +266,7 @@ class ImportCsvModal extends Modal {
     drop.createDiv({ cls: "tj-drop-text", text: "Drop the Cash History CSV here" });
     drop.createDiv({ cls: "tj-drop-sub", text: "or click to choose a file" });
     const input = drop.createEl("input", { type: "file", attr: { accept: ".csv,.txt,text/csv" } });
-    input.style.display = "none";
+    input.setCssStyles({ display: "none" });
     drop.addEventListener("click", () => input.click());
     input.addEventListener("change", () => {
       const f = input.files && input.files[0];
@@ -342,7 +342,7 @@ class ImportCsvModal extends Modal {
       type: "file",
       attr: { accept: ".csv,.txt,text/csv", multiple: "true" },
     });
-    fileInput.style.display = "none";
+    fileInput.setCssStyles({ display: "none" });
     drop.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", () => {
       const files = fileInput.files ? Array.from(fileInput.files) : [];
@@ -436,7 +436,7 @@ class ImportCsvModal extends Modal {
     this.helperEl = null;
     this.goBtn = null;
     this.actionsEl = null;
-    if (this.tradesTitleEl) this.tradesTitleEl.style.display = "";
+    if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
     if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too.");
     if (this.bodyEl) this.bodyEl.empty();
     if (this.pickEl) this.pickEl.empty();
@@ -1057,7 +1057,7 @@ class ImportCsvModal extends Modal {
     // where its times were written, and whether the platform's bill is coming
     // with it. The recommendation has done its job and shrinks to one line.
     if (this.headSubEl) this.headSubEl.setText("Nothing is written until you press the button.");
-    if (this.tradesTitleEl) this.tradesTitleEl.style.display = "";
+    if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
     if (this.setupEl && !this.setupEl.childElementCount) {
       this.renderZone(this.setupEl);
       this.renderCosts(this.setupEl);

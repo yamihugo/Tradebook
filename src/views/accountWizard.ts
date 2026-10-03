@@ -777,7 +777,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
 
   const another = foot.createEl("button", { text: "Create & add another", cls: "tj-btn", attr: { type: "button" } });
   another.addEventListener("click", () => create(createCount, true));
-  another.style.display = "none";
+  another.setCssStyles({ display: "none" });
 
   renderStep();
   opts.onOpen?.(root);

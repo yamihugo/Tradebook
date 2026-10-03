@@ -1413,7 +1413,7 @@ export abstract class WidgetGridView extends ItemView {
   private showPlaceholder(item: GridItem): void {
     const p = this.placeholderEl;
     if (!p) return;
-    p.style.display = "block";
+    p.setCssStyles({ display: "block" });
     p.style.left = `${item.x * (this.colW + GAP)}px`;
     p.style.top = `${item.y * (ROW_PX + GAP)}px`;
     p.style.width = `${item.w * this.colW + (item.w - 1) * GAP}px`;
@@ -1421,7 +1421,7 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   private hidePlaceholder(): void {
-    if (this.placeholderEl) this.placeholderEl.style.display = "none";
+    if (this.placeholderEl) this.placeholderEl.setCssStyles({ display: "none" });
   }
 
   private gridRectLeft(): number {
@@ -1520,10 +1520,10 @@ export abstract class WidgetGridView extends ItemView {
     // The clone keeps the card's inline left/top (its absolute grid position).
     // Those inline styles beat the .tj-drag-ghost CSS, so the ghost stacked two
     // offsets and flew off. Reset them and position purely via transform.
-    ghost.style.position = "fixed";
-    ghost.style.left = "0";
-    ghost.style.top = "0";
-    ghost.style.margin = "0";
+    ghost.setCssStyles({ position: "fixed" });
+    ghost.setCssStyles({ left: "0" });
+    ghost.setCssStyles({ top: "0" });
+    ghost.setCssStyles({ margin: "0" });
     ghost.style.width = `${card.offsetWidth || dragItem.w * this.colW}px`;
     ghost.style.height = `${card.offsetHeight || dragItem.h * ROW_PX}px`;
     document.body.appendChild(ghost);
@@ -2495,7 +2495,7 @@ export abstract class WidgetGridView extends ItemView {
 
     if (this.editMode) {
       this.placeholderEl = grid.createDiv({ cls: "tj-grid-placeholder" });
-      this.placeholderEl.style.display = "none";
+      this.placeholderEl.setCssStyles({ display: "none" });
     }
 
     // Reset the auto-adjust engine for this render.
@@ -2798,23 +2798,37 @@ export abstract class WidgetGridView extends ItemView {
     // Polite announcer for keyboard reordering (focus has no visual movement).
     this._bandLive = band.createDiv({ cls: "tj-sr-only", attr: { "aria-live": "polite" } });
     for (const item of bandItems) {
-      const label =
-        this.viewKey() === "home" && item.i === "m.netpnl"
-          ? "Portfolio Net P&L"
-          : this.viewKey() === "home" && DECISION_SCOPE_METRICS.has(item.i)
-            ? `${METRIC_TITLES[item.i] ?? CARD_TITLES[item.i] ?? item.i} (decision)`
-            : METRIC_TITLES[item.i] ?? CARD_TITLES[item.i] ?? item.i;
       const slot = band.createDiv({
         cls: "tj-metric-slot",
-        attr: { "data-wid": item.i, role: "listitem", "aria-label": label },
+        attr: { "data-wid": item.i, role: "listitem" },
       });
       const body = slot.createDiv({ cls: "tj-gridcard-body tj-metric-body" });
+      // Whatever ends up naming the slot: the metric's own label, or the message
+      // it failed to render into. Set on both paths so the slot is never unnamed.
+      let nameEl: HTMLElement | null = null;
       try {
         this.renderMetricBody(body, trades, item.i, prevTrades, comparison);
+        nameEl = body.querySelector<HTMLElement>(".tj-metric-label");
       } catch (err) {
         console.error("[tradebook] metric failed:", item.i, err);
         body.empty();
-        body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem.` });
+        nameEl = body.createDiv({ cls: "tj-empty", text: `"${CARD_TITLES[item.i]}" had a problem.` });
+      }
+      // Name the slot with `aria-labelledby`, never `aria-label`. Obsidian binds
+      // its own tooltip to `pointerover [aria-label]` and reads that attribute
+      // for the text, so an `aria-label` here drew a second card under ours 300ms
+      // later. `aria-labelledby` is not in that selector, and it still names the
+      // listitem for a reader — including when edit mode focuses the whole slot.
+      // The name is the text already on screen, so it cannot drift from what the
+      // reader sees, and it is never the string "undefined" a failed metric left.
+      if (nameEl) {
+        // Two Home leaves can be open at once; a repeated id would name this
+        // slot with the other one's label.
+        const base = `tj-mlabel-${item.i.replace(/[^a-z0-9]+/gi, "-")}`;
+        let id = base;
+        for (let n = 2; document.getElementById(id); n++) id = `${base}-${n}`;
+        nameEl.id = id;
+        slot.setAttribute("aria-labelledby", id);
       }
       if (this.editMode) {
         slot.tabIndex = 0;
@@ -3259,7 +3273,7 @@ export abstract class WidgetGridView extends ItemView {
     }
     if (!rows.length) summary.createDiv({ cls: "tj-payout-summary-empty", text: "No payouts this period" });
 
-    if (body.clientHeight > 0 && body.scrollHeight > body.clientHeight && sub) sub.style.display = "none";
+    if (body.clientHeight > 0 && body.scrollHeight > body.clientHeight && sub) sub.setCssStyles({ display: "none" });
 
   }
 
@@ -3400,8 +3414,8 @@ export abstract class WidgetGridView extends ItemView {
         donut.style.height = `${ringPx}px`;
       }
       if (clips()) {
-        donut.style.display = "none";
-        if (clips()) viz.style.display = "none";
+        donut.setCssStyles({ display: "none" });
+        if (clips()) viz.setCssStyles({ display: "none" });
       }
     }
   }
@@ -3486,8 +3500,8 @@ export abstract class WidgetGridView extends ItemView {
     // wrap under the headline — which always stays.
     if (body.clientHeight > 0) {
       const clips = (): boolean => body.scrollHeight > body.clientHeight;
-      if (clips()) chart.style.display = "none";
-      if (clips()) inline.style.display = "none";
+      if (clips()) chart.setCssStyles({ display: "none" });
+      if (clips()) inline.setCssStyles({ display: "none" });
     }
   }
 
@@ -3613,8 +3627,8 @@ export abstract class WidgetGridView extends ItemView {
     // wrap under it; the headline and the verdict always survive.
     if (body.clientHeight > 0) {
       const clips = (): boolean => body.scrollHeight > body.clientHeight;
-      if (clips()) histogram.style.display = "none";
-      if (clips()) inline.style.display = "none";
+      if (clips()) histogram.setCssStyles({ display: "none" });
+      if (clips()) inline.setCssStyles({ display: "none" });
     }
   }
 
@@ -3845,8 +3859,8 @@ export abstract class WidgetGridView extends ItemView {
     // so a short card loses the shape but never the number (§6, one message).
     if (body.clientHeight > 0) {
       const clips = (): boolean => body.scrollHeight > body.clientHeight;
-      if (clips()) labelRow.style.display = "none";
-      if (clips()) histogram.style.display = "none";
+      if (clips()) labelRow.setCssStyles({ display: "none" });
+      if (clips()) histogram.setCssStyles({ display: "none" });
     }
   }
 
@@ -4411,7 +4425,7 @@ export abstract class WidgetGridView extends ItemView {
         hero.classList.add("is-compact");
         fit();
         if (!shown()) {
-          hero.style.display = "none";
+          hero.setCssStyles({ display: "none" });
           fit();
         }
       }

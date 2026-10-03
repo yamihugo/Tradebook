@@ -5926,8 +5926,12 @@ textarea.tj-anno-textinput {
   color: var(--interactive-accent);
 }
 .tj-set-head-icon svg { width: 18px; height: 18px; }
-.tj-settings .tj-set-head-title { margin: 0; font-size: var(--tj-fs-big); }
+.tj-settings .tj-set-head-title { margin: 0; font-size: var(--tj-fs-big); font-weight: var(--h2-weight, var(--font-semibold)); }
 .tj-set-head-desc { font-size: var(--tj-fs-body); color: var(--tj-fg-3); margin-top: 2px; }
+/* The section heading is a real Setting row (setHeading), stripped back to the
+   header it replaces: no row padding, no hairline, no empty control on the right. */
+.tj-settings .setting-item.tj-set-head-setting { padding: 0; border-top: none; }
+.tj-settings .tj-set-head-setting .setting-item-control { display: none; }
 
 /* Settings — groups and option rows (one spacing scale) */
 .tj-set-group {

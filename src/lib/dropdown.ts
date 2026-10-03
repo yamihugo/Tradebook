@@ -238,8 +238,8 @@ export function mountDropdown(
     wrap.removeClass("open");
     btn.setAttribute("aria-expanded", "false");
     list.removeClass("is-portal");
-    list.style.left = "";
-    list.style.top = "";
+    list.setCssStyles({ left: "" });
+    list.setCssStyles({ top: "" });
     wrap.appendChild(list);
     active = null;
     paintActive(-1);

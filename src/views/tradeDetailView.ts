@@ -565,7 +565,7 @@ export class TradeDetailView extends ItemView {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
       r.createEl("span", { cls: "tj-td-flip-key", text: label });
       const valSpan = r.createEl("span", { cls: "tj-td-flip-val", text: currentValue });
-      valSpan.style.cursor = "pointer";
+      valSpan.setCssStyles({ cursor: "pointer" });
       attachTip(
         valSpan,
         opts?.tip
@@ -579,7 +579,7 @@ export class TradeDetailView extends ItemView {
         input.className = "tj-td-flip-input";
         input.value = currentValue.replace(/[^0-9.-]/g, "");
         if (opts?.numeric) freeNumeric(input);
-        input.style.width = "100%";
+        input.setCssStyles({ width: "100%" });
         valSpan.replaceWith(input);
         input.focus();
         input.select();
@@ -626,7 +626,7 @@ export class TradeDetailView extends ItemView {
     eeVal.createEl("span", { cls: "tj-td-ee-arrow", text: " → " });
     const exitPart = eeVal.createEl("span", { cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
     const editPrice = (part: HTMLElement, current: number, onSave: (price: number) => Promise<void>) => {
-      part.style.cursor = "pointer";
+      part.setCssStyles({ cursor: "pointer" });
       attachTip(part, { title: "Click to edit", sub: "Change this price" });
       part.addEventListener("click", () => {
         const input = document.createElement("input");
@@ -634,7 +634,7 @@ export class TradeDetailView extends ItemView {
         input.className = "tj-td-flip-input";
         input.value = current ? String(current) : "";
         freeNumeric(input);
-        input.style.width = "100%";
+        input.setCssStyles({ width: "100%" });
         part.replaceWith(input);
         input.focus();
         input.select();
@@ -726,7 +726,7 @@ export class TradeDetailView extends ItemView {
       text: srText,
       attr: { "data-field": "stopLoss" },
     });
-    srVal.style.cursor = "pointer";
+    srVal.setCssStyles({ cursor: "pointer" });
     attachTip(srVal, { title: "Click to edit", sub: "A price, or a $ risk." });
 
     const beginPriceOrDollarsEdit = (span: HTMLElement) => {
@@ -741,7 +741,7 @@ export class TradeDetailView extends ItemView {
       input.className = "tj-td-flip-input";
       input.value = field === "target" ? (t.target ? String(t.target) : "") : (t.stopLoss ? String(t.stopLoss) : "");
       input.placeholder = field === "target" ? "Price or $ target" : "Price or $ risk";
-      input.style.width = "100%";
+      input.setCssStyles({ width: "100%" });
       span.replaceWith(input);
       input.focus();
       input.select();
@@ -749,7 +749,7 @@ export class TradeDetailView extends ItemView {
         const s = document.createElement("span");
         s.className = "tj-td-flip-val";
         s.setAttribute("data-field", field);
-        s.style.cursor = "pointer";
+        s.setCssStyles({ cursor: "pointer" });
         s.textContent = shown;
         input.replaceWith(s);
         attachTip(s, tip);
@@ -788,7 +788,7 @@ export class TradeDetailView extends ItemView {
       text: targetText,
       attr: { "data-field": "target" },
     });
-    tgVal.style.cursor = "pointer";
+    tgVal.setCssStyles({ cursor: "pointer" });
     attachTip(tgVal, { title: "Click to edit", sub: "A price, or a $ target." });
 
     const sessKey = sessionOf(t, zone);
@@ -1228,7 +1228,7 @@ export class TradeDetailView extends ItemView {
           attr: { src: resolved, alt: `Print ${this._activePrint + 1}` },
         });
         img.addClass("tj-td-shot-img");
-        img.addEventListener("error", () => { img.style.opacity = "0.2"; });
+        img.addEventListener("error", () => { img.setCssStyles({ opacity: "0.2" }); });
         if (activeFile) {
           img.addEventListener("click", () => this.openPrintLarge(activeFile));
           const overlay = mainWrap.createDiv({ cls: "tj-td-shot-annotate" });
@@ -1291,7 +1291,7 @@ export class TradeDetailView extends ItemView {
     const fileInput = addTarget.createEl("input", {
       attr: { type: "file", accept: "image/png,image/jpeg,image/webp" },
     });
-    fileInput.style.display = "none";
+    fileInput.setCssStyles({ display: "none" });
 
     addTarget.addEventListener("click", (e) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
@@ -1378,7 +1378,7 @@ export class TradeDetailView extends ItemView {
     });
 
     const pop = host.createDiv({ cls: "tj-td-accpop" });
-    pop.style.display = "none";
+    pop.setCssStyles({ display: "none" });
     pop.createDiv({ cls: "tj-td-accpop-t", text: "Original and copies" });
 
     const table = pop.createDiv({ cls: "tj-td-acctable" });
@@ -1409,13 +1409,13 @@ export class TradeDetailView extends ItemView {
     pop.createDiv({ cls: "tj-td-execs-note" })
       .setText("Your trading numbers count this decision once; the money is what it made in each account.");
 
-    const close = () => { pop.style.display = "none"; document.removeEventListener("mousedown", onDoc); };
+    const close = () => { pop.setCssStyles({ display: "none" }); document.removeEventListener("mousedown", onDoc); };
     const onDoc = (e: MouseEvent) => { if (!host.contains(e.target as Node)) close(); };
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       const open = pop.style.display !== "none";
       if (open) { close(); return; }
-      pop.style.display = "";
+      pop.setCssStyles({ display: "" });
       document.addEventListener("mousedown", onDoc);
     });
   }
@@ -1911,9 +1911,9 @@ export class TradeDetailView extends ItemView {
     previewLabel.setText("Live Preview");
     const previewWrap = rightCol.createDiv({ cls: "tj-export-preview-wrap" });
     const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } }) as HTMLCanvasElement;
-    previewCanvas.style.width = "100%";
-    previewCanvas.style.height = "auto";
-    previewCanvas.style.borderRadius = "6px";
+    previewCanvas.setCssStyles({ width: "100%" });
+    previewCanvas.setCssStyles({ height: "auto" });
+    previewCanvas.setCssStyles({ borderRadius: "6px" });
 
     const drawPreview = async () => {
       const canvas = await this.buildExportCanvas(opts);

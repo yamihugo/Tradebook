@@ -3,7 +3,7 @@
 	"name": "Tradebook",
 	"version": "1.0.0",
 	"minAppVersion": "1.7.2",
-	"description": "Local futures trading journal for Obsidian. Import Tradovate trades, track accounts and review.",
+	"description": "Local futures trading journal. Import Tradovate trades, track accounts and review.",
 	"author": "YamiHugo",
 	"isDesktopOnly": false,
 	"fundingUrl": {
