@@ -1282,9 +1282,9 @@
 .tj-acc-passed-detail { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
 .tj-acc-passed-btns { display: flex; gap: 8px; position: relative; z-index: 1; flex-wrap: wrap; flex-shrink: 0; }
 .tj-acc-passed-btns .tj-btn {
-  background: transparent !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: none;
   color: var(--tj-fg-3);
   border-radius: 9px;
   padding: 6px 14px;
@@ -1293,17 +1293,17 @@
   transition: background .12s ease, border-color .12s ease, color .12s ease;
 }
 .tj-acc-passed-btns .tj-btn:hover {
-  background: color-mix(in srgb, var(--text-normal) 7%, transparent) !important;
-  border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18)) !important;
+  background: color-mix(in srgb, var(--text-normal) 7%, transparent);
+  border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18));
   color: var(--text-normal);
 }
 .tj-acc-passed-btns .tj-btn.mod-cta {
-  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent) !important;
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent);
   color: var(--color-green-bright, #34d17a);
 }
 .tj-acc-passed-btns .tj-btn.mod-cta:hover {
-  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent) !important;
-  border-color: var(--color-green-bright, #34d17a) !important;
+  background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent);
+  border-color: var(--color-green-bright, #34d17a);
   color: var(--color-green-bright, #34d17a);
 }
 .tj-acc-passed-btns .tj-btn.tj-del { color: var(--color-red-bright, #ff5d48); }
@@ -1322,8 +1322,8 @@
 .tj-acc-passed-band .tj-acc-passed-ring-inner { width: 25px; height: 25px; font-size: var(--tj-fs-strong); }
 .tj-acc-passed-band .tj-acc-passed-text h4 { font-size: var(--tj-fs-body); }
 .tj-acc-passed-btns .tj-btn.tj-del:hover {
-  background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 12%, transparent) !important;
-  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 45%, transparent) !important;
+  background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 45%, transparent);
   color: var(--color-red-bright, #ff5d48);
 }
 /* Delete confirmation (themed, step 1 & 2) */
@@ -1637,20 +1637,6 @@
   font-size: var(--tj-fs-small);
   color: var(--tj-fg-3);
 }
-.tj-kpis-compact {
-  display: flex !important;
-  flex-wrap: wrap !important;
-  gap: 8px !important;
-  margin-top: 8px !important;
-  grid-template-columns: none !important;
-}
-.tj-kpis-compact .tj-kpi {
-  flex: 1 1 80px !important;
-  min-width: 70px !important;
-  padding: 8px 10px !important;
-}
-.tj-kpis-compact .tj-kpi-label { font-size: var(--tj-fs-micro) !important; }
-.tj-kpis-compact .tj-kpi-value { font-size: var(--tj-fs-body) !important; }
 .tj-archived-box {
   margin-top: 26px;
   padding-top: 14px;
@@ -2722,7 +2708,7 @@
   min-height: 0;
   overflow: hidden;
   background-color: var(--tj-nav-bg);
-  font-family: var(--font-interface, var(--default-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif));
+  font-family: var(--font-interface);
 }
 .tj-nav-header {
   display: flex;
@@ -2885,21 +2871,6 @@
   color: var(--text-normal);
   transform: translateX(3px);
 }
-/* Only the OPEN item gets the colored bookmark. Nothing else. */
-.tj-nav-item.active {
-  color: var(--text-normal);
-  font-weight: var(--tj-w-medium);
-}
-.tj-nav-item.active::before {
-  content: "";
-  position: absolute;
-  left: -12px;
-  top: 3px;
-  bottom: 3px;
-  width: 3px;
-  background-color: var(--interactive-accent);
-  border-radius: 0 3px 3px 0;
-}
 .tj-nav-icon {
   flex-shrink: 0;
   width: 16px;
@@ -2910,10 +2881,6 @@
   justify-content: center;
   line-height: 0;
   transition: color 150ms ease;
-}
-.tj-nav-item:hover .tj-nav-icon,
-.tj-nav-item.active .tj-nav-icon {
-  color: var(--interactive-accent);
 }
 .tj-nav-icon svg {
   width: 16px;
@@ -5244,15 +5211,6 @@
   margin-bottom: 6px;
   padding: 0 8px;
 }
-.tj-nav-item {
-  padding: 7px 10px;
-  border-radius: 8px;
-  font-size: var(--tj-fs-strong);
-  font-weight: var(--tj-w-medium);
-  gap: 10px;
-  color: var(--tj-fg-3);
-}
-.tj-nav-item.active { font-weight: var(--tj-w-medium); }
 .tj-nav-icon svg { width: 16px; height: 16px; }
 
 /* ==========================================================================
@@ -5274,13 +5232,6 @@
   margin-bottom: 4px;
   padding: 0 6px;
 }
-.tj-nav-item {
-  padding: 6px 9px;
-  font-size: var(--tj-fs-strong);
-  gap: 9px;
-  border-radius: 7px;
-  margin: 1px 0;
-}
 .tj-nav-icon svg { width: 15px; height: 15px; }
 
 /* ==========================================================================
@@ -5298,16 +5249,7 @@
 .tj-nav-sections { padding: 0 0 14px; gap: 12px; }
 .tj-nav-section-header { font-size: var(--tj-fs-small); margin: 10px 0 2px; padding: 0 9px; }
 .tj-nav-section:first-of-type .tj-nav-section-header { margin-top: 4px; }
-.tj-nav-item {
-  padding: 4px 9px;
-  font-size: var(--tj-fs-body);
-  gap: 7px;
-  border-radius: 6px;
-  margin: 0 5px;
-}
 .tj-nav-icon svg { width: 14px; height: 14px; }
-/* Bookmark ribbon sits at the sidebar edge with the new margins */
-.tj-nav-item.active::before { left: -5px; top: 3px; bottom: 3px; }
 
 /* Search results follow the same density */
 .tj-nav-results { padding: 0 5px 14px; }
@@ -5338,16 +5280,7 @@
 
 /* Everything hugs the left edge */
 .tj-nav-section-header { padding: 0 7px; }
-.tj-nav-item { padding: 4px 7px; gap: 8px; }
 
-/* Bookmark ribbon: mirrored + closer to the corner */
-.tj-nav-item.active::before {
-  left: -5px;
-  top: 3px;
-  bottom: 3px;
-  width: 3px;
-  border-radius: 3px 0 0 3px;
-}
 
 /* Search: thinner + wider */
 .tj-nav-search { padding: 3px 3px 8px; }
@@ -5376,13 +5309,6 @@
   overflow-x: hidden !important;
 }
 .tj-nav-sections { padding: 0 5px 14px; }
-.tj-nav-item {
-  margin: 0;
-  width: 100%;
-  box-sizing: border-box;
-}
-/* Ribbon now sits right at the sidebar edge (sections have 5px padding) */
-.tj-nav-item.active::before { left: -5px; }
 .tj-dir-long { color: var(--color-green-bright, #34d17a); font-weight: var(--tj-w-medium); }
 .tj-dir-short { color: var(--color-red, #ad3527); font-weight: var(--tj-w-medium); }
 .tj-tl-more { display: flex; justify-content: center; margin: 14px 0; }
@@ -5747,7 +5673,6 @@ textarea.tj-anno-textinput {
 .tj-td-shot-img { cursor: zoom-in; max-width: 100%; border-radius: 8px; }
 
 /* Sidebar: a touch bigger */
-.tj-nav-item { font-size: var(--tj-fs-body); padding: 5px 8px; }
 .tj-nav-brand h3 { font-size: var(--tj-fs-big); }
 .tj-nav-section-header { font-size: var(--tj-fs-small); }
 
@@ -7704,42 +7629,42 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   background: rgba(255, 255, 255, 0.05) !important;
 }
 .tj-account-wizard .tj-dd-chev {
-  color: var(--tj-fg-3) !important;
-  font-size: var(--tj-fs-small) !important;
+  color: var(--tj-fg-3);
+  font-size: var(--tj-fs-small);
 }
 .tj-account-wizard .tj-dd-list {
-  position: absolute !important;
-  left: 0 !important;
-  right: 0 !important;
-  top: calc(100% + 6px) !important;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
   z-index: 30 !important;
-  background: var(--background-secondary) !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 10px !important;
-  padding: 5px !important;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45) !important;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
 }
 .tj-account-wizard .tj-dd-item {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 8px !important;
-  padding: 7px 10px !important;
-  border-radius: 7px !important;
-  font-size: var(--tj-fs-body) !important;
-  color: var(--tj-fg-3) !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: var(--tj-fs-body);
+  color: var(--tj-fg-3);
   cursor: pointer;
 }
 .tj-account-wizard .tj-dd-item:hover {
-  background: var(--background-modifier-hover) !important;
-  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .tj-account-wizard .tj-dd-item.on {
-  color: var(--text-normal) !important;
-  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent) !important;
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }
 .tj-account-wizard .tj-dd-check {
-  color: var(--interactive-accent) !important;
+  color: var(--interactive-accent);
 }
 
 .tj-account-wizard .tj-btn {
@@ -7961,7 +7886,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-riskbody .tj-acc-dial { width: 76px; }
 .tj-acc-riskbody .tj-acc-donut { width: 76px; height: 76px; }
 .tj-acc-riskbody .tj-acc-dial-num { top: 28px; font-size: var(--tj-fs-head); }
-.tj-acc-metrics { columns: 2; column-gap: 30px; }
 .tj-acc-mgroup {
   font-size: var(--tj-fs-label); letter-spacing: 0.16em; text-transform: uppercase; font-weight: var(--tj-w-bold);
   color: var(--tj-fg-3); break-inside: avoid; margin: 2px 0 4px; padding-top: 8px;
@@ -7974,7 +7898,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-acc-mlabel { font-size: var(--tj-fs-small); color: var(--tj-fg-3); display: flex; align-items: center; gap: 6px; }
 .tj-acc-mvalue { font-size: var(--tj-fs-strong); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; color: var(--text-normal); }
-@media (max-width: 700px) { .tj-acc-metrics { columns: 1; } }
 
 /* Risk card — dials on the same row as the bar, metrics list below */
 .tj-acc-riskchart { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center; margin-top: 12px; }
@@ -7984,7 +7907,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-riskchart .tj-acc-donut { width: 68px; height: 68px; }
 .tj-acc-riskchart .tj-acc-dial-num { top: 25px; font-size: var(--tj-fs-big); }
 .tj-acc-riskchart .tj-acc-dial-lbl { font-size: var(--tj-fs-small); }
-.tj-acc-metrics { columns: 2; column-gap: 30px; margin-top: 16px; }
 @media (max-width: 900px) {
   .tj-acc-riskchart { grid-template-columns: 1fr; }
   .tj-acc-riskdials { justify-content: flex-start; }
@@ -8283,8 +8205,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    --------------------------------------------------------------------------- */
 /* The modal takes the width the window can give, and nothing inside it may
    scroll sideways — that is what cut the Display tab in half. */
-.tj-manage-modal,
-.modal-container:has(.tj-manage) .modal {
+.tj-manage-modal {
   width: min(780px, 94vw);
 }
 /* ONE scroller for the whole modal: the frame is a flex column, the body is the
@@ -9205,10 +9126,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   cursor: pointer;
 }
 .tj-tbl td.tj-pos {
-  color: var(--tj-tone-good) !important;
+  color: var(--tj-tone-good);
 }
 .tj-tbl td.tj-neg {
-  color: var(--tj-tone-bad) !important;
+  color: var(--tj-tone-bad);
 }
 .tj-tbl-sym {
   color: var(--text-normal);
@@ -10674,10 +10595,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    the field read as "halfway across" even when the numbers lined up. The whole
    field still opens the picker (mountDateField binds the click to the wrapper). */
 .tj-payout-modal .tj-datefield {
-  width: 150px !important;
-  flex: 0 0 auto !important;
-  margin-left: auto !important;
-  justify-content: flex-end !important;
+  width: 150px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  justify-content: flex-end;
   gap: 0;
 }
 .tj-payout-modal .tj-datefield::before {
@@ -11879,8 +11800,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   display: flex;
   align-items: center;
   justify-content: center;
-  align-items: center;
-  justify-content: center;
   opacity: 0;
   transition: opacity 0.12s ease;
 }
@@ -12423,7 +12342,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   overflow: hidden;
   background-color: var(--tj-nav-bg);
   container-type: inline-size;
-  font-family: var(--font-interface, var(--default-font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif));
 }
 
 .tj-nav-sidebar .tj-nav-header {
@@ -12584,12 +12502,6 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
 .tj-nav-sidebar .tj-nav-search-input:focus-visible {
   flex: 1;
   min-width: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  outline: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
   color: var(--text-normal);
   font-size: var(--tj-fs-strong);
 }
