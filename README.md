@@ -6,7 +6,7 @@
   <h3>A local, private futures journal for Obsidian.</h3>
   <p>
     <a href="#what-you-get">What you get</a> &nbsp;·&nbsp;
-    <a href="#install">Install</a> &nbsp;·&nbsp;
+    <a href="#installation">Installation</a> &nbsp;·&nbsp;
     <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
     <a href="ROADMAP.md">Roadmap</a>
   </p>
@@ -20,9 +20,10 @@
   <img src="assets/readme/01-home.png" alt="Tradebook Home" width="860">
 </div>
 
-**Tradebook** is a free, open-source futures trading journal for Obsidian. Import your
-trades, track your accounts and review your decisions. Your trades stay as Markdown notes
-in your vault, with no Tradebook account, cloud service or telemetry.
+**Tradebook** is a local-first futures trading journal for Obsidian. Import trades, track
+accounts and payouts, review performance, and understand the decisions behind your results —
+with your data kept in your vault. Trades stay as Markdown notes: no Tradebook account, no
+cloud service, no telemetry.
 
 ## What you get
 
@@ -68,50 +69,52 @@ The supported formats are **Tradovate Orders, Fills and Cash History**.
 Other export formats are not currently supported. See [import limitations](KNOWN-LIMITATIONS.md#import-formats)
 and the [import roadmap](ROADMAP.md#imports) for more detail.
 
-## Install
+## Installation
 
-Tradebook currently uses [BRAT](https://tfthacker.com/BRAT) for installation and updates
-while its submission to the official Obsidian Community Plugins directory is under review.
+Tradebook requires **Obsidian 1.7.2 or newer**. If you do not use Obsidian yet, download it
+from [obsidian.md](https://obsidian.md) and open a vault — a new, empty vault is fine. If you
+already use Obsidian, continue below.
 
-### 1. Install Obsidian
+### Install from Community Plugins
 
-Download [Obsidian](https://obsidian.md) **1.7.2 or newer** and open a vault. A new, empty
-vault is fine. If you already use Obsidian, continue below.
+1. Open Obsidian Settings.
+2. Go to Community plugins and select Browse.
+3. Search for Tradebook.
+4. Select Install, then Enable.
 
-### 2. Install BRAT
+Tradebook's menu opens in Obsidian's left sidebar. Use it to move between **Home**,
+**Accounts** and **Trade Log**, or to add and import trades.
 
-Open *Settings → Community plugins* and turn off **Restricted mode** if needed.
-Select **Browse**, search for **BRAT**, then choose **Install** and **Enable**.
+### Install with BRAT
 
-### 3. Add Tradebook
+BRAT is an alternative for installing a specific GitHub release or testing versions before
+they are available through Community Plugins. It is **not** required for a normal
+installation.
 
-Open the command palette (`Ctrl/Cmd+P`) and run **BRAT: Add a beta plugin for testing**.
-Paste this repository and confirm:
-
-```
-yamihugo/Tradebook
-```
-
-BRAT downloads the latest release.
-
-### 4. Enable Tradebook
-
-Turn on **Tradebook** in *Settings → Community plugins*. Its menu opens in Obsidian's
-left sidebar. Use it to navigate between **Home**, **Accounts** and **Trade Log**, or to
-add and import trades.
+1. Install the [BRAT](https://tfthacker.com/BRAT) plugin.
+2. Open BRAT settings.
+3. Select Add Beta plugin.
+4. Enter `yamihugo/Tradebook`.
+5. Select the desired release and enable Tradebook.
 
 ### Updating
 
-BRAT can check for updates on startup, or you can run **BRAT: Check for updates**.
-For a manual update, replace only `main.js`, `manifest.json` and `styles.css`;
-keep your existing `data.json`.
+Obsidian checks for Community plugin updates. To update manually, use
+*Settings → Community plugins → Check for updates*. If you installed with BRAT, run
+**BRAT: Check for updates**.
+
+A manual update replaces only `main.js`, `manifest.json` and `styles.css`; keep your
+existing `data.json`.
 
 ### Troubleshooting
 
-- **Tradebook is not listed:** try adding the repository through BRAT again.
-- **The plugin does not load:** check that Obsidian is at least version 1.7.2,
-  Restricted mode is off and Tradebook is enabled.
+- **Tradebook is not listed:** check that Restricted mode is off, then Browse and search
+  for it again. If you installed with BRAT, add the repository once more.
+- **The plugin does not load:** check that Obsidian is at least version 1.7.2, Restricted
+  mode is off and Tradebook is enabled.
 - **The sidebar is hidden:** expand Obsidian's left sidebar and select the Tradebook tab.
+
+### On mobile
 
 Tradebook can run in Obsidian on mobile, but phone and tablet layouts still need work.
 Mobile optimization is on the [roadmap](ROADMAP.md).
