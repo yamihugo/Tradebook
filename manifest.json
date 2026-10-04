@@ -1,7 +1,7 @@
 {
 	"id": "tradebook",
 	"name": "Tradebook",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "1.7.2",
 	"description": "Local futures trading journal. Import Tradovate trades, track accounts and review.",
 	"author": "YamiHugo",

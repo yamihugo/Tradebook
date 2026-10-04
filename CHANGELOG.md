@@ -7,6 +7,23 @@ All notable changes to Tradebook are documented here. The format follows
 Updates are published as [GitHub Releases](https://github.com/yamihugo/Tradebook/releases);
 BRAT picks them up automatically.
 
+## [1.0.1] - 2026-10-04
+
+Review fixes only. No intentional product or data-format change.
+
+### Fixed
+
+- Obsidian review findings: Home metric slots now use `aria-labelledby`, Settings
+  headings use `Setting.setHeading`, and static style assignments use `setCssStyles`.
+- Stylesheet: redundant `!important` overrides and dead rules removed.
+- Type safety: selected plugin boundaries now use explicit Obsidian and domain types,
+  with runtime guards where host data can be incomplete.
+
+### Notes
+
+- Minimum Obsidian version unchanged: 1.7.2.
+- Remaining lint warnings are tracked as follow-up work; `npm run lint` reports 0 errors.
+
 ## [1.0.0] - 2026-10-02
 
 The first stable release. Tradebook 1.0.0 is the baseline everything else builds on: a journal
