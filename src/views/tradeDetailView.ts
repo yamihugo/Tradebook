@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, normalizePath, setIcon } from "obsidian";
+import { ItemView, Notice, TFile, normalizePath, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { renderAppShell } from "../ui";
@@ -56,7 +56,7 @@ export class TradeDetailView extends ItemView {
   /** Cleanups for document-level listeners added on render (e.g. paste). */
   private _pasteCleanups: Array<() => void> = [];
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -104,7 +104,7 @@ export class TradeDetailView extends ItemView {
     const seen = new Set(defaults.map((t) => t.toLowerCase()));
     const extra: string[] = [];
     for (const tr of this.allTrades) {
-      for (const tag of (tr[key] ?? []) as string[]) {
+      for (const tag of (tr[key] ?? [])) {
         const clean = (tag || "").trim();
         if (clean && !seen.has(clean.toLowerCase())) {
           seen.add(clean.toLowerCase());
@@ -299,7 +299,7 @@ export class TradeDetailView extends ItemView {
     if (assumed) {
       attachTip(riskFlag, {
         title: "Risk assumed, not recorded",
-        value: fmtPrice(t.stopLoss as number),
+        value: fmtPrice(t.stopLoss),
         sub: "This stop was derived from a risk rule — a dollar amount the journal turned into a price — not from a stop filed with the broker. Everything derived from it is a model of the trade, not the trade.",
       });
     } else if (hasStop) {
@@ -485,7 +485,7 @@ export class TradeDetailView extends ItemView {
       });
       statusBadge.addEventListener("click", async () => {
         this.trade!.reviewed = false;
-        await this.saveField("reviewed" as any, "false");
+        await this.saveField("reviewed", "false");
         this.render();
       });
     } else {
@@ -940,7 +940,7 @@ export class TradeDetailView extends ItemView {
         paintStars(next);
         setStarHover(-1);
         this.refreshReviewHeader();
-        this.debounceReview("rating", () => this.saveField("rating" as any, String(next)), 400);
+        this.debounceReview("rating", () => this.saveField("rating", String(next)), 400);
       });
       starEls.push(star);
     }
@@ -1005,7 +1005,7 @@ export class TradeDetailView extends ItemView {
       };
 
       const paintChips = () => {
-        const tags = (this.trade?.[key] ?? []) as string[];
+        const tags = (this.trade?.[key] ?? []);
         chipsWrap.style.display = tags.length ? "" : "none";
         chipsWrap.empty();
         for (const tag of tags) {
@@ -1021,7 +1021,7 @@ export class TradeDetailView extends ItemView {
       paintChips();
 
       const toggle = (tag: string) => {
-        const cur = (this.trade?.[key] ?? []) as string[];
+        const cur = (this.trade?.[key] ?? []);
         const has = cur.some((v) => v.toLowerCase() === tag.toLowerCase());
         const next = has ? cur.filter((v) => v.toLowerCase() !== tag.toLowerCase()) : [...cur, tag];
         const clean = normalizeTags(next);
@@ -1058,7 +1058,7 @@ export class TradeDetailView extends ItemView {
           if (!pop) return;
           const panel = pop;
           panel.empty();
-          const tags = (this.trade?.[key] ?? []) as string[];
+          const tags = (this.trade?.[key] ?? []);
           const on = new Set(tags.map((v) => v.toLowerCase()));
           for (const tag of normalizeTags([...this.knownTags(key), ...tags])) {
             const isOn = on.has(tag.toLowerCase());
@@ -1467,7 +1467,7 @@ export class TradeDetailView extends ItemView {
       row.createEl("td", { cls: "r", text: Number.isFinite(points) ? `${points >= 0 ? "+" : ""}${points.toFixed(2)}` : "—" });
       const pnlCell = row.createEl("td", { cls: "r tj-tbl-pnl" });
       if (!Number.isFinite(f.pnl)) pnlCell.setText("—");
-      else { pnlCell.addClass(toneClass(f.pnl as number)); pnlCell.setText(f.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(f.pnl as number)); }
+      else { pnlCell.addClass(toneClass(f.pnl)); pnlCell.setText(f.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(f.pnl as number)); }
       row.createEl("td", { cls: "r", text: f.fees ? `$${f.fees.toFixed(2)}` : "—" });
       const tag = row.createEl("td", { cls: "tj-td-execs-tag" });
       tag.createSpan({
@@ -1480,7 +1480,7 @@ export class TradeDetailView extends ItemView {
     totals.createEl("td"); totals.createEl("td", { text: "Total" });
     totals.createEl("td", { cls: "r", text: String(set.entryQty) });
     totals.createEl("td", { cls: "r", text: set.avgExit > 0 ? fmtPrice(set.avgExit) : "—" });
-    const totalPts = Number.isFinite(t.pnlPoints) ? (t.pnlPoints as number) : NaN;
+    const totalPts = Number.isFinite(t.pnlPoints) ? (t.pnlPoints) : NaN;
     totals.createEl("td", {
       cls: "r",
       text: Number.isFinite(totalPts) ? `${totalPts >= 0 ? "+" : ""}${totalPts.toFixed(2)}` : "—",

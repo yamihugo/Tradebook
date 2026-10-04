@@ -1,3 +1,4 @@
+import type { WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import type { GridItem } from "../lib/grid";
 import { HOME_DEFAULT, WidgetGridView, type DashItem } from "./dashboard";
@@ -14,7 +15,7 @@ export const HOME_VIEW_TYPE = "tradebook-home-view";
  * they want to either.
  */
 export class HomeView extends WidgetGridView {
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf, plugin);
   }
 

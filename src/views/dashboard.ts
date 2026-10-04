@@ -1,4 +1,4 @@
-import { ItemView, Notice, setIcon, TFile } from "obsidian";
+import { ItemView, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { PropAccount, Trade } from "../types";
 import { accountFilters, kpiCard, renderAppShell, svgPath } from "../ui";
@@ -614,7 +614,7 @@ export abstract class WidgetGridView extends ItemView {
   checking = false;
   checkboxEls = new Map<string, HTMLInputElement>();
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -1244,7 +1244,7 @@ export abstract class WidgetGridView extends ItemView {
         let y = 0;
         outer: for (;;) {
           for (let x = 0; x + c.w <= GRID_COLS; x++) {
-            if (!packed.some((p) => collides({ ...c, x, y } as GridItem, p))) {
+            if (!packed.some((p) => collides({ ...c, x, y }, p))) {
               packed.push({ i: c.i, x, y, w: c.w, h: c.h });
               break outer;
             }
@@ -3386,7 +3386,7 @@ export abstract class WidgetGridView extends ItemView {
     feesArc.setAttribute("transform", "rotate(-90 36 36)");
     svg.appendChild(base);
     svg.appendChild(feesArc);
-    donut.appendChild(svg as unknown as Node);
+    donut.appendChild(svg);
 
     const legend = viz.createDiv({ cls: "tj-costs-rows" });
     // The share rides on the label: the ring is only ever a picture, so the
@@ -4326,7 +4326,7 @@ export abstract class WidgetGridView extends ItemView {
     ringArc.setAttribute("transform", "rotate(-90 36 36)");
     svg.appendChild(ringTrack);
     svg.appendChild(ringArc);
-    ring.appendChild(svg as unknown as Node);
+    ring.appendChild(svg);
     const ringNum = ring.createDiv({ cls: "tj-focus-ring-num", text: `${pct}%` });
     attachTip(ring, {
       title: "Review coverage",

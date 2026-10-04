@@ -1,4 +1,4 @@
-import { ItemView, Notice, TFile, normalizePath } from "obsidian";
+import { ItemView, Notice, TFile, normalizePath, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { zoneWallParts } from "../tz";
 
@@ -72,7 +72,7 @@ export class PrintQueueView extends ItemView {
   private _pasteEl: HTMLElement | null = null;
   private _doneEl: HTMLElement | null = null;
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }

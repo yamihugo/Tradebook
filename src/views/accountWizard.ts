@@ -83,7 +83,7 @@ function ensureDropdownCloseListener(): void {
 
 export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOptions = {}): { close: () => void } {
   const preset = opts.preset ?? {};
-  const presetProp = preset.type ? isProp(preset.type as AccountType) : true;
+  const presetProp = preset.type ? isProp(preset.type) : true;
   const values: Values = {
     type: (preset.type as AccountType) || "eval",
     logoId: preset.firmId || (presetProp ? "topstep" : "own"),

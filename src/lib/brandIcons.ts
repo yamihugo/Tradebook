@@ -29,5 +29,5 @@ export function appendBrandMark(host: HTMLElement, id: keyof typeof BRAND_MARKS,
   path.setAttribute("d", mark.path);
   path.setAttribute("fill", "currentColor");
   svg.appendChild(path);
-  host.appendChild(svg as unknown as Node);
+  host.appendChild(svg);
 }

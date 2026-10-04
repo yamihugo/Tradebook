@@ -1,4 +1,4 @@
-import { ItemView, setIcon } from "obsidian";
+import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { fmtMoney2, fmtMoneyCompact, fmtPrice, isFiniteNumber } from "../tz";
@@ -88,7 +88,7 @@ export class TradebookSidebarView extends ItemView {
   private customizing = false;
   private _dragId: string | null = null;
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }

@@ -972,7 +972,7 @@ class AccountsManageModal extends Modal {
       grip.addEventListener("dragstart", (ev) => {
         dragFrom = i;
         row.addClass("is-dragging");
-        (ev as DragEvent).dataTransfer?.setData("text/plain", String(i));
+        (ev).dataTransfer?.setData("text/plain", String(i));
       });
       grip.addEventListener("dragend", () => {
         dragFrom = -1;
@@ -985,7 +985,7 @@ class AccountsManageModal extends Modal {
       row.addEventListener("dragover", (ev) => {
         if (dragFrom < 0) return;
         ev.preventDefault();
-        const below = isBelowMiddle(row, ev as DragEvent);
+        const below = isBelowMiddle(row, ev);
         row.toggleClass("is-drop", !below);
         row.toggleClass("is-drop-below", below);
       });
@@ -995,7 +995,7 @@ class AccountsManageModal extends Modal {
       });
       row.addEventListener("drop", (ev) => {
         ev.preventDefault();
-        const below = isBelowMiddle(row, ev as DragEvent);
+        const below = isBelowMiddle(row, ev);
         row.removeClass("is-drop");
         row.removeClass("is-drop-below");
         move(dragFrom, i + (below ? 1 : 0));

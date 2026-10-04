@@ -1,4 +1,4 @@
-import { ItemView, setIcon } from "obsidian";
+import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { PropAccount, Trade } from "../types";
 import { resolveAccountView } from "../lib/accountRules";
@@ -122,7 +122,7 @@ export class AccountsListView extends ItemView {
     return v === "firm" || v === "firm-type" || v === "copy" ? v : "type";
   }
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -364,7 +364,7 @@ export class AccountsListView extends ItemView {
    * measured from today, so the only thing stored is which one you picked.
    */
   private chartWindow(): { id: ChartPeriod; label: string; from: string } {
-    const id = (this.plugin.settings.accountsChartPeriod ?? "all") as ChartPeriod;
+    const id = (this.plugin.settings.accountsChartPeriod ?? "all");
     const def = CHART_PERIODS.find((p) => p.id === id) ?? CHART_PERIODS[0];
     if (!def.months) return { id: def.id, label: def.label, from: "" };
     const today = todayKey(this.plugin.settings.timeZone);

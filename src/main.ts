@@ -1,9 +1,9 @@
-import { App, Notice, Plugin, PluginManifest, TFile, addIcon, normalizePath } from "obsidian";
+import { App, Notice, Plugin, PluginManifest, type TAbstractFile, TFile, addIcon, normalizePath, type WorkspaceLeaf } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
 import { tradePoints } from "./lib/fills";
-import { computeAccountMetrics, computeDrawdownEpisodes } from "./lib/accountMetrics";
+import { computeAccountMetrics } from "./lib/accountMetrics";
 import { PROP_FIRMS, makeAccount, uniqueAccountName } from "./props";
 import { resolveAccountView } from "./lib/accountRules";
 import { firmLogoUrl } from "./lib/firmLogos";
@@ -271,6 +271,114 @@ function sanitizeFilename(name: string): string {
     .trim() || "strategy";
 }
 
+/** `value?.stack`, but only when the host actually left a string there. The
+ *  DOM types `ErrorEvent.error` / `PromiseRejectionEvent.reason` as `any`, so
+ *  the value is whatever was thrown — read it, never trust it. */
+function stackOf(value: unknown): string | undefined {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined;
+  return "stack" in value && typeof value.stack === "string" ? value.stack : undefined;
+}
+
+/** `value?.message`, under the same rule as {@link stackOf}. */
+function messageOf(value: unknown): string | undefined {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return undefined;
+  return "message" in value && typeof value.message === "string" ? value.message : undefined;
+}
+
+/** `String(value)` for a value the host handed us whole — a DOM event, a
+ *  rejection reason. Whatever it stringifies to is what the report carries. */
+function textOf(value: unknown): string {
+  return String(value);
+}
+
+/** A leaf's view, as the plugin calls it. Not every view in this plugin draws
+ *  itself the same way, so the shape is checked, never assumed. */
+interface Refreshable {
+  refresh: () => Promise<void> | void;
+}
+
+/** The fallback drawing every view here also answers to. */
+interface Renderable {
+  render: () => void;
+}
+
+/** What a caller hands over: the id, and where the user came from. The trade
+ *  itself is re-read from disk — and when it is not there, this stub is what
+ *  the detail page opens with, exactly as before. */
+type TradeRef = { id: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } };
+
+/** The Trade Detail's own entry point, called after the leaf is revealed. It
+ *  takes the ref too: a trade whose note is gone still opens the page. */
+interface TradeSetter {
+  setTrade: (trade: Trade | TradeRef) => Promise<void> | void;
+}
+
+/** True for a view that can refresh itself. */
+function isRefreshable(v: unknown): v is Refreshable {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "refresh" in v && typeof v.refresh === "function";
+}
+
+/** True for a view that can draw itself. */
+function isRenderable(v: unknown): v is Renderable {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "render" in v && typeof v.render === "function";
+}
+
+/** True for a view that takes a trade to show. */
+function isSettable(v: unknown): v is TradeSetter {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "setTrade" in v && typeof v.setTrade === "function";
+}
+
+/** The Trade Log's navigation surface — how this plugin drives that view.
+ *  `filterByTradeIds` is the one method that tells a mounted Trade Log from
+ *  the placeholder Obsidian hands back first; the rest are that same view's,
+ *  reached only through it. */
+type TradeLogLens = Pick<TradeLogView, "filterByDay" | "filterByAccount" | "filterByTradeIds" | "scopeFromBreakdown" | "navigate">;
+
+/** True for a mounted Trade Log view. */
+function isTradeLogLens(v: unknown): v is TradeLogLens {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "filterByTradeIds" in v && typeof v.filterByTradeIds === "function";
+}
+
+/** True for a lens that can also take a breakdown tile's scope. */
+function isBreakdownScopeable(v: unknown): v is Pick<TradeLogView, "scopeFromBreakdown"> {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "scopeFromBreakdown" in v && typeof v.scopeFromBreakdown === "function";
+}
+
+/** True for a lens that can take a widget's navigation. */
+function isNavigable(v: unknown): v is Pick<TradeLogView, "navigate"> {
+  if (v === null || (typeof v !== "object" && typeof v !== "function")) return false;
+  return "navigate" in v && typeof v.navigate === "function";
+}
+
+/** A leaf as this plugin touches it: Obsidian's `WorkspaceLeaf`, plus the two
+ *  fields the harness leaves on its leaves — `detached` and `contentEl` — which
+ *  are read defensively because a host may not carry them. */
+type JournalLeaf = WorkspaceLeaf & { detached?: boolean; contentEl?: unknown };
+
+/** A plain object — not null, not an array, not a primitive. The shape a JSON
+ *  file must have before any of its keys are read back. */
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** An account as a pre-`type` file wrote it: `scope` and `live` are the legacy
+ *  keys the load-time migration folds in, and `type` is whatever string the
+ *  file carried — normally an `AccountType`, but the migration copies `scope`
+ *  across without checking what it is. */
+type LegacyAccount = Omit<PropAccount, "type"> & { type?: string; scope?: string; live?: boolean };
+
+/** Settings as a pre-7 file wrote them. `tradeLogPeriod` and the dropped keys
+ *  are no longer on `TradebookSettings`; folding the first and deleting the
+ *  rest is the whole job of the migration that reads this. `defaultPeriod` is
+ *  the `PeriodId` the plugin understands, widened to whatever string the old
+ *  file held — that value is carried across as it is, never re-checked. */
+type LegacySettings = Omit<TradebookSettings, "defaultPeriod"> & { defaultPeriod?: string; tradeLogPeriod?: string };
+
 const DEFAULT_SETTINGS: TradebookSettings = {
   tradesFolder: "Tradebook",
   journalName: "",
@@ -383,12 +491,12 @@ export default class TradebookPlugin extends Plugin {
 
     // Keep the last uncaught error so a bug report can carry it:
     // Settings → Advanced → Diagnostics.
-    this.registerDomEvent(window, "error", (ev: any) => {
-      this._lastError = ev?.error?.stack || ev?.message || String(ev);
+    this.registerDomEvent(window, "error", (ev) => {
+      this._lastError = stackOf(ev.error) || ev.message || textOf(ev);
     });
-    this.registerDomEvent(window, "unhandledrejection", (ev: any) => {
-      const reason = ev?.reason;
-      this._lastError = reason?.stack || reason?.message || String(reason);
+    this.registerDomEvent(window, "unhandledrejection", (ev) => {
+      const reason: unknown = ev.reason;
+      this._lastError = stackOf(reason) || messageOf(reason) || String(reason);
     });
 
     this.registerView(HOME_VIEW_TYPE, (leaf) => new HomeView(leaf, this));
@@ -401,13 +509,13 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
     this.addRibbonIcon("grip", "Tradebook — Home", () => {
-      this.openHome();
+      void this.openHome();
     });
     this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
-      this.openAccounts();
+      void this.openAccounts();
     });
     this.addRibbonIcon("list", "Tradebook — Trade Log", () => {
-      this.openTradeLog();
+      void this.openTradeLog();
     });
     this.addRibbonIcon("plus", "Tradebook — Manual Trade", () => {
       this.openAddPanel();
@@ -459,9 +567,9 @@ export default class TradebookPlugin extends Plugin {
     this.addSettingTab(new SettingsTab(this.app, this));
 
     // Keep the parsed-trade index in step with edits made outside the plugin.
-    const vault: any = this.app.vault;
+    const vault = this.app.vault;
     if (vault && typeof vault.on === "function" && typeof this.registerEvent === "function") {
-      const invalidate = (file: any): void => {
+      const invalidate = (file: TAbstractFile): void => {
         if (file?.path && this.isTradeNotePath(file.path)) {
           this._tradeCache.delete(file.path);
           this.scheduleReloadAllViews();
@@ -470,15 +578,15 @@ export default class TradebookPlugin extends Plugin {
       this.registerEvent(vault.on("modify", invalidate));
       this.registerEvent(vault.on("create", invalidate));
       this.registerEvent(vault.on("delete", invalidate));
-      this.registerEvent(vault.on("rename", (file: any, oldPath: string) => {
+      this.registerEvent(vault.on("rename", (file, oldPath: string) => {
         if (oldPath) this._tradeCache.delete(oldPath);
         invalidate(file);
       }));
     }
 
     // Workspace APIs are optional — some mock/host environments may lack them.
-    if (typeof (this.app.workspace as any).onLayoutReady === "function") {
-      (this.app.workspace as any).onLayoutReady(async () => {
+    if (typeof this.app.workspace.onLayoutReady === "function") {
+      this.app.workspace.onLayoutReady(async () => {
         try {
           await this.runMigrations();
         } catch (err) {
@@ -514,7 +622,7 @@ export default class TradebookPlugin extends Plugin {
     this.printQueue = [];
   }
 
-  private _journalLeaf: any = null;
+  private _journalLeaf: JournalLeaf | null = null;
   private _celebrationDismissed = new Set<string>();
   /** Last uncaught error this session (window error / unhandled rejection). */
   private _lastError = "";
@@ -531,7 +639,7 @@ export default class TradebookPlugin extends Plugin {
   async writeDiagnostics(): Promise<{ path: string; text: string }> {
     const text = await buildDiagnostics(this);
     const dir = this.getBackupFolder();
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     try {
       if (typeof adapter.mkdir === "function" && !(await adapter.exists(dir))) await adapter.mkdir(dir);
     } catch {
@@ -555,13 +663,13 @@ export default class TradebookPlugin extends Plugin {
    *  workspace (never the right/left side panels), so nothing opens beside it
    *  or in an Obsidian dock. Falls back to the current main leaf only if the
    *  remembered one is gone. */
-  getJournalLeaf(): any {
+  getJournalLeaf(): JournalLeaf {
     // "New tab" behaviour: always hand back a fresh main-area tab.
     if (this.settings.tabBehavior === "new") {
       const fresh = this.app.workspace.getLeaf("tab");
       if (fresh) return fresh;
     }
-    const inMainArea = (leaf: any): boolean => {
+    const inMainArea = (leaf: JournalLeaf | null): boolean => {
       try {
         if (!leaf) return false;
         if (typeof leaf.getRoot === "function") {
@@ -606,7 +714,7 @@ export default class TradebookPlugin extends Plugin {
    * is already open, so a view is never torn down and rebuilt needlessly.
    */
   private async openViewTab(viewType: string): Promise<void> {
-    const inMainArea = (leaf: any): boolean => {
+    const inMainArea = (leaf: JournalLeaf | null): boolean => {
       try {
         if (!leaf) return false;
         if (typeof leaf.getRoot === "function") return leaf.getRoot() === this.app.workspace.rootSplit;
@@ -620,12 +728,12 @@ export default class TradebookPlugin extends Plugin {
       await this.app.workspace.revealLeaf(existing[0]);
       return;
     }
-    const leaf: any = this.app.workspace.getLeaf("tab");
+    const leaf = this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: viewType, active: true });
     await this.app.workspace.revealLeaf(leaf);
   }
 
-  async openHome(leaf?: any) {
+  async openHome(leaf?: JournalLeaf) {
     if (leaf) {
       await leaf.setViewState({ type: HOME_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(leaf);
@@ -637,19 +745,19 @@ export default class TradebookPlugin extends Plugin {
     await this.app.workspace.revealLeaf(target);
   }
 
-  async openSetups(leaf?: any) {
+  async openSetups(leaf?: JournalLeaf) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: SETUPS_VIEW_TYPE, active: true });
     await this.app.workspace.revealLeaf(target);
   }
 
-  async openAccounts(leaf?: any) {
+  async openAccounts(leaf?: JournalLeaf) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNTS_LIST_VIEW_TYPE, active: true });
     await this.app.workspace.revealLeaf(target);
   }
 
-  async openTradeLog(leaf?: any): Promise<any> {
+  async openTradeLog(leaf?: JournalLeaf): Promise<JournalLeaf> {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: TRADE_LOG_VIEW_TYPE, active: true });
     await this.app.workspace.revealLeaf(target);
@@ -701,7 +809,7 @@ export default class TradebookPlugin extends Plugin {
     }
   ) {
     const view = await this.scopedTradeLogView();
-    if (view && typeof view.scopeFromBreakdown === "function") view.scopeFromBreakdown(label, test, scope);
+    if (isBreakdownScopeable(view)) view.scopeFromBreakdown(label, test, scope);
   }
 
   /**
@@ -711,7 +819,7 @@ export default class TradebookPlugin extends Plugin {
    */
   async openTradeLogView(nav: TradeLogNav) {
     const view = await this.scopedTradeLogView();
-    if (view && typeof view.navigate === "function") view.navigate(nav);
+    if (isNavigable(view)) view.navigate(nav);
   }
 
   /**
@@ -719,31 +827,31 @@ export default class TradebookPlugin extends Plugin {
    * DeferredView until the leaf is visible, and a scoped open against it fails
    * silently — so reveal first, then wait for the real view.
    */
-  private async scopedTradeLogView(): Promise<any> {
+  private async scopedTradeLogView(): Promise<TradeLogLens | null> {
     // Filter the view that was just revealed, never "the first Trade Log leaf":
     // with more than one Trade Log tab open, [0] can be a different one and the
     // day/account filter would land on a view the user is not looking at.
-    const isView = (v: any): boolean => !!v && typeof v.filterByTradeIds === "function";
     const leaf = await this.openTradeLog();
     for (let i = 0; i < 10; i++) {
-      if (isView(leaf?.view)) return leaf.view;
+      const candidate: unknown = leaf?.view;
+      if (isTradeLogLens(candidate)) return candidate;
       await new Promise((r) => window.setTimeout(r, 20));
     }
     // Last resort: any Trade Log leaf, in case the revealed one never mounted.
     const leaves = this.app.workspace.getLeavesOfType(TRADE_LOG_VIEW_TYPE);
-    const view = leaves.length ? leaves[0].view : null;
-    return isView(view) ? view : null;
+    const view: unknown = leaves.length ? leaves[0].view : null;
+    return isTradeLogLens(view) ? view : null;
   }
 
-  async openAccountDashboard(leaf: any, accountId: string) {
+  async openAccountDashboard(leaf: JournalLeaf | undefined, accountId: string) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNT_DASH_VIEW_TYPE, state: { accountId }, active: true });
     await this.app.workspace.revealLeaf(target);
   }
 
-  async openTradeModal(trade: { id: string }) {
+  async openTradeModal(trade: Trade) {
     const trades = await this.loadTrades();
-    const full = trades.find((t) => t.id === trade.id) ?? (trade as any);
+    const full = trades.find((t) => t.id === trade.id) ?? trade;
     openTradeModal(this, full);
   }
 
@@ -764,14 +872,14 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const leftLeaf = (this.app.workspace as any).getLeftLeaf?.(false) ?? (this.app.workspace as any).getLeftLeaf?.(true);
+      const leftLeaf = this.app.workspace.getLeftLeaf?.(false) ?? this.app.workspace.getLeftLeaf?.(true);
       if (!leftLeaf) return false;
       await leftLeaf.setViewState({ type: TRADEBOOK_SIDEBAR_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(leftLeaf);
       return true;
     };
     if (await tryOnce()) return true;
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => window.setTimeout(r, 800));
     return await tryOnce();
   }
 
@@ -783,21 +891,21 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const rightLeaf = (this.app.workspace as any).getRightLeaf?.(false) ?? (this.app.workspace as any).getRightLeaf?.(true);
+      const rightLeaf = this.app.workspace.getRightLeaf?.(false) ?? this.app.workspace.getRightLeaf?.(true);
       if (!rightLeaf) return false;
       await rightLeaf.setViewState({ type: PRINT_QUEUE_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(rightLeaf);
       return true;
     };
     if (await tryOnce()) return true;
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => window.setTimeout(r, 800));
     return await tryOnce();
   }
 
   /** Where the trade detail was opened from (so "Back" returns there). */
   tradeDetailOrigin: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } = { type: "tradelog" };
 
-  async openTradeDetail(trade: { id: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } }) {
+  async openTradeDetail(trade: TradeRef) {
     this.tradeDetailOrigin = trade.from ?? { type: "tradelog" };
     const trades = await this.loadTradesExpanded();
     let full = trades.find((t) => t.id === trade.id);
@@ -811,7 +919,7 @@ export default class TradebookPlugin extends Plugin {
         }
       }
     }
-    const resolved = full ?? (trade as any);
+    const resolved: Trade | TradeRef = full ?? trade;
     const target = this.getJournalLeaf();
     await target.setViewState({
       type: TRADE_DETAIL_VIEW_TYPE,
@@ -822,8 +930,8 @@ export default class TradebookPlugin extends Plugin {
     await this.app.workspace.revealLeaf(target);
     const leaves = this.app.workspace.getLeavesOfType(TRADE_DETAIL_VIEW_TYPE);
     const view = leaves.length ? leaves[0].view : null;
-    if (view && typeof (view as any).setTrade === "function") {
-      await (view as any).setTrade(resolved);
+    if (isSettable(view)) {
+      await view.setTrade(resolved);
     }
   }
 
@@ -1219,15 +1327,18 @@ export default class TradebookPlugin extends Plugin {
    * disk is re-read on the next `loadTrades()`.
    */
   async loadTradeCache(): Promise<void> {
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     const path = this.tradeCachePath();
     try {
       if (typeof adapter?.exists !== "function" || !(await adapter.exists(path))) return;
       const raw = await adapter.read(path);
-      const parsed = JSON.parse(raw);
-      if (!parsed || parsed.version !== 1 || !parsed.entries || typeof parsed.entries !== "object") return;
-      for (const [key, entry] of Object.entries<any>(parsed.entries)) {
-        if (entry && typeof entry.mtime === "number" && entry.trade && this.isTradeNotePath(key)) {
+      // The index is data we wrote, read back from disk: `unknown` until the
+      // shape is checked. `entry.trade` is the one place the JSON is taken on
+      // faith, as a Trade — it was written by `saveTradeCache` from a Trade.
+      const parsed: unknown = JSON.parse(raw);
+      if (!isRecord(parsed) || parsed.version !== 1 || !isRecord(parsed.entries)) return;
+      for (const [key, entry] of Object.entries(parsed.entries)) {
+        if (isRecord(entry) && typeof entry.mtime === "number" && entry.trade && this.isTradeNotePath(key)) {
           this._tradeCache.set(key, { mtime: entry.mtime, trade: entry.trade as Trade });
         }
       }
@@ -1245,7 +1356,7 @@ export default class TradebookPlugin extends Plugin {
   }
 
   private async saveTradeCache(): Promise<void> {
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     const path = this.tradeCachePath();
     const dir = normalizePath(`${this.pluginDataDir()}/cache`);
     try {
@@ -1976,11 +2087,11 @@ export default class TradebookPlugin extends Plugin {
 
   /** The pre-import snapshots, newest first, so a restore can be undone too. */
   async listSettingsSnapshots(): Promise<Array<{ path: string; name: string; mtime: number }>> {
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     try {
       if (typeof adapter?.list !== "function") return [];
       const listing = await adapter.list(this.pluginDataDir());
-      return ((listing?.files ?? []) as string[])
+      return (listing?.files ?? [])
         .filter((p) => /data\.pre-import-\d+\.json$/.test(p))
         .map((p) => {
           const m = /data\.pre-import-(\d+)\.json$/.exec(p);
@@ -1999,9 +2110,9 @@ export default class TradebookPlugin extends Plugin {
    * so a trade written after the snapshot is left exactly where it is.
    */
   async restoreSettingsSnapshot(path: string): Promise<void> {
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     const raw = await adapter.read(path);
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("that file is not a settings snapshot");
     }
@@ -2061,7 +2172,7 @@ export default class TradebookPlugin extends Plugin {
           partial.type === "trade" ||
           (!partial.type && f.path.includes("/trades/") && !!partial.date && !!partial.symbol && typeof partial.pnl === "number");
         if (isTrade && partial.date && partial.symbol && typeof partial.pnl === "number") {
-          t = { ...(partial as Trade), id: f.path } as Trade;
+          t = { ...(partial as Trade), id: f.path };
           this._tradeCache.set(f.path, { mtime, trade: { ...t } });
         } else {
           this._tradeCache.delete(f.path);
@@ -2134,7 +2245,6 @@ export default class TradebookPlugin extends Plugin {
   /** Copy trades onto the given prop accounts (broadcast). Returns the full list to save. */
   async applyBroadcast(trades: Trade[], accountIds: string[]): Promise<Trade[]> {
     if (!accountIds || accountIds.length === 0) return trades;
-    const { buildLeg, effectiveCopyConfig, isActiveCopier, legBaseKey } = await import("./lib/copy");
     const out: Trade[] = [];
     for (const t of trades) {
       // Give the broadcast trade a stable, unique group key so copies can be
@@ -2189,10 +2299,10 @@ export default class TradebookPlugin extends Plugin {
     for (const type of ALL_VIEW_TYPES) {
       const leaves = this.app.workspace.getLeavesOfType(type);
       for (const leaf of leaves) {
-        const view = leaf.view as any;
+        const view: unknown = leaf.view;
         try {
-          if (typeof view.refresh === "function") await view.refresh();
-          else if (typeof view.render === "function") view.render();
+          if (isRefreshable(view)) await view.refresh();
+          else if (isRenderable(view)) view.render();
         } catch (err) {
           console.error(`[tradebook] refresh ${type} failed:`, err);
         }
@@ -2628,7 +2738,11 @@ export default class TradebookPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const saved: unknown = await this.loadData();
+    // `data.json` is this plugin's own file, read back: `unknown` until it is
+    // known to be an object, so a string or an array cannot spill index keys
+    // into the settings that get written out again.
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, isRecord(saved) ? saved : {});
     setCurrencySymbol(this.settings.currency || "$");
     // The first default order was Funded → … → Personal. Accounts that never
     // touched the Types tab still carry it, so they move to the new default
@@ -2649,7 +2763,7 @@ export default class TradebookPlugin extends Plugin {
       delete this.settings.tradeLogColOrder;
     }
     this.applyTypePrefs();
-    const migrateAcc = (acc: any) => {
+    const migrateAcc = (acc: LegacyAccount): void => {
       if (!acc.type) {
         if (acc.live) acc.type = "personal";
         else if (acc.scope && acc.scope !== "all") acc.type = acc.scope;
@@ -2660,7 +2774,7 @@ export default class TradebookPlugin extends Plugin {
     };
     for (const acc of this.settings.propAccounts || []) migrateAcc(acc);
     for (const acc of this.settings.archivedAccounts || []) migrateAcc(acc);
-    delete (this.settings as any).primaryAccountId;
+    Reflect.deleteProperty(this.settings, "primaryAccountId");
   }
 
   /**
@@ -2673,7 +2787,7 @@ export default class TradebookPlugin extends Plugin {
    *  default into `defaultPeriod`, so `data.json` stops carrying dead keys.
    */
   private migrateSettingsCleanup(): void {
-    const s = this.settings as any;
+    const s: LegacySettings = this.settings;
     if (s.defaultPeriod === undefined && typeof s.tradeLogPeriod === "string") {
       s.defaultPeriod = s.tradeLogPeriod === "1m" ? "thismonth" : s.tradeLogPeriod;
     }
@@ -2695,14 +2809,14 @@ export default class TradebookPlugin extends Plugin {
       "maturityActiveAccounts",
       "maturityGroupTrading",
     ]) {
-      delete s[key];
+      Reflect.deleteProperty(s, key);
     }
   }
 
   /** Best-effort: the parsed-trade cache used to live in the vault; remove the
    *  leftover so the vault only shows the journal and its backups. */
   private async cleanupLegacyCache(): Promise<void> {
-    const adapter: any = this.app.vault.adapter;
+    const adapter = this.app.vault.adapter;
     const oldFile = normalizePath(`${this.getTradesFolder()}/_tradebook/cache/trades.json`);
     const oldDir = normalizePath(`${this.getTradesFolder()}/_tradebook/cache`);
     try {
@@ -2851,7 +2965,6 @@ export default class TradebookPlugin extends Plugin {
       return true;
     });
 
-    let moved = 0;
     for (const f of files) {
       try {
         const content = await this.app.vault.cachedRead(f);
@@ -2865,7 +2978,6 @@ export default class TradebookPlugin extends Plugin {
         const to = normalizePath(`${targetDir}/${f.name}`);
         if (this.app.vault.getAbstractFileByPath(to)) continue; // never overwrite
         await move(f, to);
-        moved++;
       } catch (err) {
         console.error("[tradebook] folder migration skipped a note:", f.path, err);
       }

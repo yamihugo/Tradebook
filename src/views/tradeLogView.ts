@@ -1,4 +1,4 @@
-import { ItemView, Modal, Notice, setIcon, TFile } from "obsidian";
+import { ItemView, Modal, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
@@ -259,7 +259,7 @@ export class TradeLogView extends ItemView {
   private _dragCleanup: (() => void) | null = null;
   private _focusTimer = 0;
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -2084,7 +2084,7 @@ export class TradeLogView extends ItemView {
     const syms: [string, string][] = [["", "All"], ...[...new Set(this.trades.map((t) => t.symbol).filter(Boolean))].sort().map((x) => [x, x] as [string, string])];
     const setups: [string, string][] = [...new Set(this.trades.map((t) => t.setup).filter(Boolean))]
       .sort()
-      .map((x) => [x as string, x as string] as [string, string]);
+      .map((x) => [x, x] as [string, string]);
     const toggleIn = (list: string[], v: string, on: boolean): string[] => (on ? [...list, v] : list.filter((x) => x !== v));
 
     // Demo accounts belong to no section: it is a global position, so it sits

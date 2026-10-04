@@ -1,4 +1,4 @@
-import { ItemView, Notice, setIcon } from "obsidian";
+import { ItemView, Notice, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { renderAppShell } from "../ui";
 import { fmtMoney } from "../tz";
@@ -18,7 +18,7 @@ export class SetupsView extends ItemView {
   private adding = false;
   private renaming: string | null = null;
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -144,7 +144,7 @@ export class SetupsView extends ItemView {
     });
 
     if (focusInput) {
-      const el = focusInput as HTMLInputElement;
+      const el = focusInput;
       window.setTimeout(() => el.focus(), 0);
     }
   }

@@ -117,7 +117,7 @@ function drawRadar(svg: SVGElement, box: HTMLElement, textHost: HTMLElement, axe
         const next = (i + 1) % n;
         if (axes[i].value === null || axes[next].value === null) continue;
         const a = pt(i, ((axes[i].value as number) / 100) * r * scale);
-        const b = pt(next, ((axes[next].value as number) / 100) * r * scale);
+        const b = pt(next, ((axes[next].value) / 100) * r * scale);
         segments += `M${a.x.toFixed(1)},${a.y.toFixed(1)} L${b.x.toFixed(1)},${b.y.toFixed(1)} `;
       }
       return segments.trim();
@@ -272,7 +272,7 @@ export function renderTradingScore(
   }
 
   const svg = svgEl("svg", { viewBox: "0 0 300 300", preserveAspectRatio: "xMidYMid meet", class: "tj-chart tj-radar", width: "100%", height: "100%" });
-  box.insertBefore(svg as unknown as Node, foot);
+  box.insertBefore(svg, foot);
 
   const first = drawRadar(svg, box, head, result.axes, result.complete, animate);
   // The card body can still settle a frame after this draw (web font metrics,

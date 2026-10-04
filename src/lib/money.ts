@@ -426,11 +426,11 @@ function financialPopulation(trades: Trade[], scope: FinancialScope): { legs: Fi
     }
     if (id) seenIds.add(id);
     else {
-      if (seenReferences.has(trade as object)) {
+      if (seenReferences.has(trade)) {
         duplicates++;
         return;
       }
-      seenReferences.add(trade as object);
+      seenReferences.add(trade);
     }
 
     const identity = decisionIdentity(trade, inputIndex);

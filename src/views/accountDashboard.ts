@@ -1,4 +1,4 @@
-import { ItemView, Notice, setIcon } from "obsidian";
+import { ItemView, Notice, setIcon, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { AccountRules, AccountType, PropAccount, Trade } from "../types";
 import { openPayoutsModal } from "./payoutModal";
@@ -39,7 +39,7 @@ export class AccountDashboardView extends ItemView {
   accountId: string | null = null;
   trades: Trade[] = [];
 
-  constructor(leaf: any, plugin: TradebookPlugin) {
+  constructor(leaf: WorkspaceLeaf, plugin: TradebookPlugin) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -57,11 +57,11 @@ export class AccountDashboardView extends ItemView {
     return "layout-dashboard";
   }
 
-  getState(): any {
+  getState(): Record<string, unknown> {
     return { accountId: this.accountId };
   }
 
-  async setState(state: any, result: any): Promise<void> {
+  async setState(state: Record<string, unknown>, result: ViewStateResult): Promise<void> {
     this.accountId = typeof state?.accountId === "string" ? state.accountId : null;
     await this.refresh();
   }
@@ -744,7 +744,7 @@ export class AccountDashboardView extends ItemView {
       useSizeNote.setText("");
       useSizeNote.removeClass("tj-as-hint-warn");
       // Keep names unique so two accounts never share trades/data.
-      const taken = (this.plugin.settings.propAccounts || []).filter((a: any) => a.id !== acc.id).map((a: any) => a.name);
+      const taken = (this.plugin.settings.propAccounts || []).filter((a) => a.id !== acc.id).map((a) => a.name);
       const desired = uniqueAccountName(nameInput.value.trim() || acc.name, taken);
       if (desired !== acc.name) {
         // Rename + re-index every trade of this account so nothing is lost.
@@ -1049,7 +1049,7 @@ export class AccountDashboardView extends ItemView {
       bandText.createEl("h4", {
         text: acc.passedAt ? `Passed on ${formatDate(acc.passedAt, this.plugin.settings.dateFormat)}` : "Passed",
       });
-      const props = (this.plugin.settings.propAccounts ?? []) as PropAccount[];
+      const props = (this.plugin.settings.propAccounts ?? []);
       const linked = acc.linkedFundedId ? props.find((a) => a.id === acc.linkedFundedId) : undefined;
       // No link? Look for the funded this eval most likely produced before
       // offering to create one: same firm, program and size, and not already
@@ -1183,7 +1183,7 @@ export class AccountDashboardView extends ItemView {
           a.setAttribute("transform", "rotate(-90 36 36)");
           svg.appendChild(a);
         }
-        box.appendChild(svg as unknown as Node);
+        box.appendChild(svg);
         box.createDiv({ cls: "tj-acc-disc-num" + (tracked ? "" : " is-na"), text: na(`${pct.toFixed(0)}%`) });
         box.createDiv({ cls: "tj-acc-disc-lbl", text: label });
       };
@@ -1272,7 +1272,7 @@ export class AccountDashboardView extends ItemView {
       // No tracked trades: the dial keeps its place and reads "—". An arc at 0%
       // would be a performance verdict nobody has earned yet.
       if (tracked) svg.appendChild(arc);
-      box.appendChild(svg as unknown as Node);
+      box.appendChild(svg);
       box.createDiv({ cls: "tj-acc-dial-num" + (tracked ? "" : " is-na"), text: na(`${pct.toFixed(0)}%`) });
       box.createDiv({ cls: "tj-acc-dial-lbl", text: label });
       box.createDiv({ cls: "tj-acc-dial-sub", text: sub });

@@ -295,7 +295,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     );
     if (w > 200) {
       const li = values.length - 1;
-      const ddVal = opts.ddLine![li];
+      const ddVal = opts.ddLine[li];
       const ddDiff = values[li] - ddVal;
       const t = svgEl("text", {
         x: String(w - padR - 4),
@@ -425,7 +425,7 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
   const guide = svgEl("line", { class: "tj-eq-guide", y1: String(topY), y2: String(botY) });
   guide.setCssStyles({ display: "none" });
   svg.appendChild(guide);
-  container.appendChild(svg as unknown as Node);
+  container.appendChild(svg);
 
   // Floating tooltip for DD label hover
   const chartTip = getGlobalChartTip();

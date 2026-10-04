@@ -817,7 +817,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
             break;
           }
           const r = (f.pnl as number) / (riskPerContract * f.qty);
-          cell.addClass(toneClass(f.pnl as number));
+          cell.addClass(toneClass(f.pnl));
           cell.setText(`${r >= 0 ? "+" : ""}${r.toFixed(2)}R`);
           break;
         }
@@ -827,7 +827,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
             break;
           }
           cell.addClass("tj-tbl-pnl");
-          cell.addClass(toneClass(f.pnl as number));
+          cell.addClass(toneClass(f.pnl));
           cell.setText(f.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney(f.pnl as number));
           break;
         case "setup": {

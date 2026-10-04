@@ -198,7 +198,7 @@ export class AddTradePanel {
       boundaryNote.toggleClass("is-hidden", !late);
       if (!late) return;
       boundaryNote.setText(
-        `${formatDate(t.date, this.plugin.settings.dateFormat)} is before ${acc!.name} starts tracking (${formatDate(start, this.plugin.settings.dateFormat)}). The trade is kept as history and left out of its totals.`
+        `${formatDate(t.date, this.plugin.settings.dateFormat)} is before ${acc.name} starts tracking (${formatDate(start, this.plugin.settings.dateFormat)}). The trade is kept as history and left out of its totals.`
       );
     };
     mountDateField(dateCtl, {

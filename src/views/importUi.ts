@@ -305,7 +305,7 @@ class ImportCsvModal extends Modal {
     const row = box;
     const items: DropdownItem[] = [
       { id: "", label: `This computer (${detected})` },
-      ...TIMEZONE_OPTIONS.filter((o) => !!o.zone).map((o) => ({ id: o.zone as string, label: o.label })),
+      ...TIMEZONE_OPTIONS.filter((o) => !!o.zone).map((o) => ({ id: o.zone, label: o.label })),
     ];
     const dd = mountDropdown(
       row,

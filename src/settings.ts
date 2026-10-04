@@ -552,7 +552,7 @@ export class SettingsTab extends PluginSettingTab {
           const n = Number(raw);
           const next = { ...(this.plugin.settings.defaultRiskBySymbol || {}) };
           if (!Number.isFinite(n) || n <= 0) delete next[symbol];
-          else next[symbol] = { [field]: n } as RiskRule;
+          else next[symbol] = { [field]: n };
           this.plugin.settings.defaultRiskBySymbol = next;
           await this.plugin.saveSettings();
           // One rule per contract, so the field that was not used is cleared to
