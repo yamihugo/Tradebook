@@ -103,22 +103,6 @@ analysis built around it. There are no dates and the order is not fixed.
 See [ROADMAP.md](ROADMAP.md) for the full list, and [CHANGELOG.md](CHANGELOG.md) for what
 has already shipped.
 
-## Development
-
-This is for contributors and for testing a change locally. It is not an installation
-method. You need a current Node LTS (CI uses Node 20) and Obsidian 1.7.2 or newer.
-
-The compiled `main.js` is not committed, so build it before copying it into a vault.
-
-1. Fork and clone the repository, then run `npm ci`.
-2. Run `npm run build`. It type-checks and writes `main.js` in the project root.
-3. Copy `main.js`, `styles.css` and `manifest.json` into
-   `<vault>/.obsidian/plugins/tradebook/`.
-4. Reload Obsidian with `Ctrl+R`, then enable Tradebook.
-
-`npm test` runs the unit tests and `npm run lint` runs ESLint. Keep your own `data.json`;
-never copy one over another.
-
 ## License
 
 <p align="center">
