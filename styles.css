@@ -6379,7 +6379,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-app.tj-pat-gradient { background-image: linear-gradient(160deg, var(--tj-bg, #111), var(--tj-bg2, var(--tj-bg, #111))); }
 
 /* Fonts per theme */
-.tj-app.tj-font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.tj-app.tj-font-mono { font-family: SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
 .tj-app.tj-font-serif { font-family: Georgia, "Times New Roman", Cambria, serif; }
 .tj-app.tj-font-mono .tj-metric-value,
 .tj-app.tj-font-mono .tj-eq-value{ font-family: inherit; }
@@ -8266,7 +8266,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-manage-infoico:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 3px; }
 /* A name for the screen reader that is not drawn: the (i) is a glyph, and its
    meaning lives in the tip. */
-.tj-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+.tj-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .tj-mg-row { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; padding: 8px 0; }
 .tj-mg-row + .tj-mg-row { border-top: 1px solid rgba(255, 255, 255, .05); }
 .tj-mg-rowlbl { min-width: 0; }
@@ -8574,7 +8574,6 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   /* Stable across rows and across selection: the card is at least tall enough for
      the clamped 2-line name plus the size line, so a long name never changes the
      tile's height and a selected tile never resizes. */
-  min-height: 66px;
   border: 1px solid var(--background-modifier-border); border-radius: 10px;
   background: transparent !important;
   box-shadow: none !important;
@@ -10175,7 +10174,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
     padding-right: 7px;
     padding-left: 7px;
   }
-  .tj-tl-bulk { column-gap: 4px; row-gap: 4px; }
+  .tj-tl-bulk { gap: 4px; }
   .tj-tl-bulkgroup { gap: 3px; }
   .tj-tl-bulkgroup.is-separated { margin-left: 0; padding-left: 6px; }
   .tj-tl-bulk .tj-tl-bulkpick .tj-mg-dd-btn { max-width: 100%; }
