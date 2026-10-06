@@ -1,10 +1,9 @@
-import { ItemView, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { PropAccount, Trade } from "../types";
-import { accountFilters, kpiCard, renderAppShell, svgPath } from "../ui";
+import { accountFilters, renderAppShell } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, fmtMoneyAbs, fmtMoneyCompact, isFiniteNumber, todayKey, zoneWallParts } from "../tz";
-import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 
 import { netPnl } from "../lib/fees";
@@ -19,7 +18,6 @@ import {
   GridItem,
   gridRows,
   layoutForColumns,
-  moveBandOrder,
   moveItem as gridMove,
   placeNew,
   resizeItem as gridResize,
@@ -1218,7 +1216,7 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   ensureLayout(): void {
-    const raw = this.layout() as any[] | undefined;
+    const raw = this.layout() as (GridItem & { id?: string; size?: number; rows?: number })[] | undefined;
     if (!raw) {
       this.setLayout(this.defaultLayout());
       return;
@@ -1234,7 +1232,7 @@ export abstract class WidgetGridView extends ItemView {
     const isOld = layout.some((it) => it.id !== undefined || it.size !== undefined);
     if (isOld) {
       const conv = layout.map((it) => ({
-        i: it.id,
+        i: it.id ?? "",
         w: gClamp((it.size ?? 2) * 6, 1, GRID_COLS), // 1->6, 2->12, 3->18, 4->24
         h: it.rows === 2 ? 8 : it.id === "kpi" ? 2 : 4,
       }));
@@ -1245,7 +1243,7 @@ export abstract class WidgetGridView extends ItemView {
         outer: for (;;) {
           for (let x = 0; x + c.w <= GRID_COLS; x++) {
             if (!packed.some((p) => collides({ ...c, x, y }, p))) {
-              packed.push({ i: c.i, x, y, w: c.w, h: c.h });
+              packed.push({ i: c.i ?? "", x, y, w: c.w, h: c.h });
               break outer;
             }
           }
@@ -2695,14 +2693,14 @@ export abstract class WidgetGridView extends ItemView {
         if (fn) fn();
       }
       if (this._idleQueue.length) {
-        const ric = (window as any).requestIdleCallback;
+        const ric = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
         if (typeof ric === "function") ric(run);
         else window.setTimeout(() => run(null), 0);
       } else {
         this._idleScheduled = false;
       }
     };
-    const ric = (typeof window !== "undefined") && (window as any).requestIdleCallback;
+    const ric = (typeof window !== "undefined") && (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
     if (typeof ric === "function") ric(run);
     else window.setTimeout(() => run(null), 0);
   }
@@ -3690,7 +3688,6 @@ export abstract class WidgetGridView extends ItemView {
     const netRevenge = netOf(revengeRows);
     const netRegular = netOf(regularRows);
     const share = (revengeRows.length / rows.length) * 100;
-    const toneOf = (n: number | null): string => (n === null || n === 0 ? "" : n > 0 ? "is-pos" : "is-neg");
     const money = (n: number | null): string => (n === null ? "—" : fmtMoney2(n));
     const pct = (n: number | null): string => (n === null ? "—" : `${n.toFixed(0)}%`);
     const rText = (n: number | null): string => (n === null ? "—" : `${n < 0 ? "−" : "+"}${Math.abs(n).toFixed(2)}R`);

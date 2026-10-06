@@ -184,16 +184,6 @@ export function zoneWallParts(instant: Date, zone: string): { date: string; time
   };
 }
 
-function dateStrOf(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-function timeStrOf(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function isDateStr(v: unknown): v is string {

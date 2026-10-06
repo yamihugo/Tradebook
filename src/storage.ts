@@ -597,7 +597,7 @@ export async function setTradeFields(app: App, path: string, fields: Record<stri
 
 // Test hook (see lib/fills.ts): lets the harness prove the note round-trip.
 if (typeof window !== "undefined") {
-  (window as any).__tjStorage = {
+  (window as unknown as { __tjStorage: { tradeToMarkdown: typeof tradeToMarkdown; parseTradeFromMarkdown: typeof parseTradeFromMarkdown; inlineArray: typeof inlineArray; updateTradeScreenshots: typeof updateTradeScreenshots; updateTradeArrayFields: typeof updateTradeArrayFields } }).__tjStorage = {
     tradeToMarkdown,
     parseTradeFromMarkdown,
     inlineArray,

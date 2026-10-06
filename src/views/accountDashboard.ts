@@ -1,6 +1,7 @@
 import { ItemView, Notice, setIcon, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { AccountRules, AccountType, PropAccount, Trade } from "../types";
+import type { ResolvedRules } from "../lib/accountRules";
 import { openPayoutsModal } from "./payoutModal";
 import { openFeeAdjustModal } from "./feeAdjustModal";
 import { openAccountWizard } from "./accountWizard";
@@ -10,7 +11,7 @@ import { freeNumeric } from "../lib/numeric";
 import { mountDropdown } from "../lib/dropdown";
 import { ACCOUNT_SIZES, TYPE_CATALOG, typeLabel } from "../lib/accountTypes";
 import { firmLabel } from "../lib/firmLogos";
-import { kpiCard, renderAppShell } from "../ui";
+import { renderAppShell } from "../ui";
 import { fmtMoney, fmtMoneyCompact, isFiniteNumber, todayKey } from "../tz";
 import { tradeDayInZone } from "../lib/instant";
 import { renderLineChart } from "../lib/lineChart";
@@ -31,7 +32,6 @@ import { killTip, moveTip, showTip } from "../lib/tip";
 
 export const ACCOUNT_DASH_VIEW_TYPE = "tradebook-account-dash-view";
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export class AccountDashboardView extends ItemView {
@@ -159,7 +159,7 @@ export class AccountDashboardView extends ItemView {
     }
   }
 
-  openEditAccountModal(acc: any, size: any, net: number): void {
+  openEditAccountModal(acc: PropAccount, size: ResolvedRules, net: number): void {
     const view = resolveAccountView(acc);
     const firmName = firmLabel(acc.firmId) ?? "";
     const autoName = (sz: number, t: string) => `${firmName} · ${typeLabel(t)} · $${(sz / 1000).toFixed(0)}K`;
@@ -202,9 +202,7 @@ export class AccountDashboardView extends ItemView {
       { id: "danger", label: "Deletion", dng: true },
     ];
     const paneEls: Record<string, HTMLElement> = {};
-    let activeTab = "general";
     const showTab = (id: string) => {
-      activeTab = id;
       for (const p of tabDefs) {
         paneEls[p.id].style.display = p.id === id ? "" : "none";
         tabBtns[p.id].toggleClass("is-active", p.id === id);
@@ -390,10 +388,6 @@ export class AccountDashboardView extends ItemView {
       attr: { type: "button", "aria-expanded": "false" },
     });
     const ctxPanel = ctxBox.createDiv({ cls: "tj-as-disclosure-panel is-hidden" });
-    const ctxHint = ctxPanel.createDiv({
-      cls: "tj-as-hint",
-      text: "Anything you remember from before Tradebook started watching. It is shown on the account page and never used in a calculation.",
-    });
     const ctxRow = (label: string, control: HTMLElement, tip: string) => {
       const r = ctxPanel.createDiv({ cls: "tj-as-row" });
       const l = r.createSpan({ cls: "tj-as-rowlabel", text: label });
@@ -693,17 +687,19 @@ export class AccountDashboardView extends ItemView {
     const archBtn = archRow.createEl("button", { cls: "tj-as-btn", attr: { type: "button" } });
     setIcon(archBtn.createSpan({ cls: "tj-as-btn-ico" }), "archive");
     archBtn.createSpan({ text: "Archive" });
-    archBtn.addEventListener("click", async () => {
-      // An eval still in progress is not a finished thing: say so before hiding it.
-      const inProgress =
-        acc.type === "eval" && !acc.passedAt && !acc.passKept && !acc.linkedFundedId;
-      const doIt = async () => {
-        await this.plugin.archiveAccount(acc.id);
-        overlay.remove();
-        void this.plugin.openAccounts();
-      };
-      if (inProgress) this.showArchiveConfirm(archCard, acc, doIt);
-      else await doIt();
+    archBtn.addEventListener("click", () => {
+      void (async () => {
+        // An eval still in progress is not a finished thing: say so before hiding it.
+        const inProgress =
+          acc.type === "eval" && !acc.passedAt && !acc.passKept && !acc.linkedFundedId;
+        const doIt = async () => {
+          await this.plugin.archiveAccount(acc.id);
+          overlay.remove();
+          void this.plugin.openAccounts();
+        };
+        if (inProgress) this.showArchiveConfirm(archCard, acc, doIt);
+        else await doIt();
+      })();
     });
     const delCard = dng.createDiv({ cls: "tj-as-dngcard" });
     const delRow = delCard.createDiv({ cls: "tj-as-dngrow" });
@@ -715,110 +711,114 @@ export class AccountDashboardView extends ItemView {
     delBtn.createSpan({ text: "Delete" });
     delBtn.addEventListener("click", () => {
       const confOverlay = document.body.createDiv({ cls: "tj-modal-overlay" });
-      void this.showDeleteConfirm(confOverlay, acc, 1, async () => {
-        confOverlay.remove();
-        await this.plugin.removeAccount(acc.id);
-        overlay.remove();
-        void this.plugin.openAccounts();
+      void this.showDeleteConfirm(confOverlay, acc, 1, () => {
+        void (async () => {
+          confOverlay.remove();
+          await this.plugin.removeAccount(acc.id);
+          overlay.remove();
+          void this.plugin.openAccounts();
+        })();
       });
     });
 
     // ---- Footer ----
     const foot = modal.createDiv({ cls: "tj-as-foot" });
     foot.createEl("button", { text: "Cancel", cls: "tj-as-btn", attr: { type: "button" } }).addEventListener("click", () => overlay.remove());
-    foot.createEl("button", { text: "Save changes", cls: "tj-as-btn tj-as-btn-cta", attr: { type: "button" } }).addEventListener("click", async () => {
-      const nextSize = selectedSize || acc.size;
-      // The value anchor is required before a boundary goes on file: a tracking
-      // start with no declared value would silently balance from the configured
-      // size. The trader either typed their own number or ticked the box.
-      const typedOpening = parseFloat(openingInput.value);
-      const openingBalance = Number.isFinite(typedOpening) && typedOpening > 0 ? typedOpening : null;
-      const openingPeak = parseFloat(peakInput?.value ?? "");
-      if (missingOpeningBalance({ trackingStart: trackingValue, openingBalance: openingBalance ?? undefined }) && !useSizeInput.checked) {
-        useSizeNote.setText(OPENING_BALANCE_REQUIRED_NOTE);
-        useSizeNote.addClass("tj-as-hint-warn");
-        new Notice("Opening balance needed before tracking can start.");
-        (useSizeInput.checked ? openingInput : useSizeInput).focus();
-        return;
-      }
-      useSizeNote.setText("");
-      useSizeNote.removeClass("tj-as-hint-warn");
-      // Keep names unique so two accounts never share trades/data.
-      const taken = (this.plugin.settings.propAccounts || []).filter((a) => a.id !== acc.id).map((a) => a.name);
-      const desired = uniqueAccountName(nameInput.value.trim() || acc.name, taken);
-      if (desired !== acc.name) {
-        // Rename + re-index every trade of this account so nothing is lost.
-        await this.plugin.renameAccount(acc.id, desired);
-      }
-      if (startedValue) acc.createdAt = startedValue;
-      else delete acc.createdAt;
-      acc.size = nextSize;
+    foot.createEl("button", { text: "Save changes", cls: "tj-as-btn tj-as-btn-cta", attr: { type: "button" } }).addEventListener("click", () => {
+      void (async () => {
+        const nextSize = selectedSize || acc.size;
+        // The value anchor is required before a boundary goes on file: a tracking
+        // start with no declared value would silently balance from the configured
+        // size. The trader either typed their own number or ticked the box.
+        const typedOpening = parseFloat(openingInput.value);
+        const openingBalance = Number.isFinite(typedOpening) && typedOpening > 0 ? typedOpening : null;
+        const openingPeak = parseFloat(peakInput?.value ?? "");
+        if (missingOpeningBalance({ trackingStart: trackingValue, openingBalance: openingBalance ?? undefined }) && !useSizeInput.checked) {
+          useSizeNote.setText(OPENING_BALANCE_REQUIRED_NOTE);
+          useSizeNote.addClass("tj-as-hint-warn");
+          new Notice("Opening balance needed before tracking can start.");
+          (useSizeInput.checked ? openingInput : useSizeInput).focus();
+          return;
+        }
+        useSizeNote.setText("");
+        useSizeNote.removeClass("tj-as-hint-warn");
+        // Keep names unique so two accounts never share trades/data.
+        const taken = (this.plugin.settings.propAccounts || []).filter((a) => a.id !== acc.id).map((a) => a.name);
+        const desired = uniqueAccountName(nameInput.value.trim() || acc.name, taken);
+        if (desired !== acc.name) {
+          // Rename + re-index every trade of this account so nothing is lost.
+          await this.plugin.renameAccount(acc.id, desired);
+        }
+        if (startedValue) acc.createdAt = startedValue;
+        else delete acc.createdAt;
+        acc.size = nextSize;
 
-      // Tracking boundary + the account's own opening state + reported context.
-      // The opening value and the pre-tracking peak belong to a boundary: with
-      // none, they would measure the balance from a moment that no longer exists
-      // and double-count the history it was meant to replace. So clearing the
-      // boundary clears them, out loud — never a silent conversion.
-      const hadOpeningState = hasOpeningBalance(acc) || openingPeakOf(acc) !== null;
-      if (trackingValue) acc.trackingStart = trackingValue;
-      else delete acc.trackingStart;
-      if (openingBalance !== null) acc.openingBalance = openingBalance;
-      else if (useSizeInput.checked && trackingValue) acc.openingBalance = nextSize;
-      else delete acc.openingBalance;
-      // The pre-tracking high-water mark, declared for a trailing floor. Recorded
-      // as a number or not at all — never inferred from the opening balance.
-      if (Number.isFinite(openingPeak) && openingPeak > 0) acc.openingPeak = openingPeak;
-      else delete acc.openingPeak;
-      if (!trackingValue && hadOpeningState) {
-        new Notice("Tracking start cleared — the opening balance and pre-tracking peak were cleared with it.");
-      }
-      // Context is display-only: it never becomes trades or calculated metrics.
-      const prevCount = parseInt(prevCountInput.value, 10);
-      const prevWinRate = parseFloat(prevWinRateInput.value);
-      const note = noteInput.value.trim();
-      const ctx = { ...(acc.historicalContext ?? {}) };
-      if (Number.isFinite(prevCount)) ctx.previousTradeCount = prevCount;
-      else delete ctx.previousTradeCount;
-      if (Number.isFinite(prevWinRate)) ctx.previousWinRate = prevWinRate;
-      else delete ctx.previousWinRate;
-      if (note) ctx.note = note;
-      else delete ctx.note;
-      if (Object.keys(ctx).length) acc.historicalContext = ctx;
-      else delete acc.historicalContext;
-      acc.type = selectedType;
-      // A funded account must not keep the evaluation's rules: when the type
-      // changes, snap the program to one of the right phase (Select eval →
-      // Select Funded, Growth → Growth Funded, and so on).
-      const firmObj = view.firm;
-      const currentProgram = view.program;
-      if (firmObj && currentProgram && selectedType !== "unknown" && currentProgram.phase && currentProgram.phase !== selectedType) {
-        const match = firmObj.programs.find((pr) => pr.phase === selectedType);
-        if (match) acc.programId = match.id;
-      }
-      // Rules — the draft the pane edited. Only prop accounts carry them; a
-      // personal/demo account saves none, so switching type clears the old ones.
-      if (isPropType(selectedType as AccountType) || selectedType === "personal") {
-        const rules: AccountRules = {};
-        if (selectedType !== "personal" && ruleState.target) rules.target = ruleState.target;
-        if (selectedType !== "personal" && ruleState.targetPct) rules.targetPct = ruleState.targetPct;
-        if (ruleState.maxLoss) rules.maxLoss = ruleState.maxLoss;
-        if (ruleState.maxLossPct) rules.maxLossPct = ruleState.maxLossPct;
-        if (selectedType !== "personal" && ruleState.dailyLoss) rules.dailyLoss = ruleState.dailyLoss;
-        if (selectedType !== "personal" && ruleState.consistency) rules.consistency = ruleState.consistency;
-        if (ruleState.consistencyBasis) rules.consistencyBasis = ruleState.consistencyBasis;
-        if (ruleState.maxLossType) rules.maxLossType = ruleState.maxLossType;
-        if (ruleState.ddLockOffset) rules.ddLockOffset = ruleState.ddLockOffset;
-        if (ruleState.posSize) rules.posSize = ruleState.posSize;
-        if (selectedType !== "personal" && ruleState.minDays) rules.minDays = ruleState.minDays;
-        if (selectedType !== "personal" && ruleState.dailyLossNote) rules.dailyLossNote = ruleState.dailyLossNote;
-        acc.rules = Object.keys(rules).length ? rules : undefined;
-      } else {
-        acc.rules = undefined;
-      }
-      await this.plugin.saveSettings();
-      await this.plugin.reloadAllViews();
-      overlay.remove();
-      this.render();
+        // Tracking boundary + the account's own opening state + reported context.
+        // The opening value and the pre-tracking peak belong to a boundary: with
+        // none, they would measure the balance from a moment that no longer exists
+        // and double-count the history it was meant to replace. So clearing the
+        // boundary clears them, out loud — never a silent conversion.
+        const hadOpeningState = hasOpeningBalance(acc) || openingPeakOf(acc) !== null;
+        if (trackingValue) acc.trackingStart = trackingValue;
+        else delete acc.trackingStart;
+        if (openingBalance !== null) acc.openingBalance = openingBalance;
+        else if (useSizeInput.checked && trackingValue) acc.openingBalance = nextSize;
+        else delete acc.openingBalance;
+        // The pre-tracking high-water mark, declared for a trailing floor. Recorded
+        // as a number or not at all — never inferred from the opening balance.
+        if (Number.isFinite(openingPeak) && openingPeak > 0) acc.openingPeak = openingPeak;
+        else delete acc.openingPeak;
+        if (!trackingValue && hadOpeningState) {
+          new Notice("Tracking start cleared — the opening balance and pre-tracking peak were cleared with it.");
+        }
+        // Context is display-only: it never becomes trades or calculated metrics.
+        const prevCount = parseInt(prevCountInput.value, 10);
+        const prevWinRate = parseFloat(prevWinRateInput.value);
+        const note = noteInput.value.trim();
+        const ctx = { ...(acc.historicalContext ?? {}) };
+        if (Number.isFinite(prevCount)) ctx.previousTradeCount = prevCount;
+        else delete ctx.previousTradeCount;
+        if (Number.isFinite(prevWinRate)) ctx.previousWinRate = prevWinRate;
+        else delete ctx.previousWinRate;
+        if (note) ctx.note = note;
+        else delete ctx.note;
+        if (Object.keys(ctx).length) acc.historicalContext = ctx;
+        else delete acc.historicalContext;
+        acc.type = selectedType as AccountType;
+        // A funded account must not keep the evaluation's rules: when the type
+        // changes, snap the program to one of the right phase (Select eval →
+        // Select Funded, Growth → Growth Funded, and so on).
+        const firmObj = view.firm;
+        const currentProgram = view.program;
+        if (firmObj && currentProgram && selectedType !== "unknown" && currentProgram.phase && currentProgram.phase !== selectedType) {
+          const match = firmObj.programs.find((pr) => pr.phase === selectedType);
+          if (match) acc.programId = match.id;
+        }
+        // Rules — the draft the pane edited. Only prop accounts carry them; a
+        // personal/demo account saves none, so switching type clears the old ones.
+        if (isPropType(selectedType as AccountType) || selectedType === "personal") {
+          const rules: AccountRules = {};
+          if (selectedType !== "personal" && ruleState.target) rules.target = ruleState.target;
+          if (selectedType !== "personal" && ruleState.targetPct) rules.targetPct = ruleState.targetPct;
+          if (ruleState.maxLoss) rules.maxLoss = ruleState.maxLoss;
+          if (ruleState.maxLossPct) rules.maxLossPct = ruleState.maxLossPct;
+          if (selectedType !== "personal" && ruleState.dailyLoss) rules.dailyLoss = ruleState.dailyLoss;
+          if (selectedType !== "personal" && ruleState.consistency) rules.consistency = ruleState.consistency;
+          if (ruleState.consistencyBasis) rules.consistencyBasis = ruleState.consistencyBasis;
+          if (ruleState.maxLossType) rules.maxLossType = ruleState.maxLossType;
+          if (ruleState.ddLockOffset) rules.ddLockOffset = ruleState.ddLockOffset;
+          if (ruleState.posSize) rules.posSize = ruleState.posSize;
+          if (selectedType !== "personal" && ruleState.minDays) rules.minDays = ruleState.minDays;
+          if (selectedType !== "personal" && ruleState.dailyLossNote) rules.dailyLossNote = ruleState.dailyLossNote;
+          acc.rules = Object.keys(rules).length ? rules : undefined;
+        } else {
+          acc.rules = undefined;
+        }
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+        overlay.remove();
+        this.render();
+      })();
     });
 
     showTab("general");
@@ -841,7 +841,7 @@ export class AccountDashboardView extends ItemView {
         empty.createDiv({ text: "This account no longer exists — it may have been deleted or archived." });
         empty
           .createEl("button", { text: "Open Accounts", cls: "mod-cta tj-btn", attr: { type: "button" } })
-          .addEventListener("click", () => this.plugin.openAccounts());
+          .addEventListener("click", () => void this.plugin.openAccounts());
       } else {
         empty.createDiv({ text: "No accounts yet — create your first account to see its dashboard here." });
         empty
@@ -999,8 +999,6 @@ export class AccountDashboardView extends ItemView {
     const balance = movement.balance;
     // The header's correction square reads this when it is pressed.
     balanceNow = balance;
-    const peak = movement.peakChange;
-    const todayNet = byDay.get(this.todayKey())?.net ?? 0;
     const targetApplies = acc.type === "eval";
     const targetReached = targetApplies && size.target > 0 ? net >= size.target : false;
     const targetPct = targetApplies && size.target > 0 ? Math.min(100, (net / size.target) * 100) : 0;
@@ -1031,15 +1029,17 @@ export class AccountDashboardView extends ItemView {
       const btns = banner.createDiv({ cls: "tj-acc-passed-btns" });
       const goArchive = btns.createEl("button", { text: "Upgrade & archive", cls: "mod-cta tj-btn", attr: { type: "button" } });
       attachTip(goArchive, { title: "Upgrade & archive", sub: "Files this eval away for good; its trades stay in the vault." });
-      goArchive.addEventListener("click", () => doUpgrade("archive"));
+      goArchive.addEventListener("click", () => void doUpgrade("archive"));
       const goDelete = btns.createEl("button", { text: "Upgrade & delete", cls: "tj-btn tj-del", attr: { type: "button" } });
       attachTip(goDelete, { title: "Upgrade & delete", sub: "Removes this eval for good after creating the funded account. Asks twice." });
-      goDelete.addEventListener("click", async () => {
-        void this.showDeleteConfirm(banner, acc, 1, async () => { await doUpgrade("delete"); });
+      goDelete.addEventListener("click", () => {
+        void (async () => {
+          void this.showDeleteConfirm(banner, acc, 1, () => { void doUpgrade("delete"); });
+        })();
       });
       const goKeep = btns.createEl("button", { text: "Keep for now", cls: "tj-btn", attr: { type: "button" } });
       attachTip(goKeep, { title: "Keep for now", sub: "Keeps this eval here until you archive it." });
-      goKeep.addEventListener("click", () => doUpgrade("keep"));
+      goKeep.addEventListener("click", () => void doUpgrade("keep"));
     } else if (passedState) {
       // The memory: quiet, factual, and the archive is always the first offer.
       const band = main.createDiv({ cls: "tj-acc-passed-band" });
@@ -1111,16 +1111,20 @@ export class AccountDashboardView extends ItemView {
       }
       const bandArchive = bandBtns.createEl("button", { text: "Archive", cls: "tj-btn", attr: { type: "button" } });
       attachTip(bandArchive, { title: "Archive", sub: "Files it away for good: out of every view, still restorable from the Accounts page." });
-      bandArchive.addEventListener("click", async () => {
-        await this.plugin.archiveAccount(acc.id);
-        void this.plugin.openAccounts();
+      bandArchive.addEventListener("click", () => {
+        void (async () => {
+          await this.plugin.archiveAccount(acc.id);
+          void this.plugin.openAccounts();
+        })();
       });
       const bandDelete = bandBtns.createEl("button", { text: "Delete", cls: "tj-btn tj-del", attr: { type: "button" } });
       attachTip(bandDelete, { title: "Delete", sub: "Removes the account, its records and its trade notes for good." });
       bandDelete.addEventListener("click", () => {
-        void this.showDeleteConfirm(band, acc, 1, async () => {
-          await this.plugin.removeAccount(acc.id);
-          void this.plugin.openAccounts();
+        void this.showDeleteConfirm(band, acc, 1, () => {
+          void (async () => {
+            await this.plugin.removeAccount(acc.id);
+            void this.plugin.openAccounts();
+          })();
         });
       });
     }
@@ -1245,12 +1249,6 @@ export class AccountDashboardView extends ItemView {
       dRow(behaviour, "Best / worst streak", `${M.streakWinBest}W / ${M.streakLossWorst}L`, "", "Longest winning and losing runs.");
     };
 
-    const wFacts = (host: HTMLElement) => host.createDiv({ cls: "tj-acc-perffacts" });
-    const wFact = (host: HTMLElement, label: string, value: string, tone = "") => {
-      const f = host.createDiv({ cls: "tj-acc-pfact" });
-      f.createDiv({ cls: "tj-acc-k", text: label });
-      f.createDiv({ cls: `tj-acc-factv ${tone}`.trim(), text: value });
-    };
     const mkDonut = (host: HTMLElement, label: string, pct: number, sub: string) => {
       const box = host.createDiv({ cls: "tj-acc-dial" });
       const NS = "http://www.w3.org/2000/svg";
@@ -1716,10 +1714,8 @@ export class AccountDashboardView extends ItemView {
       ["session", "Session", (t) => sessionLabel(t, this.plugin.settings.timeZone), sessionRank],
     ];
     const bdButtons = new Map<string, HTMLElement>();
-    let currentDim = this.plugin.settings.accountBreakdownTab ?? "symbol";
     const winOf = (b: { count: number; wins: number }) => (b.count ? (b.wins / b.count) * 100 : 0);
     const bdSelect = (id: string) => {
-      currentDim = id;
       for (const [key, btn] of bdButtons) btn.toggleClass("on", key === id);
       bdBody.empty();
       const dim = bdDims.find((d) => d[0] === id) ?? bdDims[0];
@@ -1782,10 +1778,10 @@ export class AccountDashboardView extends ItemView {
           sort: sortState,
           onSort: (next) => { sortState = next; paint(); },
           stickyHeader: false,
-          order: resolveOrder((this.plugin.settings as any).tradeLogColOrder, DEFAULT_ACCOUNT_ORDER),
+          order: resolveOrder(this.plugin.settings.tradeLogColOrder, DEFAULT_ACCOUNT_ORDER),
           onRowClick: (t) => void this.plugin.openTradeDetail({ id: t.id, from: { type: "account", accountId: acc.id } }),
           onReorder: (next) => {
-            (this.plugin.settings as any).tradeLogColOrder = next;
+            this.plugin.settings.tradeLogColOrder = next;
             void this.plugin.saveSettings();
             paint();
           },
@@ -1834,7 +1830,7 @@ export class AccountDashboardView extends ItemView {
 
   /** Double-warning themed delete confirmation — works inline (banner) or as an overlay. */
   /** Ask before making a funded: with several around, this must never be a slip. */
-  private showFundedCreateConfirm(host: HTMLElement, acc: any, onConfirm: () => Promise<string | void> | string | void): void {
+  private showFundedCreateConfirm(host: HTMLElement, acc: PropAccount, onConfirm: () => Promise<string | void> | string | void): void {
     host.querySelectorAll(".tj-delete-confirm").forEach((el) => el.remove());
     const card = host.createDiv({ cls: "tj-delete-confirm" });
     card.createDiv({ cls: "tj-delete-icon", text: "\uD83C\uDFC1" });
@@ -1843,15 +1839,17 @@ export class AccountDashboardView extends ItemView {
     card.createEl("p", { cls: "tj-delete-desc", text: "This creates one with the same firm, program and size, and links the two. If you already have that funded account, cancel instead — the band can link it." });
     const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
     btns.createEl("button", { text: "Cancel", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => card.remove());
-    btns.createEl("button", { text: "Yes, create it", cls: "tj-btn mod-cta", attr: { type: "button" } }).addEventListener("click", async () => {
-      card.remove();
-      const id = await onConfirm();
-      if (typeof id === "string" && id) void this.plugin.openAccountDashboard(this.leaf, id);
+    btns.createEl("button", { text: "Yes, create it", cls: "tj-btn mod-cta", attr: { type: "button" } }).addEventListener("click", () => {
+      void (async () => {
+        card.remove();
+        const id = await onConfirm();
+        if (typeof id === "string" && id) void this.plugin.openAccountDashboard(this.leaf, id);
+      })();
     });
   }
 
   /** Point an eval at a different funded (or at none), without creating anything. */
-  private showRelinkFunded(host: HTMLElement, acc: any, props: PropAccount[]): void {
+  private showRelinkFunded(host: HTMLElement, acc: PropAccount, props: PropAccount[]): void {
     host.querySelectorAll(".tj-delete-confirm").forEach((el) => el.remove());
     const card = host.createDiv({ cls: "tj-delete-confirm" });
     card.createEl("h3", { text: "Link this eval to…" });
@@ -1865,27 +1863,31 @@ export class AccountDashboardView extends ItemView {
         text: f.linkedEvalId && f.linkedEvalId !== acc.id ? "already linked to another eval" : "free",
       });
       attachTip(rowBtn, { title: f.name, sub: "Links this eval to it. No account is created, no trade is touched." });
-      rowBtn.addEventListener("click", async () => {
-        card.remove();
-        await this.plugin.linkEvalToFunded(acc.id, f.id);
+      rowBtn.addEventListener("click", () => {
+        void (async () => {
+          card.remove();
+          await this.plugin.linkEvalToFunded(acc.id, f.id);
+        })();
       });
     }
     const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
     btns.createEl("button", { text: "Cancel", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => card.remove());
     const none = btns.createEl("button", { text: "No funded account", cls: "tj-btn", attr: { type: "button" } });
     attachTip(none, { title: "Unlink", sub: "Forgets the link. The funded account itself is never deleted." });
-    none.addEventListener("click", async () => {
-      card.remove();
-      const funded = props.find((a) => a.id === acc.linkedFundedId);
-      if (funded) delete funded.linkedEvalId;
-      delete acc.linkedFundedId;
-      await this.plugin.saveSettings();
-      await this.plugin.reloadAllViews();
+    none.addEventListener("click", () => {
+      void (async () => {
+        card.remove();
+        const funded = props.find((a) => a.id === acc.linkedFundedId);
+        if (funded) delete funded.linkedEvalId;
+        delete acc.linkedFundedId;
+        await this.plugin.saveSettings();
+        await this.plugin.reloadAllViews();
+      })();
     });
   }
 
   /** One calm question before an eval in progress disappears from the views. */
-  private showArchiveConfirm(host: HTMLElement, acc: any, onConfirm: () => void | Promise<void>): void {
+  private showArchiveConfirm(host: HTMLElement, acc: PropAccount, onConfirm: () => void | Promise<void>): void {
     host.querySelectorAll(".tj-delete-confirm").forEach((el) => el.remove());
     const card = host.createDiv({ cls: "tj-delete-confirm" });
     card.createDiv({ cls: "tj-delete-icon", text: "\uD83D\uDCE6" });
@@ -1894,13 +1896,15 @@ export class AccountDashboardView extends ItemView {
     card.createEl("p", { cls: "tj-delete-desc", text: "Archiving keeps every trade and hides the account from the views and totals. You can restore it any time from the Accounts page." });
     const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
     btns.createEl("button", { text: "Cancel", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => card.remove());
-    btns.createEl("button", { text: "Yes, archive", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", async () => {
-      card.remove();
-      await onConfirm();
+    btns.createEl("button", { text: "Yes, archive", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => {
+      void (async () => {
+        card.remove();
+        await onConfirm();
+      })();
     });
   }
 
-  private async showDeleteConfirm(host: HTMLElement, acc: any, step: number, onConfirm?: () => void): Promise<void> {
+  private async showDeleteConfirm(host: HTMLElement, acc: PropAccount, step: number, onConfirm?: () => void): Promise<void> {
     host.querySelectorAll(".tj-delete-confirm").forEach((el) => el.remove());
     const card = host.createDiv({ cls: "tj-delete-confirm" });
     const close = () => {
@@ -1948,12 +1952,14 @@ export class AccountDashboardView extends ItemView {
       card.createEl("p", { cls: "tj-delete-desc tj-del", text: "This action CANNOT be undone. There is no way to recover this account after deletion." });
       const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
       btns.createEl("button", { text: "Cancel", cls: "tj-btn" }).addEventListener("click", close);
-      btns.createEl("button", { text: "I understand, delete permanently", cls: "tj-btn tj-del" }).addEventListener("click", async () => {
-        if (onConfirm) { onConfirm(); }
-        else {
-          await this.plugin.removeAccount(acc.id);
-          void this.plugin.openAccounts();
-        }
+      btns.createEl("button", { text: "I understand, delete permanently", cls: "tj-btn tj-del" }).addEventListener("click", () => {
+        void (async () => {
+          if (onConfirm) { onConfirm(); }
+          else {
+            await this.plugin.removeAccount(acc.id);
+            void this.plugin.openAccounts();
+          }
+        })();
       });
     }
   }
@@ -1985,7 +1991,7 @@ export class AccountDashboardView extends ItemView {
     });
   }
 
-  renderDepositTracker(box: HTMLElement, acc: any): void {
+  renderDepositTracker(box: HTMLElement, acc: PropAccount): void {
     const deposits = this.plugin.depositsFor(acc.id);
     const totalDeposited = deposits.reduce((s, d) => s + d.amount, 0);
     const section = box.createDiv({ cls: "tj-payout-box" });
@@ -2020,10 +2026,12 @@ export class AccountDashboardView extends ItemView {
         }
         const yes = delCell.createEl("button", { text: "Remove?", cls: "tj-mini tj-del", attr: { type: "button", "aria-label": "Confirm remove deposit" } });
         const no = delCell.createEl("button", { text: "Cancel", cls: "tj-mini", attr: { type: "button" } });
-        yes.addEventListener("click", async () => {
-          await this.plugin.removeDeposit(d.id);
-          new Notice("Deposit removed.");
-          this.render();
+        yes.addEventListener("click", () => {
+          void (async () => {
+            await this.plugin.removeDeposit(d.id);
+            new Notice("Deposit removed.");
+            this.render();
+          })();
         });
         no.addEventListener("click", () => paintDel(false));
       };
@@ -2031,7 +2039,7 @@ export class AccountDashboardView extends ItemView {
     }
   }
 
-  showDepositForm(section: HTMLElement, acc: any): void {
+  showDepositForm(section: HTMLElement, acc: PropAccount): void {
     const form = section.createDiv({ cls: "tj-payout-form" });
     const row = form.createDiv({ cls: "tj-form-row" });
     row.createEl("label", { text: "Date" });
@@ -2048,14 +2056,16 @@ export class AccountDashboardView extends ItemView {
     row.createEl("label", { text: "Note (optional)" });
     const noteInput = row.createEl("input", { type: "text", cls: "tj-input", attr: { placeholder: "e.g. Initial deposit" } });
     const save = row.createEl("button", { text: "Save deposit", cls: "mod-cta tj-btn" });
-    save.addEventListener("click", async () => {
-      const parsed = parseFloat(amountInput.value);
-      if (!Number.isFinite(parsed) || parsed <= 0) return;
-      const amount = Math.round(parsed);
-      const date = depositDate || this.todayKey();
-      await this.plugin.registerDeposit(acc.id, date, amount, noteInput.value.trim() || undefined);
-      form.remove();
-      this.render();
+    save.addEventListener("click", () => {
+      void (async () => {
+        const parsed = parseFloat(amountInput.value);
+        if (!Number.isFinite(parsed) || parsed <= 0) return;
+        const amount = Math.round(parsed);
+        const date = depositDate || this.todayKey();
+        await this.plugin.registerDeposit(acc.id, date, amount, noteInput.value.trim() || undefined);
+        form.remove();
+        this.render();
+      })();
     });
     const cancel = row.createEl("button", { text: "Cancel", cls: "tj-btn tj-mini" });
     cancel.addEventListener("click", () => form.remove());

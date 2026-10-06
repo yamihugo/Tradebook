@@ -366,7 +366,7 @@ class FeeAdjustModal extends Modal {
     const save = actions.createEl("button", { cls: "tj-actionbtn", attr: { type: "button" } });
     setIcon(save.createSpan({ cls: "tj-btn-icon" }), "check");
     save.createSpan({ text: "Log adjustment" });
-    save.addEventListener("click", async () => {
+    save.addEventListener("click", () => void (async () => {
       const raw = haveInput.value.trim();
       const parsed = raw === "" ? NaN : parseFloat(raw);
       if (!Number.isFinite(parsed)) {
@@ -409,7 +409,7 @@ class FeeAdjustModal extends Modal {
           : `Logged ${fmtMoney(diff)} on ${this.accountName()}.`
       );
       this.refresh();
-    });
+    })());
 
     if (!adjustments.length) {
       const empty = contentEl.createDiv({ cls: "tj-payout-empty" });
@@ -440,10 +440,10 @@ class FeeAdjustModal extends Modal {
         attr: { type: "button", "aria-label": "Remove correction" },
       });
       setIcon(del, "x");
-      del.addEventListener("click", async () => {
+      del.addEventListener("click", () => void (async () => {
         await this.plugin.removeFeeAdjustment(a.id);
         this.refresh();
-      });
+      })());
     }
 
     const foot = contentEl.createDiv({ cls: "tj-fees-total" });

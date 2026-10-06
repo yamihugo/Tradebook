@@ -205,5 +205,5 @@ export function reviewSummary(trades: Trade[]): {
 
 // Test hook for the smoke harness (jsdom): the pure engine is easy to verify.
 if (typeof window !== "undefined") {
-  (window as any).__tjReview = { hasText, reviewStatus, reviewSummary, optionalSummary };
+  window.__tjReview = { hasText, reviewStatus, reviewSummary, optionalSummary };
 }

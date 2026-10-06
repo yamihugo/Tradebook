@@ -1,4 +1,4 @@
-import { ItemView, Modal, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Modal, Notice, setIcon, TFile, type App, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
@@ -296,7 +296,7 @@ export class TradeLogView extends ItemView {
         this.resultFilter = f.result ?? this.resultFilter;
         this.mistakeFilters = f.mistakes ?? (f.mistake ? [f.mistake] : this.mistakeFilters);
         this.psychologyFilters = f.psychologies ?? this.psychologyFilters;
-        this.reviewFilter = (f.review as any) ?? this.reviewFilter;
+        this.reviewFilter = (f.review as "all" | "complete" | "pending") ?? this.reviewFilter;
         this.sessionFilter = f.session ?? this.sessionFilter;
         this.accountTypeFilter = f.accountType ?? this.accountTypeFilter;
         // Missing used to be a single choice; read that once and carry on with the list.
@@ -1200,12 +1200,12 @@ export class TradeLogView extends ItemView {
       setupHost,
       setupItems,
       "",
-      async (id) => {
+      (id) => void (async () => {
         if (id === "__new__") {
-          this.inlineInput(bar, "New strategy name", async (name) => {
+          this.inlineInput(bar, "New strategy name", (name) => void (async () => {
             const clean = await this.plugin.addStrategy(name);
             if (clean) await this.bulkField({ setup: clean });
-          });
+          })());
           return;
         }
         if (id === "__none__") {
@@ -1213,7 +1213,7 @@ export class TradeLogView extends ItemView {
           return;
         }
         await this.bulkField({ setup: id });
-      },
+      })(),
       { placeholder: "Strategy…", title: "File the selected trades under a strategy", align: "left" }
     );
     if (empty) setupHost.addClass("is-disabled");
@@ -2248,7 +2248,7 @@ export class TradeLogView extends ItemView {
 /** A small yes/no dialog in our own surface, for actions that destroy things. */
 class ConfirmModal extends Modal {
   constructor(
-    app: any,
+    app: App,
     private opts: { title: string; body: string; cta: string; onConfirm: () => void }
   ) {
     super(app);

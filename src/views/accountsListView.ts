@@ -1083,7 +1083,6 @@ export class AccountsListView extends ItemView {
     // The account id travels with the card: handy for support ("which card is
     // this?") and it keeps the test harnesses honest without matching names.
     tile.dataset.account = acc.id;
-    const m = st.m;
 
     const edge = tile.createDiv({ cls: "tj-acct-tile-edge" });
     // Same source as the dashboard's "Room to loss floor": the floor model, not
@@ -1447,18 +1446,18 @@ export class AccountsListView extends ItemView {
       row.createSpan({ text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
       row
         .createEl("button", { text: "Restore", cls: "tj-btn tj-mini", attr: { type: "button" } })
-        .addEventListener("click", async () => {
+        .addEventListener("click", () => void (async () => {
           await this.plugin.unarchiveAccount(acc.id);
           this.render();
-        });
+        })());
       row
         .createEl("button", { text: "Delete record", cls: "tj-btn tj-mini", attr: { type: "button" } })
-        .addEventListener("click", async () => {
+        .addEventListener("click", () => void (async () => {
           if (!window.confirm(`Remove ${acc.name} from the archive? Its trades stay in the journal.`)) return;
           this.plugin.settings.archivedAccounts = (this.plugin.settings.archivedAccounts || []).filter((a) => a.id !== acc.id);
           await this.plugin.saveSettings();
           this.render();
-        });
+        })());
     }
   }
 

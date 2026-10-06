@@ -372,7 +372,7 @@ export function computeProcessSignals(
 
 // Test hook, same pattern as the other pure modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjProcess = {
+  window.__tjProcess = {
     computeProcessSignals,
     revengeStats,
     reentrySignals,

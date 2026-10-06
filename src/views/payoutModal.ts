@@ -140,7 +140,7 @@ class PayoutsModal extends Modal {
     const save = actions.createEl("button", { cls: "tj-actionbtn", attr: { type: "button" } });
     setIcon(save.createSpan({ cls: "tj-btn-icon" }), "check");
     save.createSpan({ text: "Log payout" });
-    save.addEventListener("click", async () => {
+    save.addEventListener("click", () => void (async () => {
       const parsed = parseFloat(amountInput.value);
       if (!Number.isFinite(parsed) || parsed <= 0) {
         // Silence here is what made a missing payout look like a broken app.
@@ -154,7 +154,7 @@ class PayoutsModal extends Modal {
       await this.plugin.registerPayout(this.accountId, when || todayKey(this.plugin.settings.timeZone), amount, noteInput.value.trim() || undefined);
       new Notice(`Logged ${fmtMoney(amount)} paid out of ${this.accountName()}.`);
       this.refresh();
-    });
+    })());
 
     // ---- what is already out -------------------------------------------
     if (!payouts.length) {
@@ -181,10 +181,10 @@ class PayoutsModal extends Modal {
         attr: { type: "button", "aria-label": "Remove payout" },
       });
       setIcon(del, "x");
-      del.addEventListener("click", async () => {
+      del.addEventListener("click", () => void (async () => {
         await this.plugin.removePayout(p.id);
         this.refresh();
-      });
+      })());
     }
   }
 }

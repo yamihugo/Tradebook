@@ -49,7 +49,7 @@ export function reflow(
       for (let x = 0; x + it.w <= cols; x++) {
         const trial: GridItem = { i: it.i, x, y, w: it.w, h: it.h };
         if (!placed.some((p) => collides(trial, p))) {
-          if ((it as any).static) (trial as any).static = true;
+          if (it.static) trial.static = true;
           placed.push(trial);
           done = true;
           break;
@@ -237,7 +237,7 @@ export function moveBandOrder<T>(order: T[], from: number, to: number): T[] {
 
 // Test hook for the smoke harness (jsdom): the pure engine is easy to verify.
 if (typeof window !== "undefined") {
-  (window as any).__tjGrid = {
+  window.__tjGrid = {
     GRID_COLS,
     ROW_PX,
     GAP,

@@ -296,7 +296,6 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
     if (w > 200) {
       const li = values.length - 1;
       const ddVal = opts.ddLine[li];
-      const ddDiff = values[li] - ddVal;
       const t = svgEl("text", {
         x: String(w - padR - 4),
         y: String(botY - 4),

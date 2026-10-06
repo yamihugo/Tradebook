@@ -26,7 +26,7 @@
 import type { Trade } from "../types";
 import { tradeDayInZone } from "./instant";
 import { uniqueTrades } from "./copy";
-import type { FinancialScope, FinancialSummary } from "./money";
+import type { FinancialScope } from "./money";
 
 export interface AnalyticsScope {
   /** Every leg with a finite P&L — the real money. */

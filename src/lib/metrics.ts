@@ -402,5 +402,5 @@ export function metricById(id: string): MetricDef | undefined {
 
 // Test hook
 if (typeof window !== "undefined") {
-  (window as any).__tjMetrics = { METRICS, METRIC_TITLES, metricById };
+  window.__tjMetrics = { METRICS, METRIC_TITLES, metricById };
 }

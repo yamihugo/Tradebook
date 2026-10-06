@@ -1,4 +1,42 @@
 import { typeLabel } from "./lib/accountTypes";
+import { App, Plugin } from "obsidian";
+
+interface PluginSettings {
+  privacyMode?: boolean;
+  theme?: {
+    pattern?: string;
+    background?: string;
+    font?: string;
+    glow?: boolean;
+    accent?: string;
+    dotColor?: string;
+    surface?: string;
+    bg?: string;
+    bg2?: string;
+    border?: string;
+  };
+}
+
+interface PluginLike {
+  settings?: PluginSettings;
+}
+
+interface SettingTabRef {
+  id: string;
+  active?: string;
+  display?: () => void;
+}
+
+interface SettingApi {
+  settingTabs?: SettingTabRef[];
+  pluginTabs?: SettingTabRef[];
+  openTabById?: (id: string) => void;
+  open?: () => void;
+}
+
+interface AppWithSetting extends App {
+  setting?: SettingApi;
+}
 
 export interface FilterOption {
   id: string;
@@ -51,7 +89,7 @@ export function svgPath(svg: SVGSVGElement, d: string, cls?: string): SVGPathEle
  */
 export function renderAppShell(
   root: HTMLElement,
-  plugin: any,
+  plugin: PluginLike,
   active: string,
   opts: { extraNav?: { id: string; label: string; fn: () => void }[] } = {}
 ): HTMLElement {
@@ -86,12 +124,12 @@ export function renderAppShell(
  * ("main" | "timezone" | "appearance" | "accounts"). Works across Obsidian
  * versions: prefers app.setting.openTabById, falls back to app.setting.open.
  */
-export function openPluginSettings(app: any, plugin: any, tabId?: string): void {
+export function openPluginSettings(app: AppWithSetting, plugin: Plugin, tabId?: string): void {
   const setting = app?.setting;
   const pluginId = plugin?.manifest?.id;
   if (!setting || !pluginId) return;
   try {
-    const pool: any[] = [
+    const pool: SettingTabRef[] = [
       ...(Array.isArray(setting.settingTabs) ? setting.settingTabs : []),
       ...(Array.isArray(setting.pluginTabs) ? setting.pluginTabs : []),
     ];
@@ -107,7 +145,7 @@ export function openPluginSettings(app: any, plugin: any, tabId?: string): void 
   try {
     if (typeof setting.open === "function") setting.open();
     const tabs = setting.settingTabs ?? [];
-    const tab = tabs.find((t: any) => t.id === pluginId);
+    const tab = tabs.find((t: SettingTabRef) => t.id === pluginId);
     if (tab && typeof tab.display === "function") tab.display();
   } catch (err) {
     console.error("[tradebook] settings open failed:", err);

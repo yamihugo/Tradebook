@@ -493,7 +493,7 @@ export function legsOf(trades: Trade[], baseKey: string): Trade[] {
 
 /** A virtual leg is synthesized in memory and has no file on disk. */
 export function isVirtualLeg(t: Trade | undefined | null): boolean {
-  return !!t && (t as any).copyVirtual === true;
+  return !!t && (t as Trade & { copyVirtual?: boolean }).copyVirtual === true;
 }
 
 /**
@@ -510,7 +510,7 @@ export function synthesizeLegs(plugin: TradebookPlugin, base: Trade): Trade[] {
     if (!cfg) continue;
     const leg = buildLeg(base, acc, cfg);
     if (!leg.symbol || leg.quantity <= 0) continue;
-    (leg as any).copyVirtual = true;
+    (leg as Trade & { copyVirtual?: boolean }).copyVirtual = true;
     leg.id = `${legBaseKey(base)}::copy::${acc.id}`;
     out.push(leg);
   }
@@ -780,7 +780,7 @@ export async function deleteLegs(plugin: TradebookPlugin, baseKey: string): Prom
  */
 export async function materializeLeg(plugin: TradebookPlugin, leg: Trade): Promise<string> {
   const copy: Trade = { ...leg };
-  delete (copy as any).copyVirtual;
+  delete (copy as Trade & { copyVirtual?: boolean }).copyVirtual;
   copy.id = "";
   await saveTrade(plugin.app, plugin.getTradesFolder(), copy, plugin.settings.dateFormat);
   plugin.clearTradeCache();

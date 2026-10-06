@@ -1113,5 +1113,5 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
 // Test hook (see lib/fills.ts): the ledger is rendered by two views, so the
 // harness drives it directly instead of going through a whole page.
 if (typeof window !== "undefined") {
-  (window as any).__tjTradeTable = { renderTradeTable, holdFmt, tradeR, orderedTradeRows, tradeRows };
+  window.__tjTradeTable = { renderTradeTable, holdFmt, tradeR, orderedTradeRows, tradeRows };
 }

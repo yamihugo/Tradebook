@@ -1061,5 +1061,5 @@ function round2(n: number): number {
 
 // Test hook (see lib/fills.ts): lets the harness feed a CSV and inspect the fills.
 if (typeof window !== "undefined") {
-  (window as any).__tjCsv = { parseTradeovateCsv };
+  (window as unknown as { __tjCsv: { parseTradeovateCsv: typeof parseTradeovateCsv } }).__tjCsv = { parseTradeovateCsv };
 }

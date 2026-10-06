@@ -1,4 +1,4 @@
-import { Notice, setIcon } from "obsidian";
+import { Notice } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import {
@@ -331,7 +331,7 @@ export class AddTradePanel {
       fSetup.createDiv({ cls: "tj-add-ctl" }),
       setupItems,
       currentSetup || "__none__",
-      async (id) => {
+      (id) => void (async () => {
         if (id === "__new__") {
           const name = window.prompt("Name your strategy");
           if (!name || !name.trim()) return;
@@ -347,7 +347,7 @@ export class AddTradePanel {
         }
         t.setup = id;
         this.renderBody();
-      },
+      })(),
       { placeholder: "No strategy" }
     );
 
@@ -446,7 +446,7 @@ export class AddTradePanel {
     timeInput(field("Entry time", tz), t.entryTime || "", (v) => {
       t.entryTime = v;
       // The session follows the entry time unless the trader pinned one.
-      if (!(t as any).sessionOverride) remountSession?.();
+      if (!t.sessionOverride) remountSession?.();
     });
     timeInput(field("Exit time", tz), t.exitTime || "", (v) => {
       t.exitTime = v;
@@ -656,14 +656,14 @@ export class AddTradePanel {
     const sessHost = fSess.createDiv({ cls: "tj-add-ctl" });
     remountSession = () => {
       sessHost.empty();
-      const sessVal = (t as any).sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
+      const sessVal = t.sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
       mountDropdown(
         sessHost,
         sessItems,
         sessVal,
         (id) => {
-          if (id === "__auto__") delete (t as any).sessionOverride;
-          else (t as any).sessionOverride = id;
+          if (id === "__auto__") delete t.sessionOverride;
+          else t.sessionOverride = id;
         },
         { placeholder: "Session…" }
       );
@@ -828,7 +828,7 @@ export class AddTradePanel {
       text: "Save trade",
       attr: { type: "button" },
     });
-    save.addEventListener("click", () => this.doSave(save));
+    save.addEventListener("click", () => void this.doSave(save));
     // A trade belongs to an account. With none, there is nowhere to put it —
     // say so on the button instead of failing after the click.
     if (!(this.plugin.settings.propAccounts || []).some((a) => a.name)) {

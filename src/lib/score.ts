@@ -398,5 +398,5 @@ export function computeScore(trades: Trade[], dayKey: (t: Trade) => string): Sco
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__tjScore = { computeScore, recentScoreWindow, scoreAsOf, recoveryScore };
+  window.__tjScore = { computeScore, recentScoreWindow, scoreAsOf, recoveryScore };
 }

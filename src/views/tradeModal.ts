@@ -109,7 +109,7 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
     area.addEventListener("change", () => {
       const val = area.value.trim();
       if (val === value) return;
-      (trade as any)[key] = val;
+      trade[key] = val;
       void saveTradeField(plugin, trade, key, val);
     });
   };
@@ -121,7 +121,7 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
   const foot = modal.createDiv({ cls: "tj-trade-modal-foot" });
   const noteBtn = foot.createEl("button", { text: "Open note", cls: "tj-btn tj-mini" });
 attachTip(noteBtn, { title: "Open note", sub: "The raw markdown file, in Obsidian." });
-  noteBtn.addEventListener("click", async () => {
+  noteBtn.addEventListener("click", () => void (async () => {
     if (!trade.id) return;
     const file = plugin.app.vault.getAbstractFileByPath(trade.id);
     if (file instanceof TFile) {
@@ -129,7 +129,7 @@ attachTip(noteBtn, { title: "Open note", sub: "The raw markdown file, in Obsidia
       await leaf.openFile(file);
       await plugin.app.workspace.revealLeaf(leaf);
     }
-  });
+  })());
 
   // Click outside closes
   overlay.addEventListener("click", (e) => {

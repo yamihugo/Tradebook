@@ -276,7 +276,7 @@ function round(n: number): number {
 // Test hook, same pattern as the other pure modules (grid, review, trends):
 // the smoke harness has no bundler, so the maths is reachable from window.
 if (typeof window !== "undefined") {
-  (window as any).__tjFills = {
+  window.__tjFills = {
     fillSet, fillLabel, fillIndex, toneClass, applyFillsToTrade, entrySide,
     isBreakEven, pointsOf, tradePoints,
   };

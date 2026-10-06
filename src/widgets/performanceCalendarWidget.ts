@@ -312,5 +312,5 @@ export class PerformanceCalendarWidget {
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__tjPerformanceCalendar = { PerformanceCalendarWidget };
+  (window as unknown as { __tjPerformanceCalendar: { PerformanceCalendarWidget: unknown } }).__tjPerformanceCalendar = { PerformanceCalendarWidget };
 }

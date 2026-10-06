@@ -28,7 +28,7 @@ import { holdFmtOf, tradeR } from "../lib/tradeTable";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
 import { feeForTrade, netPnl, priceFromRisk, round2, splitFeeTotal } from "../lib/fees";
-import { optionalSummary, reviewStatus } from "../lib/review";
+import { reviewStatus } from "../lib/review";
 
 export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
 
@@ -163,7 +163,7 @@ export class TradeDetailView extends ItemView {
     if (!this.trade) {
       // Try to restore from view state (survives Obsidian reload)
       let saved: { tradeId?: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } } | undefined;
-      try { saved = (this.leaf as any).getViewState?.()?.state; } catch { /* */ }
+      try { saved = this.leaf.getViewState?.()?.state; } catch { /* */ }
       if (saved?.from) this.from = saved.from;
       const savedId = saved?.tradeId;
       const trades = await this.loadScope();
@@ -347,11 +347,11 @@ export class TradeDetailView extends ItemView {
         title: "Mark this decision reviewed",
         sub: "It leaves the review queue and counts as reviewed everywhere. The checklist still shows what the note holds — reviewing does not invent fields.",
       });
-      mark.addEventListener("click", async () => {
+      mark.addEventListener("click", () => void (async () => {
         this.trade!.reviewed = true;
         await this.saveFields({ reviewed: "true" });
         this.render();
-      });
+      })());
     }
 
     // Multi-account badge — this trade lives in more than one account when it was
@@ -378,7 +378,7 @@ export class TradeDetailView extends ItemView {
     });
     setIcon(refresh, "refresh-cw");
     attachTip(refresh, { title: "Reload from note", sub: "For when you edited the file by hand." });
-    refresh.addEventListener("click", async () => {
+    refresh.addEventListener("click", () => void (async () => {
       const currentId = this.trade?.id;
       if (!currentId) return;
       this.plugin.clearTradeCache();
@@ -390,7 +390,7 @@ export class TradeDetailView extends ItemView {
         this.index = fresh.findIndex((x) => x.id === currentId);
       }
       this.render();
-    });
+    })());
     const delBtn = headActions.createEl("button", {
       cls: "tj-iconbtn",
       attr: { type: "button", "aria-label": "Delete trade" },
@@ -405,7 +405,7 @@ export class TradeDetailView extends ItemView {
         ? "Moves this copy's note to the vault trash. The original and its other copies stay."
         : "Moves the note to the vault trash, along with the copies generated from it. Real imported copies stay.",
     });
-    delBtn.addEventListener("click", async () => {
+    delBtn.addEventListener("click", () => void (async () => {
       const extra = isCopied
         ? " Only this copy will be removed."
         : " Its generated copies will be removed too.";
@@ -414,7 +414,7 @@ export class TradeDetailView extends ItemView {
         if (backToAccount) await this.plugin.openAccountDashboard(undefined, origin.accountId as string);
         else await this.plugin.openTradeLog();
       }
-    });
+    })());
 
     // ---- Body ----
     const body = main.createDiv({ cls: "tj-td-body" });
@@ -483,11 +483,11 @@ export class TradeDetailView extends ItemView {
           ? "Every review step is written. Click to reopen it."
           : "Marked reviewed — out of the queue. Click to reopen it; the checklist below still shows what the note holds.",
       });
-      statusBadge.addEventListener("click", async () => {
+      statusBadge.addEventListener("click", () => void (async () => {
         this.trade!.reviewed = false;
         await this.saveField("reviewed", "false");
         this.render();
-      });
+      })());
     } else {
       const statusBadge = heroTitle.createSpan({ cls: statusCls, text: statusText });
       attachTip(statusBadge, {
@@ -644,11 +644,11 @@ export class TradeDetailView extends ItemView {
           s.textContent = current ? fmtPrice(current) : "—";
           input.replaceWith(s);
         };
-        input.addEventListener("blur", async () => {
+        input.addEventListener("blur", () => void (async () => {
           const price = parseFloat(input.value.trim());
           if (Number.isFinite(price) && price !== current) await onSave(price);
           else restore();
-        });
+        })());
         input.addEventListener("keydown", (e) => {
           if (e.key === "Enter") { e.preventDefault(); input.blur(); }
           if (e.key === "Escape") { e.preventDefault(); restore(); }
@@ -754,7 +754,7 @@ export class TradeDetailView extends ItemView {
         input.replaceWith(s);
         attachTip(s, tip);
       };
-      input.addEventListener("blur", async () => {
+      input.addEventListener("blur", () => void (async () => {
         const price = parsePriceOrDollars(input.value.trim(), towards);
         if (price !== null) {
           const rounded = Math.round(price * 100) / 100;
@@ -767,7 +767,7 @@ export class TradeDetailView extends ItemView {
           }
           this.render();
         } else restore();
-      });
+      })());
       input.addEventListener("keydown", (e) => {
         if (e.key === "Enter") { e.preventDefault(); input.blur(); }
         if (e.key === "Escape") { e.preventDefault(); restore(); }
@@ -805,16 +805,16 @@ export class TradeDetailView extends ItemView {
     mountDropdown(
       sessWrap,
       sessItems,
-      (t as any).sessionOverride || sessKey || "",
-      async (id) => {
+      t.sessionOverride || sessKey || "",
+      (id) => void (async () => {
         if (id === "__auto__") {
-          delete (t as any).sessionOverride;
+          delete t.sessionOverride;
         } else {
-          (t as any).sessionOverride = id;
+          t.sessionOverride = id;
         }
         await this.saveFields({ session_override: id === "__auto__" ? "" : id });
         this.render();
-      },
+      })(),
       { placeholder: "Session…" }
     );
 
@@ -858,11 +858,11 @@ export class TradeDetailView extends ItemView {
       { id: "Market", label: "Market" },
       { id: "Stop", label: "Stop" },
       { id: "Stop Limit", label: "Stop Limit" },
-    ], t.orderType || "", async (id) => {
+    ], t.orderType || "", (id) => void (async () => {
       this.trade!.orderType = id || undefined;
-      await this.saveField("order_type" as any, id);
+      await this.saveField("orderType", id);
       this.render();
-    }, { placeholder: "—" });
+    })(), { placeholder: "—" });
 
     row(execCard, "Max position", String(fillData.positionSize || t.quantity || 1));
     row(execCard, "Fill count", String(fillData.fills.length));
@@ -887,7 +887,7 @@ export class TradeDetailView extends ItemView {
       stratWrap,
       setupItems,
       currentSetup,
-      async (id) => {
+      (id) => void (async () => {
         if (id === "__none__") {
           this.trade!.setup = "";
           await this.saveField("setup", "");
@@ -907,7 +907,7 @@ export class TradeDetailView extends ItemView {
         this.trade!.setup = id;
         await this.saveField("setup", id);
         this.render();
-      },
+      })(),
       { placeholder: "Pick a strategy…", title: "Strategy this trade followed" }
     );
 
@@ -971,13 +971,13 @@ export class TradeDetailView extends ItemView {
       const ackBtn = field.createEl("button", { cls: "tj-td-ack", text: ack.text, attr: { type: "button" } });
       const paintAck = () => ackBtn.toggleClass("on", this.trade?.[ack.field] === true);
       paintAck();
-      ackBtn.addEventListener("click", async () => {
+      ackBtn.addEventListener("click", () => void (async () => {
         const next = this.trade?.[ack.field] !== true;
         this.trade![ack.field] = next;
         await this.saveAck(ack.field, next);
         paintAck();
         this.refreshReviewHeader();
-      });
+      })());
 
       const write = (tags: string[]) => {
         const id = this.trade?.id;
@@ -1251,10 +1251,10 @@ export class TradeDetailView extends ItemView {
         const x = thumb.createEl("button", { cls: "tj-td-shot-remove", attr: { type: "button" } });
         x.createSpan({ cls: "tj-sr-only", text: `Remove print ${i + 1}` });
         setIcon(x, "x");
-        x.addEventListener("click", async (ev) => {
+        x.addEventListener("click", (ev) => void (async () => {
           ev.stopPropagation();
           await this.removeScreenshot(i);
-        });
+        })());
         thumb.addEventListener("click", () => {
           if (i === this._activePrint) return;
           this._activePrint = i;
@@ -1297,24 +1297,24 @@ export class TradeDetailView extends ItemView {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       fileInput.click();
     });
-    fileInput.addEventListener("change", async () => {
+    fileInput.addEventListener("change", () => void (async () => {
       if (fileInput.files && fileInput.files[0]) {
         await this.handleScreenshotFile(fileInput.files[0]);
         fileInput.value = "";
       }
-    });
+    })());
 
     // Drag & drop
     const stop = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
     addTarget.addEventListener("dragenter", (e) => { stop(e); addTarget.addClass("over"); });
     addTarget.addEventListener("dragover", (e) => { stop(e); addTarget.addClass("over"); });
     addTarget.addEventListener("dragleave", () => { addTarget.removeClass("over"); });
-    addTarget.addEventListener("drop", async (e) => {
+    addTarget.addEventListener("drop", (e) => void (async () => {
       stop(e);
       addTarget.removeClass("over");
       const file = e.dataTransfer?.files?.[0];
       if (file) await this.handleScreenshotFile(file);
-    });
+    })());
 
     // Ctrl+V paste (when hovered or focused)
     let hovered = false;
@@ -1323,7 +1323,7 @@ export class TradeDetailView extends ItemView {
     addTarget.addEventListener("mouseleave", () => { hovered = false; });
     addTarget.addEventListener("focus", () => { hovered = true; });
     addTarget.addEventListener("blur", () => { hovered = false; });
-    const onPaste = async (e: ClipboardEvent) => {
+    const onPasteAsync = async (e: ClipboardEvent) => {
       if (!hovered && document.activeElement !== addTarget) return;
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -1338,6 +1338,7 @@ export class TradeDetailView extends ItemView {
     // One document listener at a time: a re-render clears the previous one, so
     // they cannot pile up on the document as the reader moves between trades.
     this._pasteCleanups.forEach((fn) => fn());
+    const onPaste = (e: ClipboardEvent) => void onPasteAsync(e);
     this._pasteCleanups = [() => document.removeEventListener("paste", onPaste, true)];
     document.addEventListener("paste", onPaste, true);
 
@@ -1575,7 +1576,10 @@ export class TradeDetailView extends ItemView {
   // ---- Save ----
   async saveField(key: "setup" | "review" | "mistake" | "thesis" | "notes" | "rating" | "reviewed" | "orderType" | "direction", value: string): Promise<void> {
     try {
-      if (this.trade?.id) await updateTradeFields(this.app, (this.app.vault.getAbstractFileByPath(this.trade.id) as TFile), { [key]: value });
+      if (this.trade?.id) {
+        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
+        if (f instanceof TFile) await updateTradeFields(this.app, f, { [key]: value });
+      }
     } catch (err) {
       console.error("[tradebook] failed to save trade field:", err);
       new Notice("Could not save — check the file still exists.");
@@ -1665,7 +1669,8 @@ export class TradeDetailView extends ItemView {
   async saveFields(fields: Record<string, string>): Promise<void> {
     try {
       if (this.trade?.id) {
-        await updateTradeFields(this.app, (this.app.vault.getAbstractFileByPath(this.trade.id) as TFile), fields);
+        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
+        if (f instanceof TFile) await updateTradeFields(this.app, f, fields);
       }
     } catch (err) {
       console.error("[tradebook] failed to save trade fields:", err);
@@ -1678,7 +1683,8 @@ export class TradeDetailView extends ItemView {
     const yamlKey = key === "mistakesAcknowledged" ? "mistakes_acknowledged" : "psychology_acknowledged";
     try {
       if (this.trade?.id) {
-        await updateTradeFields(this.app, this.app.vault.getAbstractFileByPath(this.trade.id) as TFile, { [yamlKey]: value });
+        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
+        if (f instanceof TFile) await updateTradeFields(this.app, f, { [yamlKey]: value });
       }
     } catch (err) {
       console.error("[tradebook] failed to save acknowledgement:", err);
@@ -1701,7 +1707,7 @@ export class TradeDetailView extends ItemView {
 
   annotate(file: TFile): void {
     if (!this.annotator) this.annotator = new PrintAnnotator(this.plugin);
-    this.annotator.open(file, (annotatedName) => this.pointPrintAt(file, annotatedName));
+    this.annotator.open(file, (annotatedName) => void this.pointPrintAt(file, annotatedName));
   }
 
   /**

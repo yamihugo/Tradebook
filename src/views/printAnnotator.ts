@@ -1456,7 +1456,7 @@ export class PrintAnnotator {
       return new Promise((res) => out.toBlob((b) => res(b), "image/png"));
     };
 
-    saveB.addEventListener("click", async () => {
+    saveB.addEventListener("click", () => void (async () => {
       saveB.setAttr("disabled", "true");
       try {
         const payload: AnnotatorFile = { version: 1, shapes };
@@ -1481,6 +1481,6 @@ export class PrintAnnotator {
       } finally {
         saveB.removeAttribute("disabled");
       }
-    });
+    })());
   }
 }

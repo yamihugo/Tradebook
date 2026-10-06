@@ -7,7 +7,7 @@ import { freeNumeric } from "../lib/numeric";
 import { formatDate, mountDateField } from "../lib/dates";
 import { attachTip } from "../lib/tip";
 import { fmtMoneyAbs } from "../tz";
-import { DEFAULT_COLORS, DEFAULT_LABELS, TYPE_COLOR_CHOICES, typeKey, typeOrder } from "../lib/accountTypes";
+import { DEFAULT_COLORS, DEFAULT_LABELS, TYPE_COLOR_CHOICES, typeOrder } from "../lib/accountTypes";
 
 /** A small palette so two groups never look alike. */
 const GROUP_COLORS = ["#34d17a", "#4aa8ff", "#a882ff", "#d9a441", "#ff8d6b", "#7de2d1", "#ff5d48", "#8a8a8a"];
@@ -421,13 +421,13 @@ class AccountsManageModal extends Modal {
         });
         row
           .createEl("button", { cls: "tj-mg-act", text: "Take out", attr: { type: "button" } })
-          .addEventListener("click", async (ev) => {
+          .addEventListener("click", (ev) => void (async () => {
             ev.stopPropagation();
             this.detachAccount(t);
             await this.apply();
             new Notice(`${t.name} is out of its group.`);
             this.render();
-          });
+          })());
       }
     }
 
@@ -524,7 +524,7 @@ class AccountsManageModal extends Modal {
       title: "Create group",
       sub: "Links the leader to the copiers you picked. It never rewrites a trade you have already recorded.",
     });
-    create.addEventListener("click", async () => {
+    create.addEventListener("click", () => void (async () => {
       const lead = free.find((f) => f.id === this.newLeaderId);
       if (!lead) return;
       const used = new Set(
@@ -562,7 +562,7 @@ class AccountsManageModal extends Modal {
           : `${lead.name} is set as a leader. Add copiers whenever you want.`
       );
       this.render();
-    });
+    })());
     actions
       .createEl("button", { cls: "tj-mg-act is-quiet", text: "Cancel", attr: { type: "button" } })
       .addEventListener("click", () => {
@@ -589,24 +589,24 @@ class AccountsManageModal extends Modal {
     const dot = head.createDiv({ cls: "tj-mg-dot" });
     dot.style.background = leader.copyGroupColor ?? GROUP_COLORS[0];
     attachTip(dot, { title: "Group colour", sub: "Click to walk the palette." });
-    dot.addEventListener("click", async () => {
+    dot.addEventListener("click", () => void (async () => {
       const i = GROUP_COLORS.indexOf(leader.copyGroupColor ?? GROUP_COLORS[0]);
       leader.copyGroupColor = GROUP_COLORS[(i + 1) % GROUP_COLORS.length];
       await this.apply();
       this.render();
       this.flashSaved();
-    });
+    })());
 
     const nameInput = head.createEl("input", {
       cls: "tj-mg-name",
       attr: { type: "text", value: leader.copyGroupName ?? "", placeholder: `Trading group — ${leader.name}` },
     });
-    nameInput.addEventListener("change", async () => {
+    nameInput.addEventListener("change", () => void (async () => {
       leader.copyGroupName = nameInput.value.trim() || undefined;
       await this.apply();
       this.render();
       this.flashSaved();
-    });
+    })());
 
     head.createDiv({ cls: "tj-mg-count", text: `${members.length} copier${members.length === 1 ? "" : "s"}` });
 
@@ -637,12 +637,12 @@ class AccountsManageModal extends Modal {
       });
       bar
         .createEl("button", { cls: "tj-mg-act is-danger", text: "Disband", attr: { type: "button" } })
-        .addEventListener("click", async () => {
+        .addEventListener("click", () => void (async () => {
           this.detachAccount(leader);
           await this.apply();
           new Notice(`Group disbanded — ${leader.name} is free again.`);
           this.render();
-        });
+        })());
       bar
         .createEl("button", { cls: "tj-mg-act is-quiet", text: "Cancel", attr: { type: "button" } })
         .addEventListener("click", () => {
@@ -693,7 +693,7 @@ class AccountsManageModal extends Modal {
         },
         { placeholder: "Pick an account…", title: "Which account leads this group from today" }
       );
-      moveBtn.addEventListener("click", async () => {
+      moveBtn.addEventListener("click", () => void (async () => {
         const next = items.find((i) => i.id === nextId && !i.disabled);
         if (!next) return; // the button is disabled until an eligible leader is picked
         const nextAcc = all.find((a) => a.id === next.id);
@@ -718,7 +718,7 @@ class AccountsManageModal extends Modal {
         await this.apply();
         new Notice(`${nextAcc.name} now leads the group.`);
         this.render();
-      });
+      })());
     }
 
     // --- members, drawn on a tree so the leader/copiers relation reads at a glance
@@ -775,7 +775,7 @@ class AccountsManageModal extends Modal {
       }
       const addBtn = add.createEl("button", { text: "Add to group", cls: "tj-mg-act", attr: { type: "button" } });
       addBtn.disabled = !addTarget;
-      addBtn.addEventListener("click", async () => {
+      addBtn.addEventListener("click", () => void (async () => {
         const target = free.find((f) => f.id === this.addPickedId);
         if (!target) return; // the button is disabled until an account is picked
         const ratio = this.addRatio;
@@ -791,7 +791,7 @@ class AccountsManageModal extends Modal {
         await this.apply();
         new Notice(`${target.name} now copies ${leader.name}.`);
         this.render();
-      });
+      })());
     } else {
       add.createSpan({ cls: "tj-mg-empty", text: "Every account is already in a group." });
     }
@@ -878,7 +878,6 @@ class AccountsManageModal extends Modal {
       title: "Ratio",
       sub: "Contracts copied per leader contract. Below one mini, the copy mirrors in micros so the leg is never lost. Changing it applies from today and never rewrites trades already copied.",
     });
-    const mult = ratioZone.createSpan({ cls: "tj-mg-mratiox", text: "\u00d7" });
 
     // --- the way out, in its own zone with real distance from the ratio
     const acts = row.createDiv({ cls: "tj-mg-macts" });
@@ -891,12 +890,12 @@ class AccountsManageModal extends Modal {
       title: "Remove from the group",
       sub: "It keeps every trade it already copied and simply stops taking new ones. It can join another group or lead its own later.",
     });
-    off.addEventListener("click", async () => {
+    off.addEventListener("click", () => void (async () => {
       unlinkCopier(m, this.plugin.settings.timeZone);
       await this.apply();
       new Notice(`${m.name} is out of the group. It keeps every trade it copied.`);
       this.render();
-    });
+    })());
   }
 
   private sizeOf(acc: PropAccount): number {
@@ -1072,7 +1071,7 @@ class AccountsManageModal extends Modal {
         title: visOn ? "Shown on the Accounts page" : "Hidden from the Accounts page",
         sub: "Hiding a type only tidies the page — the accounts keep trading and reporting.",
       });
-      vis.addEventListener("click", async (ev) => {
+      vis.addEventListener("click", (ev) => void (async () => {
         ev.stopPropagation();
         const set = new Set<string>(s.accountsVisibleTypes ?? ALL_TYPES);
         if (visOn) set.delete(t);
@@ -1082,7 +1081,7 @@ class AccountsManageModal extends Modal {
         await this.apply();
         this.render();
         this.flashSaved();
-      });
+      })());
     });
 
     // A way back: labels, colours and order are all cosmetic, so clearing them
@@ -1093,14 +1092,14 @@ class AccountsManageModal extends Modal {
       attr: { type: "button" },
     });
     attachTip(reset, { title: "Reset to defaults", sub: "Back to the original names, colours and order." });
-    reset.addEventListener("click", async () => {
+    reset.addEventListener("click", () => void (async () => {
       delete s.accountTypeLabels;
       delete s.accountTypeColors;
       delete s.accountTypeOrder;
       await this.apply();
       this.render();
       this.flashSaved();
-    });
+    })());
   }
 
   // --------------------------------------------------------------- display ----
@@ -1120,12 +1119,12 @@ class AccountsManageModal extends Modal {
         { id: "copy", label: "Trading group" },
       ],
       s.accountsGroupBy ?? "type",
-      async (id) => {
+      (id) => void (async () => {
         s.accountsGroupBy = id as typeof s.accountsGroupBy;
         await this.apply();
         this.render();
         this.flashSaved();
-      },
+      })(),
       { align: "right" }
     );
 
@@ -1139,11 +1138,11 @@ class AccountsManageModal extends Modal {
         { id: "dd", label: "Drawdown used" },
       ],
       s.accountsSort ?? "name",
-      async (id) => {
+      (id) => void (async () => {
         s.accountsSort = id as typeof s.accountsSort;
         await this.apply();
         this.flashSaved();
-      },
+      })(),
       { align: "right" }
     );
 
@@ -1152,29 +1151,29 @@ class AccountsManageModal extends Modal {
     const logo = this.row(shown, "Firm logo on each card", "Just the badge — it never changes a number. Off shows the firm's initial");
     const logoInput = logo.createEl("input", { cls: "tj-mg-check", attr: { type: "checkbox" } });
     logoInput.checked = s.accountsShowLogo !== false;
-    logoInput.addEventListener("change", async () => {
+    logoInput.addEventListener("change", () => void (async () => {
       s.accountsShowLogo = logoInput.checked;
       await this.apply();
       this.flashSaved();
-    });
+    })());
 
     const demos = this.row(shown, "Exclude demo accounts", "Demos stay visible but out of the totals");
     const demoInput = demos.createEl("input", { cls: "tj-mg-check", attr: { type: "checkbox" } });
     demoInput.checked = s.excludeDemosFromPortfolio !== false;
-    demoInput.addEventListener("change", async () => {
+    demoInput.addEventListener("change", () => void (async () => {
       s.excludeDemosFromPortfolio = demoInput.checked;
       await this.apply();
       this.flashSaved();
-    });
+    })());
 
     const arch = this.row(shown, "Archived accounts", "Show the Archived box at the bottom — past evals you keep for the record");
     const archInput = arch.createEl("input", { cls: "tj-mg-check", attr: { type: "checkbox" } });
     archInput.checked = s.accountsShowArchived !== false;
-    archInput.addEventListener("change", async () => {
+    archInput.addEventListener("change", () => void (async () => {
       s.accountsShowArchived = archInput.checked;
       await this.apply();
       this.flashSaved();
-    });
+    })());
 
     // Types used to be a tab of its own; it is how the page reads, so it sits
     // here now — one less place to look for the same decision.

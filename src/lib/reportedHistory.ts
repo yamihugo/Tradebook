@@ -59,5 +59,5 @@ export function reportedHistorySummary(ctx: ReportedHistory | undefined | null):
 
 // Test hook, same pattern as the other pure modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjReportedHistory = { reportedHistorySummary };
+  window.__tjReportedHistory = { reportedHistorySummary };
 }

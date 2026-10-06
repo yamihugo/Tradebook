@@ -160,7 +160,7 @@ export function sessionRank(label: string): number {
 
 // Test hook, same pattern as the other pure libs (grid, review, metrics).
 if (typeof window !== "undefined") {
-  (window as any).__tjSessions = {
+  window.__tjSessions = {
     sessionOf, sessionLabel, sessionBadge, sessionTone, sessionRank,
     SESSION_LABELS, SESSION_BADGES, SESSION_TONES,
     RTH_OPEN, RTH_CLOSE, NY_OPEN, NY_CLOSE, LDN_OPEN, LDN_CLOSE,

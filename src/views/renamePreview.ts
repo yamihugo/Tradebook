@@ -97,7 +97,7 @@ class RenamePreviewModal extends Modal {
       cls: "mod-cta",
       attr: { type: "button" },
     });
-    go.addEventListener("click", async () => {
+    go.addEventListener("click", () => void (async () => {
       if (this.working) return;
       this.working = true;
       go.setAttr("disabled", "true");
@@ -113,7 +113,7 @@ class RenamePreviewModal extends Modal {
         go.setText("Try again");
         this.working = false;
       }
-    });
+    })());
   }
 
   onClose(): void {
