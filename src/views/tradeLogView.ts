@@ -1028,7 +1028,7 @@ export class TradeLogView extends ItemView {
           this.renderLedger();
           const y = this.savedScrollY;
           this.savedScrollY = 0;
-          requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
             const sc = this.contentEl.querySelector(".tj-app-main") as HTMLElement | null;
             if (sc && y) sc.scrollTop = y;
           });
@@ -1513,7 +1513,7 @@ export class TradeLogView extends ItemView {
       const file = this.app.vault.getAbstractFileByPath(id);
       if (file instanceof TFile) {
         try {
-          await this.app.vault.delete(file);
+          await this.app.fileManager.trashFile(file);
           n++;
         } catch (err) {
           console.error("[tradebook] delete failed", err);

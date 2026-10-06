@@ -127,7 +127,7 @@ attachTip(noteBtn, { title: "Open note", sub: "The raw markdown file, in Obsidia
     if (file instanceof TFile) {
       const leaf = plugin.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      plugin.app.workspace.revealLeaf(leaf);
+      await plugin.app.workspace.revealLeaf(leaf);
     }
   });
 

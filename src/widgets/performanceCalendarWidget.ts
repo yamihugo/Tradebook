@@ -174,8 +174,8 @@ export class PerformanceCalendarWidget {
       : WEEKDAYS;
     if (this.wdRowEl) {
       this.wdRowEl.empty();
-      for (const wd of order.slice(0, cols)) this.wdRowEl.createEl("div", { cls: "tj-pcal-wd", text: wd });
-      this.wdRowEl.createEl("div", { cls: "tj-pcal-wd tj-pcal-wkhead", text: "WEEK" });
+      for (const wd of order.slice(0, cols)) this.wdRowEl.createDiv({ cls: "tj-pcal-wd", text: wd });
+      this.wdRowEl.createDiv({ cls: "tj-pcal-wd tj-pcal-wkhead", text: "WEEK" });
     }
 
     const first = new Date(this.year, this.month, 1);
@@ -214,7 +214,7 @@ export class PerformanceCalendarWidget {
         // hides a day, it only quiets the ones the market was closed.
         const dow = inMonth ? new Date(this.year, this.month, dayNum).getDay() : -1;
         const weekendEmpty = inMonth && !b && (dow === 0 || dow === 6);
-        const cell = grid.createEl("div", { cls: "tj-pcal-cell" + (inMonth ? "" : " is-dim") + (weekendEmpty ? " is-weekend-empty" : "") });
+        const cell = grid.createDiv({ cls: "tj-pcal-cell" + (inMonth ? "" : " is-dim") + (weekendEmpty ? " is-weekend-empty" : "") });
         if (this.opts.animate && inMonth) {
           cell.addClass("tj-pcal-in");
           cell.style.animationDelay = `${(w * 30 + c * 12)}ms`;
@@ -245,7 +245,7 @@ export class PerformanceCalendarWidget {
       }
 
       // Week number column — just the label, tinted by the week's Net result.
-      const wk = grid.createEl("div", { cls: "tj-pcal-wk" });
+      const wk = grid.createDiv({ cls: "tj-pcal-wk" });
       if (weekHasMonth) {
         wk.createDiv({ cls: "tj-pcal-wknum", text: String(w - rowsBefore + 1) });
         if (weekHasData) {

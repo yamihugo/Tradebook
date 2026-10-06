@@ -75,7 +75,7 @@ const prevMap = new Map<string, number[]>();
 let globalChartTip: HTMLElement | null = null;
 function getGlobalChartTip(): HTMLElement {
   if (!globalChartTip || !globalChartTip.isConnected) {
-    globalChartTip = document.createElement("div");
+    globalChartTip = createDiv();
     globalChartTip.id = "tj-eq-global-tip";
     globalChartTip.className = "tj-eq-chart-tip";
     globalChartTip.setCssStyles({ display: "none" });
@@ -95,16 +95,16 @@ let globalEqCard: EqCardRefs | null = null;
  *  widget's `overflow: hidden` can never clip it. */
 function getGlobalEqCard(): EqCardRefs {
   if (!globalEqCard || !globalEqCard.el.isConnected) {
-    const el = document.createElement("div");
+    const el = createDiv();
     el.className = "tj-eq-card";
     el.setCssStyles({ position: "fixed" });
     el.setCssStyles({ zIndex: "1000" });
     el.setCssStyles({ display: "none" });
-    const val = document.createElement("div");
+    const val = createDiv();
     val.className = "tj-eq-card-val";
-    const date = document.createElement("div");
+    const date = createDiv();
     date.className = "tj-eq-card-date";
-    const extra = document.createElement("div");
+    const extra = createDiv();
     extra.className = "tj-eq-extra";
     el.append(val, date, extra);
     document.body.appendChild(el);
@@ -511,10 +511,10 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
       const e = 1 - Math.pow(1 - t, 3);
       const n = Math.max(2, Math.round(values.length * e));
       render(values.slice(0, n));
-      if (t < 1) requestAnimationFrame(tick);
+      if (t < 1) window.requestAnimationFrame(tick);
       else render(values);
     };
-    requestAnimationFrame(tick);
+    window.requestAnimationFrame(tick);
   } else if (animationsOn && prev && !seriesEqual(prev, values)) {
     const from = resampleSeries(prev, values.length);
     const dur = 650;
@@ -523,9 +523,9 @@ export function renderLineChart(container: HTMLElement, opts: LineChartOpts): vo
       const t = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - t, 3);
       render(values.map((v, i) => from[i] + (v - from[i]) * e));
-      if (t < 1) requestAnimationFrame(tick);
+      if (t < 1) window.requestAnimationFrame(tick);
       else render(values);
     };
-    requestAnimationFrame(tick);
+    window.requestAnimationFrame(tick);
   }
 }

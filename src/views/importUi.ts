@@ -262,7 +262,7 @@ class ImportCsvModal extends Modal {
       setIcon(err.createSpan({ cls: "tj-import-casherr-ico" }), "circle-alert");
       err.createSpan({ text: this.cashError });
     }
-    const drop = this.cashEl.createEl("div", { cls: "tj-dropzone is-cash" });
+    const drop = this.cashEl.createDiv({ cls: "tj-dropzone is-cash" });
     drop.createDiv({ cls: "tj-drop-text", text: "Drop the Cash History CSV here" });
     drop.createDiv({ cls: "tj-drop-sub", text: "or click to choose a file" });
     const input = drop.createEl("input", { type: "file", attr: { accept: ".csv,.txt,text/csv" } });
@@ -331,7 +331,7 @@ class ImportCsvModal extends Modal {
 
   private renderDropzone(host: HTMLElement): void {
     host.empty();
-    const drop = host.createEl("div", { cls: "tj-dropzone" });
+    const drop = host.createDiv({ cls: "tj-dropzone" });
     drop.createDiv({ text: "Drop your CSV files here", cls: "tj-drop-text" });
     const sub = drop.createDiv({ text: "One file or many — all read as one batch", cls: "tj-drop-sub" });
     attachTip(sub, {
@@ -1071,7 +1071,7 @@ class ImportCsvModal extends Modal {
       const btn = warn.createEl("button", { cls: "tj-actionbtn is-primary", text: "Create an account" });
       btn.addEventListener("click", () => {
         this.close();
-        this.plugin.openAccounts();
+        void this.plugin.openAccounts();
       });
       this.renderStages();
       return;

@@ -4,7 +4,9 @@
  * A native <input type="date"> opens a picker drawn by the operating system,
  * which cannot be styled and reads as a foreign body in the journal. This is
  * our own: Monday-based grid, accent on the selected day, Today, and keyboard
- * navigation. Pure DOM (no Obsidian APIs) so it stays testable.
+ * navigation. DOM-oriented and free of Obsidian app APIs so it stays testable;
+ * elements are created through Obsidian's creation helpers on the anchor's own
+ * window/document, so the calendar also renders correctly in popout windows.
  */
 
 const MONTHS = [
@@ -69,34 +71,34 @@ export function openCalendar(anchor: HTMLElement, opts: CalendarOpts): () => voi
   const start = /^(\d{4})-(\d{2})-(\d{2})/.exec(selected);
   const cursor = start ? new Date(+start[1], +start[2] - 1, +start[3]) : isoToJs(todayIso);
 
-  const el = doc.createElement("div");
+  const el = win.createDiv();
   el.className = "tj-cal";
   if (opts.zIndex !== undefined) el.style.zIndex = String(opts.zIndex);
   el.setAttribute("role", "dialog");
   el.setAttribute("aria-label", "Calendar");
 
-  const head = doc.createElement("div");
+  const head = win.createDiv();
   head.className = "tj-cal-head";
-  const prev = doc.createElement("button");
+  const prev = win.createEl("button");
   prev.type = "button";
   prev.className = "tj-cal-nav";
   prev.textContent = "‹";
   prev.setAttribute("aria-label", "Previous month");
-  const title = doc.createElement("span");
+  const title = win.createSpan();
   title.className = "tj-cal-title";
-  const next = doc.createElement("button");
+  const next = win.createEl("button");
   next.type = "button";
   next.className = "tj-cal-nav";
   next.textContent = "›";
   next.setAttribute("aria-label", "Next month");
   head.append(prev, title, next);
 
-  const grid = doc.createElement("div");
+  const grid = win.createDiv();
   grid.className = "tj-cal-grid";
 
-  const foot = doc.createElement("div");
+  const foot = win.createDiv();
   foot.className = "tj-cal-foot";
-  const todayBtn = doc.createElement("button");
+  const todayBtn = win.createEl("button");
   todayBtn.type = "button";
   todayBtn.className = "tj-cal-today";
   todayBtn.textContent = "Today";
@@ -108,7 +110,7 @@ export function openCalendar(anchor: HTMLElement, opts: CalendarOpts): () => voi
   const dayButton = (y: number, m: number, d: number, out: boolean): HTMLButtonElement => {
     const nd = new Date(y, m, d);
     const iso = isoOf(nd.getFullYear(), nd.getMonth(), nd.getDate());
-    const b = doc.createElement("button");
+    const b = win.createEl("button");
     b.type = "button";
     b.className = "tj-cal-day" + (out ? " is-out" : "");
     b.textContent = String(d);
@@ -126,7 +128,7 @@ export function openCalendar(anchor: HTMLElement, opts: CalendarOpts): () => voi
     title.textContent = `${MONTHS[vm]} ${vy}`;
     grid.replaceChildren();
     for (const w of WEEKDAYS) {
-      const s = doc.createElement("span");
+      const s = win.createSpan();
       s.className = "tj-cal-wd";
       s.textContent = w;
       grid.append(s);

@@ -242,7 +242,7 @@ export class TradeDetailView extends ItemView {
     prevBtn.disabled = this.index <= 0;
     prevBtn.addEventListener("click", () => void this.prev());
 
-    navBtns.createEl("span", { cls: "tj-td-counter", text: `${this.index + 1} / ${this.allTrades.length}` });
+    navBtns.createSpan({ cls: "tj-td-counter", text: `${this.index + 1} / ${this.allTrades.length}` });
     if (backToAccount) {
       const acc = this.plugin.settings.propAccounts.find((a) => a.id === origin.accountId);
       const scope = navBtns.createSpan({ cls: "tj-td-scope", text: acc?.name ?? "This account" });
@@ -262,7 +262,7 @@ export class TradeDetailView extends ItemView {
     const reviewStateHost = reviewWrap.createDiv({ cls: "tj-td-review-state" });
     const reviewDots = reviewStateHost.createDiv({ cls: "tj-td-review-dots" });
     for (const chk of dotsState.checks.filter((c) => c.required)) {
-      const dot = reviewDots.createEl("span", { cls: "tj-td-review-dot" + (chk.done ? " done" : "") });
+      const dot = reviewDots.createSpan({ cls: "tj-td-review-dot" + (chk.done ? " done" : "") });
       dot.createSpan({ cls: "tj-sr-only", text: `${chk.label}: ${chk.done ? "complete" : "missing"}` });
       attachTip(dot, { title: chk.label, sub: chk.done ? "Complete" : "Missing" });
     }
@@ -544,7 +544,7 @@ export class TradeDetailView extends ItemView {
     const panelCard = (host: HTMLElement, title: string): HTMLElement => {
       const card = host.createDiv({ cls: "tj-td-panel" });
       const cardHead = card.createDiv({ cls: "tj-td-panel-head" });
-      cardHead.createEl("div", { cls: "tj-td-panel-title", text: title });
+      cardHead.createDiv({ cls: "tj-td-panel-title", text: title });
       return card.createDiv({ cls: "tj-td-panel-body" });
     };
     const execCard = panelCard(leftCol, "Execution & Risk");
@@ -563,8 +563,8 @@ export class TradeDetailView extends ItemView {
       opts?: { numeric?: boolean; tip?: string }
     ) => {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
-      r.createEl("span", { cls: "tj-td-flip-key", text: label });
-      const valSpan = r.createEl("span", { cls: "tj-td-flip-val", text: currentValue });
+      r.createSpan({ cls: "tj-td-flip-key", text: label });
+      const valSpan = r.createSpan({ cls: "tj-td-flip-val", text: currentValue });
       valSpan.setCssStyles({ cursor: "pointer" });
       attachTip(
         valSpan,
@@ -574,7 +574,7 @@ export class TradeDetailView extends ItemView {
       );
       valSpan.addEventListener("click", () => {
         // Replace span with input
-        const input = document.createElement("input");
+        const input = createEl("input");
         input.type = opts?.numeric ? "number" : "text";
         input.className = "tj-td-flip-input";
         input.value = currentValue.replace(/[^0-9.-]/g, "");
@@ -605,8 +605,8 @@ export class TradeDetailView extends ItemView {
     // Static (computed) row — not editable
     const row = (host: HTMLElement, label: string, value: string, tone = "") => {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
-      r.createEl("span", { cls: "tj-td-flip-key", text: label });
-      r.createEl("span", { cls: "tj-td-flip-val" + (tone ? " " + tone : ""), text: value });
+      r.createSpan({ cls: "tj-td-flip-key", text: label });
+      r.createSpan({ cls: "tj-td-flip-val" + (tone ? " " + tone : ""), text: value });
     };
 
     const fillData = fillSet(t);
@@ -620,16 +620,16 @@ export class TradeDetailView extends ItemView {
 
     // ---- Entry → Exit (each price edits on its own) ----
     const eeRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    eeRow.createEl("span", { cls: "tj-td-flip-key", text: "Entry → Exit" });
-    const eeVal = eeRow.createEl("span", { cls: "tj-td-flip-val" });
-    const entryPart = eeVal.createEl("span", { cls: "tj-td-ee-part", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—" });
-    eeVal.createEl("span", { cls: "tj-td-ee-arrow", text: " → " });
-    const exitPart = eeVal.createEl("span", { cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
+    eeRow.createSpan({ cls: "tj-td-flip-key", text: "Entry → Exit" });
+    const eeVal = eeRow.createSpan({ cls: "tj-td-flip-val" });
+    const entryPart = eeVal.createSpan({ cls: "tj-td-ee-part", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—" });
+    eeVal.createSpan({ cls: "tj-td-ee-arrow", text: " → " });
+    const exitPart = eeVal.createSpan({ cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
     const editPrice = (part: HTMLElement, current: number, onSave: (price: number) => Promise<void>) => {
       part.setCssStyles({ cursor: "pointer" });
       attachTip(part, { title: "Click to edit", sub: "Change this price" });
       part.addEventListener("click", () => {
-        const input = document.createElement("input");
+        const input = createEl("input");
         input.type = "number";
         input.className = "tj-td-flip-input";
         input.value = current ? String(current) : "";
@@ -639,7 +639,7 @@ export class TradeDetailView extends ItemView {
         input.focus();
         input.select();
         const restore = () => {
-          const s = document.createElement("span");
+          const s = createSpan();
           s.className = "tj-td-ee-part";
           s.textContent = current ? fmtPrice(current) : "—";
           input.replaceWith(s);
@@ -670,8 +670,8 @@ export class TradeDetailView extends ItemView {
     const rMultiple = riskDollar && riskDollar > 0 ? t.pnl / riskDollar : null;
     const rTone = rMultiple !== null ? (rMultiple >= 0 ? "pos" : "neg") : "";
     const rRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    rRow.createEl("span", { cls: "tj-td-flip-key", text: "R-Multiple" });
-    rRow.createEl("span", {
+    rRow.createSpan({ cls: "tj-td-flip-key", text: "R-Multiple" });
+    rRow.createSpan({
       cls: "tj-td-flip-val" + (rTone ? " " + rTone : "") + (rMultiple !== null ? " is-hero" : ""),
       text: rMultiple !== null ? `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(2)}R` : "—",
     });
@@ -720,8 +720,8 @@ export class TradeDetailView extends ItemView {
       ? `${fmtPrice(t.target)} / ${targetDollars !== null ? `$${targetDollars.toFixed(2)}` : "—"}`
       : "— / —";
     const srRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    srRow.createEl("span", { cls: "tj-td-flip-key", text: "Stop / Risk" });
-    const srVal = srRow.createEl("span", {
+    srRow.createSpan({ cls: "tj-td-flip-key", text: "Stop / Risk" });
+    const srVal = srRow.createSpan({
       cls: "tj-td-flip-val",
       text: srText,
       attr: { "data-field": "stopLoss" },
@@ -736,7 +736,7 @@ export class TradeDetailView extends ItemView {
       const tip = field === "target"
         ? { title: "Click to edit", sub: "A price, or a $ target." }
         : { title: "Click to edit", sub: "A price, or a $ risk." };
-      const input = document.createElement("input");
+      const input = createEl("input");
       input.type = "text";
       input.className = "tj-td-flip-input";
       input.value = field === "target" ? (t.target ? String(t.target) : "") : (t.stopLoss ? String(t.stopLoss) : "");
@@ -746,7 +746,7 @@ export class TradeDetailView extends ItemView {
       input.focus();
       input.select();
       const restore = () => {
-        const s = document.createElement("span");
+        const s = createSpan();
         s.className = "tj-td-flip-val";
         s.setAttribute("data-field", field);
         s.setCssStyles({ cursor: "pointer" });
@@ -782,8 +782,8 @@ export class TradeDetailView extends ItemView {
 
     // ---- Target (same two formats as Stop / Risk) ----
     const tgRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    tgRow.createEl("span", { cls: "tj-td-flip-key", text: "Target" });
-    const tgVal = tgRow.createEl("span", {
+    tgRow.createSpan({ cls: "tj-td-flip-key", text: "Target" });
+    const tgVal = tgRow.createSpan({
       cls: "tj-td-flip-val",
       text: targetText,
       attr: { "data-field": "target" },
@@ -793,7 +793,7 @@ export class TradeDetailView extends ItemView {
 
     const sessKey = sessionOf(t, zone);
     const sessRow = execCard.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });
-    sessRow.createEl("span", { cls: "tj-td-flip-key", text: "Session" });
+    sessRow.createSpan({ cls: "tj-td-flip-key", text: "Session" });
     const sessWrap = sessRow.createDiv({ cls: "tj-td-flip-strat-wrap" });
     const sessItems: DropdownItem[] = [
       { id: "newyork", label: "New York", note: "09:30–16:00 ET" },
@@ -851,7 +851,7 @@ export class TradeDetailView extends ItemView {
 
     // ---- Order Type / Max position / Fill count (every row visible) ----
     const otRow = execCard.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });
-    otRow.createEl("span", { cls: "tj-td-flip-key", text: "Order Type" });
+    otRow.createSpan({ cls: "tj-td-flip-key", text: "Order Type" });
     const otWrap = otRow.createDiv({ cls: "tj-td-flip-strat-wrap" });
     mountDropdown(otWrap, [
       { id: "Limit", label: "Limit" },
@@ -871,8 +871,8 @@ export class TradeDetailView extends ItemView {
     const twoCol = reviewCard.createDiv({ cls: "tj-td-two-col" });
 
     const stratField = twoCol.createDiv({ cls: "tj-td-field" });
-    const stratLbl = stratField.createEl("div", { cls: "tj-td-field-label" });
-    stratLbl.createEl("span", { text: "Strategy" });
+    const stratLbl = stratField.createDiv({ cls: "tj-td-field-label" });
+    stratLbl.createSpan({ text: "Strategy" });
     const stratWrap = stratField.createDiv({ cls: "tj-td-flip-strat-wrap" });
     const setupItems: DropdownItem[] = [
       { id: "__none__", label: "No strategy", note: "Record it without filing it under one" },
@@ -913,8 +913,8 @@ export class TradeDetailView extends ItemView {
 
     // ---- Rating — 5 loose stars, hover lights 1..N ----
     const ratingField = twoCol.createDiv({ cls: "tj-td-field" });
-    const ratingLbl = ratingField.createEl("div", { cls: "tj-td-field-label" });
-    ratingLbl.createEl("span", { text: "Rating" });
+    const ratingLbl = ratingField.createDiv({ cls: "tj-td-field-label" });
+    ratingLbl.createSpan({ text: "Rating" });
     const starsWrap = ratingField.createDiv({ cls: "tj-td-stars" });
     const starEls: HTMLElement[] = [];
     const glyphEls: HTMLElement[] = [];
@@ -962,7 +962,7 @@ export class TradeDetailView extends ItemView {
       const field = reviewCard.createDiv({
         cls: "tj-td-field tj-td-tags" + (mistake ? " tj-td-tags--mistakes" : ""),
       });
-      const lbl = field.createEl("div", { cls: "tj-td-field-label" });
+      const lbl = field.createDiv({ cls: "tj-td-field-label" });
       const lblText = lbl.createSpan({ text: label });
       attachTip(lblText, { title: label, sub: tip });
       const addBtn = lbl.createEl("button", { cls: "tj-td-ghostbtn", text: "＋ Add tag", attr: { type: "button" } });
@@ -982,7 +982,7 @@ export class TradeDetailView extends ItemView {
       const write = (tags: string[]) => {
         const id = this.trade?.id;
         if (!id) return;
-        const file = this.app.vault.getAbstractFileByPath(id) as TFile;
+        const file = this.app.vault.getAbstractFileByPath(id);
         if (!(file instanceof TFile)) return;
         this.debounceReview(key, async () => {
           try {
@@ -1146,9 +1146,9 @@ export class TradeDetailView extends ItemView {
 
     // ---- Notes textarea (replaces thesis/review/mistake) ----
     const notesGroup = reviewCard.createDiv({ cls: "tj-td-field" });
-    const notesLbl = notesGroup.createEl("div", { cls: "tj-td-field-label" });
-    notesLbl.createEl("span", { text: "Notes" });
-    const notesCharCount = notesLbl.createEl("span", { cls: "tj-td-char-count" });
+    const notesLbl = notesGroup.createDiv({ cls: "tj-td-field-label" });
+    notesLbl.createSpan({ text: "Notes" });
+    const notesCharCount = notesLbl.createSpan({ cls: "tj-td-char-count" });
     const notesVal = t.notes || t.thesis || t.review || t.mistake || "";
     notesCharCount.textContent = notesVal ? `${notesVal.length} chars` : "Optional";
     const notesArea = notesGroup.createEl("textarea", {
@@ -1190,7 +1190,7 @@ export class TradeDetailView extends ItemView {
     // ---- Screenshot card ----
     const shotCard = rightCol.createDiv({ cls: "tj-td-panel tj-td-shot-card" });
     const dzHeader = shotCard.createDiv({ cls: "tj-td-panel-head tj-td-shot-head" });
-    dzHeader.createEl("div", {
+    dzHeader.createDiv({
       cls: "tj-td-panel-title",
       text: prints.length
         ? `Screenshots & Visual Analysis (${prints.length})`
@@ -1277,13 +1277,13 @@ export class TradeDetailView extends ItemView {
       setIcon(iconDiv, "image");
       const textDiv = addDropzone.createDiv({ cls: "tj-td-dropzone-text" });
       textDiv.createEl("strong", { text: "Drop screenshot here" });
-      textDiv.createEl("span", { text: "PNG, JPG, or WebP" });
+      textDiv.createSpan({ text: "PNG, JPG, or WebP" });
       const hint = addDropzone.createDiv({ cls: "tj-td-dropzone-hint" });
-      hint.createEl("span", { text: "or" });
+      hint.createSpan({ text: "or" });
       hint.createEl("kbd", { text: "Ctrl" });
-      hint.createEl("span", { text: "+" });
+      hint.createSpan({ text: "+" });
       hint.createEl("kbd", { text: "V" });
-      hint.createEl("span", { text: "to paste" });
+      hint.createSpan({ text: "to paste" });
       addTarget = addDropzone;
     }
 
@@ -1425,7 +1425,7 @@ export class TradeDetailView extends ItemView {
     const set: FillSet = fillSet(t);
     const box = host.createDiv({ cls: "tj-td-panel tj-td-execs" });
     const head = box.createDiv({ cls: "tj-td-panel-head tj-td-execs-head" });
-    head.createEl("div", { cls: "tj-td-panel-title", text: "Executions" });
+    head.createDiv({ cls: "tj-td-panel-title", text: "Executions" });
     head.createSpan({
       cls: "tj-td-execs-count",
       text: set.isMulti
@@ -1590,7 +1590,7 @@ export class TradeDetailView extends ItemView {
   async saveScreenshotsNow(): Promise<void> {
     const t = this.trade;
     if (!t?.id) return;
-    const file = this.app.vault.getAbstractFileByPath(t.id) as TFile;
+    const file = this.app.vault.getAbstractFileByPath(t.id);
     if (!(file instanceof TFile)) return;
     const shots = t.screenshots ?? [];
     t.screenshot = shots[0]?.file ?? "";
@@ -1693,7 +1693,7 @@ export class TradeDetailView extends ItemView {
     if (file instanceof TFile) {
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
     }
   }
 
@@ -1781,7 +1781,7 @@ export class TradeDetailView extends ItemView {
     panel.addEventListener("click", (e) => e.stopPropagation());
 
     // Title
-    panel.createEl("div", { cls: "tj-export-title", text: "Export Trade Card" });
+    panel.createDiv({ cls: "tj-export-title", text: "Export Trade Card" });
 
     // Side-by-side body: left = options, right = preview
     const body = panel.createDiv({ cls: "tj-export-body" });
@@ -1790,7 +1790,7 @@ export class TradeDetailView extends ItemView {
 
     // ── Left: Toggle-all + sections ──
     const toggleAll = leftCol.createDiv({ cls: "tj-export-toggle-all" });
-    toggleAll.createEl("span", { text: "Include in card", cls: "tj-export-toggle-label" });
+    toggleAll.createSpan({ text: "Include in card", cls: "tj-export-toggle-label" });
     const toggleAllBtn = toggleAll.createEl("button", { cls: "tj-export-toggle-btn", text: "Select all" });
 
     // Option definitions
@@ -1827,23 +1827,23 @@ export class TradeDetailView extends ItemView {
     };
 
     // Redraw preview on every toggle
-    let previewDebounce: ReturnType<typeof setTimeout> | null = null;
+    let previewDebounce: number | null = null;
     const schedulePreview = () => {
-      if (previewDebounce) clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(() => void drawPreview(), 150);
+      if (previewDebounce) window.clearTimeout(previewDebounce);
+      previewDebounce = window.setTimeout(() => void drawPreview(), 150);
     };
 
     for (const sec of sections) {
       const secEl = leftCol.createDiv({ cls: "tj-export-section" });
-      secEl.createEl("div", { cls: "tj-export-section-title", text: sec.title });
+      secEl.createDiv({ cls: "tj-export-section-title", text: sec.title });
       for (const item of sec.items) {
         const row = secEl.createDiv({ cls: "tj-export-option" + (opts[item.key] ? " on" : "") });
         optionEls.push(row);
         const cb = row.createDiv({ cls: "tj-export-checkbox" });
         setIcon(cb, "check");
         const txt = row.createDiv({ cls: "tj-export-option-text" });
-        txt.createEl("div", { cls: "tj-export-option-label", text: item.label });
-        txt.createEl("div", { cls: "tj-export-option-desc", text: item.desc });
+        txt.createDiv({ cls: "tj-export-option-label", text: item.label });
+        txt.createDiv({ cls: "tj-export-option-desc", text: item.desc });
         row.addEventListener("click", () => {
           opts[item.key] = !opts[item.key];
           row.classList.toggle("on", opts[item.key]);
@@ -1868,7 +1868,7 @@ export class TradeDetailView extends ItemView {
     const makeBtn = (icon: string, label: string, cls: string): HTMLElement => {
       const btn = btnRow.createEl("button", { cls });
       setIcon(btn, icon);
-      btn.createEl("span", { text: label });
+      btn.createSpan({ text: label });
       return btn;
     };
 
@@ -1889,7 +1889,7 @@ export class TradeDetailView extends ItemView {
         const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, mime, 0.92));
         if (!blob) { new Notice("Export failed"); return; }
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
+        const a = createEl("a");
         a.download = `${(t.symbol || "unknown").toUpperCase()}-${(t.direction || "unknown").toUpperCase()}-${t.date || "unknown"}${t.setup ? "-" + t.setup.replace(/[\\/:*?"<>|]+/g, "-") : ""}.${ext}`;
         a.href = url; a.click(); URL.revokeObjectURL(url);
         new Notice(`Saved as ${ext.toUpperCase()}!`);
@@ -1904,10 +1904,10 @@ export class TradeDetailView extends ItemView {
     jpgBtn.addEventListener("click", () => void doExport("jpg"));
     clipBtn.addEventListener("click", () => void doExport("clip"));
 
-    leftCol.createEl("div", { cls: "tj-export-hint", text: "JPG is smaller · PNG is lossless" });
+    leftCol.createDiv({ cls: "tj-export-hint", text: "JPG is smaller · PNG is lossless" });
 
     // ── Right: Live preview ──
-    const previewLabel = rightCol.createEl("div", { cls: "tj-export-preview-label" });
+    const previewLabel = rightCol.createDiv({ cls: "tj-export-preview-label" });
     previewLabel.setText("Live Preview");
     const previewWrap = rightCol.createDiv({ cls: "tj-export-preview-wrap" });
     const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } }) as HTMLCanvasElement;
@@ -1960,7 +1960,7 @@ export class TradeDetailView extends ItemView {
     const validImages = images.filter((x): x is HTMLImageElement => !!x);
 
     // Collect notes for text wrapping (need a temp canvas context for measureText)
-    const tempCanvas = document.createElement("canvas");
+    const tempCanvas = createEl("canvas");
     const tempCtx = tempCanvas.getContext("2d")!;
     const maxTextW = W - PAD * 2;
 
@@ -2064,7 +2064,7 @@ export class TradeDetailView extends ItemView {
     totalH += PAD; // bottom padding
 
     // ── Create canvas ──
-    const canvas = document.createElement("canvas");
+    const canvas = createEl("canvas");
     canvas.width = W;
     canvas.height = totalH;
     const ctx = canvas.getContext("2d")!;
@@ -2371,7 +2371,7 @@ export class TradeDetailView extends ItemView {
     if (file instanceof TFile) {
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
     } else {
       new Notice("Attachment not found: " + target);
     }

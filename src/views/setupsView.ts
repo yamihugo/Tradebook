@@ -86,7 +86,7 @@ export class SetupsView extends ItemView {
     // ---- Your strategies card ----
     const card = main.createDiv({ cls: "tj-strat-card" });
     const head = card.createDiv({ cls: "tj-strat-card-head" });
-    head.createEl("div", { cls: "tj-strat-card-title", text: "Your strategies" });
+    head.createDiv({ cls: "tj-strat-card-title", text: "Your strategies" });
     const addBtn = head.createEl("button", { cls: "tj-btn tj-mini", text: "＋ Add strategy" });
     addBtn.addEventListener("click", () => {
       this.adding = true;
@@ -120,8 +120,8 @@ export class SetupsView extends ItemView {
 
     if (!names.length && !this.adding) {
       const empty = card.createDiv({ cls: "tj-strat-empty" });
-      empty.createEl("div", { text: "No strategies named yet." });
-      empty.createEl("div", {
+      empty.createDiv({ text: "No strategies named yet." });
+      empty.createDiv({
         cls: "tj-strat-empty-sub",
         text: "Add one here, or create it straight from a trade's Strategy picker.",
       });

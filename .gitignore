@@ -17,3 +17,6 @@ data.json.bak*
 
 *.log
 .DS_Store
+
+# Hermes agent local state (verify recipe, agent scratch) — not source
+.hermes/

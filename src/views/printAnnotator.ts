@@ -79,7 +79,7 @@ function hatchPattern(
   const hit = hatchCache.get(key);
   if (hit) return hit;
   const size = 8;
-  const off = document.createElement("canvas");
+  const off = createEl("canvas");
   off.width = size;
   off.height = size;
   const oc = off.getContext("2d");
@@ -1005,7 +1005,7 @@ export class PrintAnnotator {
     const startText = (e: PointerEvent) => {
       const p = toCanvas(e);
       const cr = canvas.getBoundingClientRect();
-      const ta = document.createElement("textarea");
+      const ta = createEl("textarea");
       ta.className = "tj-anno-textinput";
       ta.setCssStyles({ position: "absolute" });
       ta.style.left = `${e.clientX - cr.left}px`;
@@ -1027,7 +1027,7 @@ export class PrintAnnotator {
       wrap.appendChild(ta);
       // Focus after layout, or the browser fires blur immediately and the
       // commit path removes the textarea before a single key lands.
-      requestAnimationFrame(() => ta.focus());
+      window.requestAnimationFrame(() => ta.focus());
       let done = false;
       const commit = () => {
         if (done) return;
@@ -1447,7 +1447,7 @@ export class PrintAnnotator {
     // Export at the print's own resolution, not the zoomed viewport, so the
     // saved file stays the whole chart — the view is only how we look at it.
     const exportBlob = (): Promise<Blob | null> => {
-      const out = document.createElement("canvas");
+      const out = createEl("canvas");
       out.width = img.naturalWidth;
       out.height = img.naturalHeight;
       const c = out.getContext("2d")!;

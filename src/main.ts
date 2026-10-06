@@ -50,7 +50,7 @@ import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView
 import { TradebookSidebarView, TRADEBOOK_SIDEBAR_VIEW_TYPE } from "./views/sidebarView";
 import { HomeView, HOME_VIEW_TYPE } from "./views/homeView";
 import { SetupsView, SETUPS_VIEW_TYPE } from "./views/setupsView";
-import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE, QueuedPrint } from "./views/printQueueView";
+import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE } from "./views/printQueueView";
 import { openTradeModal } from "./views/tradeModal";
 import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
 import { allocatedKeys, netPnl } from "./lib/fees";
@@ -468,9 +468,6 @@ export default class TradebookPlugin extends Plugin {
     calendarMonth: "",
     calendarManual: false,
   };
-  /** In-memory print queue for the Add Trade workflow. Not persisted. */
-  printQueue: QueuedPrint[] = [];
-  printQueueVersion = 0;
 
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
@@ -603,6 +600,7 @@ export default class TradebookPlugin extends Plugin {
           console.error("[tradebook] account maintenance failed:", err);
         }
         await this.ensureSidebarLeaf();
+        await this.ensurePrintQueueLeaf();
         await this.cleanupLegacyCache();
         // The journal's default period seeds Home's session period on load.
         this.briefingPeriodState.period = this.settings.defaultPeriod ?? "all";
@@ -612,14 +610,9 @@ export default class TradebookPlugin extends Plugin {
   }
 
   onunload(): void {
-    // Drop pending timers and free the queued print thumbnails, so a disabled or
-    // reloaded plugin leaves nothing running or held in memory.
+    // Drop pending timers so a disabled or reloaded plugin leaves nothing running.
     if (this._cacheSaveTimer) window.clearTimeout(this._cacheSaveTimer);
     if (this._reloadTimer) window.clearTimeout(this._reloadTimer);
-    for (const p of this.printQueue ?? []) {
-      if (p.thumb) URL.revokeObjectURL(p.thumb);
-    }
-    this.printQueue = [];
   }
 
   private _journalLeaf: JournalLeaf | null = null;
@@ -872,7 +865,7 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const leftLeaf = this.app.workspace.getLeftLeaf?.(false) ?? this.app.workspace.getLeftLeaf?.(true);
+      const leftLeaf = this.app.workspace.getLeftLeaf?.(true);
       if (!leftLeaf) return false;
       await leftLeaf.setViewState({ type: TRADEBOOK_SIDEBAR_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(leftLeaf);
@@ -891,7 +884,7 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const rightLeaf = this.app.workspace.getRightLeaf?.(false) ?? this.app.workspace.getRightLeaf?.(true);
+      const rightLeaf = this.app.workspace.getRightLeaf?.(true);
       if (!rightLeaf) return false;
       await rightLeaf.setViewState({ type: PRINT_QUEUE_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(rightLeaf);

@@ -1371,7 +1371,7 @@ export abstract class WidgetGridView extends ItemView {
         const band = this.layoutBand([...this.bandEntries(full), { i: id, x: 0, y: BAND_Y, w: BAND_W, h: BAND_H }]);
         this.setLayout([...this.gridEntries(full), ...band]);
       }
-      this.saveLayout();
+      void this.saveLayout();
       return;
     }
     const isMetric = id.startsWith("m.");
@@ -1379,17 +1379,17 @@ export abstract class WidgetGridView extends ItemView {
     const w = Math.min(this.activeCols, Math.max(min.w, NEW_W[id] ?? (isMetric ? 3 : 12)));
     const h = Math.max(min.h, NEW_H[id] ?? (isMetric ? 2 : 6));
     this.commitLayout(placeNew(this.getLayout(), id, w, h, this.activeCols));
-    this.saveLayout();
+    void this.saveLayout();
   }
 
   removeWidget(id: string): void {
     if (this.isBandMetric(id)) {
       this.setLayout(this.storedLayout().filter((item) => item.i !== id));
-      this.saveLayout();
+      void this.saveLayout();
       return;
     }
     this.commitLayout(compactVertical(this.getLayout().filter((item) => item.i !== id)));
-    this.saveLayout();
+    void this.saveLayout();
   }
 
   // ---------------- Grid engine: pure layout helpers (lib/grid.ts) ----------------
@@ -1460,7 +1460,7 @@ export abstract class WidgetGridView extends ItemView {
     if (this._lastBodyDims.get(body) === dims) return;
     this._lastBodyDims.set(body, dims);
     if (this._bodyRedrawRaf) cancelAnimationFrame(this._bodyRedrawRaf);
-    this._bodyRedrawRaf = requestAnimationFrame(() => {
+    this._bodyRedrawRaf = window.requestAnimationFrame(() => {
       this._bodyRedrawRaf = 0;
       fn();
     });
@@ -1561,7 +1561,7 @@ export abstract class WidgetGridView extends ItemView {
     const onMove = (ev: PointerEvent) => {
       latest = { x: ev.clientX, y: ev.clientY };
       if (moveRaf) return;
-      moveRaf = requestAnimationFrame(() => {
+      moveRaf = window.requestAnimationFrame(() => {
         moveRaf = 0;
         updateAt(latest.x, latest.y);
       });
@@ -1647,7 +1647,7 @@ export abstract class WidgetGridView extends ItemView {
       const onMove = (ev: PointerEvent) => {
         latest = { x: ev.clientX, y: ev.clientY };
         if (moveRaf) return;
-        moveRaf = requestAnimationFrame(() => {
+        moveRaf = window.requestAnimationFrame(() => {
           moveRaf = 0;
           updateAt(latest.x, latest.y);
         });
@@ -1717,7 +1717,7 @@ export abstract class WidgetGridView extends ItemView {
       "scroll",
       () => {
         if (scrollRaf) return;
-        scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = window.requestAnimationFrame(() => {
           scrollRaf = 0;
           applyScroll();
         });
@@ -2521,7 +2521,7 @@ export abstract class WidgetGridView extends ItemView {
         }
         if (this._interacting) return;
         if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
-        this._resizeRaf = requestAnimationFrame(() => {
+        this._resizeRaf = window.requestAnimationFrame(() => {
           this._resizeRaf = 0;
           const targets = [...this._pendingResize];
           this._pendingResize.clear();
@@ -2755,14 +2755,14 @@ export abstract class WidgetGridView extends ItemView {
         el.textContent = fmt(value);
         this.metricDisplay.set(id, value);
       }
-      if (t < 1) this._tweens.set(id, requestAnimationFrame(tick));
+      if (t < 1) this._tweens.set(id, window.requestAnimationFrame(tick));
       else {
         el.textContent = target;
         this.metricDisplay.set(id, to);
         this._tweens.delete(id);
       }
     };
-    this._tweens.set(id, requestAnimationFrame(tick));
+    this._tweens.set(id, window.requestAnimationFrame(tick));
   }
 
   private costCoverageWarning(financials: FinancialSummary): string {
@@ -4605,7 +4605,7 @@ export abstract class WidgetGridView extends ItemView {
     drawChart();
     const chartW = chart.clientWidth;
     const chartH = chart.clientHeight;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!chart.isConnected) return;
       if (Math.abs(chart.clientWidth - chartW) > 1 || Math.abs(chart.clientHeight - chartH) > 1) drawChart();
     });

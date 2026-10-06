@@ -573,7 +573,7 @@ export async function setTradeMistakeTags(app: App, file: TFile, tags: string[])
 
 export async function deleteTradeFile(app: App, fileId: string): Promise<boolean> {  const file = app.vault.getAbstractFileByPath(fileId);
   if (file instanceof TFile) {
-    await app.vault.trash(file, true);
+    await app.fileManager.trashFile(file);
     return true;
   }
   return false;

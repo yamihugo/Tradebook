@@ -178,7 +178,7 @@ export class AddTradePanel {
     const field = (label: string, badge?: string): HTMLElement => {
       const f = grid.createDiv({ cls: "tj-add-f" });
       const head = f.createDiv({ cls: "tj-add-f-head" });
-      head.createEl("span", { cls: "tj-add-f-lbl", text: label });
+      head.createSpan({ cls: "tj-add-f-lbl", text: label });
       if (badge) head.createSpan({ cls: "tj-add-tz", text: badge });
       return f;
     };
@@ -503,7 +503,7 @@ export class AddTradePanel {
     const mGrid = more.createDiv({ cls: "tj-add-grid" });
     const mField = (label: string): HTMLElement => {
       const f = mGrid.createDiv({ cls: "tj-add-f" });
-      f.createEl("span", { cls: "tj-add-f-lbl", text: label });
+      f.createSpan({ cls: "tj-add-f-lbl", text: label });
       return f;
     };
 
@@ -689,7 +689,7 @@ export class AddTradePanel {
 
     // ---- Rating ----
     const ratingRow = more.createDiv({ cls: "tj-add-more-row" });
-    ratingRow.createEl("span", { cls: "tj-add-f-lbl", text: "Rating" });
+    ratingRow.createSpan({ cls: "tj-add-f-lbl", text: "Rating" });
     const stars = ratingRow.createDiv({ cls: "tj-add-stars" });
     const drawStars = () => {
       stars.empty();

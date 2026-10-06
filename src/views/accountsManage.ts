@@ -256,7 +256,7 @@ class AccountsManageModal extends Modal {
 
   private async apply(): Promise<void> {
     await this.plugin.saveSettings();
-    this.plugin.reloadAllViews();
+    void this.plugin.reloadAllViews();
   }
 
   // --------------------------------------------------------------- groups ----
@@ -1057,7 +1057,7 @@ class AccountsManageModal extends Modal {
         }
         // Added on the next tick: a listener registered while this click is still
         // bubbling would catch the very same event and close the palette at once.
-        setTimeout(() => document.addEventListener("click", closeSwatches, { once: true }), 0);
+        window.setTimeout(() => document.addEventListener("click", closeSwatches, { once: true }), 0);
       });
 
       // Show or hide this type on the Accounts page. A pill, not a checkbox:
