@@ -403,7 +403,7 @@ export class TradebookSidebarView extends ItemView {
     reset.addEventListener("click", () => void this.resetLayout());
     const gear = actions.createEl("button", {
       cls: "tj-nav-edittoolbar-btn",
-      attr: { type: "button", "aria-label": "Open Tradebook settings" },
+      attr: { type: "button", "aria-label": "Open tradebook settings" },
     });
     setIcon(gear, "settings");
     gear.addEventListener("click", () => this.openPluginSettings());

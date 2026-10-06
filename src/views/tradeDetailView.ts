@@ -233,7 +233,7 @@ export class TradeDetailView extends ItemView {
       else void this.plugin.openTradeLog();
     });
     if (backToAccount) {
-      const tlBtn = navBtns.createEl("button", { cls: "tj-seg-btn", text: "Trade Log" });
+      const tlBtn = navBtns.createEl("button", { cls: "tj-seg-btn", text: "Trade log" });
       tlBtn.addEventListener("click", () => void this.plugin.openTradeLogForAccount(origin.accountId as string));
     }
 
@@ -965,7 +965,7 @@ export class TradeDetailView extends ItemView {
       const lbl = field.createDiv({ cls: "tj-td-field-label" });
       const lblText = lbl.createSpan({ text: label });
       attachTip(lblText, { title: label, sub: tip });
-      const addBtn = lbl.createEl("button", { cls: "tj-td-ghostbtn", text: "＋ Add tag", attr: { type: "button" } });
+      const addBtn = lbl.createEl("button", { cls: "tj-td-ghostbtn", text: "＋ add tag", attr: { type: "button" } });
       const chipsWrap = field.createDiv({ cls: "tj-td-tagchips" });
 
       const ackBtn = field.createEl("button", { cls: "tj-td-ack", text: ack.text, attr: { type: "button" } });
@@ -1609,7 +1609,7 @@ export class TradeDetailView extends ItemView {
   /** Save a dropped/pasted/selected image to the vault and link it to the trade. */
   async handleScreenshotFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) {
-      new Notice("That's not an image — drop a screenshot (PNG/JPG/WebP).");
+      new Notice("That's not an image — drop a screenshot (PNG/JPG/webp).");
       return;
     }
     const t = this.trade;
@@ -1914,9 +1914,9 @@ export class TradeDetailView extends ItemView {
 
     // ── Right: Live preview ──
     const previewLabel = rightCol.createDiv({ cls: "tj-export-preview-label" });
-    previewLabel.setText("Live Preview");
+    previewLabel.setText("Live preview");
     const previewWrap = rightCol.createDiv({ cls: "tj-export-preview-wrap" });
-    const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } }) as HTMLCanvasElement;
+    const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } });
     previewCanvas.setCssStyles({ width: "100%" });
     previewCanvas.setCssStyles({ height: "auto" });
     previewCanvas.setCssStyles({ borderRadius: "6px" });

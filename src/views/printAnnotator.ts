@@ -176,7 +176,7 @@ export class PrintAnnotator {
     const app = this.plugin.app;
     const ext = (file.extension || "").toLowerCase();
     if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
-      new Notice("Only PNG / JPG / WebP prints can be annotated.");
+      new Notice("Only PNG / JPG / webp prints can be annotated.");
       return;
     }
 

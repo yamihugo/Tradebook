@@ -148,7 +148,7 @@ export function smoothPath(pts: { x: number; y: number }[], yMin = -Infinity, yM
 
 function resampleSeries(prev: number[], n: number): number[] {
   if (prev.length === n) return prev.slice();
-  if (prev.length === 0) return new Array(n).fill(0);
+  if (prev.length === 0) return new Array<number>(n).fill(0);
   const out: number[] = [];
   for (let i = 0; i < n; i++) {
     const t = (i / Math.max(1, n - 1)) * (prev.length - 1);

@@ -505,37 +505,37 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
-    this.addRibbonIcon("grip", "Tradebook — Home", () => {
+    this.addRibbonIcon("grip", "Tradebook — home", () => {
       void this.openHome();
     });
-    this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
+    this.addRibbonIcon("wallet", "Tradebook — accounts", () => {
       void this.openAccounts();
     });
-    this.addRibbonIcon("list", "Tradebook — Trade Log", () => {
+    this.addRibbonIcon("list", "Tradebook — trade log", () => {
       void this.openTradeLog();
     });
-    this.addRibbonIcon("plus", "Tradebook — Manual Trade", () => {
+    this.addRibbonIcon("plus", "Tradebook — manual trade", () => {
       this.openAddPanel();
     });
 
     this.addCommand({
       id: "open-home",
-      name: "Open Home",
+      name: "Open home",
       callback: () => this.openHome(),
     });
     this.addCommand({
       id: "open-accounts",
-      name: "Open Accounts",
+      name: "Open accounts",
       callback: () => this.openAccounts(),
     });
     this.addCommand({
       id: "open-trade-log",
-      name: "Open Trade Log",
+      name: "Open trade log",
       callback: () => this.openTradeLog(),
     });
     this.addCommand({
       id: "add-trade",
-      name: "Manual Trade",
+      name: "Manual trade",
       callback: () => this.openAddPanel(),
     });
     this.addCommand({
@@ -557,7 +557,7 @@ export default class TradebookPlugin extends Plugin {
 
     this.addCommand({
       id: "open-print-queue",
-      name: "Open Print Queue (right sidebar)",
+      name: "Open print queue (right sidebar)",
       callback: () => this.ensurePrintQueueLeaf(),
     });
 

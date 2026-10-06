@@ -118,7 +118,7 @@ class AccountsManageModal extends Modal {
     // A rebuild is an inline edit, not a navigation: with a long account list,
     // dropping the scroll would make picking a leader or a copier jump the whole
     // composer back to the top. Keep the single scroller where the reader left it.
-    const keepScroll = (el.querySelector(".tj-manage-body") as HTMLElement | null)?.scrollTop ?? 0;
+    const keepScroll = (el.querySelector<HTMLElement>(".tj-manage-body"))?.scrollTop ?? 0;
     el.empty();
 
     const groups = this.mode === "groups";
@@ -518,7 +518,7 @@ class AccountsManageModal extends Modal {
     const actions = card.createDiv({ cls: "tj-mg-actions" });
     // Once a leader is chosen this is the thing the reader came here to do, so it
     // is the one filled action on the screen; Cancel stays a ghost beside it.
-    const create = actions.createEl("button", { cls: "tj-mg-act is-primary", text: "Create group", attr: { type: "button" } }) as HTMLButtonElement;
+    const create = actions.createEl("button", { cls: "tj-mg-act is-primary", text: "Create group", attr: { type: "button" } });
     create.disabled = !leader;
     attachTip(create, {
       title: "Create group",
@@ -1010,7 +1010,7 @@ class AccountsManageModal extends Modal {
           cls: "tj-mg-move",
           text: dir < 0 ? "↑" : "↓",
           attr: { type: "button", "aria-label": dir < 0 ? "Move up" : "Move down" },
-        }) as HTMLButtonElement;
+        });
         b.disabled = dir < 0 ? i === 0 : i === order.length - 1;
         b.addEventListener("click", () => move(i, dir < 0 ? i - 1 : i + 2));
       };

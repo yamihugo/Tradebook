@@ -268,7 +268,7 @@ export class TradeLogView extends ItemView {
     return TRADE_LOG_VIEW_TYPE;
   }
   getDisplayText(): string {
-    return "Trade Log";
+    return "Trade log";
   }
   getIcon(): string {
     return "list";
@@ -813,7 +813,7 @@ export class TradeLogView extends ItemView {
     // Accounts: one title, a sentence, and the actions in the same corner.
     const head = main.createDiv({ cls: "tj-acct-header" });
     const title = head.createDiv();
-    title.createEl("h1", { cls: "tj-view-h1", text: "Trade Log" });
+    title.createEl("h1", { cls: "tj-view-h1", text: "Trade log" });
     title.createEl("p", { cls: "tj-import-info", text: "Every trade you recorded, one row each." });
 
     const actions = head.createDiv({ cls: "tj-acct-header-actions" });
@@ -927,7 +927,7 @@ export class TradeLogView extends ItemView {
     // Put the search cursor back where the reader left it.
     if (this._restoreFocus) {
       this._restoreFocus = false;
-      const el = this.contentEl.querySelector('input[type="search"]') as HTMLInputElement | null;
+      const el = this.contentEl.querySelector<HTMLInputElement>('input[type="search"]');
       if (el) {
         el.focus();
         el.setSelectionRange(el.value.length, el.value.length);
@@ -1022,14 +1022,14 @@ export class TradeLogView extends ItemView {
         .addEventListener("click", () => {
           // The page scrolls in .tj-app-main, not in the ledger: only the ledger is
           // rebuilt, so the reader's place is restored in the same frame.
-          const scroller = this.contentEl.querySelector(".tj-app-main") as HTMLElement | null;
+          const scroller = this.contentEl.querySelector<HTMLElement>(".tj-app-main");
           this.savedScrollY = scroller?.scrollTop ?? 0;
           this.limit += 50;
           this.renderLedger();
           const y = this.savedScrollY;
           this.savedScrollY = 0;
           window.requestAnimationFrame(() => {
-            const sc = this.contentEl.querySelector(".tj-app-main") as HTMLElement | null;
+            const sc = this.contentEl.querySelector<HTMLElement>(".tj-app-main");
             if (sc && y) sc.scrollTop = y;
           });
         });
@@ -1885,7 +1885,7 @@ export class TradeLogView extends ItemView {
           row.classList.add("dragging");
           const onMove = (ev: MouseEvent) => {
             clearDragHighlights();
-            const el = (ev.target as HTMLElement).closest(".tj-tl-colitem") as HTMLElement | null;
+            const el = (ev.target as HTMLElement).closest<HTMLElement>(".tj-tl-colitem");
             if (el && el.dataset.colId && el.dataset.colId !== dragId) {
               dragOverId = el.dataset.colId;
               el.classList.add("drag-over");

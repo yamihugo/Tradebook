@@ -74,7 +74,7 @@ class FeeAdjustModal extends Modal {
     // The balance field is the whole point of the screen: hand it the cursor on
     // open. `render()` restores it after each repaint as long as it was there.
     window.setTimeout(() => {
-      (this.contentEl.querySelector("input.tj-payout-input") as HTMLInputElement | null)?.focus();
+      this.contentEl.querySelector<HTMLInputElement>("input.tj-payout-input")?.focus();
     }, 0);
     // The trades arrive after the first paint; the window is worked out again
     // once they are here, so the counts and the preview are never guessed.
@@ -372,7 +372,7 @@ class FeeAdjustModal extends Modal {
       if (!Number.isFinite(parsed)) {
         this.error = "Enter the balance you have first — for example 49,263.66.";
         this.render();
-        (this.contentEl.querySelector("input.tj-payout-input") as HTMLInputElement | null)?.focus();
+        this.contentEl.querySelector<HTMLInputElement>("input.tj-payout-input")?.focus();
         return;
       }
       const diff = Math.round((parsed - this.journalBalance) * 100) / 100;

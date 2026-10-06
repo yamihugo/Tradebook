@@ -469,7 +469,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
         })
       );
       const nameLive = () => {
-        const nameEl = body.querySelector("input[data-tour='wizard-name']") as HTMLInputElement | null;
+        const nameEl = body.querySelector<HTMLInputElement>("input[data-tour='wizard-name']");
         if (nameEl && !nameTouched) nameEl.value = baseName();
       };
       sizeInput.addEventListener("input", () => {
@@ -562,7 +562,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     posF.createEl("label", { text: "Position size (optional)", cls: "tj-wz-label" });
     const posInput = posF.createEl("input", {
       cls: "tj-wz-input",
-      attr: { type: "text", placeholder: "e.g. 5 mini / 50 micro", value: values.rules.posSize ?? "" },
+      attr: { type: "text", placeholder: "E.g. 5 Mini / 50 micro", value: values.rules.posSize ?? "" },
     });
     posInput.addEventListener("input", () => (values.rules.posSize = posInput.value.trim() || undefined));
 

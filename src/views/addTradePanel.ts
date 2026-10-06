@@ -428,7 +428,7 @@ export class AddTradePanel {
       const input = host.createEl("input", {
         cls: "tj-add-input",
         type: "text",
-        attr: { placeholder: "HH:MM:SS", inputmode: "numeric", autocomplete: "off" },
+        attr: { placeholder: "Hh:mm:ss", inputmode: "numeric", autocomplete: "off" },
       });
       input.value = value || "";
       input.addEventListener("change", () => {
@@ -723,7 +723,7 @@ export class AddTradePanel {
     const box = parent.createDiv({ cls: "tj-add-accounts" });
     const head = box.createDiv({ cls: "tj-add-accounts-head" });
     head.createSpan({ cls: "tj-add-accounts-lbl", text: "Accounts on this trade" });
-    const link = head.createEl("a", { cls: "tj-add-accounts-add", text: "+ Add an account" });
+    const link = head.createEl("a", { cls: "tj-add-accounts-add", text: "+ add an account" });
     link.addEventListener("click", (e) => {
       e.preventDefault();
       openAccountWizard(this.plugin, { onDone: () => this.renderBody() });

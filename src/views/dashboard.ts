@@ -1638,7 +1638,7 @@ export abstract class WidgetGridView extends ItemView {
         const me = this.cardEls.get(item.i);
         if (me) {
           // Keep the resized widget's own content in step with its new size.
-          const body = me.querySelector(".tj-gridcard-body") as HTMLElement | null;
+          const body = me.querySelector<HTMLElement>(".tj-gridcard-body");
           if (body) this.scheduleBodyRedraw(body);
         }
       };

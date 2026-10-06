@@ -157,7 +157,7 @@ class ImportCsvModal extends Modal {
     // moment a file is being read, not to the moment it is being chosen.
     this.headSubEl = txt.createEl("p", {
       cls: "tj-import-sub",
-      text: "Reports → Orders is recommended. Reports → Fills works too.",
+      text: "Reports → orders is recommended. Reports → fills works too.",
     });
 
     // The journey, so the reader always knows where he is and what is left. It
@@ -437,7 +437,7 @@ class ImportCsvModal extends Modal {
     this.goBtn = null;
     this.actionsEl = null;
     if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
-    if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too.");
+    if (this.headSubEl) this.headSubEl.setText("Reports → orders is recommended. Reports → fills works too.");
     if (this.bodyEl) this.bodyEl.empty();
     if (this.pickEl) this.pickEl.empty();
     if (this.setupEl) this.setupEl.empty();

@@ -307,7 +307,7 @@ export class AccountDashboardView extends ItemView {
     // the box last time, or typed it), the number is left in the field and the box
     // reflects it — the two never disagree on screen.
     const anchorIsSize = hasOpeningBalance(acc) && openingCapital(acc) === acc.size;
-    openingInput.value = hasOpeningBalance(acc) && !anchorIsSize ? String(acc.openingBalance as number) : "";
+    openingInput.value = hasOpeningBalance(acc) && !anchorIsSize ? String(acc.openingBalance) : "";
 
     // A boundary without a declared value would quietly make the balance the
     // configured size — the one number the trader checks against the platform.
@@ -650,7 +650,7 @@ export class AccountDashboardView extends ItemView {
       posF.createEl("label", { text: "Position size (optional)", cls: "tj-wz-label" });
       const posInput = posF.createEl("input", {
         cls: "tj-wz-input",
-        attr: { type: "text", placeholder: "e.g. 5 mini / 50 micro", value: ruleState.posSize ?? "" },
+        attr: { type: "text", placeholder: "E.g. 5 Mini / 50 micro", value: ruleState.posSize ?? "" },
       });
       posInput.addEventListener("input", () => (ruleState.posSize = posInput.value.trim() || undefined));
 
@@ -840,7 +840,7 @@ export class AccountDashboardView extends ItemView {
       if (this.accountId) {
         empty.createDiv({ text: "This account no longer exists — it may have been deleted or archived." });
         empty
-          .createEl("button", { text: "Open Accounts", cls: "mod-cta tj-btn", attr: { type: "button" } })
+          .createEl("button", { text: "Open accounts", cls: "mod-cta tj-btn", attr: { type: "button" } })
           .addEventListener("click", () => void this.plugin.openAccounts());
       } else {
         empty.createDiv({ text: "No accounts yet — create your first account to see its dashboard here." });
@@ -857,7 +857,7 @@ export class AccountDashboardView extends ItemView {
     const backBtn = titleWrap.createEl("button", {
       cls: "tj-acc-back",
       text: "←",
-      attr: { type: "button", "aria-label": "Back to Accounts" },
+      attr: { type: "button", "aria-label": "Back to accounts" },
     });
     backBtn.addEventListener("click", () => void this.plugin.openAccounts());
     const title = titleWrap.createDiv();
@@ -1893,7 +1893,7 @@ export class AccountDashboardView extends ItemView {
     card.createDiv({ cls: "tj-delete-icon", text: "\uD83D\uDCE6" });
     card.createEl("h3", { text: "Archive this eval?" });
     card.createEl("p", { cls: "tj-delete-desc", text: `"${acc.name}" has not reached its target yet.` });
-    card.createEl("p", { cls: "tj-delete-desc", text: "Archiving keeps every trade and hides the account from the views and totals. You can restore it any time from the Accounts page." });
+    card.createEl("p", { cls: "tj-delete-desc", text: "Archiving keeps every trade and hides the account from the views and totals. You can restore it any time from the accounts page." });
     const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
     btns.createEl("button", { text: "Cancel", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => card.remove());
     btns.createEl("button", { text: "Yes, archive", cls: "tj-btn", attr: { type: "button" } }).addEventListener("click", () => {
@@ -1939,7 +1939,7 @@ export class AccountDashboardView extends ItemView {
         cls: "tj-delete-desc tj-del",
         text: "The trade notes leave your vault. This cannot be undone from here — recover them from Obsidian's trash before it is emptied.",
       });
-      card.createEl("p", { cls: "tj-delete-hint", text: "If you want to keep the data but hide it, use Archive instead." });
+      card.createEl("p", { cls: "tj-delete-hint", text: "If you want to keep the data but hide it, use archive instead." });
       const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
       btns.createEl("button", { text: "Cancel", cls: "tj-btn" }).addEventListener("click", close);
       btns.createEl("button", { text: "Yes, delete", cls: "tj-btn tj-del" }).addEventListener("click", () => {
@@ -1949,7 +1949,7 @@ export class AccountDashboardView extends ItemView {
       card.createDiv({ cls: "tj-delete-icon", text: "\uD83D\uDEA8" });
       card.createEl("h3", { text: "Final confirmation" });
       card.createEl("p", { cls: "tj-delete-desc", text: `Are you absolutely sure you want to delete "${acc.name}"?` });
-      card.createEl("p", { cls: "tj-delete-desc tj-del", text: "This action CANNOT be undone. There is no way to recover this account after deletion." });
+      card.createEl("p", { cls: "tj-delete-desc tj-del", text: "This action cannot be undone. There is no way to recover this account after deletion." });
       const btns = card.createDiv({ cls: "tj-acc-passed-btns" });
       btns.createEl("button", { text: "Cancel", cls: "tj-btn" }).addEventListener("click", close);
       btns.createEl("button", { text: "I understand, delete permanently", cls: "tj-btn tj-del" }).addEventListener("click", () => {
@@ -1997,7 +1997,7 @@ export class AccountDashboardView extends ItemView {
     const section = box.createDiv({ cls: "tj-payout-box" });
     const head = section.createDiv({ cls: "tj-payout-head" });
     head.createEl("h3", { text: `Deposits \u2014 total deposited $${totalDeposited.toLocaleString()}` });
-    const addBtn = head.createEl("button", { text: "+ Add deposit", cls: "tj-btn tj-mini" });
+    const addBtn = head.createEl("button", { text: "+ add deposit", cls: "tj-btn tj-mini" });
     addBtn.addEventListener("click", () => this.showDepositForm(section, acc));
 
     const table = section.createEl("table", { cls: "tj-table tj-trades-table" });
@@ -2054,7 +2054,7 @@ export class AccountDashboardView extends ItemView {
     row.createEl("label", { text: "Amount ($)" });
     const amountInput = freeNumeric(row.createEl("input", { type: "number", cls: "tj-input", attr: { placeholder: "5000" } }));
     row.createEl("label", { text: "Note (optional)" });
-    const noteInput = row.createEl("input", { type: "text", cls: "tj-input", attr: { placeholder: "e.g. Initial deposit" } });
+    const noteInput = row.createEl("input", { type: "text", cls: "tj-input", attr: { placeholder: "E.g. Initial deposit" } });
     const save = row.createEl("button", { text: "Save deposit", cls: "mod-cta tj-btn" });
     save.addEventListener("click", () => {
       void (async () => {

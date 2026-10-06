@@ -87,7 +87,7 @@ export class SetupsView extends ItemView {
     const card = main.createDiv({ cls: "tj-strat-card" });
     const head = card.createDiv({ cls: "tj-strat-card-head" });
     head.createDiv({ cls: "tj-strat-card-title", text: "Your strategies" });
-    const addBtn = head.createEl("button", { cls: "tj-btn tj-mini", text: "＋ Add strategy" });
+    const addBtn = head.createEl("button", { cls: "tj-btn tj-mini", text: "＋ add strategy" });
     addBtn.addEventListener("click", () => {
       this.adding = true;
       this.renaming = null;
@@ -99,7 +99,7 @@ export class SetupsView extends ItemView {
     if (this.adding) {
       const row = card.createDiv({ cls: "tj-strat-add" });
       const input = row.createEl("input", { type: "text", cls: "tj-strat-input" });
-      input.placeholder = "e.g. Reversal";
+      input.placeholder = "E.g. Reversal";
       focusInput = input;
       const submit = () => void this.addStrategy(input.value);
       input.addEventListener("keydown", (e) => {

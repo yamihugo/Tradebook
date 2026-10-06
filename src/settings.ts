@@ -332,7 +332,7 @@ export class SettingsTab extends PluginSettingTab {
 
   renderTimezone(containerEl: HTMLElement): void {
     containerEl.createEl("p", {
-      text: "One clock for the whole journal: every trade is shown and stored in the zone below, so the times you read are the times you typed — on any machine. New York (Eastern) is the default because futures trade on ET.",
+      text: "One clock for the whole journal: every trade is shown and stored in the zone below, so the times you read are the times you typed — on any machine. New york (eastern) is the default because futures trade on et.",
       cls: "tj-set-note",
     });
     this.select(
@@ -578,7 +578,7 @@ export class SettingsTab extends PluginSettingTab {
         const points = row.createEl("input", {
           cls: "tj-set-riskinput",
           type: "number",
-          attr: { placeholder: "points", "aria-label": `Default risk in points for ${symbol}` },
+          attr: { placeholder: "Points", "aria-label": `Default risk in points for ${symbol}` },
         });
         freeNumeric(points);
         points.value = ruleNow(symbol)?.points ? String(ruleNow(symbol)?.points) : "";
@@ -1023,7 +1023,7 @@ export class SettingsTab extends PluginSettingTab {
           new Notice("Diagnostics copied to the clipboard.");
         } catch (err) {
           console.error("[tradebook] diagnostics copy failed", err);
-          new Notice("Could not copy — try Save to vault instead.");
+          new Notice("Could not copy — try save to vault instead.");
         }
       })
     ).addButton((b) =>
