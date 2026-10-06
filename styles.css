@@ -683,8 +683,8 @@
    chrome so the preview reads as a single clean widget. */
 .tj-drag-ghost .tj-card-controls,
 .tj-drag-ghost .tj-card-del,
-.tj-drag-ghost .tj-resize-handle {
-  display: none !important;
+.workspace .tj-drag-ghost .tj-resize-handle {
+  display: none;
 }
 .tj-gridcard.dragging {
   opacity: 0.25;
@@ -805,8 +805,8 @@
 .tj-tabpane {
   display: block;
 }
-.tj-tabhidden {
-  display: none !important;
+.workspace .tj-tabhidden {
+  display: none;
 }
 
 /* ---------------- View switcher (Main / Calendar / Accounts) ---------------- */
@@ -1159,10 +1159,10 @@
 .tj-as-infoico svg { width: 13px; height: 13px; }
 .tj-as-infoico:hover { color: var(--tj-fg-1); }
 .tj-as-infoico:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: 2px; border-radius: 3px; }
-.tj-as-rowval { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-.tj-as-nameinput { background: transparent !important; border: none !important; box-shadow: none !important; text-align: right; color: var(--text-normal); font-size: var(--tj-fs-strong); font-family: inherit; width: 100%; padding: 3px 6px; border-radius: 7px; }
-.tj-as-nameinput:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
-.tj-as-nameinput:focus { outline: none; background: color-mix(in srgb, var(--text-normal) 6%, transparent) !important; }
+.tj-modal .tj-as-rowval { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.tj-as-nameinput { background: transparent; border: none; box-shadow: none; text-align: right; color: var(--text-normal); font-size: var(--tj-fs-strong); font-family: inherit; width: 100%; padding: 3px 6px; border-radius: 7px; }
+.tj-modal .tj-as-nameinput:hover { background: color-mix(in srgb, var(--text-normal) 6%, transparent); }
+.tj-as-nameinput:focus { outline: none; background: color-mix(in srgb, var(--text-normal) 6%, transparent); }
 
 /* Account settings modal — tabbed (General / Rules / Deletion) */
 .tj-acc-settings { max-width: 560px; width: 92%; padding: 0; overflow: hidden; }
@@ -1171,17 +1171,17 @@
 .tj-as-avatar-img { width: 100%; height: 100%; object-fit: contain; }
 .tj-as-headtext { min-width: 0; }
 .tj-as-headtext h3 { margin: 0; font-size: var(--tj-fs-big); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tj-as-meta { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
-.tj-as-close { margin-left: auto; background: transparent !important; border: none !important; box-shadow: none !important; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-big); padding: 4px 8px; border-radius: 7px; }
-.tj-as-close:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important; }
+.tj-modal .tj-as-meta { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
+.tj-as-close { margin-left: auto; background: transparent; border: none; box-shadow: none; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-big); padding: 4px 8px; border-radius: 7px; }
+.tj-modal .tj-as-close:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent); }
 
 .tj-as-tabs { display: flex; gap: 2px; padding: 0 14px; border-bottom: 1px solid var(--background-modifier-border); }
-.tj-as-tab { background: transparent !important; border: none !important; box-shadow: none !important; padding: 11px 13px; color: var(--tj-fg-3); font-size: var(--tj-fs-body); cursor: pointer; border-bottom: 2px solid transparent !important; border-radius: 0 !important; }
+.tj-modal .tj-as-tab { background: transparent; border: none; box-shadow: none; padding: 11px 13px; color: var(--tj-fg-3); font-size: var(--tj-fs-body); cursor: pointer; border-bottom: 2px solid transparent; border-radius: 0; }
 .tj-as-tab:hover { color: var(--text-normal); }
-.tj-as-tab.is-active { color: var(--color-green-bright, #34d17a); border-bottom-color: var(--color-green-bright, #34d17a) !important; font-weight: var(--tj-w-medium); }
-.tj-as-tab-dng { color: var(--color-red-bright, #ff5d48) !important; }
-.tj-as-tab-dng:hover { color: var(--color-red-bright, #ff5d48) !important; }
-.tj-as-tab-dng.is-active { color: var(--color-red-bright, #ff5d48) !important; border-bottom-color: var(--color-red-bright, #ff5d48) !important; }
+.tj-modal .tj-as-tab.is-active { color: var(--color-green-bright, #34d17a); border-bottom-color: var(--color-green-bright, #34d17a); font-weight: var(--tj-w-medium); }
+.tj-as-tab-dng { color: var(--color-red-bright, #ff5d48); }
+.tj-modal .tj-as-tab-dng:hover { color: var(--color-red-bright, #ff5d48); }
+.tj-as-tab-dng.is-active { color: var(--color-red-bright, #ff5d48); border-bottom-color: var(--color-red-bright, #ff5d48); }
 
 .tj-as-panes { padding: 18px; max-height: 60vh; overflow-y: auto; }
 /* Section labels read like the rest of Tradebook: a normal line, not a shouted
@@ -1209,12 +1209,12 @@
   color: var(--tj-fg-3);
 }
 /* Optional history, behind one line. A disclosure, not another block of fields. */
-.tj-as-disclosure { margin-top: 16px; }
+.tj-modal .tj-as-disclosure { margin-top: 16px; }
 .tj-as-disclosure-btn {
   display: inline-flex; align-items: center; gap: 6px;
   font: inherit; font-size: var(--tj-fs-small); color: var(--tj-fg-2);
-  background: none !important; border: none !important; box-shadow: none !important;
-  padding: 4px 0 !important; cursor: pointer; text-align: left;
+  background: none; border: none; box-shadow: none;
+  padding: 4px 0; cursor: pointer; text-align: left;
 }
 .tj-as-disclosure-btn::before {
   content: "\203A"; color: var(--tj-fg-3); font-size: var(--tj-fs-body);
@@ -1256,15 +1256,15 @@
 .tj-as-dngcard { border: 1px solid color-mix(in srgb, var(--color-red-bright, #ff5d48) 20%, transparent); border-radius: 11px; padding: 14px; margin-bottom: 12px; }
 .tj-as-dngrow { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .tj-as-dngt { font-size: var(--tj-fs-body); color: var(--text-normal); }
-.tj-as-dngd { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; line-height: 1.45; }
+.tj-modal .tj-as-dngd { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 3px; line-height: 1.45; }
 
 /* Buttons + footer */
-.tj-as-btn { background: transparent !important; border: 1px solid var(--background-modifier-border) !important; box-shadow: none !important; color: var(--tj-fg-3); border-radius: 9px; padding: 7px 15px; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); cursor: pointer; }
-.tj-as-btn:hover { background: color-mix(in srgb, var(--text-normal) 7%, transparent) !important; color: var(--text-normal); }
-.tj-as-btn-cta { border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent) !important; color: var(--color-green-bright, #34d17a); }
-.tj-as-btn-cta:hover { background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent) !important; }
-.tj-as-btn-del { color: var(--color-red-bright, #ff5d48); border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 30%, transparent) !important; }
-.tj-as-btn-del:hover { background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 12%, transparent) !important; }
+.tj-as-btn { background: transparent; border: 1px solid var(--background-modifier-border); box-shadow: none; color: var(--tj-fg-3); border-radius: 9px; padding: 7px 15px; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); cursor: pointer; }
+.tj-modal .tj-as-btn:hover { background: color-mix(in srgb, var(--text-normal) 7%, transparent); color: var(--text-normal); }
+.tj-as-btn-cta { border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 45%, transparent); color: var(--color-green-bright, #34d17a); }
+.tj-modal .tj-as-btn-cta:hover { background: color-mix(in srgb, var(--color-green-bright, #34d17a) 14%, transparent); }
+.tj-as-btn-del { color: var(--color-red-bright, #ff5d48); border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 30%, transparent); }
+.tj-modal .tj-as-btn-del:hover { background: color-mix(in srgb, var(--color-red-bright, #ff5d48) 12%, transparent); }
 .tj-as-btn-ico { display: inline-flex; vertical-align: -2px; margin-right: 6px; }
 .tj-as-btn-ico svg { width: 13px; height: 13px; }
 .tj-as-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px; border-top: 1px solid var(--background-modifier-border); }
@@ -1574,7 +1574,7 @@
 
 /* Fase 7: Trade Log view */
 .tj-tradelog .tj-input { min-width: 150px; }
-.tj-date-input { min-width: 140px !important; }
+.tj-date-input { min-width: 140px; }
 .tj-filt-symbol { min-width: 110px; }
 .tj-ok { color: var(--color-green-bright, #34d17a); }
 .tj-miss { color: var(--color-red, #ad3527); }
@@ -1659,7 +1659,7 @@
   align-items: center;
   gap: 6px;
 }
-.tj-filter-custom .tj-date-input { min-width: 130px !important; padding: 3px 6px; }
+.tj-app .tj-filter-custom .tj-date-input { min-width: 130px; padding: 3px 6px; }
 
 /* Trade Detail view — redesigned */
 .tj-td-head {
@@ -1878,7 +1878,7 @@
 
 /* "Mark as reviewed" — the trader's word that closes the queue, offered next to
    the risk line it shares a row with. The badge is the control that reopens. */
-.tj-td-markreviewed {
+.tj-app .tj-td-markreviewed {
   flex: 0 0 auto;
   font-size: var(--tj-fs-micro);
   color: var(--tj-fg-3);
@@ -1888,17 +1888,17 @@
      outline is drawn — the hover below re-declares with `!important` too, so it
      can still win on hover. */
   appearance: none;
-  background: transparent !important;
-  box-shadow: none !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  min-height: 0 !important;
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid var(--background-modifier-border);
+  min-height: 0;
   border-radius: 6px;
   padding: 2px 8px;
   cursor: pointer;
 }
-.tj-td-markreviewed:hover {
-  color: var(--tj-fg-2) !important;
-  border-color: color-mix(in srgb, var(--tj-accent) 55%, var(--background-modifier-border)) !important;
+.tj-app .tj-td-markreviewed:hover {
+  color: var(--tj-fg-2);
+  border-color: color-mix(in srgb, var(--tj-accent) 55%, var(--background-modifier-border));
 }
 .tj-td-hero-metrics {
   margin-left: auto;
@@ -2173,7 +2173,7 @@
 }
 
 /* Acknowledgement — "nothing to log" for an optional step, dashed until used. */
-.tj-td-ack {
+.tj-app .tj-td-ack {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2181,10 +2181,10 @@
   font-weight: var(--tj-w-medium);
   padding: 3px 10px;
   border-radius: 6px;
-  border: 1px dashed var(--background-modifier-border) !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  border: 1px dashed var(--background-modifier-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--tj-fg-3);
   cursor: pointer;
   margin-top: 6px;
   font-family: inherit;
@@ -2193,37 +2193,37 @@
   content: "✓";
   opacity: 0.5;
 }
-.tj-td-ack:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+.tj-app .tj-td-ack:hover {
+  color: var(--text-normal);
+  background: transparent;
 }
-.tj-td-ack.on {
-  color: var(--color-green-bright, #34d17a) !important;
-  border-style: solid !important;
-  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 40%, transparent) !important;
-  background: transparent !important;
+.tj-app .tj-td-ack.on {
+  color: var(--color-green-bright, #34d17a);
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-green-bright, #34d17a) 40%, transparent);
+  background: transparent;
 }
 .tj-td-ack.on::before {
   opacity: 1;
 }
 /* Ghost link in the section header — the only way into the tag picker. */
-.tj-td-ghostbtn {
+.tj-app .tj-td-ghostbtn {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
   margin-left: auto;
   font-size: var(--tj-fs-small);
-  color: var(--tj-fg-3) !important;
-  background: none !important;
-  border: none !important;
-  box-shadow: none !important;
+  color: var(--tj-fg-3);
+  background: none;
+  border: none;
+  box-shadow: none;
   cursor: pointer;
   padding: 0;
   font-family: inherit;
 }
-.tj-td-ghostbtn:hover {
+.tj-app .tj-td-ghostbtn:hover {
   color: var(--text-normal);
-  background: none !important;
+  background: none;
 }
 /* The tag picker — a portal panel pinned under the ghost link. */
 .tj-td-tagpop {
@@ -2502,10 +2502,10 @@
   min-width: 0;
   max-width: 160px;
 }
-.tj-td-flip-strat-wrap .tj-mg-dd-btn {
-  border-bottom: none !important;
+.tj-modal .tj-td-flip-strat-wrap .tj-mg-dd-btn {
+  border-bottom: none;
   justify-content: flex-end;
-  padding: 3px 0 !important;
+  padding: 3px 0;
   gap: 4px;
 }
 .tj-td-flip-strat-wrap .tj-mg-dd-val {
@@ -2830,14 +2830,14 @@
   padding: 0 8px;
   user-select: none;
 }
-.tj-nav-item {
+.workspace .tj-nav-item {
   width: 100%;
   box-sizing: border-box;
   text-align: left;
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
   outline: none;
   display: flex;
   align-items: center;
@@ -2860,12 +2860,12 @@
 .tj-nav-item:focus,
 .tj-nav-item:focus-visible,
 .tj-nav-item:active,
-.tj-nav-item.active {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
+.workspace .tj-nav-item.active {
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 .tj-nav-item:hover {
   color: var(--text-normal);
@@ -3007,23 +3007,23 @@
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid var(--background-modifier-border) !important;
+  border: 1px solid var(--background-modifier-border);
   border-radius: 7px;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 .tj-filterbtn:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-hover) !important;
-  border-color: var(--background-modifier-border-hover, var(--background-modifier-border)) !important;
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
 }
 .tj-filterbtn.is-active {
   color: var(--interactive-accent);
-  border-color: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent);
 }
 .tj-filterbtn svg {
   width: 16px;
@@ -3034,31 +3034,31 @@
    button there. Layouts (saved snapshots) is quieter: it is a switcher, not the
    action the trader came here to take. */
 .tj-addwidget,
-.tj-layoutbtn {
+.tj-app .tj-layoutbtn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   height: 30px;
   padding: 0 12px;
-  border: 1px solid transparent !important;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--interactive-accent) !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: var(--interactive-accent);
+  background-image: none;
+  box-shadow: none;
   color: var(--text-on-accent);
   font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-medium);
   cursor: pointer;
 }
-.tj-layoutbtn {
-  background: transparent !important;
-  border-color: var(--background-modifier-border) !important;
+.tj-app .tj-layoutbtn {
+  background: transparent;
+  border-color: var(--background-modifier-border);
   color: var(--text-muted);
 }
-.tj-layoutbtn:hover { color: var(--text-normal); border-color: var(--interactive-accent) !important; }
-.tj-layoutbtn.is-active { color: var(--interactive-accent); border-color: var(--interactive-accent) !important; }
+.tj-app .tj-layoutbtn:hover { color: var(--text-normal); border-color: var(--interactive-accent); }
+.tj-layoutbtn.is-active { color: var(--interactive-accent); border-color: var(--interactive-accent); }
 .tj-addwidget:hover {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
 }
 /* Floating filter popover — anchored; never pushes the layout */
 .tj-pop-backdrop {
@@ -3124,18 +3124,18 @@
 /* Home filters — the same flat language as the rest of the journal. */
 .tj-pop-fields { display: flex; flex-direction: column; gap: 6px; }
 .tj-pop-pills { display: flex; flex-wrap: wrap; gap: 4px; }
-.tj-pop-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tj-popover .tj-pop-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tj-pop-clear {
   min-height: 24px;
   padding: 0 4px;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
 }
-.tj-pop-clear:hover { color: var(--text-normal); background: transparent !important; }
+.tj-popover .tj-pop-clear:hover { color: var(--text-normal); background: transparent; }
 .tj-pop-accs {
   display: flex;
   flex-direction: column;
@@ -3143,7 +3143,7 @@
   max-height: 220px;
   overflow-y: auto;
 }
-.tj-pop-acc {
+.tj-popover .tj-pop-acc {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3151,24 +3151,24 @@
   min-height: 28px;
   padding: 3px 6px;
   text-align: left;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   border-radius: 6px;
   color: var(--text-normal);
   font-size: var(--tj-fs-body);
   cursor: pointer;
 }
-.tj-pop-acc:hover { background: var(--background-modifier-hover) !important; }
+.tj-popover .tj-pop-acc:hover { background: var(--background-modifier-hover); }
 .tj-pop-acc-check { width: 12px; color: var(--interactive-accent); font-weight: var(--tj-w-bold); }
 .tj-pop-acc-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tj-pop-acc-firm { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
 .tj-pop-acc.is-on .tj-pop-acc-name { color: var(--interactive-accent); font-weight: var(--tj-w-medium); }
 .tj-pop-empty { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
-.tj-pop-pill {
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.tj-popover .tj-pop-pill {
+  border: 1px solid transparent;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-2);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
@@ -3176,11 +3176,11 @@
   border-radius: 999px;
   cursor: pointer;
 }
-.tj-pop-pill:hover { color: var(--tj-fg-1); background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent) !important; }
+.tj-popover .tj-pop-pill:hover { color: var(--tj-fg-1); background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent); }
 .tj-pop-pill.is-on {
   color: var(--interactive-accent);
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent) !important;
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
 }
 .tj-iconbtn {
   display: inline-flex;
@@ -3189,24 +3189,24 @@
   width: 30px;
   height: 30px;
   padding: 0;
-  border: 1px solid var(--background-modifier-border) !important;
+  border: 1px solid var(--background-modifier-border);
   border-radius: 7px;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 .tj-iconbtn:hover {
-  background: var(--background-modifier-hover) !important;
-  border-color: var(--background-modifier-border-hover, var(--background-modifier-border)) !important;
+  background: var(--background-modifier-hover);
+  border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
   color: var(--text-normal);
 }
 .tj-iconbtn.is-active {
-  background: transparent !important;
-  color: var(--interactive-accent) !important;
-  border-color: var(--interactive-accent) !important;
+  background: transparent;
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
 }
 .tj-iconbtn svg {
   width: 17px;
@@ -3216,8 +3216,8 @@
    picks up the accent when you reach for it. No slab — the numbers stay the
    loudest thing on the page. */
 .tj-iconbtn.is-primary:hover {
-  color: var(--interactive-accent) !important;
-  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent) !important;
+  color: var(--interactive-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
 }
 
 /* Header action buttons — one recipe, so the top-right corner of every page
@@ -3286,10 +3286,10 @@
 }
 .tj-pbtn {
   position: relative;
-  border: none !important;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
@@ -3299,15 +3299,15 @@
   transition: color 130ms ease, background-color 130ms ease;
 }
 .tj-pbtn:hover {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 /* Active = a plain straight accent line, close to the text (no rounded box). */
 .tj-pbtn.active {
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
   font-weight: var(--tj-w-medium);
-  box-shadow: none !important;
+  box-shadow: none;
 }
 .tj-pbtn.active::after {
   content: "";
@@ -3332,30 +3332,30 @@
 }
 .tj-period-more-trigger { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .tj-period-more-range { color: var(--tj-fg-3); font-weight: 400; }
-.tj-period-more-chevron { font-size: var(--tj-fs-label); }
-.tj-period-more-backdrop { z-index: 3000 !important; }
+.tj-app .tj-period-more-chevron { font-size: var(--tj-fs-label); }
+.tj-period-more-backdrop { z-index: 3000; }
 .tj-period-more-menu {
   width: min(340px, calc(100vw - 24px));
   max-height: min(70vh, 440px);
   overflow-y: auto;
   gap: 5px;
 }
-.tj-period-more-option {
+.tj-app .tj-period-more-option {
   display: flex;
   align-items: center;
   width: 100%;
   min-height: 30px;
   padding: 5px 8px;
-  border: none !important;
+  border: none;
   border-radius: 6px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-3);
   text-align: left;
   font-size: var(--tj-fs-body);
   cursor: pointer;
 }
-.tj-period-more-option:hover { background: var(--background-modifier-hover) !important; color: var(--text-normal); }
+.tj-app .tj-period-more-option:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .tj-period-more-option.is-active { color: var(--text-normal); font-weight: var(--tj-w-medium); }
 .tj-period-custom-row { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 8px; }
 .tj-period-custom-row .tj-datefield { width: 100%; }
@@ -3631,22 +3631,22 @@
   }
 }
 /* Home-only action and navigation widgets. */
-.tj-home-accounts-link {
+.tj-app .tj-home-accounts-link {
   display: flex;
   align-items: center;
   width: 100%;
   min-height: 38px;
   padding: 5px 8px;
-  border: 0 !important;
-  border-bottom: 0 !important;
+  border: 0;
+  border-bottom: 0;
   border-radius: 8px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-normal);
   text-align: left;
   cursor: pointer;
 }
-.tj-home-accounts-link:hover { color: var(--interactive-accent); background: var(--background-modifier-hover) !important; }
+.tj-app .tj-home-accounts-link:hover { color: var(--interactive-accent); background: var(--background-modifier-hover); }
 .tj-card-header .tj-home-accounts-link { flex: 0 0 auto; min-height: 28px; width: auto; padding: 2px 4px; font-size: var(--tj-fs-small); }
 /* Focus Areas: the coverage as a centred hero ring on top of the body, the gaps
    below it as clean one-line chips — each a door into the Trade Log. */
@@ -3750,10 +3750,10 @@
   min-width: 0;
   min-height: 26px;
   padding: 2px 4px;
-  border: none !important;
+  border: none;
   border-radius: 8px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-1);
   cursor: pointer;
   text-align: left;
@@ -3761,7 +3761,7 @@
 /* The chip has no surface of its own, and the theme must not give it one: an
    explicit transparent on hover beats Obsidian's own button hover fill. */
 .tj-focus-chip:hover {
-  background: transparent !important;
+  background: transparent;
 }
 .tj-focus-chip:focus-visible {
   outline: 2px solid var(--interactive-accent);
@@ -3849,7 +3849,7 @@
 .tj-ha-hero-name { overflow: hidden; font-size: var(--tj-fs-strong); font-weight: var(--tj-w-medium); text-overflow: ellipsis; white-space: nowrap; }
 .tj-ha-hero-type { overflow: hidden; color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-overflow: ellipsis; white-space: nowrap; }
 .tj-ha-hero-bal { flex: 0 0 auto; margin-left: auto; color: var(--tj-fg-1); font-size: var(--tj-fs-head); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tj-ha-open { flex: 0 0 auto; padding: 0 2px; border: none !important; background: transparent !important; box-shadow: none !important; color: var(--tj-fg-3); font-size: var(--tj-fs-small); cursor: pointer; }
+.tj-app .tj-ha-open { flex: 0 0 auto; padding: 0 2px; border: none; background: transparent; box-shadow: none; color: var(--tj-fg-3); font-size: var(--tj-fs-small); cursor: pointer; }
 .tj-ha-open:hover { color: var(--interactive-accent); text-decoration: underline; text-underline-offset: 2px; }
 .tj-ha-chart { flex: 1 1 auto; min-height: 56px; }
 .tj-ha-chart .tj-eq-svg { width: 100%; height: 100%; }
@@ -3860,10 +3860,10 @@
 .tj-ha-fact-v { overflow: hidden; color: var(--tj-fg-1); font-size: var(--tj-fs-strong); font-weight: var(--tj-w-medium); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .tj-ha-list { display: flex; flex-direction: column; gap: 3px; min-height: 0; padding-left: var(--tj-sp-3); border-left: 1px solid var(--background-modifier-border); overflow-y: auto; overscroll-behavior: contain; }
 .tj-ha.is-single { grid-template-columns: minmax(0, 1fr); }
-.tj-ha-row { appearance: none; position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent !important; box-shadow: none !important; color: var(--tj-fg-2); text-align: left; cursor: pointer; }
-.tj-ha-row:hover { background: var(--background-modifier-hover) !important; color: var(--tj-fg-1); }
+.tj-ha-row { appearance: none; position: relative; display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; padding: 7px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; box-shadow: none; color: var(--tj-fg-2); text-align: left; cursor: pointer; }
+.tj-app .tj-ha-row:hover { background: var(--background-modifier-hover); color: var(--tj-fg-1); }
 .tj-ha-row:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
-.tj-ha-row.is-on { color: var(--tj-fg-1); background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent) !important; font-weight: var(--tj-w-medium); }
+.tj-app .tj-ha-row.is-on { color: var(--tj-fg-1); background: color-mix(in srgb, var(--tj-fg-3) 8%, transparent); font-weight: var(--tj-w-medium); }
 .tj-ha-row-name { overflow: hidden; font-size: var(--tj-fs-body); text-overflow: ellipsis; white-space: nowrap; }
 .tj-ha-row-meta { display: flex; align-items: baseline; justify-content: space-between; gap: var(--tj-sp-2); min-width: 0; }
 .tj-ha-row-sub { overflow: hidden; color: var(--tj-fg-3); font-size: var(--tj-fs-small); text-overflow: ellipsis; white-space: nowrap; }
@@ -3888,9 +3888,9 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: none !important;
+  border: none;
   border-radius: 6px;
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
   color: var(--tj-fg-3);
   cursor: pointer;
   display: none;
@@ -3917,7 +3917,7 @@
 }
 .tj-card-del:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-border-hover, var(--background-modifier-hover)) !important;
+  background: var(--background-modifier-border-hover, var(--background-modifier-hover));
 }
 
 /* Tiny chart title (centered, unobtrusive) */
@@ -3943,7 +3943,7 @@
 
 /* Add-widget dropdown (stays open while adding several) */
 .tj-addwidget.is-active {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
 }
 /* Home layouts manager — named layouts, switch / copy / rename / delete */
 .tj-layouts {
@@ -3976,9 +3976,9 @@
   min-height: 24px;
   padding: 4px 6px;
   text-align: left;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--text-normal);
   font-size: var(--tj-fs-strong);
   overflow: hidden;
@@ -4002,9 +4002,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   cursor: pointer;
 }
@@ -4027,9 +4027,9 @@
   width: 100%;
   min-height: 24px;
   text-align: left;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
@@ -4058,9 +4058,9 @@
   padding: 7px 10px;
   border: 0;
   border-radius: 6px;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   font-family: inherit;
   font-size: var(--tj-fs-strong);
   text-align: left;
@@ -4068,7 +4068,7 @@
   cursor: pointer;
 }
 .tj-widgetmenu-item:hover {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
 }
 .tj-widgetmenu-item.is-added {
   color: var(--tj-fg-3);
@@ -4122,9 +4122,9 @@
   padding: 2px 12px 8px;
   border: 0;
   border-radius: 0;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   font-family: inherit;
   font-size: var(--tj-fs-label);
   font-weight: var(--tj-w-bold);
@@ -4287,9 +4287,9 @@
 
 .tj-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .tj-seg-btn {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-3);
   padding: 5px 14px;
   border-radius: 6px;
@@ -4297,7 +4297,7 @@
   font-weight: var(--tj-w-medium);
   cursor: pointer;
 }
-.tj-seg-btn.on { background: var(--interactive-accent) !important; color: var(--text-on-accent); }
+.tj-modal .tj-seg-btn.on { background: var(--interactive-accent); color: var(--text-on-accent); }
 .tj-risk-hint {
   display: flex;
   gap: 16px;
@@ -4632,17 +4632,17 @@
 /* Inside a modal Obsidian paints its own buttons over ours, so the ghost has to
    be insisted on. A secondary action is a word, not a block. */
 .tj-import-modal .tj-import-cashswap {
-  height: auto !important;
-  padding: 0 !important;
-  border: none !important;
-  background: none !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--tj-fg-3);
 }
 .tj-import-modal .tj-import-cashswap:hover {
-  color: var(--tj-fg-1) !important;
+  color: var(--tj-fg-1);
   text-decoration: underline;
-  background: none !important;
+  background: none;
 }
 .tj-import-cashswap:hover { color: var(--tj-fg-1); }
 /* The trades file can be swapped without closing the flow: same ghost word. */
@@ -4657,17 +4657,17 @@
   cursor: pointer;
 }
 .tj-import-modal .tj-import-chipswap {
-  height: auto !important;
-  padding: 0 !important;
-  border: none !important;
-  background: none !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  color: var(--tj-fg-3);
 }
 .tj-import-modal .tj-import-chipswap:hover {
-  color: var(--tj-fg-1) !important;
+  color: var(--tj-fg-1);
   text-decoration: underline;
-  background: none !important;
+  background: none;
 }
 .tj-import-chipswap:hover { color: var(--tj-fg-1); }
 .tj-import-modal .tj-dropzone.is-cash {
@@ -5098,13 +5098,13 @@
 
 /* Fix: popovers (Add widget / Filters) must be fully opaque and on top */
 .tj-popover {
-  background-color: var(--background-primary) !important;
-  opacity: 1 !important;
-  z-index: 1200 !important;
+  background-color: var(--background-primary);
+  opacity: 1;
+  z-index: 1200;
   backdrop-filter: blur(10px) saturate(1.1);
   -webkit-backdrop-filter: blur(10px) saturate(1.1);
 }
-.tj-pop-backdrop { background: transparent !important; }
+.tj-popover .tj-pop-backdrop { background: transparent; }
 
 /* ==========================================================================
    Polish pass 2 — fewer lines, tiny titles, bigger handles, better gauges
@@ -5150,16 +5150,16 @@
 .tj-resize-handle:hover { background: color-mix(in srgb, var(--interactive-accent) 40%, transparent); }
 
 /* Add widget / Filters popover must sit above the grid cards (stacking fix) */
-.tj-header { z-index: 3000 !important; }
-.tj-pop-backdrop { z-index: 3000 !important; }
-.tj-popover { z-index: 3100 !important; }
+.tj-app .tj-header { z-index: 3000; }
+.tj-pop-backdrop { z-index: 3000; }
+.tj-popover { z-index: 3100; }
 
 /* Tighter, more compact widgets (less white space) */
 .tj-dashboard .tj-gridcard .tj-gridcard-body { padding: 10px 12px; }
 .tj-dashboard .tj-gridcard .tj-card-header { padding: 9px 12px 2px; }
 
 /* Header: no separator line (blends with the page) */
-.tj-header { border-bottom: none !important; box-shadow: none !important; }
+.tj-header { border-bottom: none; box-shadow: none; }
 
 /* ==========================================================================
    Sidebar polish — cleaner logo, softer search, tidier spacing
@@ -5186,10 +5186,10 @@
 }
 
 /* Search: soft filled pill, no harsh border */
-.tj-nav-search { padding: 8px 12px 12px; }
+.workspace .tj-nav-search { padding: 8px 12px 12px; }
 .tj-nav-search-input-wrapper {
   background-color: var(--background-modifier-form-field);
-  border: none !important;
+  border: none;
   border-radius: 9px;
   padding: 7px 11px;
   gap: 8px;
@@ -5267,14 +5267,14 @@
 }
 .tj-nav-search-input,
 .tj-nav-search-input:focus,
-.tj-nav-search-input:focus-visible {
-  background: transparent !important;
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
+.workspace .tj-nav-search-input:focus-visible {
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
 }
 .tj-nav-search-icon { margin-left: 1px; }
 
@@ -5305,8 +5305,8 @@
 /* Fix horizontal scrollbar: items must not exceed the sidebar width */
 .tj-nav-sidebar,
 .tj-nav-sections,
-.tj-nav-results {
-  overflow-x: hidden !important;
+.workspace .tj-nav-results {
+  overflow-x: hidden;
 }
 .tj-nav-sections { padding: 0 5px 14px; }
 .tj-dir-long { color: var(--color-green-bright, #34d17a); font-weight: var(--tj-w-medium); }
@@ -5325,7 +5325,7 @@
 .tj-nav-sidebar .tj-nav-results { flex: 1 1 auto; min-height: 0; }
 
 /* Search: clear button */
-.tj-nav-sidebar .tj-nav-search-clear {
+.workspace .tj-nav-sidebar .tj-nav-search-clear {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5333,14 +5333,14 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   border-radius: 4px;
   color: var(--tj-fg-3);
   cursor: pointer;
 }
-.tj-nav-sidebar .tj-nav-search-clear:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
+.workspace .tj-nav-sidebar .tj-nav-search-clear:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
 .tj-nav-sidebar .tj-nav-search-clear svg { width: 14px; height: 14px; }
 .tj-nav-sidebar .tj-nav-search-clear.is-hidden { display: none; }
 
@@ -5373,7 +5373,7 @@
 
 /* Search scope: the magnifier opens a small type menu (no chip row) */
 .tj-nav-search { position: relative; }
-.tj-nav-sidebar .tj-nav-search-scope {
+.workspace .tj-nav-sidebar .tj-nav-search-scope {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5381,9 +5381,9 @@
   flex-shrink: 0;
   min-height: 24px;
   padding: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-3);
   cursor: pointer;
 }
@@ -5404,23 +5404,23 @@
   background: var(--background-secondary);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
-.tj-nav-scope-item {
+.workspace .tj-nav-scope-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
   padding: 4px 8px;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   border-radius: 6px;
   font-size: var(--tj-fs-small);
   color: var(--tj-fg-2);
   cursor: pointer;
   text-align: left;
 }
-.tj-nav-scope-item:hover { background: var(--background-modifier-hover) !important; color: var(--text-normal); }
+.workspace .tj-nav-scope-item:hover { background: var(--background-modifier-hover); color: var(--text-normal); }
 .tj-nav-scope-item.is-on { color: var(--interactive-accent); }
 .tj-nav-scope-count { color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
 
@@ -5468,20 +5468,20 @@
   height: 32px;
   padding: 0;
   line-height: 1;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   border-radius: 6px;
-  color: var(--tj-fg-2) !important;
+  color: var(--tj-fg-2);
   cursor: pointer;
 }
 .tj-anno-tool:hover {
-  background: var(--background-modifier-hover) !important;
-  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .tj-anno-tool.is-active {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
-  color: var(--interactive-accent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  color: var(--interactive-accent);
 }
 .tj-anno-tool svg {
   width: 18px;
@@ -5497,10 +5497,10 @@
 .tj-anno-actions { display: flex; align-items: center; gap: 6px; }
 /* Ghost actions — the house recipe, no Obsidian native box. */
 .tj-anno-actions button {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--tj-fg-3);
   height: 30px;
   padding: 0 8px;
   border-radius: 7px;
@@ -5511,14 +5511,14 @@
   transition: color 120ms ease;
 }
 .tj-anno-actions button:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+  color: var(--text-normal);
+  background: transparent;
 }
 .tj-anno-actions button.is-primary {
-  color: var(--text-normal) !important;
+  color: var(--text-normal);
 }
 .tj-anno-actions button.is-primary:hover {
-  color: var(--interactive-accent) !important;
+  color: var(--interactive-accent);
 }
 .tj-anno-canvaswrap {
   position: relative;
@@ -5602,31 +5602,31 @@
   min-width: 32px;
   min-height: 24px;
   padding: 2px 8px;
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
   border-radius: 6px;
-  color: var(--tj-fg-2) !important;
+  color: var(--tj-fg-2);
   font-family: inherit;
   font-size: var(--tj-fs-small);
   line-height: 1.2;
   cursor: pointer;
 }
 .tj-anno-sidebar-btn:hover {
-  border-color: var(--background-modifier-border) !important;
-  color: var(--text-normal) !important;
+  border-color: var(--background-modifier-border);
+  color: var(--text-normal);
 }
 .tj-anno-sidebar-btn.is-active {
-  border-color: var(--interactive-accent) !important;
-  color: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
 }
 .tj-anno-sidebar-btn:disabled {
   opacity: 0.4;
   cursor: default;
 }
 .tj-anno-sidebar-btn:disabled:hover {
-  border-color: transparent !important;
-  color: var(--tj-fg-2) !important;
+  border-color: transparent;
+  color: var(--tj-fg-2);
 }
 .tj-anno-sidebar-iconbtn {
   width: 28px;
@@ -5651,22 +5651,22 @@
 /* Floating textarea — typed text is baked in on commit. */
 .tj-anno-textinput,
 textarea.tj-anno-textinput {
-  position: absolute !important;
-  z-index: 10 !important;
-  min-width: 80px !important;
-  min-height: 24px !important;
-  max-height: none !important;
-  padding: 2px 4px !important;
-  margin: 0 !important;
-  background: rgba(0, 0, 0, 0.6) !important;
-  border: 1px dashed currentColor !important;
-  border-radius: 0 !important;
-  outline: none !important;
-  box-shadow: none !important;
-  font-size: var(--tj-fs-big) !important;
-  font-family: inherit !important;
-  line-height: 1.2 !important;
-  resize: none !important;
+  position: absolute;
+  z-index: 10;
+  min-width: 80px;
+  min-height: 24px;
+  max-height: none;
+  padding: 2px 4px;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px dashed currentColor;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  font-size: var(--tj-fs-big);
+  font-family: inherit;
+  line-height: 1.2;
+  resize: none;
 }
 
 /* Trade Detail print */
@@ -5833,11 +5833,11 @@ textarea.tj-anno-textinput {
 }
 .tj-set-item-icon svg { width: 18px; height: 18px; }
 .tj-set-item:hover .tj-set-item-icon { color: var(--interactive-accent); }
-.tj-set-item-left { flex: 1 1 auto; min-width: 0; }
+.workspace .tj-set-item-left { flex: 1 1 auto; min-width: 0; }
 /* Settings — section header (drill-down) */
 .tj-set-back {
   display: inline-flex; align-items: center; gap: 4px;
-  border: none !important; background: transparent !important; box-shadow: none !important;
+  border: none; background: transparent; box-shadow: none;
   padding: 0; margin: 0 0 10px; color: var(--tj-fg-3);
   font-size: var(--tj-fs-body); cursor: pointer;
 }
@@ -5890,18 +5890,18 @@ textarea.tj-anno-textinput {
    under the value, a chevron, and a hover that brightens both. Before this it
    was plain text until hovered, so the right side looked like part of the
    sentence. */
-.tj-set-opt .tj-mg-dd-btn {
+.tj-modal .tj-set-opt .tj-mg-dd-btn {
   text-align: left;
-  padding: 4px 4px 5px !important;
+  padding: 4px 4px 5px;
   border-radius: 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent);
 }
-.tj-set-opt .tj-mg-dd-btn:hover {
+.tj-modal .tj-set-opt .tj-mg-dd-btn:hover {
   background: var(--background-modifier-hover);
-  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
 }
-.tj-set-opt .tj-mg-dd-btn:focus-visible {
-  border-bottom-color: var(--interactive-accent) !important;
+.tj-modal .tj-set-opt .tj-mg-dd-btn:focus-visible {
+  border-bottom-color: var(--interactive-accent);
 }
 .tj-set-opt .tj-mg-dd-chev { margin-left: auto; color: var(--tj-fg-2); }
 .tj-set-opt-icon {
@@ -5922,24 +5922,24 @@ textarea.tj-anno-textinput {
   flex-basis: 100%; font-size: var(--tj-fs-micro); text-transform: uppercase;
   letter-spacing: 0.08em; color: var(--tj-fg-3); margin-bottom: 4px;
 }
-.tj-set-chip {
+.workspace .tj-set-chip {
   display: inline-flex; align-items: center; gap: 4px;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: transparent !important; box-shadow: none !important;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent; box-shadow: none;
   border-radius: 999px; padding: 3px 11px;
   font-size: var(--tj-fs-body); color: var(--tj-fg-2); cursor: pointer;
   transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
-.tj-set-chip:hover {
+.workspace .tj-set-chip:hover {
   color: var(--text-normal);
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border)) !important;
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
 }
 .tj-set-chip-check { display: none; align-items: center; }
 .tj-set-chip-check svg { width: 13px; height: 13px; }
-.tj-set-chip.is-on {
+.workspace .tj-set-chip.is-on {
   color: var(--text-on-accent);
-  border-color: var(--interactive-accent) !important;
-  background: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent);
+  background: var(--interactive-accent);
 }
 .tj-set-chip.is-on .tj-set-chip-check { display: inline-flex; }
 
@@ -5991,19 +5991,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-set-about-msg { margin: 0 0 4px; font-size: var(--tj-fs-body); color: var(--text-normal); }
 .tj-set-about-sub { margin: 0 0 12px; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
-.tj-set-sup { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace .tj-set-sup { display: flex; flex-wrap: wrap; gap: 8px; }
 .tj-set-sup-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 11px;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: transparent !important; box-shadow: none !important;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent; box-shadow: none;
   border-radius: 8px; font-size: var(--tj-fs-body); color: var(--tj-fg-2); cursor: pointer;
   transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
 }
-.tj-set-sup-btn:hover {
+.workspace .tj-set-sup-btn:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-hover) !important;
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border)) !important;
+  background: var(--background-modifier-hover);
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
 }
 .tj-set-sup-btn-icon { display: inline-flex; align-items: center; color: var(--tj-fg-2); transition: color 120ms ease; }
 .tj-set-sup-btn:hover .tj-set-sup-btn-icon { color: var(--interactive-accent); }
@@ -6025,7 +6025,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* The row inside the card is a settings row, unchanged: 12px/10px padding, a
    24px icon column, the same title over description hierarchy, the same 12px
    gaps. Only the last cell differs — a value and a chevron, not a control. */
-.tj-set-disclosure-btn {
+.workspace .tj-set-disclosure-btn {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -6036,9 +6036,9 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding: 12px 10px;
   font: inherit;
   border: 0;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   text-align: left;
   cursor: pointer;
   transition: background 140ms ease;
@@ -6132,16 +6132,16 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-set-disclosure-panel .tj-set-note,
 .tj-set-disclosure-panel .tj-set-subhead { padding-left: 0; padding-right: 0; }
 /* Inside a panel the hint is a line of help, not a headline. */
-.tj-set-disclosure-panel .tj-hint { margin-bottom: 8px; font-size: var(--tj-fs-small); }
+.workspace .tj-set-disclosure-panel .tj-hint { margin-bottom: 8px; font-size: var(--tj-fs-small); }
 /* An editor sitting inside a card keeps the same hairline a settings control
    draws, so the right side of its own rows is a value and not loose text. */
 .tj-set-disclosure-panel .tj-mg-dd-btn {
-  padding: 4px 4px 5px !important;
+  padding: 4px 4px 5px;
   border-radius: 5px;
-  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 85%, transparent);
 }
-.tj-set-disclosure-panel .tj-mg-dd-btn:hover {
-  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
+.tj-modal .tj-set-disclosure-panel .tj-mg-dd-btn:hover {
+  border-bottom-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
 }
 
 .tj-set-subhead {
@@ -6308,14 +6308,14 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
 }
-.tj-set-linkbtn {
+.workspace .tj-set-linkbtn {
   display: inline-flex;
   align-items: center;
   min-height: 26px;
   padding: 3px 0;
   border: 0;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-2);
   font-size: var(--tj-fs-small);
   cursor: pointer;
@@ -6385,10 +6385,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-app.tj-font-mono .tj-eq-value{ font-family: inherit; }
 
 /* Neon glow (cyberpunk / tech) */
-.tj-app.tj-glow .tj-header-greet { text-shadow: 0 0 20px color-mix(in srgb, var(--interactive-accent) 45%, transparent); }
-.tj-app.tj-glow .tj-pbtn.active { box-shadow: inset 0 -2px 0 var(--interactive-accent), 0 0 10px color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important; }
+.workspace .tj-app.tj-glow .tj-header-greet { text-shadow: 0 0 20px color-mix(in srgb, var(--interactive-accent) 45%, transparent); }
+.tj-app.tj-glow .tj-pbtn.active { box-shadow: inset 0 -2px 0 var(--interactive-accent), 0 0 10px color-mix(in srgb, var(--interactive-accent) 55%, transparent); }
 .tj-app.tj-glow .tj-iconbtn.is-active,
-.tj-app.tj-glow .tj-filterbtn.is-active { box-shadow: 0 0 12px color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important; }
+.workspace .tj-app.tj-glow .tj-filterbtn.is-active { box-shadow: 0 0 12px color-mix(in srgb, var(--interactive-accent) 55%, transparent); }
 
 /* ==========================================================================
    Performance calendar
@@ -6397,13 +6397,13 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-pcal-top { display: flex; align-items: center; gap: 10px; }
 .tj-pcal-nav {
   width: 32px; height: 32px; border-radius: 9px;
-  border: none !important; background: transparent !important; box-shadow: none !important;
+  border: none; background: transparent; box-shadow: none;
   color: var(--tj-fg-3); cursor: pointer; flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center; font-size: var(--tj-fs-display); line-height: 1;
   opacity: 0.6; transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
 }
 .tj-pcal-nav:hover {
-  background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--text-normal) 8%, transparent);
   color: var(--text-normal); opacity: 1;
 }
 .tj-pcal-name { flex: 1 1 auto; text-align: center; font-weight: var(--tj-w-bold); font-size: var(--tj-fs-strong); letter-spacing: 0.06em; color: var(--text-normal); text-transform: uppercase; }
@@ -6547,19 +6547,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-pcal-tip-sub { font-size: var(--tj-fs-small); color: var(--tj-fg-3); margin-top: 2px; }
 
 /* Seamless sidebar search — no field chrome, part of the sidebar */
-.tj-nav-search { padding: 2px 5px 8px; }
+.workspace .tj-nav-search { padding: 2px 5px 8px; }
 .tj-nav-search-input-wrapper {
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+  background-color: transparent;
+  border: none;
+  box-shadow: none;
   border-radius: 6px;
   padding: 4px 9px;
   gap: 7px;
   transition: box-shadow 150ms ease;
 }
-.tj-nav-search:focus-within .tj-nav-search-input-wrapper {
-  background-color: transparent !important;
-  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--interactive-accent) 45%, transparent) !important;
+.workspace .tj-nav-search:focus-within .tj-nav-search-input-wrapper {
+  background-color: transparent;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--interactive-accent) 45%, transparent);
 }
 .tj-nav-search-input { font-size: var(--tj-fs-body); }
 .tj-nav-search-icon { color: var(--tj-fg-3); }
@@ -6616,7 +6616,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 
 /* The plugin's own calendar (lib/calendar.ts). Drawn at body level and pinned
    to the field, so a scrolling modal can never cut it off. Obsidian styles
-   every <button>, hence the !important on the visual properties. */
+   every <button>, hence the on the visual properties. */
 .tj-cal {
   position: fixed;
   z-index: 1100;
@@ -6641,23 +6641,23 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   font-weight: var(--tj-w-bold);
 }
 .tj-cal-nav {
-  width: 28px !important;
-  height: 28px !important;
-  min-width: 28px !important;
-  min-height: 28px !important;
-  padding: 0 !important;
-  border: none !important;
-  border-radius: 7px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-2) !important;
-  font-size: var(--tj-fs-big) !important;
-  line-height: 1 !important;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-big);
+  line-height: 1;
   cursor: pointer;
 }
 .tj-cal-nav:hover {
-  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
-  color: var(--text-normal) !important;
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent);
+  color: var(--text-normal);
 }
 .tj-cal-grid {
   display: grid;
@@ -6674,34 +6674,34 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--tj-fg-3);
 }
 .tj-cal-day {
-  width: 30px !important;
-  height: 30px !important;
-  min-width: 30px !important;
-  min-height: 30px !important;
-  padding: 0 !important;
-  border: none !important;
-  border-radius: 7px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--text-normal) !important;
-  font-family: inherit !important;
-  font-size: var(--tj-fs-body) !important;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-family: inherit;
+  font-size: var(--tj-fs-body);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 .tj-cal-day:hover {
-  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent);
 }
 .tj-cal-day.is-out {
-  color: var(--tj-fg-3) !important;
+  color: var(--tj-fg-3);
   opacity: 0.55;
 }
 .tj-cal-day.is-today {
-  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, rgba(255, 255, 255, 0.24)) !important;
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border-hover, rgba(255, 255, 255, 0.24));
 }
 .tj-cal-day.is-sel {
-  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent) !important;
-  color: var(--text-normal) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 26%, transparent);
+  color: var(--text-normal);
   font-weight: var(--tj-w-bold);
 }
 .tj-cal-day:focus-visible {
@@ -6714,19 +6714,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   margin-top: 6px;
 }
 .tj-cal-today {
-  min-height: 26px !important;
-  padding: 0 10px !important;
-  border: none !important;
-  border-radius: 7px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-2) !important;
-  font-size: var(--tj-fs-small) !important;
+  min-height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tj-fg-2);
+  font-size: var(--tj-fs-small);
   cursor: pointer;
 }
 .tj-cal-today:hover {
-  background: color-mix(in srgb, var(--text-normal) 10%, transparent) !important;
-  color: var(--text-normal) !important;
+  background: color-mix(in srgb, var(--text-normal) 10%, transparent);
+  color: var(--text-normal);
 }
 
 /* Generic: centre a card's content vertically when the card is taller than needed. */
@@ -6737,13 +6737,13 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-bd-tabs { display: flex; gap: 2px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex: 0 0 auto; }
 .tj-bd-tabs::-webkit-scrollbar { display: none; }
 /* On the card title line: pushed to the right, and allowed to shrink/wrap. */
-.tj-bd-tabs-head { margin-left: auto; min-width: 0; justify-content: flex-end; }
+.tj-app .tj-bd-tabs-head { margin-left: auto; min-width: 0; justify-content: flex-end; }
 .tj-bd-tab {
-  position: relative; border: none !important; background: transparent !important; box-shadow: none !important;
+  position: relative; border: none; background: transparent; box-shadow: none;
   color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-weight: var(--tj-w-medium); padding: 3px 8px 5px; border-radius: 6px; cursor: pointer;
 }
-.tj-bd-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
-.tj-bd-tab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent !important; }
+.tj-app .tj-bd-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.tj-bd-tab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent; }
 .tj-bd-tab.on::after {
   content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 2px;
   background: color-mix(in srgb, var(--interactive-accent) 78%, transparent); border-radius: 0;
@@ -6757,12 +6757,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-tags-tabs::-webkit-scrollbar { display: none; }
 /* On the card title line: pushed to the right, and allowed to shrink/wrap. */
 .tj-tags-tabs-head { margin-left: auto; min-width: 0; justify-content: flex-end; }
-.tj-tags-tab {
-  position: relative; border: none !important; background: transparent !important; box-shadow: none !important;
+.tj-modal .tj-tags-tab {
+  position: relative; border: none; background: transparent; box-shadow: none;
   color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-weight: var(--tj-w-medium); padding: 3px 8px 5px; border-radius: 6px; cursor: pointer;
 }
-.tj-tags-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
-.tj-tags-tab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent !important; }
+.tj-modal .tj-tags-tab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.tj-tags-tab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent; }
 .tj-tags-tab.on::after {
   content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 2px;
   background: color-mix(in srgb, var(--interactive-accent) 78%, transparent); border-radius: 0;
@@ -7288,19 +7288,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    row sits right on the hairline of the field above it. */
 .tj-wz-sect > .tj-wz-row + .tj-wz-row { margin-top: 20px; }
 .tj-wz-sect:last-child { margin-bottom: 0; }
-.tj-wz-sectitle { font-size: var(--tj-fs-small); font-weight: var(--tj-w-bold); color: var(--text-normal); margin-bottom: 11px; }
+.tj-account-wizard .tj-wz-sectitle { font-size: var(--tj-fs-small); font-weight: var(--tj-w-bold); color: var(--text-normal); margin-bottom: 11px; }
 /* Wizard fields use the same ghost treatment as the rest of the plugin: no box,
    just a hairline that lights up when you are in it. Scoped under the modal and
-   with !important on purpose: Obsidian ships filled boxes for
+   with on purpose: Obsidian ships filled boxes for
    `.theme-dark input[type="text"]` / `button`, and those outrank a lone class. */
 .tj-account-wizard input.tj-wz-input {
-  width: 100%; background: transparent !important; border: none !important;
-  border-bottom: 1px solid var(--background-modifier-border) !important;
-  border-radius: 0 !important; padding: 4px 2px !important; font-size: var(--tj-fs-strong);
-  color: var(--text-normal); outline: none; box-shadow: none !important;
+  width: 100%; background: transparent; border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0; padding: 4px 2px; font-size: var(--tj-fs-strong);
+  color: var(--text-normal); outline: none; box-shadow: none;
 }
-.tj-account-wizard input.tj-wz-input:hover { border-bottom-color: rgba(255, 255, 255, .24) !important; }
-.tj-account-wizard input.tj-wz-input:focus { border-bottom-color: var(--tj-fg-3) !important; }
+.tj-account-wizard .tj-account-wizard input.tj-wz-input:hover { border-bottom-color: rgba(255, 255, 255, .24); }
+.tj-account-wizard input.tj-wz-input:focus { border-bottom-color: var(--tj-fg-3); }
 .tj-account-wizard input.tj-wz-input::placeholder { color: var(--tj-fg-3); }
 /* Dates use the plugin's own field so they print the Date format from Settings
    (a native date input always shows the OS locale — that is what made the
@@ -7314,17 +7314,17 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   background-repeat: no-repeat; background-size: 14px 14px;
 }
 .tj-account-wizard .tj-datefield-input,
-.tj-acc-settings .tj-datefield-input {
-  background: transparent !important; border: none !important;
-  border-radius: 0 !important; padding: 4px 2px !important; font-size: var(--tj-fs-strong);
-  color: var(--text-normal); box-shadow: none !important; outline: none;
+.tj-modal .tj-acc-settings .tj-datefield-input {
+  background: transparent; border: none;
+  border-radius: 0; padding: 4px 2px; font-size: var(--tj-fs-strong);
+  color: var(--text-normal); box-shadow: none; outline: none;
   font-variant-numeric: tabular-nums;
 }
-.tj-account-wizard .tj-datefield-input {
-  border-bottom: 1px solid var(--background-modifier-border) !important;
+.tj-modal .tj-account-wizard .tj-datefield-input {
+  border-bottom: 1px solid var(--background-modifier-border);
 }
-.tj-account-wizard .tj-datefield-input:hover { border-bottom-color: rgba(255, 255, 255, .24) !important; }
-.tj-account-wizard .tj-datefield-input:focus { border-bottom-color: var(--tj-fg-3) !important; }
+.tj-modal .tj-account-wizard .tj-datefield-input:hover { border-bottom-color: rgba(255, 255, 255, .24); }
+.tj-account-wizard .tj-datefield-input:focus { border-bottom-color: var(--tj-fg-3); }
 /* Account modal: the date reads like every other value — compact and pushed to
    the right corner, where the rest of the row's values live. */
 /* The role segment reads as a compact tab strip, not stretched across the row. */
@@ -7332,8 +7332,8 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-settings .tj-wz-seg-opt { flex: 0 0 auto; }
 .tj-acc-settings .tj-datefield { width: auto; flex: 1 1 auto; justify-content: flex-end; gap: 8px; }
 .tj-acc-settings .tj-datefield-input { width: 96px; flex: 0 0 auto; min-width: 96px; text-align: right; }
-.tj-acc-settings .tj-datefield-input:hover { border-bottom: 1px solid rgba(255, 255, 255, .16) !important; }
-.tj-acc-settings .tj-datefield-input:focus { border-bottom: 1px solid var(--text-muted) !important; }
+.tj-modal .tj-acc-settings .tj-datefield-input:hover { border-bottom: 1px solid rgba(255, 255, 255, .16); }
+.tj-acc-settings .tj-datefield-input:focus { border-bottom: 1px solid var(--text-muted); }
 
 /* A step that does not apply to this account type (personal / demo skip the
    Rules step) is removed from the strip entirely — a crossed-out step reads
@@ -7391,27 +7391,27 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   border: 1px solid var(--background-modifier-border);
   background: rgba(255, 255, 255, 0.04);
 }
-.tj-account-wizard .tj-wz-unbtn {
+.tj-account-wizard .tj-account-wizard .tj-wz-unbtn {
   font: inherit;
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
   color: var(--tj-fg-2);
-  background: transparent !important;
-  border: none !important;
-  border-radius: 6px !important;
-  padding: 1px 7px !important;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 1px 7px;
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
   min-width: 24px;
   min-height: 24px;
 }
 .tj-account-wizard .tj-wz-unbtn:hover {
   color: var(--text-normal);
 }
-.tj-account-wizard .tj-wz-unbtn.on {
+.tj-account-wizard .tj-account-wizard .tj-wz-unbtn.on {
   color: var(--text-normal);
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 35%, transparent);
 }
 /* Firm logos: the grid the trader picks a face from. A catalog entry without a
    packaged file still shows — its initials stand in until the PNG arrives. */
@@ -7527,21 +7527,21 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-wz-sumrow:last-child { border-bottom: none; }
 .tj-wz-sumk { color: var(--tj-fg-3); }
-.tj-wz-sumv { color: var(--text-normal); font-weight: var(--tj-w-bold); text-align: right; font-variant-numeric: tabular-nums; }
+.tj-account-wizard .tj-wz-sumv { color: var(--text-normal); font-weight: var(--tj-w-bold); text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Flat text options, no boxes — one control, used everywhere in the wizard and
    the columns popover. `!important` beats Obsidian's filled `button` box. */
 .tj-wz-seg { display: flex; align-items: center; gap: 2px; }
-.tj-wz-seg-opt {
+.tj-account-wizard .tj-wz-seg-opt {
   font: inherit; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--tj-fg-3);
-  background: transparent !important; border: 1px solid transparent !important;
-  border-bottom: 2px solid transparent !important; border-radius: 0 !important;
-  padding: 4px 10px 3px; cursor: pointer; box-shadow: none !important;
+  background: transparent; border: 1px solid transparent;
+  border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 4px 10px 3px; cursor: pointer; box-shadow: none;
 }
-.tj-wz-seg-opt:hover { color: var(--text-normal); background: transparent !important; border-bottom-color: rgba(255, 255, 255, .16) !important; }
+.tj-account-wizard .tj-wz-seg-opt:hover { color: var(--text-normal); background: transparent; border-bottom-color: rgba(255, 255, 255, .16); }
 .tj-wz-seg-opt.on {
-  color: var(--text-normal); background: transparent !important;
-  border-bottom-color: var(--text-normal) !important;
+  color: var(--text-normal); background: transparent;
+  border-bottom-color: var(--text-normal);
 }
 
 /* Leader picker: a framed list that scrolls on its own, so it never runs into
@@ -7607,37 +7607,37 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-dd-empty { padding: 8px 10px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
 /* Inside a modal Obsidian paints its own button chrome over a lone class, which
    is what made the wizard's dropdown read like a native select. Scoped to the
-   wizard and won with !important, so it matches the catalog menus exactly. */
-.tj-account-wizard .tj-dd-btn {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 8px !important;
-  width: 100% !important;
-  padding: 8px 11px !important;
-  border-radius: 9px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: rgba(255, 255, 255, 0.03) !important;
-  color: var(--text-normal) !important;
-  font: inherit !important;
-  font-size: var(--tj-fs-strong) !important;
-  box-shadow: none !important;
+   wizard and won with, so it matches the catalog menus exactly. */
+.tj-modal .tj-account-wizard .tj-dd-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--background-modifier-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-normal);
+  font: inherit;
+  font-size: var(--tj-fs-strong);
+  box-shadow: none;
   cursor: pointer;
 }
-.tj-account-wizard .tj-dd-btn:hover {
-  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, 0.18)) !important;
-  background: rgba(255, 255, 255, 0.05) !important;
+.tj-modal .tj-account-wizard .tj-dd-btn:hover {
+  border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, 0.18));
+  background: rgba(255, 255, 255, 0.05);
 }
 .tj-account-wizard .tj-dd-chev {
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
 }
-.tj-account-wizard .tj-dd-list {
+.tj-modal .tj-account-wizard .tj-dd-list {
   position: absolute;
   left: 0;
   right: 0;
   top: calc(100% + 6px);
-  z-index: 30 !important;
+  z-index: 30;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 10px;
@@ -7667,24 +7667,24 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--interactive-accent);
 }
 
-.tj-account-wizard .tj-btn {
-  background: transparent !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  box-shadow: none !important;
+.tj-modal .tj-account-wizard .tj-btn {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: none;
   color: var(--tj-fg-3);
   border-radius: 9px;
   padding: 6px 13px;
   font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-medium);
 }
-.tj-account-wizard .tj-btn:hover {
-  background: color-mix(in srgb, var(--text-normal) 7%, transparent) !important;
-  border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18)) !important;
+.tj-modal .tj-account-wizard .tj-btn:hover {
+  background: color-mix(in srgb, var(--text-normal) 7%, transparent);
+  border-color: var(--background-modifier-border-hover, rgba(255,255,255,.18));
   color: var(--text-normal);
 }
-.tj-account-wizard .tj-btn.mod-cta {
-  background: var(--interactive-accent) !important;
-  border-color: var(--interactive-accent) !important;
+.tj-modal .tj-account-wizard .tj-btn.mod-cta {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 .tj-account-wizard .tj-btn.mod-cta:hover { filter: brightness(1.08); }
@@ -7800,7 +7800,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-widgets.is-editing .tj-acc-widget { outline: 1px dashed color-mix(in srgb, #d9a441 45%, transparent); outline-offset: 3px; }
 @media (max-width: 900px) {
   .tj-acc-wgrid { grid-template-columns: 1fr; }
-  .tj-acc-wgrid > * { grid-column: span 1 !important; }
+  .tj-acc-wgrid > * { grid-column: span 1; }
 }
 
 /* Account page — header (title + actions), Home-like widget chrome */
@@ -7808,11 +7808,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-titlewrap { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .tj-acc-titlewrap h1 { margin: 0 0 3px; }
 .tj-acc-back {
-  border: none !important; background: transparent !important; box-shadow: none !important;
+  border: none; background: transparent; box-shadow: none;
   color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-head); line-height: 1; padding: 4px 6px;
   border-radius: 8px; margin-top: 2px;
 }
-.tj-acc-back:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important; }
+.tj-acc-back:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent); }
 /* No wrap: the badge and the two squares belong on one line, and the account
    name is the thing that gives way (it wraps inside its own box). */
 .tj-acc-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: 0 0 auto; }
@@ -7822,8 +7822,8 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-eqcard,
 .tj-acc-riskcard {
   position: relative;
-  background: color-mix(in srgb, var(--background-secondary) 10%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 24%, transparent) !important;
+  background: color-mix(in srgb, var(--background-secondary) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 24%, transparent);
   border-radius: 14px;
 }
 .tj-acc-widget { padding: 15px 17px; }
@@ -7841,7 +7841,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   gap: 14px 20px; margin-top: 16px;
 }
 .tj-acc-riskfacts .tj-acc-k { margin-bottom: 6px; }
-.tj-acc-riskaxis { margin-left: 86px !important; padding-right: 0 !important; }
+.tj-acc-riskaxis { margin-left: 86px; padding-right: 0; }
 
 /* Risk ↔ Target — bar flanked by the DD / Target limits */
 .tj-acc-riskrow { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
@@ -7849,7 +7849,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-riskside-right { text-align: right; }
 .tj-acc-riskside-k { font-size: var(--tj-fs-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--tj-fg-3); font-weight: var(--tj-w-medium); }
 .tj-acc-riskside-v { font-size: var(--tj-fs-strong); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; color: var(--tj-fg-3); }
-.tj-acc-riskaxis { position: relative !important; height: 14px !important; margin: 8px 0 0 86px !important; padding-right: 86px !important; }
+.tj-acc-riskaxis { position: relative; height: 14px; margin: 8px 0 0 86px; padding-right: 86px; }
 .tj-acc-riskaxis span { position: absolute; top: 0; white-space: nowrap; }
 
 /* Risk card now hosts the two dials next to its facts */
@@ -7858,7 +7858,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-riskbody .tj-acc-dial { width: 84px; }
 .tj-acc-riskbody .tj-acc-donut { width: 84px; height: 84px; }
 .tj-acc-riskbody .tj-acc-dial-num { top: 31px; font-size: var(--tj-fs-head); }
-.tj-acc-riskfacts { grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); margin-top: 0 !important; }
+.tj-acc-riskfacts { grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); margin-top: 0; }
 
 /* keep both hero cards compact (no stretching) */
 .tj-acc-hero { align-items: start; }
@@ -7877,7 +7877,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--tj-fg-3); opacity: .9; margin-top: 6px;
 }
 .tj-acc-riskright .tj-acc-group:first-child { margin-top: 0; }
-.tj-acc-riskfacts { grid-template-columns: repeat(3, 1fr) !important; gap: 10px 16px !important; }
+.tj-acc-riskfacts { grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
 @media (max-width: 1100px) { .tj-acc-riskbody { grid-template-columns: 1fr; } }
 
 /* Risk card — dials + a compact 2-column metric list (no grid holes) */
@@ -7935,10 +7935,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-btabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
 .tj-acc-btab {
   font: inherit; font-size: var(--tj-fs-small); font-weight: var(--tj-w-medium); color: var(--tj-fg-3);
-  padding: 3px 10px; border-radius: 999px; border: 1px solid transparent !important;
-  background: transparent !important; cursor: pointer;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid transparent;
+  background: transparent; cursor: pointer;
 }
-.tj-acc-btab.on { color: var(--text-normal); background: rgba(255,255,255,.07) !important; }
+.tj-acc-btab.on { color: var(--text-normal); background: rgba(255,255,255,.07); }
 .tj-acc-disc-gauge { width: 64px; }
 .tj-acc-disc-gauge svg { width: 64px; height: 64px; }
 .tj-acc-disc-num { top: 24px; font-size: var(--tj-fs-strong); }
@@ -7947,12 +7947,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-flipcard { position: relative; overflow: hidden; }
 .tj-acc-flipbtn {
   position: absolute; top: 10px; right: 12px; z-index: 5;
-  border: 1px solid var(--background-modifier-border) !important; background: transparent !important;
+  border: 1px solid var(--background-modifier-border); background: transparent;
   color: var(--tj-fg-3); cursor: pointer; width: 24px; height: 24px; border-radius: 7px; padding: 0;
   font-size: var(--tj-fs-body); line-height: 1; display: inline-flex; align-items: center; justify-content: center;
 }
 .tj-acc-flipbtn svg { width: 15px; height: 15px; }
-.tj-acc-flipbtn:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent) !important; }
+.tj-acc-flipbtn:hover { color: var(--text-normal); background: color-mix(in srgb, var(--text-normal) 8%, transparent); }
 .tj-acc-flipcard .tj-acc-riskhead { padding-right: 30px; }
 .tj-acc-ffront { position: relative; }
 .tj-acc-fback { position: absolute; inset: 0; overflow-y: auto; }
@@ -7971,7 +7971,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   border: 1px solid color-mix(in srgb, var(--interactive-accent) 40%, transparent);
   padding: 3px 9px; border-radius: 999px;
 }
-.tj-acc-tchipx { border: none !important; background: transparent !important; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-small); }
+.tj-acc-tchipx { border: none; background: transparent; color: var(--tj-fg-3); cursor: pointer; font-size: var(--tj-fs-small); }
 .tj-acc-tchipx:hover { color: var(--text-normal); }
 
 .tj-acc-risk-empty { display: block; padding: 3px 8px; color: var(--tj-fg-3); font-size: var(--tj-fs-small); line-height: 1.4; }
@@ -7980,7 +7980,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-risk-stat-k { color: var(--tj-fg-3); font-size: var(--tj-fs-small); }
 .tj-acc-risk-stat-v { overflow: hidden; color: var(--tj-fg-1); font-size: var(--tj-fs-strong); font-weight: var(--tj-w-bold); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .tj-acc-risk-used { height: 100%; min-width: 0; border-radius: inherit; background: var(--tj-tone-good); transition: width 180ms ease; }
-.tj-acc-risk-used.is-zero { width: 0 !important; }
+.tj-acc-risk-used.is-zero { width: 0; }
 .tj-acc-risktrack.is-evaluation { overflow: hidden; background: color-mix(in srgb, var(--tj-fg-3) 10%, transparent); }
 .tj-acc-eval-positive,
 .tj-acc-eval-negative { position: absolute; top: 0; bottom: 0; }
@@ -7991,7 +7991,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-risktrack.is-reached { outline: 1px solid var(--tj-tone-bad); outline-offset: 1px; }
 .tj-acc-risktrack.is-unavailable { display: flex; align-items: center; background: color-mix(in srgb, var(--tj-fg-3) 12%, transparent); }
 .tj-acc-ddbadge-unknown { color: var(--tj-fg-2); background: color-mix(in srgb, var(--tj-fg-3) 14%, transparent); }
-.tj-acc-riskaxis { display: flex; justify-content: space-between; gap: 8px; height: auto !important; margin: 4px 0 0 !important; padding: 0 !important; color: var(--tj-fg-3); font-size: var(--tj-fs-small); letter-spacing: 0; text-transform: none; }
+.tj-acc-riskaxis { display: flex; justify-content: space-between; gap: 8px; height: auto; margin: 4px 0 0; padding: 0; color: var(--tj-fg-3); font-size: var(--tj-fs-small); letter-spacing: 0; text-transform: none; }
 .tj-acc-riskaxis span { position: static; white-space: nowrap; }
 @media (max-width: 560px) {
   .tj-account-dash .tj-acc-risk-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -8082,7 +8082,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 
 /* Flip card: padding override */
-.tj-acc-flipcard { padding: 0 !important; }
+.tj-acc-flipcard { padding: 0; }
 .tj-acc-flipface { padding: 15px 17px; }
 
 /* Breakdowns — compact treemap */
@@ -8099,7 +8099,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-acc-tile-click { cursor: pointer; }
 .tj-acc-tile-click:hover { filter: brightness(1.18); }
 .tj-acc-tile.is-active { outline: 2px solid color-mix(in srgb, var(--interactive-accent) 70%, transparent); outline-offset: 1px; }
-@media (max-width: 700px) { .tj-acc-treemap { height: 120px; flex-wrap: wrap; } .tj-acc-tile { flex: 1 1 40% !important; } }
+@media (max-width: 700px) { .tj-acc-treemap { height: 120px; flex-wrap: wrap; } .tj-acc-tile { flex: 1 1 40%; } }
 
 /* Treemap auto-fit */
 .tj-acc-tile.is-tiny { padding: 6px; }
@@ -8114,11 +8114,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 
 /* Breakdown tabs — simple text + accent underline (like the period bar) */
 .tj-acc-btab {
-  position: relative; border: none !important; background: transparent !important; box-shadow: none !important;
+  position: relative; border: none; background: transparent; box-shadow: none;
   color: var(--tj-fg-3); font-size: var(--tj-fs-small); font-weight: var(--tj-w-medium); padding: 3px 8px 5px; border-radius: 6px; cursor: pointer;
 }
-.tj-acc-btab:hover { color: var(--text-normal); background: var(--background-modifier-hover) !important; }
-.tj-acc-btab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent !important; }
+.tj-acc-btab:hover { color: var(--text-normal); background: var(--background-modifier-hover); }
+.tj-acc-btab.on { color: var(--text-normal); font-weight: var(--tj-w-medium); background: transparent; }
 .tj-acc-btab.on::after {
   content: ""; position: absolute; left: 6px; right: 6px; bottom: 1px; height: 2px;
   background: color-mix(in srgb, var(--interactive-accent) 78%, transparent); border-radius: 0;
@@ -8294,14 +8294,14 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-mg-head { display: flex; align-items: center; gap: 9px; }
 .tj-mg-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; cursor: pointer; }
-.tj-mg-name {
+.tj-modal .tj-mg-name {
   flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: var(--tj-fs-strong); font-weight: var(--tj-w-bold);
-  color: var(--text-normal); background: transparent !important; border: none !important;
-  border-bottom: 1px solid transparent !important; border-radius: 0 !important;
-  box-shadow: none !important; padding: 3px 2px;
+  color: var(--text-normal); background: transparent; border: none;
+  border-bottom: 1px solid transparent; border-radius: 0;
+  box-shadow: none; padding: 3px 2px;
 }
-.tj-mg-name:hover { border-bottom-color: rgba(255, 255, 255, .16) !important; }
-.tj-mg-name:focus { border-bottom-color: var(--tj-fg-3) !important; outline: none; }
+.tj-modal .tj-mg-name:hover { border-bottom-color: rgba(255, 255, 255, .16); }
+.tj-mg-name:focus { border-bottom-color: var(--tj-fg-3); outline: none; }
 .tj-mg-name::placeholder { color: var(--tj-fg-3); font-weight: var(--tj-w-medium); }
 .tj-mg-count { flex: 0 0 auto; font-size: var(--tj-fs-small); color: var(--tj-fg-3); font-variant-numeric: tabular-nums; }
 .tj-mg-lrow { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 4px; }
@@ -8342,22 +8342,22 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding: 2px; border-radius: 7px;
   border: 1px solid transparent;
 }
-.tj-mg-stepper:hover { border-color: var(--background-modifier-border); background: rgba(255, 255, 255, .03); }
+.tj-modal .tj-mg-stepper:hover { border-color: var(--background-modifier-border); background: rgba(255, 255, 255, .03); }
 .tj-mg-step {
   width: 24px; height: 24px; min-width: 24px;
   display: inline-flex; align-items: center; justify-content: center;
   font: inherit; font-size: var(--tj-fs-body); line-height: 1;
   color: var(--tj-fg-2);
-  background: transparent !important; border: none !important; box-shadow: none !important;
+  background: transparent; border: none; box-shadow: none;
   border-radius: 5px; cursor: pointer;
 }
 .tj-mg-step:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07); }
 .tj-mg-macts { display: flex; align-items: center; gap: 8px; }
-.tj-mg-ratio {
+.tj-modal .tj-mg-ratio {
   width: 62px; flex: 0 0 auto; font-family: inherit; font-size: var(--tj-fs-body); text-align: right;
-  background: transparent !important; border: none !important;
-  border-bottom: 1px solid var(--background-modifier-border) !important;
-  border-radius: 0 !important; box-shadow: none !important; color: var(--text-normal);
+  background: transparent; border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0; box-shadow: none; color: var(--text-normal);
 }
 .tj-mg-x { flex: 0 0 auto; font-size: var(--tj-fs-small); color: var(--tj-fg-3); }
 .tj-mg-sect { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .05); }
@@ -8403,17 +8403,17 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    line), `is-sm` is the in-form size (a wizard or modal row). Neither forks the
    markup or the behaviour — only the padding and the width. */
 .tj-mg-dd.is-block { flex: 1 1 auto; width: 100%; }
-.tj-mg-dd.is-block .tj-mg-dd-btn { max-width: none; width: 100%; }
-.tj-mg-dd.is-sm .tj-mg-dd-btn { font-size: var(--tj-fs-small); padding: 2px 2px !important; }
-.tj-mg-dd.is-sm .tj-mg-dd-list { min-width: 200px; max-width: 300px; }
+.tj-modal .tj-mg-dd.is-block .tj-mg-dd-btn { max-width: none; width: 100%; }
+.tj-mg-dd.is-sm .tj-mg-dd-btn { font-size: var(--tj-fs-small); padding: 2px 2px; }
+.tj-modal .tj-mg-dd.is-sm .tj-mg-dd-list { min-width: 200px; max-width: 300px; }
 .tj-mg-dd-btn {
   display: flex; align-items: center; gap: 6px; max-width: 300px;
   font: inherit; font-size: var(--tj-fs-body); color: var(--text-normal);
-  background: transparent !important; border: none !important;
-  border-bottom: 1px solid transparent !important; border-radius: 0 !important;
-  padding: 3px 2px !important; cursor: pointer; box-shadow: none !important;
+  background: transparent; border: none;
+  border-bottom: 1px solid transparent; border-radius: 0;
+  padding: 3px 2px; cursor: pointer; box-shadow: none;
 }
-.tj-mg-dd-btn:hover { border-bottom-color: rgba(255, 255, 255, .24) !important; }
+.tj-modal .tj-mg-dd-btn:hover { border-bottom-color: rgba(255, 255, 255, .24); }
 .tj-mg-dd-val { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tj-mg-dd-val.is-placeholder { color: var(--tj-fg-3); }
 .tj-mg-dd-chev { flex: 0 0 auto; font-size: var(--tj-fs-label); color: var(--tj-fg-3); }
@@ -8467,23 +8467,23 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-mg-dd-empty { padding: 8px 9px; font-size: var(--tj-fs-body); color: var(--tj-fg-3); }
 
 /* A quiet action: text, no box — the same language as the segments. */
-.tj-mg-act {
+.tj-modal .tj-mg-act {
   flex: 0 0 auto; font: inherit; font-size: var(--tj-fs-body); font-weight: var(--tj-w-medium); color: var(--tj-fg-2);
-  background: transparent !important; border: 1px solid transparent !important;
-  border-radius: 7px; padding: 3px 8px; cursor: pointer; box-shadow: none !important;
+  background: transparent; border: 1px solid transparent;
+  border-radius: 7px; padding: 3px 8px; cursor: pointer; box-shadow: none;
 }
-.tj-mg-act:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07) !important; }
+.tj-modal .tj-mg-act:hover { color: var(--text-normal); background: rgba(255, 255, 255, .07); }
 /* The one thing the reader came here to do. Accent, and only here. */
 .tj-mg-act.is-primary {
   color: var(--text-on-accent);
-  background: var(--interactive-accent) !important;
-  border-color: var(--interactive-accent) !important;
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
   padding: 5px 14px;
 }
-.tj-mg-act.is-primary:hover { filter: brightness(1.08); background: var(--interactive-accent) !important; }
+.tj-modal .tj-mg-act.is-primary:hover { filter: brightness(1.08); background: var(--interactive-accent); }
 .tj-mg-act.is-primary:disabled {
-  color: var(--tj-fg-3); background: transparent !important;
-  border-color: var(--background-modifier-border) !important;
+  color: var(--tj-fg-3); background: transparent;
+  border-color: var(--background-modifier-border);
   cursor: not-allowed; filter: none;
 }
 /* The composer ends on its action: the group of buttons that creates or backs
@@ -8493,19 +8493,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   margin-top: 18px; padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
 }
-.tj-mg-act.is-quiet { color: var(--tj-fg-3); }
-.tj-mg-act.is-quiet:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1) !important; }
-.tj-mg-act.is-danger { color: var(--color-red, #ff5d48); }
-.tj-mg-act.is-danger:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .14) !important; }
+.tj-modal .tj-mg-act.is-quiet { color: var(--tj-fg-3); }
+.tj-mg-act.is-quiet:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1); }
+.tj-modal .tj-mg-act.is-danger { color: var(--color-red, #ff5d48); }
+.tj-mg-act.is-danger:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .14); }
 /* Disband: the button lives in the group header and asks twice, in place. */
-.tj-mg-del {
+.tj-modal .tj-mg-del {
   flex: 0 0 auto; width: 24px; height: 24px; display: inline-flex; align-items: center;
-  justify-content: center; font: inherit; color: var(--tj-fg-3); background: transparent !important;
-  border: 1px solid transparent !important; border-radius: 7px; padding: 0; cursor: pointer;
-  box-shadow: none !important;
+  justify-content: center; font: inherit; color: var(--tj-fg-3); background: transparent;
+  border: 1px solid transparent; border-radius: 7px; padding: 0; cursor: pointer;
+  box-shadow: none;
 }
-.tj-mg-del:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1) !important; }
-.tj-mg-del.is-armed { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .12) !important; }
+.tj-modal .tj-mg-del:hover { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .1); }
+.tj-mg-del.is-armed { color: var(--color-red, #ff5d48); background: rgba(255, 93, 72, .12); }
 .tj-mg-del svg { width: 15px; height: 15px; }
 .tj-mg-confirmslot:empty { display: none; }
 .tj-mg-confirm {
@@ -8558,7 +8558,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 8px;
 }
-.tj-mg-leadcard {
+.tj-modal .tj-mg-leadcard {
   /* Obsidian paints a bare <button> with its own filled surface, shadow, border
      and min-height under a selector more specific than one class, so a plain
      `background: transparent` loses and the tile reads as a grey slab. This is
@@ -8576,22 +8576,22 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
      tile's height and a selected tile never resizes. */
   min-height: 66px;
   border: 1px solid var(--background-modifier-border); border-radius: 10px;
-  background: transparent !important;
-  box-shadow: none !important;
-  min-height: 0 !important;
+  background: transparent;
+  box-shadow: none;
+  min-height: 0;
   color: var(--text-normal);
   font-family: inherit;
   cursor: pointer;
   transition: background .12s, border-color .12s;
 }
-.tj-mg-leadcard:hover {
+.tj-modal .tj-mg-leadcard:hover {
   border-color: var(--background-modifier-border-hover, rgba(255, 255, 255, .2));
-  background: rgba(255, 255, 255, .04) !important;
+  background: rgba(255, 255, 255, .04);
 }
-.tj-mg-leadcard:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
+.tj-modal .tj-mg-leadcard:focus-visible { outline: 2px solid var(--interactive-accent); outline-offset: -2px; }
 .tj-mg-leadcard.on {
   border-color: var(--interactive-accent);
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
 }
 .tj-mg-leadcard.on::before {
   content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
@@ -9138,7 +9138,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* Accounts column — provenance, quiet. One account is a name in the metadata
    tone; several is the name plus how many others, still no pill: the cell is the
    control and the border would only add weight to a secondary fact. */
-.tj-tbl-acc { color: var(--tj-fg-2); }
+.tj-app .tj-tbl-acc { color: var(--tj-fg-2); }
 .tj-tbl-copies {
   display: inline-flex;
   align-items: center;
@@ -9152,12 +9152,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
   color: var(--tj-fg-2);
-  background: transparent !important;
-  border: 1px solid transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
 }
-.tj-tbl-copies:hover { color: var(--text-normal); background: rgba(255, 255, 255, 0.06) !important; }
-.tj-tbl-copies.is-open { color: var(--text-normal); border-color: var(--background-modifier-border) !important; }
+.tj-app .tj-tbl-copies:hover { color: var(--text-normal); background: rgba(255, 255, 255, 0.06); }
+.tj-tbl-copies.is-open { color: var(--text-normal); border-color: var(--background-modifier-border); }
 .tj-tbl-copies-more { color: var(--tj-fg-3); font-weight: var(--tj-w-regular); }
 .tj-tbl-copies-chev { display: inline-flex; line-height: 0; }
 .tj-tbl-copies-chev svg { width: 12px; height: 12px; }
@@ -9195,10 +9195,10 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* Timeline rail: one narrow column, one solid dot per trade. It has to be a
    real cell — a ::before on a <tr> becomes an anonymous cell in a table and
    shifts every body cell one column right of its header. */
-.tj-tbl-rail {
+.tj-app .tj-tbl-rail {
   width: 26px;
   max-width: 26px;
-  padding: 0 !important;
+  padding: 0;
   text-align: center;
   border-top: 1px solid var(--background-modifier-border);
 }
@@ -9223,18 +9223,18 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    shadow can be uneven between columns. Square ends, like the panel that holds
    it: a rounded bar is not a shape this page language uses. */
 .tj-tbl:not(.is-static) thead th {
-  background: color-mix(in srgb, var(--text-normal) 7%, var(--background-primary)) !important;
+  background: color-mix(in srgb, var(--text-normal) 7%, var(--background-primary));
   border-bottom: none;
-  z-index: 10 !important;
+  z-index: 10;
   box-shadow: 0 -20px 0 0 var(--background-primary);
 }
 /* A checkbox in a clickable row is a target in its own right (SC 2.5.8). */
 /* Selection mode. The column is wider than the box on purpose and the hit area
    fills it: a mis-aimed click must never open a trade, it must either select
    clearly or do nothing. The checkbox is the focus ring's anchor too. */
-.tj-tbl-selcol {
+.tj-app .tj-tbl-selcol {
   width: 40px; min-width: 40px; max-width: 40px;
-  padding: 0 !important; text-align: center;
+  padding: 0; text-align: center;
 }
 .tj-tbl-selhit {
   display: flex; align-items: center; justify-content: center;
@@ -9338,19 +9338,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--text-normal);
   background: rgba(255, 255, 255, 0.08);
 }
-.tj-tl-activeclear {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+.tj-app .tj-tl-activeclear {
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
   padding: 0;
   height: auto;
 }
-.tj-tl-activeclear:hover {
+.tj-app .tj-tl-activeclear:hover {
   color: var(--text-normal);
-  background: transparent !important;
+  background: transparent;
 }
 /* Columns: vertical list with drag handles + visibility checkboxes */
 .tj-tl-collist { display: flex; flex-direction: column; gap: 1px; }
@@ -9388,17 +9388,17 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   color: var(--tj-fg-3);
   font-weight: var(--tj-w-regular);
 }
-.tj-tbl-fills {
+.tj-app .tj-tbl-fills {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   margin: 0;
   padding: 0;
   min-height: 24px;
-  background: none !important;
-  border: none !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   color: inherit;
   font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-regular);
@@ -9408,11 +9408,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-tbl-fills:hover,
 .tj-tbl-fills:active,
-.tj-tbl-fills:focus {
+.tj-app .tj-tbl-fills:focus {
   color: var(--text-normal);
-  background: none !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: none;
+  border: none;
+  box-shadow: none;
   outline: none;
 }
 .tj-tbl-fills-chev {
@@ -9625,15 +9625,15 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   display: inline-flex;
   align-items: center;
 }
-.tj-tl-bulkpick .tj-mg-dd-btn {
-  padding: 4px 8px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 7px !important;
+.tj-modal .tj-tl-bulkpick .tj-mg-dd-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
   color: var(--text-normal);
   font-size: var(--tj-fs-small);
 }
-.tj-tl-bulkpick .tj-mg-dd-btn:hover {
-  border-color: rgba(255, 255, 255, 0.24) !important;
+.tj-modal .tj-tl-bulkpick .tj-mg-dd-btn:hover {
+  border-color: rgba(255, 255, 255, 0.24);
 }
 .tj-tl-bulkpick.is-disabled {
   opacity: 0.45;
@@ -9672,11 +9672,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   gap: 5px;
   min-height: 30px;
   padding: 3px 8px 5px;
-  border: 0 !important;
+  border: 0;
   border-radius: 0;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   color: var(--tj-fg-1);
   font-size: var(--tj-fs-body);
   font-weight: var(--tj-w-medium);
@@ -9709,7 +9709,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-attn-shortcut:hover {
   color: var(--text-normal);
-  background: transparent !important;
+  background: transparent;
 }
 .tj-attn-shortcut:hover .tj-attn-count,
 .tj-attn-shortcut:hover .tj-attn-copy {
@@ -9720,7 +9720,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-attn-shortcut.is-on {
   color: var(--text-normal);
-  background: transparent !important;
+  background: transparent;
 }
 .tj-attn-shortcut.is-on::after {
   background: var(--interactive-accent);
@@ -9830,29 +9830,29 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-tl-bulkbtn.tj-del:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-red, #ad3527) 12%, transparent);
 }
-.tj-tl-bulk .tj-tl-bulkpick .tj-mg-dd-btn {
+.tj-modal .tj-tl-bulk .tj-tl-bulkpick .tj-mg-dd-btn {
   min-height: 30px;
-  padding: 4px 9px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 6px !important;
-  background: transparent !important;
+  padding: 4px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: transparent;
   font-size: var(--tj-fs-small);
 }
 .tj-tl-bulk .tj-mg-dd-list { padding: 4px; }
 .tj-tl-bulk .tj-mg-dd-item { min-height: 30px; gap: 6px; padding: 4px 5px; }
-.tj-tl-bulk .tj-mg-dd-txt { min-width: 0; }
+.tj-modal .tj-tl-bulk .tj-mg-dd-txt { min-width: 0; }
 .tj-tl-bulk .tj-tl-bulkbtn {
   min-height: 30px;
   padding: 4px 9px;
   border: 1px solid transparent;
   border-radius: 6px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   line-height: 1.2;
 }
-.tj-tl-bulk .tj-tl-bulkbtn:hover:not(:disabled) {
+.tj-app .tj-tl-bulk .tj-tl-bulkbtn:hover:not(:disabled) {
   border-color: var(--background-modifier-border);
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
 }
 .tj-tl-bulkgroup.is-destructive .tj-tl-bulkbtn.tj-del {
   border-color: color-mix(in srgb, var(--tj-tone-bad) 30%, transparent);
@@ -9975,21 +9975,21 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding: 8px 0 max(8px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--background-modifier-border);
 }
-.tj-tl-drawer-clear {
+.tj-app .tj-tl-drawer-clear {
   min-height: 28px;
   padding: 0 6px;
-  border: 0 !important;
+  border: 0;
   border-radius: 5px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-tone-bad);
   font-size: var(--tj-fs-small);
   cursor: pointer;
   margin-left: auto;
 }
-.tj-tl-drawer-clear:hover {
+.tj-app .tj-tl-drawer-clear:hover {
   color: var(--tj-tone-bad);
-  background: color-mix(in srgb, var(--tj-tone-bad) 12%, transparent) !important;
+  background: color-mix(in srgb, var(--tj-tone-bad) 12%, transparent);
 }
 /* Filter sections: the title is a micro-label, the choices are pills. A filter
    you can read at a glance beats one hidden behind a dropdown. Sections are
@@ -10000,7 +10000,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   position: relative;
   margin: 0 0 16px;
 }
-.tj-tl-dsec:last-of-type { margin-bottom: 8px; }
+.tj-app .tj-tl-dsec:last-of-type { margin-bottom: 8px; }
 .tj-tl-dsec-t {
   display: flex;
   align-items: center;
@@ -10010,9 +10010,9 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: transparent !important;
-  background-image: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
   font-family: inherit;
   font-size: var(--tj-fs-label);
   font-weight: var(--tj-w-bold);
@@ -10062,32 +10062,32 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 /* The values themselves: a pill you can read as a choice, tinted when it is the
    one in force — size and border give the value the weight the label has not. */
-.tj-tl-opt {
+.tj-app .tj-tl-opt {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
   padding: 4px 10px;
-  border: 1px solid var(--background-modifier-border) !important;
+  border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
-  background: transparent !important;
-  background-image: none !important;
+  background: transparent;
+  background-image: none;
   color: var(--tj-fg-2);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-regular);
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
   white-space: nowrap;
   transition: background 120ms, color 120ms, border-color 120ms;
 }
-.tj-tl-opt:hover {
-  background: var(--background-modifier-hover) !important;
-  background-image: none !important;
+.tj-app .tj-tl-opt:hover {
+  background: var(--background-modifier-hover);
+  background-image: none;
   color: var(--text-normal);
 }
-.tj-tl-opt.on {
-  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
-  background-image: none !important;
-  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent) !important;
+.tj-app .tj-tl-opt.on {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+  background-image: none;
+  border-color: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
   color: var(--interactive-accent);
   font-weight: var(--tj-w-medium);
 }
@@ -10114,22 +10114,22 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding: 1px;
   overflow: hidden;
 }
-.tj-tl-incl button {
+.tj-app .tj-tl-incl button {
   min-height: 25px;
   padding: 2px 8px;
   border: none;
-  background: transparent !important;
-  background-image: none !important;
+  background: transparent;
+  background-image: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
 }
-.tj-tl-incl button.on {
+.tj-app .tj-tl-incl button.on {
   color: var(--interactive-accent);
   border-bottom: 2px solid var(--interactive-accent);
   border-radius: 0;
-  background: transparent !important;
+  background: transparent;
 }
 .tj-tl-acc-section-label {
   margin: 10px 0 4px;
@@ -10141,26 +10141,26 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-tl-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 6px 0 0; }
 .tj-tl-incl button { min-height: 28px; padding: 3px 8px; border-bottom: 2px solid transparent; border-radius: 0; }
-.tj-tl-drawer-show {
+.tj-app .tj-tl-drawer-show {
   flex: 1 1 auto;
   text-align: center;
   min-height: 30px;
   padding: 4px 10px;
   border: 1px solid color-mix(in srgb, var(--interactive-accent) 42%, var(--background-modifier-border));
   border-radius: 6px;
-  background: transparent !important;
-  background-image: none !important;
+  background: transparent;
+  background-image: none;
   color: var(--text-normal);
   font-size: var(--tj-fs-small);
   font-weight: var(--tj-w-medium);
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: none;
 }
-.tj-tl-drawer-show:hover {
+.tj-app .tj-tl-drawer-show:hover {
   border-color: var(--interactive-accent);
   color: var(--interactive-accent);
-  background: transparent !important;
-  background-image: none !important;
+  background: transparent;
+  background-image: none;
 }
 .tj-tl-drawer-show:focus-visible,
 .tj-tl-incl button:focus-visible,
@@ -10198,11 +10198,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   gap: 10px;
 }
 .tj-btn-del {
-  border-color: color-mix(in srgb, var(--color-red, #ad3527) 55%, transparent) !important;
-  color: var(--color-red-bright, #ff5d48) !important;
+  border-color: color-mix(in srgb, var(--color-red, #ad3527) 55%, transparent);
+  color: var(--color-red-bright, #ff5d48);
 }
 .tj-btn-del:hover {
-  background: color-mix(in srgb, var(--color-red, #ad3527) 16%, transparent) !important;
+  background: color-mix(in srgb, var(--color-red, #ad3527) 16%, transparent);
 }
 /* Alerts on an account card: a state, not a control. Amber when a limit is
    close. Never blocks anything. */
@@ -10557,28 +10557,28 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   flex: 1 1 auto;
 }
 .tj-payout-modal input.tj-payout-input {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--background-modifier-border) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  color: var(--text-normal) !important;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-normal);
   -webkit-text-fill-color: var(--text-normal);
   font-size: var(--tj-fs-strong);
-  padding: 3px 2px !important;
-  width: 150px !important;
-  text-align: right !important;
+  padding: 3px 2px;
+  width: 150px;
+  text-align: right;
 }
 .tj-payout-modal input.tj-payout-input::placeholder {
   color: var(--tj-fg-3);
 }
 .tj-payout-modal input.tj-payout-input:hover {
-  border-bottom-color: var(--tj-fg-3) !important;
+  border-bottom-color: var(--tj-fg-3);
   outline: none;
 }
 .tj-payout-modal input.tj-payout-input:focus {
-  border-bottom-color: var(--interactive-accent) !important;
-  background: transparent !important;
+  border-bottom-color: var(--interactive-accent);
+  background: transparent;
   outline: none;
 }
 /* The number spinner is a browser default that fights the hairline. */
@@ -10605,23 +10605,23 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   display: none;
 }
 .tj-payout-modal input.tj-datefield-input {
-  background: transparent !important;
-  border: none !important;
-  border-bottom: 1px solid var(--background-modifier-border) !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border-radius: 0;
+  box-shadow: none;
   color: var(--text-normal);
   -webkit-text-fill-color: var(--text-normal);
   font-size: var(--tj-fs-strong);
-  padding: 3px 2px !important;
-  width: 150px !important;
-  min-width: 150px !important;
-  flex: 0 0 auto !important;
-  text-align: right !important;
+  padding: 3px 2px;
+  width: 150px;
+  min-width: 150px;
+  flex: 0 0 auto;
+  text-align: right;
 }
 .tj-payout-modal input.tj-datefield-input:hover,
 .tj-payout-modal input.tj-datefield-input:focus {
-  border-bottom-color: var(--tj-fg-3) !important;
+  border-bottom-color: var(--tj-fg-3);
   outline: none;
 }
 .tj-payout-actions {
@@ -10638,29 +10638,29 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-addtrade-modal button.tj-actionbtn {
   height: 30px;
   padding: 0 8px;
-  background: transparent !important;
-  color: var(--tj-fg-3) !important;
-  border: none !important;
-  box-shadow: none !important;
+  background: transparent;
+  color: var(--tj-fg-3);
+  border: none;
+  box-shadow: none;
   font-size: var(--tj-fs-strong);
   font-weight: var(--tj-w-medium);
 }
 .tj-payout-modal button.tj-actionbtn:hover,
 .tj-import-modal button.tj-actionbtn:hover,
 .tj-addtrade-modal button.tj-actionbtn:hover {
-  background: var(--background-modifier-hover) !important;
-  color: var(--text-normal) !important;
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 .tj-payout-modal button.tj-actionbtn.is-primary,
 .tj-import-modal button.tj-actionbtn.is-primary,
 .tj-addtrade-modal button.tj-actionbtn.is-primary {
-  color: var(--text-normal) !important;
+  color: var(--text-normal);
 }
 .tj-payout-modal button.tj-actionbtn.is-primary:hover,
 .tj-import-modal button.tj-actionbtn.is-primary:hover,
 .tj-addtrade-modal button.tj-actionbtn.is-primary:hover {
-  color: var(--interactive-accent) !important;
-  background: var(--background-modifier-hover) !important;
+  color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
 }
 .tj-payout-modal button.tj-actionbtn:disabled,
 .tj-import-modal button.tj-actionbtn:disabled,
@@ -10813,13 +10813,13 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 /* The payouts square is the tinted one: it is where money leaves the account. */
 .tj-iconbtn-payout {
-  color: var(--tj-tone-mid) !important;
-  border-color: color-mix(in srgb, var(--tj-tone-mid) 45%, transparent) !important;
+  color: var(--tj-tone-mid);
+  border-color: color-mix(in srgb, var(--tj-tone-mid) 45%, transparent);
 }
 .tj-iconbtn-payout:hover {
-  color: var(--tj-tone-mid) !important;
-  border-color: color-mix(in srgb, var(--tj-tone-mid) 75%, transparent) !important;
-  background: color-mix(in srgb, var(--tj-tone-mid) 12%, transparent) !important;
+  color: var(--tj-tone-mid);
+  border-color: color-mix(in srgb, var(--tj-tone-mid) 75%, transparent);
+  background: color-mix(in srgb, var(--tj-tone-mid) 12%, transparent);
 }
 /* Title row: the gold coin, then the name. */
 .tj-payout-head {
@@ -11108,12 +11108,12 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   width: 13px;
   height: 13px;
 }
-.tj-tl-search input {
+.tj-app .tj-tl-search input {
   width: 190px;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
   font-size: var(--tj-fs-body);
   color: var(--text-normal);
 }
@@ -11404,13 +11404,13 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 .tj-tl-search-field:focus-within {
   border-color: var(--interactive-accent);
 }
-.tj-tl-search-field input {
+.tj-app .tj-tl-search-field input {
   flex: 1;
   min-width: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
   font-family: inherit;
   font-size: var(--tj-fs-small);
   color: var(--text-normal);
@@ -11434,28 +11434,28 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   padding-right: 2px;
   margin-top: 10px;
 }
-.tj-tl-accrow {
+.tj-app .tj-tl-accrow {
   display: flex;
   align-items: center;
   width: 100%;
   gap: var(--tj-sp-2);
   min-height: 34px;
   padding: 5px 8px;
-  border: 1px solid transparent !important;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-normal);
   cursor: pointer;
   font-size: var(--tj-fs-body);
   text-align: left;
 }
-.tj-tl-accrow:hover {
-  background: var(--background-modifier-hover) !important;
+.tj-app .tj-tl-accrow:hover {
+  background: var(--background-modifier-hover);
 }
-.tj-tl-accrow.on {
-  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border)) !important;
-  background: transparent !important;
+.tj-app .tj-tl-accrow.on {
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
+  background: transparent;
 }
 .tj-tl-accrow.on .tj-tl-accname {
   color: var(--text-normal);
@@ -11726,24 +11726,24 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
    dropdown is borderless by default, so Account, Strategy, Order type and
    Session rendered boxless and a few pixels shorter than every other field in
    the same grid. In this form it wears the same box. */
-.tj-add-ctl .tj-mg-dd-btn {
+.tj-modal .tj-add-ctl .tj-mg-dd-btn {
   width: 100%;
   justify-content: space-between;
   min-height: 34px;
-  padding: 7px 9px !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 7px !important;
-  background: var(--background-primary) !important;
-  box-shadow: none !important;
+  padding: 7px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  background: var(--background-primary);
+  box-shadow: none;
   font-family: inherit;
-  font-size: var(--tj-fs-body) !important;
+  font-size: var(--tj-fs-body);
 }
-.tj-add-ctl .tj-mg-dd-btn:hover {
-  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border)) !important;
+.tj-modal .tj-add-ctl .tj-mg-dd-btn:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 45%, var(--background-modifier-border));
 }
 .tj-add-ctl .tj-mg-dd.is-open > .tj-mg-dd-btn,
-.tj-add-ctl .tj-mg-dd-btn:focus-visible {
-  border-color: var(--interactive-accent) !important;
+.tj-modal .tj-add-ctl .tj-mg-dd-btn:focus-visible {
+  border-color: var(--interactive-accent);
 }
 .tj-add-ctl datalist {
   display: none;
@@ -11765,21 +11765,21 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 /* Inside a modal Obsidian paints its own control surfaces over a loose class. */
 .tj-addtrade-modal .tj-add-input {
   width: 100%;
-  height: auto !important;
-  background: var(--background-primary) !important;
-  border: 1px solid var(--background-modifier-border) !important;
-  border-radius: 7px !important;
-  padding: 7px 9px !important;
-  color: var(--text-normal) !important;
-  box-shadow: none !important;
+  height: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: var(--text-normal);
+  box-shadow: none;
   font-family: inherit;
-  font-size: var(--tj-fs-body) !important;
+  font-size: var(--tj-fs-body);
   line-height: 1.4;
 }
 .tj-addtrade-modal .tj-add-input:focus {
-  border-color: var(--interactive-accent) !important;
+  border-color: var(--interactive-accent);
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent);
 }
 .tj-addtrade-modal .tj-add-input::placeholder {
   color: var(--tj-fg-3);
@@ -11794,19 +11794,19 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 .tj-addtrade-modal .tj-add-seg-btn {
   flex: 1 1 0;
-  padding: 7px 0 !important;
-  background: none !important;
-  border: none !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-2) !important;
+  padding: 7px 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--tj-fg-2);
   font-family: inherit;
-  font-size: var(--tj-fs-body) !important;
+  font-size: var(--tj-fs-body);
   cursor: pointer;
 }
 .tj-addtrade-modal .tj-add-seg-btn.on {
-  background: var(--interactive-accent) !important;
-  color: var(--text-on-accent, #fff) !important;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent, #fff);
   font-weight: var(--tj-w-medium);
 }
 
@@ -12046,7 +12046,7 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
 }
 
 /* Tag chips — outline only, no fill. Follows accent when on. */
-.tj-td-tagchip {
+.tj-app .tj-td-tagchip {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -12054,27 +12054,27 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   font-weight: var(--tj-w-medium);
   padding: 3px 9px;
   border-radius: 6px;
-  border: 1px solid var(--background-modifier-border) !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  border: 1px solid var(--background-modifier-border);
+  background: transparent;
+  box-shadow: none;
+  color: var(--tj-fg-3);
   cursor: pointer;
   font-family: inherit;
   transition: color 120ms ease, border-color 120ms ease;
 }
-.tj-td-tagchip:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+.tj-app .tj-td-tagchip:hover {
+  color: var(--text-normal);
+  background: transparent;
 }
-.tj-td-tagchip.on {
-  color: var(--interactive-accent) !important;
-  border-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent) !important;
-  background: transparent !important;
+.tj-app .tj-td-tagchip.on {
+  color: var(--interactive-accent);
+  border-color: color-mix(in srgb, var(--interactive-accent) 55%, transparent);
+  background: transparent;
 }
-.tj-td-tagchip.on.is-mistake {
-  color: var(--color-red-bright, #ff5d48) !important;
-  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 55%, transparent) !important;
-  background: transparent !important;
+.tj-app .tj-td-tagchip.on.is-mistake {
+  color: var(--color-red-bright, #ff5d48);
+  border-color: color-mix(in srgb, var(--color-red-bright, #ff5d48) 55%, transparent);
+  background: transparent;
 }
 
 /* Panel header actions (Annotate / Enlarge) — ghost text */
@@ -12082,75 +12082,75 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   display: flex;
   gap: 6px;
 }
-.tj-td-panel-actions button {
+.tj-app .tj-td-panel-actions button {
   font-family: inherit;
   font-size: var(--tj-fs-small);
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--tj-fg-3);
   border-radius: 6px;
   padding: 4px 8px;
   cursor: pointer;
   transition: color 120ms ease;
 }
-.tj-td-panel-actions button:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+.tj-app .tj-td-panel-actions button:hover {
+  color: var(--text-normal);
+  background: transparent;
 }
 
 /* Ghost "Add tag" link in the section header */
-.tj-td-ghostbtn {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+.tj-app .tj-td-ghostbtn {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--tj-fg-3);
 }
-.tj-td-ghostbtn:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+.tj-app .tj-td-ghostbtn:hover {
+  color: var(--text-normal);
+  background: transparent;
 }
 
 /* Acknowledgement buttons — ghost outline */
-.tj-td-ack {
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--tj-fg-3) !important;
+.tj-app .tj-td-ack {
+  background: transparent;
+  box-shadow: none;
+  color: var(--tj-fg-3);
   font-family: inherit;
 }
-.tj-td-ack:hover {
-  color: var(--text-normal) !important;
-  background: transparent !important;
+.tj-app .tj-td-ack:hover {
+  color: var(--text-normal);
+  background: transparent;
 }
-.tj-td-ack.on {
-  background: transparent !important;
+.tj-app .tj-td-ack.on {
+  background: transparent;
 }
 
 /* Loose stars — no boxes at all */
-.tj-td-star {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
+.tj-app .tj-td-star {
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 .tj-td-star:hover,
-.tj-td-star.hover-on {
-  background: transparent !important;
+.tj-app .tj-td-star.hover-on {
+  background: transparent;
 }
 .tj-td-star.on,
-.tj-td-star.active {
-  background: transparent !important;
+.tj-app .tj-td-star.active {
+  background: transparent;
 }
 
 /* Screenshot thumbs — outline only, green border when active */
-.tj-td-shot-thumb {
-  background: transparent !important;
-  box-shadow: none !important;
+.tj-app .tj-td-shot-thumb {
+  background: transparent;
+  box-shadow: none;
 }
-.tj-td-shot-thumb.on {
-  background: transparent !important;
+.tj-app .tj-td-shot-thumb.on {
+  background: transparent;
 }
-.tj-td-shot-add {
-  background: transparent !important;
+.tj-app .tj-td-shot-add {
+  background: transparent;
 }
 
 /* ==========================================================================
@@ -12186,11 +12186,11 @@ body.theme-light .tj-settings .tj-set-logo { filter: invert(1); }
   min-width: 0;
 }
 
-.tj-nav-sidebar .tj-nav-wordmark {
+.workspace .tj-nav-sidebar .tj-nav-wordmark {
   /* Fill the header, capped at 180px. `!important` on the cap so a theme's
      global `img { max-width: 100% }` can never shrink it below the pane. */
   width: 100%;
-  max-width: 180px !important;
+  max-width: 180px;
   min-width: 0;
   height: auto;
   display: block;
@@ -12202,7 +12202,7 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   filter: invert(1);
 }
 
-.tj-nav-sidebar .tj-nav-customize {
+.workspace .tj-nav-sidebar .tj-nav-customize {
   position: absolute;
   top: 50%;
   right: 8px;
@@ -12214,23 +12214,23 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   width: 24px;
   height: 24px;
   padding: 0;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   border-radius: 6px;
   color: var(--tj-fg-2);
   opacity: 0.85;
   cursor: pointer;
   transition: opacity 150ms ease;
 }
-.tj-nav-sidebar .tj-nav-customize svg { width: 15px; height: 15px; }
+.workspace .tj-nav-sidebar .tj-nav-customize svg { width: 15px; height: 15px; }
 .tj-nav-sidebar .tj-nav-customize:hover {
-  background: var(--background-modifier-hover) !important;
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
   opacity: 1;
 }
-.tj-nav-sidebar .tj-nav-customize.is-on {
-  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent) !important;
+.workspace .tj-nav-sidebar .tj-nav-customize.is-on {
+  background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
   color: var(--interactive-accent);
 }
 
@@ -12261,7 +12261,7 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   gap: 2px;
   flex-shrink: 0;
 }
-.tj-nav-sidebar .tj-nav-edittoolbar-btn {
+.workspace .tj-nav-sidebar .tj-nav-edittoolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -12269,16 +12269,16 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   min-width: 24px;
   height: 24px;
   padding: 0 8px;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   border-radius: 6px;
   color: var(--tj-fg-2);
   font-size: var(--tj-fs-small);
   cursor: pointer;
 }
-.tj-nav-sidebar .tj-nav-edittoolbar-btn:hover {
-  background: var(--background-modifier-hover) !important;
+.workspace .tj-nav-sidebar .tj-nav-edittoolbar-btn:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 .tj-nav-sidebar .tj-nav-edittoolbar-btn.is-primary {
@@ -12292,14 +12292,14 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   flex-shrink: 0;
 }
 
-.tj-nav-sidebar .tj-nav-search-input-wrapper {
+.workspace .tj-nav-sidebar .tj-nav-search-input-wrapper {
   display: flex;
   align-items: center;
   gap: var(--tj-sp-2);
   padding: 8px 10px;
   border-radius: 8px;
   background-color: var(--background-modifier-form-field);
-  border: none !important;
+  border: none;
   box-shadow: none;
   transition: box-shadow 150ms ease;
 }
@@ -12368,7 +12368,7 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   user-select: none;
 }
 
-.tj-nav-sidebar .tj-nav-item {
+.workspace .tj-nav-sidebar .tj-nav-item {
   position: relative;
   width: 100%;
   box-sizing: border-box;
@@ -12377,10 +12377,10 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   gap: 8px;
   padding: 6px 8px;
   margin: 1px 0;
-  border: none !important;
+  border: none;
   border-radius: 6px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   outline: none;
   color: var(--text-normal);
   font-size: var(--tj-fs-body);
@@ -12392,15 +12392,15 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   transition: color 140ms ease, background 140ms ease;
 }
 
-.tj-nav-sidebar .tj-nav-item:hover {
-  background: var(--background-modifier-hover) !important;
+.workspace .tj-nav-sidebar .tj-nav-item:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.tj-nav-sidebar .tj-nav-item.active {
+.workspace .tj-nav-sidebar .tj-nav-item.active {
   /* Clean: the active page changes only its icon colour and shows the bookmark
      bar. No accent rectangle around the row. */
-  background: transparent !important;
+  background: transparent;
   color: var(--text-normal);
 }
 
@@ -12510,11 +12510,11 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
 
 /* Restore: removed pages are a normal section at the end of the list, each with
    an accent "+ Add". */
-.tj-nav-sidebar .tj-nav-restore-reset {
+.workspace .tj-nav-sidebar .tj-nav-restore-reset {
   margin-left: auto;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   color: var(--tj-fg-3);
   font-size: var(--tj-fs-small);
   cursor: pointer;
@@ -12556,23 +12556,23 @@ body.theme-light .tj-nav-sidebar .tj-nav-wordmark {
   text-overflow: ellipsis;
 }
 
-.tj-nav-sidebar .tj-nav-restore-btn {
+.workspace .tj-nav-sidebar .tj-nav-restore-btn {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   gap: 3px;
   padding: 2px 8px;
-  border: none !important;
+  border: none;
   border-radius: 6px;
-  background: transparent !important;
-  box-shadow: none !important;
+  background: transparent;
+  box-shadow: none;
   color: var(--interactive-accent);
   font-size: var(--tj-fs-small);
   cursor: pointer;
 }
 
-.tj-nav-sidebar .tj-nav-restore-btn:hover {
-  background: var(--background-modifier-hover) !important;
+.workspace .tj-nav-sidebar .tj-nav-restore-btn:hover {
+  background: var(--background-modifier-hover);
 }
 
 .tj-nav-sidebar .tj-nav-restore-btn svg {
