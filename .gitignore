@@ -8,7 +8,10 @@ data.json.bak*
 
 # Private working docs and dev material — never published
 /AGENTS.md
-/docs/
+/docs/*
+!/docs/archive/
+/docs/archive/*
+!/docs/archive/PHASE-5-REMAINING.md
 /tools/
 /previews/
 /assets/brand/TradebookDarkLogo.png
