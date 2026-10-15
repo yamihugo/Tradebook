@@ -49,13 +49,35 @@ interface InstantBase {
 }
 
 export type InstantResolution =
-  | (InstantBase & { status: "ok"; instant: Date; iso: InstantIso; source: InstantSource })
+  | (InstantBase & {
+      status: "ok";
+      instant: Date;
+      iso: InstantIso;
+      source: InstantSource;
+      /**
+       * The zone the stamp itself named, when it named one (a TradeSea
+       * abbreviation). A statement about the file — never the reader's
+       * `sourceZone`. Absent when the zone came from the reader or an offset.
+       */
+      stampZone?: string;
+    })
   /** No wall clock exists here — the clock jumped over this hour. */
   | (InstantBase & { status: "gap" })
   /** Two wall clocks exist here — the clock played this hour twice. */
   | (InstantBase & { status: "ambiguous"; instants: Date[]; isos: InstantIso[] })
-  /** Naive stamp and no zone to read it in. Never resolved against the OS. */
-  | (InstantBase & { status: "need-zone" })
+  /**
+   * No instant could be pinned, and `reason` says which question refused it: a
+   * naive stamp with no source zone declared (`no-source-zone`), or a stamp that
+   * named a zone abbreviation this journal does not know (`unknown-abbreviation`).
+   * The second is a statement about the file, reported as such — choosing a zone
+   * on the screen cannot fix it. Never resolved against the OS.
+   */
+  | (InstantBase & {
+      status: "need-zone";
+      reason: "no-source-zone" | "unknown-abbreviation";
+      /** The abbreviation exactly as written, on an `unknown-abbreviation`. */
+      zoneAbbr?: string;
+    })
   /** Not a date-time, not a real calendar date, or not a known zone. */
   | (InstantBase & { status: "invalid"; reason: "stamp" | "date" | "time" | "zone" });
 
@@ -147,7 +169,7 @@ export function instantFromWall(
   source: InstantSource = "source-zone"
 ): InstantResolution {
   const base = { date: isCivilDate(date) ? date : String(date ?? ""), time: String(time ?? ""), zone };
-  if (!zone) return { ...base, zone: "", status: "need-zone" };
+  if (!zone) return { ...base, zone: "", status: "need-zone", reason: "no-source-zone" };
   if (!isValidZone(zone)) return { ...base, status: "invalid", reason: "zone" };
   if (!isCivilDate(date)) return { ...base, status: "invalid", reason: "date" };
   const tod = timeOfDay(time);
@@ -190,6 +212,10 @@ interface Stamp {
   date: CivilDate;
   time: CivilTime;
   offset?: string;
+  /** A zone the stamp itself named, as an IANA name (the TradeSea dialects). */
+  zone?: string;
+  /** The zone abbreviation exactly as written, when the stamp carried one. */
+  zoneAbbr?: string;
 }
 
 /**
@@ -212,9 +238,100 @@ function normalizeOffset(raw: string): string | null {
   return `${m[1]}${pad2(h)}:${pad2(mi)}`;
 }
 
+/**
+ * TradeSea's own dialects, which the ISO/US grammar above cannot read: the date
+ * and the clock are separated by a **comma**, and the zone is written as a
+ * letter abbreviation rather than a numeric offset. A `/` date is the US
+ * `M/D/YYYY` dialect a real export used; a `.` date is the European `D.M.YYYY`
+ * form the vendor documents. There is no `Z` and no `±HH:MM` — the trailing
+ * abbreviation is the whole of the zone the file states for itself.
+ */
+const TRADESEA_RE =
+  /^(\d{1,2})([/.])(\d{1,2})\2(\d{4}),\s+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?(?:\.(\d{1,9}))?\s*(am|pm)?\s+((?:GMT|UTC)[+-]\d{1,2}(?::?\d{2})?|[a-z]{2,6})$/i;
+
+/**
+ * The zone abbreviations a TradeSea export writes, and the IANA zone each one
+ * names. Applied **only** to the trailing token of a TradeSea stamp. An
+ * abbreviation the map does not carry leaves the stamp `need-zone`: the row is
+ * refused, never guessed at (KNOWN-LIMITATIONS.md, "Times and timezones").
+ *
+ * `MEZ`/`MESZ` are the German spellings of `CET`/`CEST`; both name the
+ * Europe/Berlin clock, and the DST-checked path below — not the label — decides
+ * which offset a given date actually had.
+ */
+const ZONE_ABBR: Record<string, string> = {
+  est: "America/New_York",
+  edt: "America/New_York",
+  cst: "America/Chicago",
+  cdt: "America/Chicago",
+  mst: "America/Denver",
+  mdt: "America/Denver",
+  pst: "America/Los_Angeles",
+  pdt: "America/Los_Angeles",
+  cet: "Europe/Berlin",
+  cest: "Europe/Berlin",
+  mez: "Europe/Berlin",
+  mesz: "Europe/Berlin",
+  wet: "Europe/Lisbon",
+  west: "Europe/Lisbon",
+  utc: "UTC",
+  gmt: "UTC",
+};
+
+/**
+ * Read one TradeSea stamp into the same `Stamp` the rest of the reader works
+ * with. Returns null when the text is not a TradeSea stamp at all. When the
+ * trailing abbreviation is not in `ZONE_ABBR` the stamp is still returned —
+ * carrying `zoneAbbr` and no `zone` — so `parseInstant` can refuse it as
+ * `need-zone` rather than the row reading as an unreadable stamp.
+ */
+function parseTradeSeaStamp(raw: string): Stamp | null {
+  const m = TRADESEA_RE.exec(String(raw ?? "").trim());
+  if (!m) return null;
+  const [, a, sep, b, y, hh, mm, ss, frac, meridiem, abbr] = m;
+
+  // The separator says which side the month is on: `/` is US month-first, `.`
+  // is the European day-first form. In neither is the year first.
+  const year = parseInt(y, 10);
+  const month = sep === "." ? parseInt(b, 10) : parseInt(a, 10);
+  const day = sep === "." ? parseInt(a, 10) : parseInt(b, 10);
+  if (year < 1900 || year > 9999 || month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) {
+    return null;
+  }
+
+  let hour = parseInt(hh, 10);
+  const minute = parseInt(mm, 10);
+  const second = ss === undefined ? 0 : parseInt(ss, 10);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  if (meridiem) {
+    const pm = /^pm$/i.test(meridiem);
+    if (pm && hour < 12) hour += 12;
+    if (!pm && hour === 12) hour = 0;
+    if (hour > 23) return null;
+  }
+
+  const ms = frac ? Number((frac + "000").slice(0, 3)) : 0;
+  // A numeric GMT/UTC suffix pins a fixed offset, not an IANA clock.
+  const numeric = /^(?:gmt|utc)([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(abbr);
+  let offset: string | undefined;
+  if (numeric) {
+    const hours = Number(numeric[2]);
+    const minutes = Number(numeric[3] ?? "0");
+    if (hours > 14 || minutes > 59 || (hours === 14 && minutes !== 0)) return null;
+    offset = `${numeric[1]}${pad2(hours)}:${pad2(minutes)}`;
+  }
+  return {
+    date: `${year}-${pad2(month)}-${pad2(day)}`,
+    time: `${pad2(hour)}:${pad2(minute)}:${pad2(second)}${ms ? `.${String(ms).padStart(3, "0")}` : ""}`,
+    offset,
+    zone: ZONE_ABBR[abbr.toLowerCase()],
+    zoneAbbr: abbr,
+  };
+}
+
 function parseStamp(raw: string): Stamp | null {
   const m = STAMP_RE.exec(raw.trim());
-  if (!m) return null;
+  if (!m) return parseTradeSeaStamp(raw);
   const [, a, , b, c, hh, mm, ss, frac, meridiem, off] = m;
   const aNum = parseInt(a, 10);
   const cNum = parseInt(c, 10);
@@ -293,8 +410,29 @@ export function parseInstant(raw: string, opts: ParseInstantOpts = {}): InstantR
     return { date: stamp.date, time: stamp.time, zone: "", status: "ok", instant, iso: instant.toISOString(), source: "offset" };
   }
 
+  // A TradeSea stamp states its own zone as an abbreviation. A known one pins
+  // the instant through the same DST-checked path as any other zone-read stamp
+  // and reports `source-zone` with `stampZone` set — the file stated the zone,
+  // so the import screen's choice does not override it. An unknown one is
+  // refused as `need-zone` with its own reason: the row is never guessed at, and
+  // "no zone was chosen" is not the message, because the file did name one.
+  if (stamp.zoneAbbr !== undefined) {
+    if (!stamp.zone) {
+      return {
+        date: stamp.date,
+        time: stamp.time,
+        zone: "",
+        status: "need-zone",
+        reason: "unknown-abbreviation",
+        zoneAbbr: stamp.zoneAbbr,
+      };
+    }
+    const r = instantFromWall(stamp.date, stamp.time, stamp.zone, "source-zone");
+    return r.status === "ok" ? { ...r, stampZone: stamp.zone } : r;
+  }
+
   if (!sourceZone) {
-    return { date: stamp.date, time: stamp.time, zone: "", status: "need-zone" };
+    return { date: stamp.date, time: stamp.time, zone: "", status: "need-zone", reason: "no-source-zone" };
   }
   return instantFromWall(stamp.date, stamp.time, sourceZone, "source-zone");
 }

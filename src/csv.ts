@@ -88,7 +88,7 @@ function parseCsv(text: string): Record<string, string>[] {
 }
 
 const EXEC_KEYS = {
-  timestamp: ["Fill Time", "fill time", "FillTime", "Timestamp", "timestamp", "Date/Time", "date/time", "Create Time", "create time"],
+  timestamp: ["Fill Time", "fill time", "FillTime", "Timestamp", "timestamp", "Date/Time", "date/time", "Create Time", "create time", "Time"],
   account: ["Account", "account", "Account/AccountId", "Account ID", "_accountId", "AccountName", "Account Name"],
   symbol: ["Symbol", "Product", "Contract", "symbol", "product", "contract"],
   side: ["Side", "B/S", "Buy/Sell", "Action", "side", "b/s"],
@@ -97,7 +97,9 @@ const EXEC_KEYS = {
   // order size. "Quantity" is the fallback for a plain Fills export.
   qty: ["Filled Qty", "filledQty", "Quantity", "Qty", "quantity", "qty", "Order Qty", "order qty"],
   // Same reasoning for the price: the average fill price is what was traded.
-  price: ["Avg Fill Price", "avgFillPrice", "avgPrice", "Filled Price", "Price", "price", "average price"],
+  // `Avg Price` is TradeSea's spelling of the same column — on its orders export
+  // the average the fill got is the only price a filled row carries.
+  price: ["Avg Fill Price", "avgFillPrice", "avgPrice", "Filled Price", "Price", "price", "average price", "Avg Price"],
   // No commission/fees keys on purpose: those columns are the broker's line
   // only, and a half-counted cost is worse than none. The cash history is read
   // separately (parseCashHistoryCsv).
@@ -113,10 +115,15 @@ const EXEC_KEYS = {
  * Columns that only a *filled* row carries. A Tradovate Orders export has both
  * "Quantity" (what the ticket asked for) and "Filled Qty" (what it got), so a
  * cancelled ticket looks like a complete row until you read the fill columns.
+ *
+ * A TradeSea export spells the fill as `Avg Price` and nothing else: its
+ * cancelled rows leave that one cell empty while still carrying the ticket's
+ * `Qty`, which is why `Avg Price` is here and `Qty` deliberately is not — a
+ * size says what was asked for, never that anything traded.
  */
 const FILL_KEYS = {
   qty: ["Filled Qty", "filledQty"],
-  price: ["Avg Fill Price", "avgFillPrice", "avgPrice", "Filled Price"],
+  price: ["Avg Fill Price", "avgFillPrice", "avgPrice", "Filled Price", "Avg Price"],
 };
 
 /**
@@ -234,10 +241,51 @@ export function isCashHistoryCsv(text: string): boolean {
 }
 
 /**
+ * The header TradeSea's orders export writes, and the label the journal files
+ * its rows under.
+ *
+ * TradeSea names neither an account nor an order: its header is `Time, Symbol,
+ * Qty, Side, Order Type, Limit Price, Stop Price, Avg Price, Commission,
+ * Status`. The five cells below are the signature — matched as whole header
+ * cells, the same way `headerHas` matches every other column — and the two
+ * ids are required *absent*, because a file that carries an order or a fill id
+ * is one of the two reports the reader already reads and must keep being read
+ * as that. Without the label, `detectedAccounts` skips every row and the
+ * mapping screen has nothing to point at; the trader maps this one row to the
+ * journal account the trades really belong to.
+ */
+const TRADESEA_HEADER_KEYS = ["Time", "Symbol", "Qty", "Side"];
+const TRADESEA_ACCOUNT_LABEL = "TradeSea";
+
+/**
+ * The account a file kind files its rows under when the file names none of its
+ * own — the same table shape the column aliases use, so broker knowledge stays
+ * data and the parse loop never branches on the kind. TradeSea's orders export
+ * has no account column, so its rows carry this constant and the mapping screen
+ * has one row to point at. Every other report names its account, so it adds
+ * nothing here.
+ */
+const KIND_ACCOUNT_LABEL: Record<"cash" | "orders" | "fills" | "tradesea" | "unknown", string> = {
+  cash: "",
+  orders: "",
+  fills: "",
+  tradesea: TRADESEA_ACCOUNT_LABEL,
+  unknown: "",
+};
+
+function isTradeSeaHeader(cells: string[]): boolean {
+  if (headerHas(cells, EXEC_KEYS.orderId) || headerHas(cells, EXEC_KEYS.fillId)) return false;
+  if (!cells.some((c) => c.toLowerCase() === "status")) return false;
+  return TRADESEA_HEADER_KEYS.every((key) => cells.includes(key));
+}
+
+/**
  * What report a dropped file is, read from its header and never its name — a
  * user renames an export and the name lies. `cash` is the platform's money
- * ledger, never trades; `orders` carries every ticket, `fills` every execution.
- * Anything else is not something this journal can read, and says so.
+ * ledger, never trades; `orders` carries every ticket, `fills` every execution;
+ * `tradesea` is TradeSea's orders export, which carries neither an order id nor
+ * a fill id and is paired the same way once its rows are read. Anything else is
+ * not something this journal can read, and says so.
  *
  * The identity it looks for is the one the reader already reads —
  * `EXEC_KEYS.fillId` and `EXEC_KEYS.orderId`, matched as whole header cells, the
@@ -245,12 +293,18 @@ export function isCashHistoryCsv(text: string): boolean {
  * both an Orders report, and `Fill ID`, `fillId` and `Execution ID` are all a
  * Fills report; there is no second list that can drift from the parser, and no
  * file is announced as a report the reader would then find nothing in.
+ *
+ * The TradeSea branch is last and exact: it asks for its five column names and
+ * for the absence of both ids, so the id-less generic fills file stays refused
+ * (a re-import of it could not be told from the first) and no existing report
+ * changes kind.
  */
-export function csvKind(text: string): "cash" | "orders" | "fills" | "unknown" {
+export function csvKind(text: string): "cash" | "orders" | "fills" | "tradesea" | "unknown" {
   if (isCashHistoryCsv(text)) return "cash";
   const cells = headerCells(text);
   if (headerHas(cells, EXEC_KEYS.fillId)) return "fills";
   if (headerHas(cells, EXEC_KEYS.orderId) && cells.some((c) => c.toLowerCase() === "status")) return "orders";
+  if (isTradeSeaHeader(cells)) return "tradesea";
   return "unknown";
 }
 
@@ -363,6 +417,23 @@ export function mergeCashCosts(list: CashCosts[]): CashCosts {
   return { byFill, lines, charged: round2(charged), finalBalance, rows };
 }
 
+/**
+ * A symbol as the journal files it, with any exchange prefix removed.
+ *
+ * TradeSea writes the venue in front of the contract — `CME:ES`, `CME:MES` — and
+ * the venue is not part of the contract's name. `rootSymbol('CME:ES')` reads the
+ * letters up to the colon and answers `CME`, which is not a contract this
+ * journal prices, so ES would be valued at the $1 fallback and every point-based
+ * number would be quietly wrong. The segment after the last colon is the
+ * contract; a symbol with no colon is returned untouched, so nothing that parses
+ * today reads any differently.
+ */
+function withoutExchangePrefix(symbol: string): string {
+  const s = (symbol || "").trim();
+  const cut = s.lastIndexOf(":");
+  return cut >= 0 ? s.slice(cut + 1).trim() : s;
+}
+
 export function parseTradeovateCsv(
   fileText: string,
   accountRules: AccountRule[],
@@ -370,13 +441,20 @@ export function parseTradeovateCsv(
   costs?: CashCosts
 ): ParsedResult {
   const robj = parseCsv(fileText);
+  // What the gate calls this file, read from the very classifier that let it in.
+  // The reader needs it once — to give a kind that names no account its constant
+  // label (see `KIND_ACCOUNT_LABEL`) and to say honestly why an empty file was
+  // empty — never to special-case the parse loop per broker.
+  const kind = csvKind(fileText);
   const warnings: string[] = [];
   const executions: Execution[] = [];
   let skipped = 0;
   let unfilled = 0;
   // Timestamps with no single instant. They are never rounded into one: each is
   // counted here so the review can say what was left out and why.
-  const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0 };
+  const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0, unknownZone: 0 };
+  // The first unknown zone abbreviation seen, so the receipt can name it.
+  let unknownZoneSample = "";
   // Only ever what the platform charged. Without its cash history there is
   // nothing to charge, and a plausible-looking fee nobody was billed for is
   // exactly the kind of number this journal refuses to print.
@@ -384,6 +462,11 @@ export function parseTradeovateCsv(
   const costKeysUsed = new Set<string>();
 
   const headerKeys = Object.keys(robj[0] ?? {}).map((h) => h.toLowerCase());
+  // Whether the header itself carries the execution signature every Tradovate
+  // report shares. Kept honest: a TradeSea file has no account column, so it
+  // reads false here, and the warning below decides what an empty file means
+  // from `kind` — a recognised file is never told its own header is unreadable,
+  // and an empty one is never announced as recognised-but-fine.
   const hasExecSig =
     (headerKeys.some((h) => h.includes("timestamp")) ||
       headerKeys.some((h) => h.includes("fill time")) ||
@@ -399,13 +482,16 @@ export function parseTradeovateCsv(
       headerKeys.some((h) => h.includes("quantity")));
 
   // Does the file spell out the fill separately from the order? If it does, a
-  // row with empty fill columns is an order that never traded.
+  // row with empty fill columns is an order that never traded. `avg price` is
+  // TradeSea's spelling of the fill price, and its cancelled tickets are exactly
+  // the rows that leave it empty while keeping everything else.
   const hasFillCols =
     headerKeys.some((h) => h.includes("filled qty")) ||
     headerKeys.some((h) => h.includes("filledqty")) ||
     headerKeys.some((h) => h.includes("avg fill price")) ||
     headerKeys.some((h) => h.includes("avgfillprice")) ||
-    headerKeys.some((h) => h.includes("avgprice"));
+    headerKeys.some((h) => h.includes("avgprice")) ||
+    headerKeys.some((h) => h.includes("avg price"));
 
   const orderFacts: OrderFact[] = [];
 
@@ -413,18 +499,30 @@ export function parseTradeovateCsv(
     const rawStamp = firstNonEmpty(row, EXEC_KEYS.timestamp);
     const stamp = parseInstant(rawStamp, { sourceZone: zones?.sourceZone });
     const timestamp = stamp.status === "ok" ? stamp.instant : null;
-    // Where a naive stamp was read from. When that zone is this computer's, the
-    // row says so instead of dressing up a choice of the reader as the file's
+    // Where the instant's zone came from. A stamp that named its own zone (a
+    // TradeSea abbreviation) is a statement about the file, so `source-zone`
+    // stands and the row carries the zone it named — the import screen's choice
+    // does not override it. A naive stamp read in *this computer's* zone says
+    // `system-zone` instead of dressing a choice of the reader up as the file's
     // own zone (see `CsvImportZones.systemSource`).
+    const stampZone = stamp.status === "ok" ? stamp.stampZone : undefined;
     const naiveSource: InstantSource =
       stamp.status === "ok" && stamp.source === "offset"
         ? "offset"
+        : stampZone
+        ? "source-zone"
         : zones?.systemSource
         ? "system-zone"
         : "source-zone";
     const timestampSource = stamp.status === "ok" ? naiveSource : undefined;
-    const account = firstNonEmpty(row, EXEC_KEYS.account);
-    const symbol = firstNonEmpty(row, EXEC_KEYS.symbol);
+    // A file that names no account carries a constant label for its rows — from
+    // the kind table, never a branch here. `detectedAccounts` skips an empty
+    // cell, which would leave the mapping screen with nothing to point at.
+    const account = firstNonEmpty(row, EXEC_KEYS.account) || KIND_ACCOUNT_LABEL[kind];
+    // The exchange prefix is stripped where the symbol is read, so the contract
+    // name the journal files and keys its costs on is the contract — never the
+    // venue (`CME:ES` → `ES`). Nowhere else in the reader carries the strip.
+    const symbol = withoutExchangePrefix(firstNonEmpty(row, EXEC_KEYS.symbol));
     let sideRaw = firstNonEmpty(row, EXEC_KEYS.side).toLowerCase();
     const qtyStr = firstNonEmpty(row, EXEC_KEYS.qty);
     const priceStr = firstNonEmpty(row, EXEC_KEYS.price);
@@ -434,8 +532,8 @@ export function parseTradeovateCsv(
     // What the ticket says, read before the "never traded" guard below: a stop
     // that was never hit is exactly the row that guard would skip, and it is
     // the only trace of the risk the trade carried.
-    const factAccount = firstNonEmpty(row, EXEC_KEYS.account);
-    const factSymbol = firstNonEmpty(row, EXEC_KEYS.symbol);
+    const factAccount = account;
+    const factSymbol = withoutExchangePrefix(firstNonEmpty(row, EXEC_KEYS.symbol));
     const stopPrice = parsePrice(firstNonEmpty(row, STOP_KEYS));
     const limitPrice = parsePrice(firstNonEmpty(row, LIMIT_KEYS));
     const factSideRaw = firstNonEmpty(row, EXEC_KEYS.side).toLowerCase();
@@ -457,6 +555,17 @@ export function parseTradeovateCsv(
           ...(Number.isFinite(limitPrice) ? { limitPrice } : {}),
         });
       }
+    }
+
+    // A stamp that named a zone abbreviation this journal does not know is a
+    // statement about the file, and it is refused for that reason — before the
+    // "never traded" guard, so a cancelled ticket carrying it is not filed as
+    // merely unfilled (which would print a zone remedy that cannot help). The
+    // row is left out, never guessed.
+    if (stamp.status === "need-zone" && stamp.reason === "unknown-abbreviation") {
+      timeIssues.unknownZone++;
+      if (!unknownZoneSample) unknownZoneSample = stamp.zoneAbbr ?? "";
+      continue;
     }
 
     // An order ticket that never traded: the export spells out the fill columns
@@ -540,6 +649,7 @@ export function parseTradeovateCsv(
       orderType: firstNonEmpty(row, EXEC_KEYS.orderType),
       costKey,
       timestampSource,
+      stampZone,
     });
   }
 
@@ -568,9 +678,15 @@ export function parseTradeovateCsv(
     }
   }
 
+  // A file that yields no executions says so — and says the true reason. The
+  // flag is the header's own signature; the message comes from the gate's verdict
+  // on the file: an unknown file was not recognised; a recognised one (a TradeSea
+  // export whose tickets were all cancelled, say) was read and held nothing.
   if (!hasExecSig && executions.length === 0) {
     warnings.push(
-      "Could not recognize this CSV. Tradebook reads Tradovate exports: Orders or Fills for trades, and Cash History in the costs slot. The Performance report cannot be read."
+      kind === "unknown"
+        ? "Could not recognize this CSV. Tradebook reads Tradovate exports: Orders or Fills for trades, and Cash History in the costs slot. The Performance report cannot be read."
+        : "This file was recognised but holds no executions to import — every ticket was cancelled or its time could not be read, so there is nothing to pair."
     );
   }
 
@@ -690,11 +806,18 @@ export function parseTradeovateCsv(
   if (timeIssues.gap) timeParts.push(`${timeIssues.gap} fall in a DST gap (the clock jumped forward)`);
   if (timeIssues.ambiguous) timeParts.push(`${timeIssues.ambiguous} fall in a repeated hour (the clock went back)`);
   if (timeIssues.noZone) timeParts.push(`${timeIssues.noZone} carry no zone and none was chosen`);
+  if (timeIssues.unknownZone) {
+    const named = unknownZoneSample ? ` (${unknownZoneSample})` : "";
+    timeParts.push(
+      `${timeIssues.unknownZone} carry a zone abbreviation this journal does not know${named} — choosing a zone cannot fix that`
+    );
+  }
   if (timeParts.length) {
     warnings.push(`Timestamps left out rather than guessed: ${timeParts.join("; ")}.`);
   }
 
-  const totalIssues = timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone;
+  const totalIssues =
+    timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone + timeIssues.unknownZone;
   return {
     trades,
     warnings,
@@ -853,7 +976,11 @@ function pairRoundTrips(
     const instantSource: InstantSource = fills.every((f) => f.timestampSource === "offset")
       ? "offset"
       : picked ?? (zones?.systemSource ? "system-zone" : "source-zone");
-    const sourceZone = instantSource === "offset" ? undefined : zones?.sourceZone;
+    // The zone the note records is the one the stamps named for themselves — a
+    // TradeSea abbreviation is a statement about the file — falling back to the
+    // zone the reader was given for a naive file. Never a guess either way.
+    const namedZone = fills.find((f) => f.stampZone)?.stampZone;
+    const sourceZone = instantSource === "offset" ? undefined : namedZone ?? zones?.sourceZone;
     const lots: { sign: 1 | -1; qty: number; price: number; time: Date }[] = [];
     let pos: {
       dir: "long" | "short";

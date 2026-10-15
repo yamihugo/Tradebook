@@ -55,6 +55,12 @@ export interface Execution {
   costKey?: string;
   /** How this row's timestamp was pinned (see `InstantSource`). */
   timestampSource?: InstantSource;
+  /**
+   * The zone the row's own stamp named, when it named one (a TradeSea
+   * abbreviation). A statement about the file — the trade records this rather
+   * than the reader's `sourceZone` (see `parseTradeovateCsv`).
+   */
+  stampZone?: string;
 }
 
 /**
@@ -271,8 +277,14 @@ export interface TimeIssues {
   gap: number;
   /** The wall clock exists twice in the source zone (fall-back replay). */
   ambiguous: number;
-  /** Naive stamp with no source zone declared. */
+  /** Naive stamp with no source zone chosen. */
   noZone: number;
+  /**
+   * Stamps that named a zone abbreviation this journal does not know. Kept apart
+   * from `noZone`: the file stated a zone, and choosing one on the screen cannot
+   * fix it — the refusal must say so.
+   */
+  unknownZone: number;
 }
 
 /**

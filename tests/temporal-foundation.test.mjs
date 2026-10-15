@@ -252,7 +252,7 @@ const parseTrades = (text, zones) => csv.parseTradeovateCsv(text, [], zones);
 test("an import pins every instant it writes, and counts what it refused", () => {
   const out = parseTrades(`${HEADER}\n${ROWS}\n`, { sourceZone: NY, journalZone: NY });
 
-  assert.deepEqual(out.timeIssues, { gap: 1, ambiguous: 1, noZone: 0 });
+  assert.deepEqual(out.timeIssues, { gap: 1, ambiguous: 1, noZone: 0, unknownZone: 0 });
   assert.equal(out.skipped, 1, "only the unreadable stamp is skipped");
   assert.equal(out.unfilled, 1, "the ticket that never traded is not an error");
   assert.equal(out.trades.length, 2, "the refused rows are not traded away silently");
@@ -279,7 +279,11 @@ test("an import pins every instant it writes, and counts what it refused", () =>
 
 test("with no zone chosen, only stamps that name their own zone are imported", () => {
   const out = parseTrades(`${HEADER}\n${ROWS}\n`, { journalZone: NY });
-  assert.deepEqual(out.timeIssues, { gap: 0, ambiguous: 0, noZone: 5 }, "every naive row is refused");
+  assert.deepEqual(
+    out.timeIssues,
+    { gap: 0, ambiguous: 0, noZone: 5, unknownZone: 0 },
+    "every naive row is refused"
+  );
   assert.equal(out.trades.length, 1, "the Z-stamped round trip needs no zone at all");
   assert.equal(out.trades[0].instantSource, "offset");
   assert.equal(out.trades[0].sourceZone, undefined);
