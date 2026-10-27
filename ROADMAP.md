@@ -41,8 +41,9 @@ may never become part of Tradebook.
 
 ## Imports
 
-Tradebook currently supports **Tradovate Orders, Fills and Cash History**.
-See [import limitations](KNOWN-LIMITATIONS.md#import-formats) for the current scope.
+Tradebook currently supports **Tradovate Orders, Fills and Cash History**, and the
+**TradeSea orders export**. See [import limitations](KNOWN-LIMITATIONS.md#import-formats)
+for the current scope.
 
 Import improvements will be guided by reported issues and anonymized export samples.
 Additional formats will only be listed as supported once their account information,

@@ -7,6 +7,17 @@ All notable changes to Tradebook are documented here. The format follows
 Updates are published as [GitHub Releases](https://github.com/yamihugo/Tradebook/releases);
 BRAT picks them up automatically.
 
+## [Unreleased]
+
+## [1.0.2] - 2026-10-27
+
+### Added
+
+- **TradeSea import** — import the orders export format I have checked, review the trades,
+  then save. Use one TradeSea file per import batch. The importer refuses file or timestamp
+  formats it cannot identify rather than guessing. It does not apply the commission shown
+  in the file, so P&L is before costs.
+
 ## [1.0.1] - 2026-10-04
 
 Review fixes only. No intentional product or data-format change.

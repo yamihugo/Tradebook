@@ -31,13 +31,22 @@ mistaken for a missing feature.
 
 ## Import formats
 
-- **Tradovate Orders, Fills and Cash History are the supported formats.** There is no
-  generic arbitrary-CSV importer, and other brokers' exports are not supported. When a
-  file cannot be recognised, Tradebook says so rather than guessing.
+- **Tradovate Orders, Fills and Cash History, and the TradeSea orders export, are the
+  supported formats.** There is no generic arbitrary-CSV importer, and other brokers'
+  exports are not supported. When a file cannot be recognised, Tradebook says so rather
+  than guessing.
 - **Tradovate's Performance Report is not supported.** It is a screen, not a ledger.
 - **Support is verified against the project's canonical Tradovate export contract.** No
   anonymised real-world Tradovate exports are committed to the repository, so the formats
   are not yet confirmed against live broker files.
+- **TradeSea support is based on the export format I have checked, not a format guarantee
+  from TradeSea.** The importer requires the full header. The checked timestamps use a
+  month-first slash date with a comma before the clock. It refuses other layouts or unknown
+  zone abbreviations rather than guessing. The checked files do not
+  include an account ID, so import one TradeSea file per batch; otherwise, separate files
+  could be assigned to the same placeholder account. I do not apply the commission in the
+  export, so P&L is **before costs**. I have not verified whether an export is limited to one
+  trading day.
 
 ## Copy Trading
 
@@ -52,8 +61,13 @@ mistaken for a missing feature.
 
 ## Times and timezones
 
-- An imported timestamp that carries its own offset (`Z` or `±HH:MM`) is an **absolute
-  instant**. No source zone is applied on top of it, and it is stored in canonical UTC form.
+- An imported timestamp that carries its own offset (`Z`, `±HH:MM`, a numeric TradeSea
+  GMT/UTC offset, or the observed `EDT` token) is an **absolute instant**. I interpret the
+  observed TradeSea `EDT` token as fixed UTC−04:00. Numeric offsets are used as written; an
+  unrecognized abbreviation is refused rather than guessed. The instant is stored in UTC,
+  and the selected source zone does not override an explicit offset.
+- TradeSea timestamps with more than three fractional-second digits are refused because the
+  stored representation preserves milliseconds only; extra precision is never truncated.
 - A **naive** imported timestamp (no offset) is read only in the **source zone chosen for that
   import**. With no zone chosen, it is not resolved against your computer's clock — it is
   reported as carrying no zone.
