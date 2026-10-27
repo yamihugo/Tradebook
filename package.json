@@ -1,6 +1,6 @@
 {
   "name": "tradebook",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A local trading journal for futures traders — dashboard, CSV import and review",
   "main": "main.js",
   "scripts": {
