@@ -31,6 +31,9 @@ Tradebook account, no cloud service, no telemetry.
   corrections separately from trading results.
 - **Tradovate imports.** Import Orders, Fills and Cash History, preview the
   result, and reimport without creating duplicates.
+- **TradeSea imports.** Import one TradeSea orders export per batch, using the
+  format I have checked. Review the preview before importing. The importer does not apply
+  the commission shown in the file, so P&L is before costs.
 - **Home overview.** Period filters, Net Trading P&L, an equity curve based on
   your recorded trading data, a performance calendar, breakdowns by setup, session,
   symbol and day, and a Trading Score.
@@ -62,6 +65,8 @@ Obsidian checks for Community plugin updates. To update manually, use
 2. **Bring in your trades.** Choose **Import CSV** for Tradovate Orders/Fills and, when
    available, Cash History. Check the preview before importing. You can also choose
    **Manual Trade** to add a trade yourself.
+   For TradeSea, use one checked orders export per import batch. The importer does not
+   apply the commission shown in the file, so P&L is before costs.
 3. **Review a trade.** Open it from the **Trade Log**, add your notes and mark it **Reviewed**.
 4. **Visit Home.** Review your results and explore the trades behind them.
 
@@ -80,7 +85,8 @@ vault for the trade notes and attachments.
 ## Known limitations
 
 Generated copy trades are models, and reported costs cannot always be assigned to an
-individual trade with certainty. Other export formats are not currently supported.
+individual trade with certainty. TradeSea P&L is before costs: the importer does not
+apply the file's per-order commission. Other export formats are not currently supported.
 Tradebook can run on mobile, but phone and tablet layouts still need work.
 [Known limitations](KNOWN-LIMITATIONS.md) explains how these cases, missing data and
 import formats are handled.

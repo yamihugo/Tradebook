@@ -1,6 +1,6 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
-import { csvKind, mergeCashCosts, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
+import { csvKind, hasTradeSeaBatchConflict, mergeCashCosts, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
 import type { CashCosts } from "../csv";
 import type { ImportCosts, ParsedResult, PropAccount, TimeIssues, Trade } from "../types";
 import { TIMEZONE_OPTIONS, detectSystemZone, fmtMoney2, zoneShortLabel } from "../tz";
@@ -157,7 +157,7 @@ class ImportCsvModal extends Modal {
     // moment a file is being read, not to the moment it is being chosen.
     this.headSubEl = txt.createEl("p", {
       cls: "tj-import-sub",
-      text: "Reports → Orders is recommended. Reports → Fills works too.",
+      text: "Reports → Orders is recommended. Reports → Fills works too. The observed TradeSea orders format is supported.",
     });
 
     // The journey, so the reader always knows where he is and what is left. It
@@ -189,6 +189,16 @@ class ImportCsvModal extends Modal {
    * cost at all, because a half-counted one would be a number nobody was billed.
    */
   private renderCosts(host: HTMLElement): void {
+    const onlyTradeSea = this.tradeFiles.length > 0 && this.tradeFiles.every((f) => csvKind(f.text) === "tradesea");
+    if (onlyTradeSea) {
+      this.stepHead(host, "Costs", { text: "Not recorded", tone: "optional" });
+      const box = host.createDiv({ cls: "tj-import-costsbox" });
+      box.createDiv({
+        cls: "tj-import-costssub",
+        text: "Commission in the TradeSea orders file is not applied. Imported P&L is before costs unless separately matched cost data is supplied.",
+      });
+      return;
+    }
     this.stepHead(host, "Costs", {
       text: !this.wantCosts ? "Optional" : this.cashCosts ? "Ready" : "Needs a file",
       tone: !this.wantCosts ? "optional" : this.cashCosts ? "ready" : "warn",
@@ -291,7 +301,11 @@ class ImportCsvModal extends Modal {
     });
   }
 
-  /** A naive timestamp carries no zone, so the reader has to say where it came from. */
+  /**
+   * A naive timestamp carries no zone, so the reader has to say where it came
+   * from. The observed TradeSea stamps use `EDT`; that explicit offset is honored.
+   * Other unrecognized abbreviations are refused rather than guessed.
+   */
   private renderZone(host: HTMLElement): void {
     const detected = detectSystemZone();
     // Its own box, with a title: the zone is the one thing a reader has to get
@@ -316,7 +330,8 @@ class ImportCsvModal extends Modal {
         void this.plugin.saveSettings();
         // A file's times carry no zone of their own, so changing this changes
         // every timestamp in the list below. Re-read it now instead of waiting
-        // for the next import.
+        // for the next import. A TradeSea file is the exception: its stamps name
+        // their own zone, so nothing here moves them.
         if (this.tradeFiles.length) void this.parseTrades();
       },
       { placeholder: "This computer", title: "The zone this file's times were written in" }
@@ -327,16 +342,23 @@ class ImportCsvModal extends Modal {
       text: `Saved in ${zoneShortLabel(this.plugin.settings.timeZone) || "recorded"} time`,
       cls: "tj-import-zonenote",
     });
+    box.createDiv({
+      text: "This applies to times that carry no zone. A zone written in the export takes precedence; an abbreviation the importer does not recognize is refused rather than guessed.",
+      cls: "tj-import-zonenote",
+    });
   }
 
   private renderDropzone(host: HTMLElement): void {
     host.empty();
     const drop = host.createEl("div", { cls: "tj-dropzone" });
     drop.createDiv({ text: "Drop your CSV files here", cls: "tj-drop-text" });
-    const sub = drop.createDiv({ text: "One file or many — all read as one batch", cls: "tj-drop-sub" });
+    const sub = drop.createDiv({
+      text: "One file or many supported reports — read as one batch. One TradeSea export per batch.",
+      cls: "tj-drop-sub",
+    });
     attachTip(sub, {
       title: "Which report",
-      sub: "Reports → Orders carries every ticket with its fill time, price, status, order type and stop. Reports → Fills is the raw executions. Either one pairs the round-trips; the Performance report cannot be read.",
+      sub: "Reports → Orders carries every ticket with its fill time, price, status, order type and stop. Reports → Fills is the raw executions. The supported TradeSea orders format carries tickets and fills in one file. Any supported report pairs round-trips; the Performance report cannot be read.",
     });
     const fileInput = drop.createEl("input", {
       type: "file",
@@ -437,7 +459,7 @@ class ImportCsvModal extends Modal {
     this.goBtn = null;
     this.actionsEl = null;
     if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
-    if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too.");
+    if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too. The observed TradeSea orders format is supported.");
     if (this.bodyEl) this.bodyEl.empty();
     if (this.pickEl) this.pickEl.empty();
     if (this.setupEl) this.setupEl.empty();
@@ -465,11 +487,21 @@ class ImportCsvModal extends Modal {
       const texts: { name: string; text: string }[] = [];
       for (const f of files) texts.push({ name: f.name, text: await f.text() });
 
-      const cashTexts = texts.filter((t) => csvKind(t.text) === "cash");
-      const execTexts = texts.filter((t) => {
-        const k = csvKind(t.text);
-        return k === "orders" || k === "fills";
-      });
+      const classified = texts.map((t) => ({ ...t, kind: csvKind(t.text) }));
+      if (hasTradeSeaBatchConflict(classified.map((t) => t.kind))) {
+        body.empty();
+        const err = body.createDiv({ cls: "tj-error" });
+        err.createEl("h3", { text: "Import one TradeSea export at a time" });
+        err.createDiv({
+          text: "This export has no account identifier. Multiple TradeSea files would share one placeholder account and could be combined incorrectly. Choose one TradeSea file for each import.",
+          cls: "tj-error-detail",
+        });
+        this.busy = false;
+        return;
+      }
+
+      const cashTexts = classified.filter((t) => t.kind === "cash");
+      const execTexts = classified.filter((t) => t.kind === "orders" || t.kind === "fills" || t.kind === "tradesea");
       if (!execTexts.length) {
         body.empty();
         const err = body.createDiv({ cls: "tj-error" });
@@ -486,13 +518,13 @@ class ImportCsvModal extends Modal {
           err.createEl("h3", { text: "No trades export recognised" });
           if (stray) {
             err.createDiv({
-              text: `"${stray.name}" is not an Orders or Fills report — its header carries neither an order id nor a fill id.`,
+              text: `"${stray.name}" is not an Orders, Fills or TradeSea report — its header carries none of the columns those exports are read by.`,
               cls: "tj-error-detail",
             });
           }
         }
         err.createDiv({
-          text: "Export from Tradovate → Reports → Orders (recommended) or Fills.",
+          text: "Export from Tradovate → Reports → Orders (recommended) or Fills, or from TradeSea → Export orders.",
           cls: "tj-error-detail",
         });
         this.busy = false;
@@ -551,7 +583,7 @@ class ImportCsvModal extends Modal {
     const warnings: string[] = [];
     const accountsSeen: { name: string; type: string }[] = [];
     const seenAccounts = new Set<string>();
-    const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0 };
+    const timeIssues: TimeIssues = { gap: 0, ambiguous: 0, noZone: 0, unknownZone: 0 };
     let skipped = 0;
     let unfilled = 0;
     let unpaired = 0;
@@ -571,10 +603,12 @@ class ImportCsvModal extends Modal {
         timeIssues.gap += result.timeIssues.gap;
         timeIssues.ambiguous += result.timeIssues.ambiguous;
         timeIssues.noZone += result.timeIssues.noZone;
+        timeIssues.unknownZone += result.timeIssues.unknownZone;
       }
       if (result.costs) costList.push(result.costs);
     }
-    const totalIssues = timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone;
+    const totalIssues =
+      timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone + timeIssues.unknownZone;
     const costs = costList.length ? this.mergeImportCosts(costList) : undefined;
     return {
       name: names.length === 1 ? names[0] : `${names.length} files`,
@@ -659,7 +693,7 @@ class ImportCsvModal extends Modal {
         cls: "tj-error-detail",
       });
       err.createDiv({
-        text: "Export from Tradovate → Reports → Orders (recommended) or Fills and check the columns. The Performance report cannot be read — it is a screen, not a ledger.",
+        text: "Export from Tradovate → Reports → Orders (recommended) or Fills, or from TradeSea → Export orders, and check the columns. The Performance report cannot be read — it is a screen, not a ledger.",
         cls: "tj-error-detail",
       });
       return;
@@ -681,7 +715,7 @@ class ImportCsvModal extends Modal {
   }
 
   /**
-   * What Tradovate report this is, read from its header — never from its name.
+   * What report this is, read from its header — never from its name.
    *
    * Asked of `csvKind`, the very gate that admitted the file, rather than of a
    * second reading of the same header: a chip that called an accepted Orders
@@ -692,6 +726,7 @@ class ImportCsvModal extends Modal {
     const kind = csvKind(text);
     if (kind === "orders") return "Orders export";
     if (kind === "fills") return "Fills export";
+    if (kind === "tradesea") return "TradeSea export";
     return "CSV";
   }
 
@@ -1214,7 +1249,9 @@ class ImportCsvModal extends Modal {
     // A row whose wall clock has no single instant is a different fact from an
     // unreadable one: it was read, and refused. Say which hour refused it.
     const issues = this.parsed.timeIssues;
-    const timeCount = issues ? issues.gap + issues.ambiguous + issues.noZone : 0;
+    const timeCount = issues
+      ? issues.gap + issues.ambiguous + issues.noZone + issues.unknownZone
+      : 0;
     if (issues && timeCount) {
       const pill = top.createSpan({
         cls: "tj-import-pill is-warn",
@@ -1224,11 +1261,12 @@ class ImportCsvModal extends Modal {
       if (issues.gap) parts.push(`${issues.gap} in a DST gap`);
       if (issues.ambiguous) parts.push(`${issues.ambiguous} in a repeated hour`);
       if (issues.noZone) parts.push(`${issues.noZone} with no zone chosen`);
+      if (issues.unknownZone) parts.push(`${issues.unknownZone} naming a zone this journal does not know`);
       attachTip(pill, {
         title: "Timestamps left out",
         sub: `These rows read fine but have no single instant (${parts.join(
           ", "
-        )}), so nothing was written. Check "Time files are in" if the times are naive.`,
+        )}), so nothing was written. A naive time needs "Time files are in"; an unknown zone abbreviation is refused as the file wrote it.`,
       });
     }
 
@@ -1353,7 +1391,7 @@ class ImportCsvModal extends Modal {
       }
 
       const foot = box.createDiv({ cls: "tj-import-reviewfoot" });
-      foot.createSpan({ text: "Net" });
+      foot.createSpan({ text: this.tradeFiles.some((f) => csvKind(f.text) === "tradesea") ? "P&L before TradeSea costs" : "Net" });
       foot.createSpan({ cls: "tj-import-net " + (net >= 0 ? "pos" : "neg"), text: fmtMoney2(net) });
       foot.createSpan({ cls: "tj-import-dot", text: "·" });
       foot.createSpan({ text: `${new Set(t.map((x) => x.symbol)).size} symbol${new Set(t.map((x) => x.symbol)).size === 1 ? "" : "s"}` });
@@ -1581,7 +1619,9 @@ class ImportCsvModal extends Modal {
         .map((t) => byKey.get(this.noteKey(t)))
         .filter((x): x is string => !!x);
       const issues = this.parsed.timeIssues;
-      const timeCount = issues ? issues.gap + issues.ambiguous + issues.noZone : 0;
+      const timeCount = issues
+        ? issues.gap + issues.ambiguous + issues.noZone + issues.unknownZone
+        : 0;
       const receipt = importSummary({
         detected: this.plan?.detected ?? this.parsed.trades.length,
         importable: this.plan?.importable ?? this.importable.length,
