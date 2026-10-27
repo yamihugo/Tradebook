@@ -9,6 +9,13 @@ BRAT picks them up automatically.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-27
+
+### Fixed
+
+- Updated the plugin description to meet community directory requirements.
+  TradeSea import support is unchanged from 1.0.2.
+
 ## [1.0.2] - 2026-10-27
 
 ### Added
