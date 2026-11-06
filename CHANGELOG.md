@@ -4,7 +4,7 @@ I keep the changes for each Tradebook release here.
 
 To update, open Obsidian's Settings → Community plugins, check for updates and update Tradebook. Back up your vault before updating.
 
-## [Unreleased] - 1.1.1 candidate
+## [1.1.1] - 2026-11-06
 
 ### Fixed
 
