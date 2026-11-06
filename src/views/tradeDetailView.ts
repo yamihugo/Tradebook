@@ -3,6 +3,7 @@ import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { renderAppShell } from "../ui";
 import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice } from "../tz";
+import { formatDate } from "../lib/dates";
 import { legBaseKey } from "../lib/copy";
 import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots, setTradeStrategy } from "../storage";
 import { normalizeTags, reviewOptions, reviewTagGroups } from "../lib/tags";
@@ -270,6 +271,18 @@ export class TradeDetailView extends ItemView {
     const preservedScroll = root.childElementCount > 0 && scrollHost && this._renderedTradeId === this.trade?.id
       ? { top: scrollHost.scrollTop, left: scrollHost.scrollLeft }
       : null;
+    // The review rail and app shell are rebuilt below; the host viewport alone
+    // does not describe where the reader is. Keep each scroll surface separately.
+    const preservedRegions: Array<{ selector?: string; element?: HTMLElement; top: number; left: number }> = [];
+    if (preservedScroll) {
+      for (const selector of [".tj-app-main", ".tj-td-left"]) {
+        const element = root.querySelector<HTMLElement>(selector);
+        if (element) preservedRegions.push({ selector, top: element.scrollTop, left: element.scrollLeft });
+      }
+      for (let element = root.parentElement; element && element !== root.ownerDocument.body; element = element.parentElement) {
+        preservedRegions.push({ element, top: element.scrollTop, left: element.scrollLeft });
+      }
+    }
     const retainedFocus = this._renderedTradeId === this.trade?.id
       ? (() => {
           const active = root.ownerDocument.activeElement as HTMLElement | null;
@@ -450,7 +463,7 @@ export class TradeDetailView extends ItemView {
     heroTitle.createSpan({ cls: "tj-td-hero-title", text: `${t.symbol} · ${dirLabel}` });
     heroTitle.createSpan({
       cls: "tj-td-hero-when",
-      text: `${t.date}${t.entryTime ? ", " + t.entryTime : ""}`,
+      text: `${formatDate(t.date, this.plugin.settings.dateFormat)}${t.entryTime ? ", " + t.entryTime : ""}`,
     });
     // Where the trade came from, when the note knows. Quiet — an icon and a
     // tooltip — because it is provenance, not a headline. `dataSource` is the
@@ -1644,7 +1657,15 @@ export class TradeDetailView extends ItemView {
       }
     }
     const restoreViewport = () => {
-      if (!preservedScroll || !scrollHost) return;
+      // An earlier render's animation-frame callbacks must not move a newer view.
+      if (!preservedScroll || !scrollHost || !main.isConnected) return;
+      for (const region of preservedRegions) {
+        const element = region.selector ? root.querySelector<HTMLElement>(region.selector) : region.element;
+        if (element?.isConnected) {
+          element.scrollTop = region.top;
+          element.scrollLeft = region.left;
+        }
+      }
       scrollHost.scrollTop = preservedScroll.top;
       scrollHost.scrollLeft = preservedScroll.left;
     };

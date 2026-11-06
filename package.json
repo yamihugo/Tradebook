@@ -1,6 +1,6 @@
 {
   "name": "tradebook",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Local futures journal: import Tradovate and TradeSea trades, capture chart prints, track accounts, and review decisions.",
   "main": "main.js",
   "scripts": {

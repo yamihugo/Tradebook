@@ -2,6 +2,7 @@ import { App, Notice, Plugin, PluginManifest, type TAbstractFile, TFile, addIcon
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, renameTradeStrategy, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
+import { remapPrintReference, remapTradePrintFields } from "./lib/renamePrintReferences";
 import { tradePoints } from "./lib/fills";
 import { strategiesOf } from "./lib/strategySelection";
 import { computeAccountMetrics } from "./lib/accountMetrics";
@@ -1484,57 +1485,74 @@ export default class TradebookPlugin extends Plugin {
   }
 
   /**
-   * Apply a plan produced by planFileRename(). Renames go through
-   * fileManager.renameFile so Obsidian updates every [[link]] and embed that
-   * pointed at the old name; vault.rename is only the fallback.
+   * Apply a previewed plan. FileManager handles native links; the structured
+   * screenshot fields are updated explicitly and read back before counting success.
    */
   async applyFileRename(plan: RenamePlan): Promise<{ renamed: number; prints: number; skipped: number }> {
     const fm = this.app.fileManager;
-    const move = async (file: TFile, to: string) => {
+    const moveFile = async (file: TFile, to: string) => {
       if (fm && typeof fm.renameFile === "function") await fm.renameFile(file, to);
       else await this.app.vault.rename(file, to);
     };
+    const refsOf = (text: string) => {
+      const trade = parseTradeFromMarkdown(text);
+      return [trade.screenshot ?? "", ...(trade.screenshots ?? []).map((shot) => shot.file)];
+    };
     let renamed = 0;
     let prints = 0;
-    let skipped = 0;
-
-    for (const item of plan.items) {
-      try {
+    let skipped = plan.skipped;
+    try {
+      for (const item of plan.items) {
         const file = this.app.vault.getAbstractFileByPath(item.from);
-        if (!(file instanceof TFile)) {
+        const destinations = [...(item.to !== item.from ? [item.to] : []), ...item.printMoves.map((move) => move.to)];
+        // Revalidate the preview before moving any member of this print family.
+        if (!(file instanceof TFile) || !fm?.processFrontMatter || new Set(destinations).size !== destinations.length ||
+          destinations.some((path) => !!this.app.vault.getAbstractFileByPath(path)) ||
+          item.printMoves.some((move) => !(this.app.vault.getAbstractFileByPath(move.from) instanceof TFile))) {
+          skipped++; continue;
+        }
+        const before = refsOf(await this.app.vault.read(file));
+        const moved: Array<{ file: TFile; from: string; to: string }> = [];
+        try {
+          if (item.to !== item.from) {
+            await moveFile(file, item.to);
+            moved.push({ file, from: item.from, to: item.to });
+          }
+          for (const move of item.printMoves) {
+            const print = this.app.vault.getAbstractFileByPath(move.from);
+            if (!(print instanceof TFile)) throw new Error("A planned print is no longer available.");
+            await moveFile(print, move.to);
+            moved.push({ file: print, ...move });
+          }
+          await fm.processFrontMatter(file, (data: Record<string, unknown>) => remapTradePrintFields(data, item.printMoves, file.path));
+          const expected = before.map((value) => remapPrintReference(value, item.printMoves, file.path));
+          if (JSON.stringify(refsOf(await this.app.vault.read(file))) !== JSON.stringify(expected)) {
+            throw new Error("Print references could not be verified after renaming.");
+          }
+          if (item.to !== item.from) renamed++;
+          prints += item.printMoves.length;
+        } catch (error) {
+          try {
+            // Undo only this item; never overwrite a whole note with an old snapshot.
+            for (const move of moved.reverse()) await moveFile(move.file, move.from);
+            const inverse = item.printMoves.map(({ from, to }) => ({ from: to, to: from }));
+            const current = refsOf(await this.app.vault.read(file));
+            const restored = current.map((value) => remapPrintReference(value, inverse, file.path));
+            if (JSON.stringify(current) !== JSON.stringify(restored)) {
+              await fm.processFrontMatter(file, (data: Record<string, unknown>) => remapTradePrintFields(data, inverse, file.path));
+            }
+            if (JSON.stringify(refsOf(await this.app.vault.read(file))) !== JSON.stringify(before)) throw new Error("Original print references could not be verified.");
+          } catch {
+            throw new Error("Rename stopped because recovery could not be verified. Do not retry; inspect the affected files first.");
+          }
+          console.error("[tradebook] rename item rolled back:", error);
           skipped++;
-          continue;
         }
-        let notePath = item.from;
-        if (item.to !== item.from) {
-          await move(file, item.to);
-          notePath = item.to;
-          renamed++;
-        }
-        for (const mv of item.printMoves) {
-          const pf = this.app.vault.getAbstractFileByPath(mv.from);
-          if (!(pf instanceof TFile)) {
-            skipped++;
-            continue;
-          }
-          if (this.app.vault.getAbstractFileByPath(mv.to)) continue;
-          await move(pf, mv.to);
-          prints++;
-          const oldName = mv.from.split("/").pop() as string;
-          const note = this.app.vault.getAbstractFileByPath(notePath);
-          if (fm && note instanceof TFile && item.screenshot && item.screenshot.includes(oldName)) {
-            await fm.processFrontMatter(note, (data: Record<string, unknown>) => {
-              data.screenshot = String(data.screenshot).replace(oldName, mv.to.split("/").pop() as string);
-            });
-          }
-        }
-      } catch (err) {
-        console.error("[tradebook] rename failed:", item.from, err);
-        skipped++;
       }
+    } finally {
+      this.clearTradeCache();
+      await this.reloadAllViews();
     }
-    this.clearTradeCache();
-    await this.reloadAllViews();
     return { renamed, prints, skipped };
   }
 
