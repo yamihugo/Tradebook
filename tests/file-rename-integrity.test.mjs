@@ -30,10 +30,10 @@ function fixture(options={}) {
   files.set(noteFrom,note);
   const moves=[' print.png',' print 2.png',' print 2.json',' print 2-annotated.png'].map(suffix=>({from:`${printDir}/${oldBase}${suffix}`,to:`${printDir}/${newBase}${suffix}`}));
   for(const move of moves)files.set(move.from,Object.assign(new TFile(move.from),{bytes:'synthetic-image-or-sidecar'}));
-  const read=file=>`---\ndate: 2026-11-06\nsymbol: MES\ndirection: long\nentry_time: "10:00:00"\nscreenshot: ${JSON.stringify(file.data?.screenshot||'')}\nscreenshots:\n${(file.data?.screenshots||[]).map(s=>`  - file: ${JSON.stringify(s.file)}\n    note: ${JSON.stringify(s.note||'')}\n`).join('')}unrelated: untouched\n---\n${file.body||''}`;
+  const read=file=>{const meta=file.metadata||{};return `---\ndate: ${meta.date||'2026-11-06'}\nsymbol: ${meta.symbol||'MES'}\ndirection: ${meta.direction||'long'}\nentry_time: ${JSON.stringify(meta.entryTime||'10:00:00')}\nscreenshot: ${JSON.stringify(file.data?.screenshot||'')}\nscreenshots:\n${(file.data?.screenshots||[]).map(s=>`  - file: ${JSON.stringify(s.file)}\n    note: ${JSON.stringify(s.note||'')}\n`).join('')}unrelated: untouched\n---\n${file.body||''}`;};
   const move=async(file,to)=>{if(options.failMove===to)throw Error('synthetic move failure');assert.ok(!files.has(to),'never overwrite');files.delete(file.path);file.path=to;files.set(to,file);};
   const app={vault:{getFiles:()=>[...files.values()],getAbstractFileByPath:p=>files.get(p),cachedRead:async f=>read(f),read:async f=>read(f),rename:move,modify:async(file,text)=>{file.restored=text;}},fileManager:{renameFile:move,processFrontMatter:async(file,change)=>{if(options.failReferenceWrite)throw Error('synthetic reference-write failure');change(file.data);}}};
-  const product=Object.create(Product.prototype);product.app=app;product.settings={tradesFolder:'Journal',dateFormat:'DD/MM/YYYY'};product.clearTradeCache=()=>{};product.reloadAllViews=async()=>{};
+  const product=Object.create(Product.prototype);product.app=app;product.settings={tradesFolder:'Journal',dateFormat:'DD/MM/YYYY'};product.getTradesFolder=()=> 'Journal';product.getAttachmentsFolder=()=>printDir;product.clearTradeCache=()=>{};product.reloadAllViews=async()=>{};
   const plan={items:[{from:noteFrom,to:noteTo,oldBase,newName:newBase,screenshot:data.screenshot,printMoves:moves}],skipped:0};
   return {product,files,data,note,moves,plan,read};
 }
@@ -87,6 +87,36 @@ test('legacy delimited scalar references retain their separators and update ever
  const f=fixture();f.data.screenshot=`${oldBase} print.png; ${printDir}/${oldBase} print 2-annotated.png`;
  assert.equal((await f.product.applyFileRename(f.plan)).renamed,1);
  assert.equal(f.data.screenshot,`${newBase} print.png; ${printDir}/${newBase} print 2-annotated.png`);
+});
+
+test('rename planner leaves attachments from a similarly prefixed trade with their own note',async()=>{
+ const f=fixture();
+ const otherBase=`${oldBase} print 2 profile`,otherNotePath=`Journal/2026/11/trades/${otherBase}.md`,otherPrintPath=`${printDir}/${otherBase} print.png`;
+ const otherNote=new TFile(otherNotePath);otherNote.metadata={date:'2026-11-06',symbol:'NQ',direction:'short',entryTime:'10:15:00'};otherNote.data={screenshot:`${otherBase} print.png`,screenshots:[{file:`${otherBase} print.png`,note:'Other trade print'}]};
+ f.files.set(otherNotePath,otherNote);f.files.set(otherPrintPath,new TFile(otherPrintPath));
+ const plan=await f.product.planFileRename();
+ const current=plan.items.find(item=>item.from===noteFrom),other=plan.items.find(item=>item.from===otherNotePath);
+ assert.ok(current);assert.ok(other);
+ for(const move of f.moves)assert.ok(current.printMoves.some(planned=>planned.from===move.from),`referenced print family member is planned: ${move.from}`);
+ assert.ok(!current.printMoves.some(move=>move.from===otherPrintPath),'prefix similarity alone must not claim another trade’s attachment');
+ assert.ok(other.printMoves.some(move=>move.from===otherPrintPath),'the owning trade keeps its own print family');
+});
+
+test('rename planner skips a family referenced by another trade',async()=>{
+ const f=fixture();
+ const otherPath='Journal/2026/11/trades/2026-11-06 NQ SHORT 1015.md';
+ const otherNote=new TFile(otherPath);otherNote.metadata={date:'2026-11-06',symbol:'NQ',direction:'short',entryTime:'10:15:00'};otherNote.data={screenshot:`${oldBase} print.png`,screenshots:[{file:`${oldBase} print.png`,note:'Shared print'}]};
+ f.files.set(otherPath,otherNote);
+ const plan=await f.product.planFileRename();
+ assert.equal(plan.items.some(item=>item.from===noteFrom),false,'shared references keep the source trade and print family unchanged');
+ assert.ok(plan.skipped>=1);
+});
+
+test('rename planner skips a whole note and print family if any destination collides',async()=>{
+ const f=fixture();f.files.set(f.moves[1].to,new TFile(f.moves[1].to));
+ const plan=await f.product.planFileRename();
+ assert.equal(plan.items.some(item=>item.from===noteFrom),false,'no partial rename plan should be produced');
+ assert.equal(plan.skipped,1);
 });
 
 test('missing planned source skips the family before any rename',async()=>{

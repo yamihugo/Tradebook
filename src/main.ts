@@ -2,7 +2,7 @@ import { App, Notice, Plugin, PluginManifest, type TAbstractFile, TFile, addIcon
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, renameTradeStrategy, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
-import { remapPrintReference, remapTradePrintFields } from "./lib/renamePrintReferences";
+import { printFamilySlot, referencesPrintFile, remapPrintReference, remapTradePrintFields } from "./lib/renamePrintReferences";
 import { tradePoints } from "./lib/fills";
 import { strategiesOf } from "./lib/strategySelection";
 import { computeAccountMetrics } from "./lib/accountMetrics";
@@ -1414,23 +1414,40 @@ export default class TradebookPlugin extends Plugin {
    */
   async planFileRename(): Promise<RenamePlan> {
     const folder = this.getTradesFolder();
-    const files = this.app.vault
-      .getFiles()
+    const allFiles = this.app.vault.getFiles();
+    const files = allFiles
       .filter((f) => f.extension === "md" && f.path.startsWith(folder + "/"))
       .sort((a, b) => a.path.localeCompare(b.path));
     const items: RenamePlanItem[] = [];
-    const taken = new Set(this.app.vault.getFiles().map((f) => f.path));
+    const taken = new Set(allFiles.map((f) => f.path));
     let skipped = 0;
+    const parsedByPath = new Map<string, Trade>();
+    const refsByPath = new Map<string, string[]>();
+
+    // Keep note ownership available before considering any attachment name.
+    for (const note of files) {
+      try {
+        const parsed = parseTradeFromMarkdown(await this.app.vault.cachedRead(note));
+        if (!parsed) { skipped++; continue; }
+        const trade = parsed as unknown as Trade;
+        parsedByPath.set(note.path, trade);
+        refsByPath.set(note.path, [trade.screenshot ?? "", ...(trade.screenshots ?? []).map((shot) => shot.file)]);
+      } catch (err) {
+        console.error("[tradebook] rename planning failed:", note.path, err);
+        skipped++;
+      }
+    }
 
     for (const f of files) {
+      const p = parsedByPath.get(f.path);
+      if (!p) continue;
+      if (!p.date || !p.symbol) {
+        skipped++;
+        continue;
+      }
       try {
-        const content = await this.app.vault.cachedRead(f);
-        const p = parseTradeFromMarkdown(content);
-        if (!p || !p.date || !p.symbol) {
-          skipped++;
-          continue;
-        }
-        const t = p as unknown as Trade;
+        const t = p;
+        const refs = refsByPath.get(f.path) ?? [t.screenshot ?? "", ...(t.screenshots ?? []).map((shot) => shot.file)];
         const desired = `${tradeFilename(t, this.settings.dateFormat)}.md`;
         const dir = f.parent ? f.parent.path : folder;
         const oldBase = f.name.replace(/\.md$/, "");
@@ -1449,23 +1466,48 @@ export default class TradebookPlugin extends Plugin {
           taken.add(target);
         }
 
-        // Prints that belong to this note: same base name, " print…" suffix.
-        // They follow the note's FINAL base (which may carry a `_2` collision
-        // suffix), so the pair never drifts apart.
+        // Move only recognized print slots referenced by this note. An
+        // annotated image owns its original and JSON sidecar in the same slot.
         const finalBase = target.split("/").pop()!.replace(/\.md$/, "");
         const printMoves: Array<{ from: string; to: string }> = [];
         if (finalBase !== oldBase) {
           const printsDir = this.getAttachmentsFolder(p.date);
-          for (const pf of this.app.vault.getFiles().filter((x) => x.path.startsWith(printsDir + "/"))) {
-            if (!pf.name.startsWith(`${oldBase} print`)) continue;
+          const attachments = allFiles.filter((x) => x.path.slice(0, x.path.lastIndexOf("/")) === printsDir);
+          const referencedSlots = new Set<string>();
+          for (const pf of attachments) {
+            const slot = printFamilySlot(pf.path, oldBase);
+            if (slot !== null && refs.some((ref) => referencesPrintFile(ref, pf.path, f.path))) referencedSlots.add(slot);
+          }
+          const family = attachments.filter((pf) => {
+            const slot = printFamilySlot(pf.path, oldBase);
+            return slot !== null && referencedSlots.has(slot);
+          });
+          const shared = family.some((pf) => files.some((other) => other.path !== f.path &&
+            (refsByPath.get(other.path) ?? []).some((ref) => referencesPrintFile(ref, pf.path, other.path))));
+          if (shared) {
+            if (target !== f.path) { taken.delete(target); taken.add(f.path); }
+            skipped++;
+            continue;
+          }
+          let familyCollision = false;
+          for (const pf of family) {
             const suffix = pf.name.slice(oldBase.length);
             const np = normalizePath(`${printsDir}/${finalBase}${suffix}`);
-            if (taken.has(np)) continue;
-            taken.add(np);
+            if (taken.has(np) || printMoves.some((move) => move.to === np)) {
+              familyCollision = true;
+              break;
+            }
             printMoves.push({ from: pf.path, to: np });
+          }
+          if (familyCollision) {
+            if (target !== f.path) { taken.delete(target); taken.add(f.path); }
+            skipped++;
+            continue;
           }
         }
 
+        if (target !== f.path) taken.add(target);
+        for (const move of printMoves) taken.add(move.to);
         if (target !== f.path || printMoves.length) {
           items.push({
             from: f.path,
