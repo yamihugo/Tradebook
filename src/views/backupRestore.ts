@@ -73,7 +73,7 @@ class BackupRestoreModal extends Modal {
     const cancel = actions.createEl("button", { text: "Cancel", attr: { type: "button" } });
     cancel.addEventListener("click", () => this.close());
     const go = actions.createEl("button", { cls: "mod-cta", text: "Restore backup", attr: { type: "button" } });
-    go.addEventListener("click", async () => {
+    go.addEventListener("click", () => void (async () => {
       go.disabled = true;
       go.textContent = "Restoring…";
       try {
@@ -91,7 +91,7 @@ class BackupRestoreModal extends Modal {
         go.textContent = "Try again";
         contentEl.createEl("p", { text: "The restore failed — see the console for the reason.", cls: "tj-backup-error" });
       }
-    });
+    })());
   }
 
   onClose(): void {

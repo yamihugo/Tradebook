@@ -43,6 +43,13 @@ export class SetupsView extends ItemView {
     await this.render();
   }
 
+  /** Open the page directly in its small name-only creation state. */
+  async beginAddStrategy(): Promise<void> {
+    this.adding = true;
+    this.renaming = null;
+    await this.render();
+  }
+
   async render(): Promise<void> {
     const root = this.contentEl;
     root.empty();
@@ -86,8 +93,8 @@ export class SetupsView extends ItemView {
     // ---- Your strategies card ----
     const card = main.createDiv({ cls: "tj-strat-card" });
     const head = card.createDiv({ cls: "tj-strat-card-head" });
-    head.createEl("div", { cls: "tj-strat-card-title", text: "Your strategies" });
-    const addBtn = head.createEl("button", { cls: "tj-btn tj-mini", text: "＋ Add strategy" });
+    head.createDiv({ cls: "tj-strat-card-title", text: "Your strategies" });
+    const addBtn = head.createEl("button", { cls: "tj-btn tj-mini", text: "＋ add strategy" });
     addBtn.addEventListener("click", () => {
       this.adding = true;
       this.renaming = null;
@@ -99,7 +106,7 @@ export class SetupsView extends ItemView {
     if (this.adding) {
       const row = card.createDiv({ cls: "tj-strat-add" });
       const input = row.createEl("input", { type: "text", cls: "tj-strat-input" });
-      input.placeholder = "e.g. Reversal";
+      input.placeholder = "E.g. Reversal";
       focusInput = input;
       const submit = () => void this.addStrategy(input.value);
       input.addEventListener("keydown", (e) => {
@@ -120,8 +127,8 @@ export class SetupsView extends ItemView {
 
     if (!names.length && !this.adding) {
       const empty = card.createDiv({ cls: "tj-strat-empty" });
-      empty.createEl("div", { text: "No strategies named yet." });
-      empty.createEl("div", {
+      empty.createDiv({ text: "No strategies named yet." });
+      empty.createDiv({
         cls: "tj-strat-empty-sub",
         text: "Add one here, or create it straight from a trade's Strategy picker.",
       });

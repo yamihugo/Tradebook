@@ -1,8 +1,9 @@
 import { App, Notice, Plugin, PluginManifest, type TAbstractFile, TFile, addIcon, normalizePath, type WorkspaceLeaf } from "obsidian";
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
-import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
+import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, renameTradeStrategy, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
 import { tradePoints } from "./lib/fills";
+import { strategiesOf } from "./lib/strategySelection";
 import { computeAccountMetrics } from "./lib/accountMetrics";
 import { PROP_FIRMS, makeAccount, uniqueAccountName } from "./props";
 import { resolveAccountView } from "./lib/accountRules";
@@ -50,7 +51,7 @@ import { TradeDetailView, TRADE_DETAIL_VIEW_TYPE } from "./views/tradeDetailView
 import { TradebookSidebarView, TRADEBOOK_SIDEBAR_VIEW_TYPE } from "./views/sidebarView";
 import { HomeView, HOME_VIEW_TYPE } from "./views/homeView";
 import { SetupsView, SETUPS_VIEW_TYPE } from "./views/setupsView";
-import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE, QueuedPrint } from "./views/printQueueView";
+import { PrintQueueView, PRINT_QUEUE_VIEW_TYPE } from "./views/printQueueView";
 import { openTradeModal } from "./views/tradeModal";
 import { buildDiagnostics, diagnosticsFilename } from "./lib/diagnostics";
 import { allocatedKeys, netPnl } from "./lib/fees";
@@ -468,9 +469,6 @@ export default class TradebookPlugin extends Plugin {
     calendarMonth: "",
     calendarManual: false,
   };
-  /** In-memory print queue for the Add Trade workflow. Not persisted. */
-  printQueue: QueuedPrint[] = [];
-  printQueueVersion = 0;
 
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
@@ -508,37 +506,40 @@ export default class TradebookPlugin extends Plugin {
     this.registerView(TRADE_DETAIL_VIEW_TYPE, (leaf) => new TradeDetailView(leaf, this));
     this.registerView(TRADEBOOK_SIDEBAR_VIEW_TYPE, (leaf) => new TradebookSidebarView(leaf, this));
 
-    this.addRibbonIcon("grip", "Tradebook — Home", () => {
+    this.addRibbonIcon("grip", "Tradebook — home", () => {
       void this.openHome();
     });
-    this.addRibbonIcon("wallet", "Tradebook — Accounts", () => {
+    this.addRibbonIcon("wallet", "Tradebook — accounts", () => {
       void this.openAccounts();
     });
-    this.addRibbonIcon("list", "Tradebook — Trade Log", () => {
+    this.addRibbonIcon("list", "Tradebook — trade log", () => {
       void this.openTradeLog();
     });
-    this.addRibbonIcon("plus", "Tradebook — Manual Trade", () => {
+    this.addRibbonIcon("plus", "Tradebook — manual trade", () => {
       this.openAddPanel();
+    });
+    this.addRibbonIcon("images", "Tradebook — print queue", () => {
+      void this.ensurePrintQueueLeaf();
     });
 
     this.addCommand({
       id: "open-home",
-      name: "Open Home",
+      name: "Open home",
       callback: () => this.openHome(),
     });
     this.addCommand({
       id: "open-accounts",
-      name: "Open Accounts",
+      name: "Open accounts",
       callback: () => this.openAccounts(),
     });
     this.addCommand({
       id: "open-trade-log",
-      name: "Open Trade Log",
+      name: "Open trade log",
       callback: () => this.openTradeLog(),
     });
     this.addCommand({
       id: "add-trade",
-      name: "Manual Trade",
+      name: "Manual trade",
       callback: () => this.openAddPanel(),
     });
     this.addCommand({
@@ -560,7 +561,7 @@ export default class TradebookPlugin extends Plugin {
 
     this.addCommand({
       id: "open-print-queue",
-      name: "Open Print Queue (right sidebar)",
+      name: "Open print queue (right sidebar)",
       callback: () => this.ensurePrintQueueLeaf(),
     });
 
@@ -603,6 +604,7 @@ export default class TradebookPlugin extends Plugin {
           console.error("[tradebook] account maintenance failed:", err);
         }
         await this.ensureSidebarLeaf();
+        await this.hidePrintQueueOnStartup();
         await this.cleanupLegacyCache();
         // The journal's default period seeds Home's session period on load.
         this.briefingPeriodState.period = this.settings.defaultPeriod ?? "all";
@@ -612,14 +614,9 @@ export default class TradebookPlugin extends Plugin {
   }
 
   onunload(): void {
-    // Drop pending timers and free the queued print thumbnails, so a disabled or
-    // reloaded plugin leaves nothing running or held in memory.
+    // Drop pending timers so a disabled or reloaded plugin leaves nothing running.
     if (this._cacheSaveTimer) window.clearTimeout(this._cacheSaveTimer);
     if (this._reloadTimer) window.clearTimeout(this._reloadTimer);
-    for (const p of this.printQueue ?? []) {
-      if (p.thumb) URL.revokeObjectURL(p.thumb);
-    }
-    this.printQueue = [];
   }
 
   private _journalLeaf: JournalLeaf | null = null;
@@ -751,6 +748,15 @@ export default class TradebookPlugin extends Plugin {
     await this.app.workspace.revealLeaf(target);
   }
 
+  async openSetupsForCreation(): Promise<void> {
+    const target = this.getJournalLeaf();
+    await target.setViewState({ type: SETUPS_VIEW_TYPE, active: true });
+    await this.app.workspace.revealLeaf(target);
+    if (target.view instanceof SetupsView) {
+      await target.view.beginAddStrategy();
+    }
+  }
+
   async openAccounts(leaf?: JournalLeaf) {
     const target = leaf ?? this.getJournalLeaf();
     await target.setViewState({ type: ACCOUNTS_LIST_VIEW_TYPE, active: true });
@@ -872,7 +878,7 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const leftLeaf = this.app.workspace.getLeftLeaf?.(false) ?? this.app.workspace.getLeftLeaf?.(true);
+      const leftLeaf = this.app.workspace.getLeftLeaf?.(true);
       if (!leftLeaf) return false;
       await leftLeaf.setViewState({ type: TRADEBOOK_SIDEBAR_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(leftLeaf);
@@ -883,6 +889,18 @@ export default class TradebookPlugin extends Plugin {
     return await tryOnce();
   }
 
+  /** Keep the Print Queue opt-in: it should not reopen automatically on startup. */
+  private async hidePrintQueueOnStartup(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(PRINT_QUEUE_VIEW_TYPE);
+    for (const leaf of leaves) {
+      try {
+        leaf.detach();
+      } catch (error) {
+        console.warn("[tradebook] could not hide Print Queue on startup", error);
+      }
+    }
+  }
+
   /** Open / reveal the Print Queue in Obsidian's RIGHT sidebar. */
   async ensurePrintQueueLeaf(): Promise<boolean> {
     const tryOnce = async (): Promise<boolean> => {
@@ -891,7 +909,9 @@ export default class TradebookPlugin extends Plugin {
         await this.app.workspace.revealLeaf(existing[0]);
         return true;
       }
-      const rightLeaf = this.app.workspace.getRightLeaf?.(false) ?? this.app.workspace.getRightLeaf?.(true);
+      // Reuse the existing right-sidebar leaf instead of creating a new split
+      // beneath backlinks/outline panes.
+      const rightLeaf = this.app.workspace.getRightLeaf?.(false);
       if (!rightLeaf) return false;
       await rightLeaf.setViewState({ type: PRINT_QUEUE_VIEW_TYPE, active: true });
       await this.app.workspace.revealLeaf(rightLeaf);
@@ -1115,12 +1135,11 @@ export default class TradebookPlugin extends Plugin {
     try {
       const trades = await this.loadTradesExpanded();
       for (const t of trades) {
-        if ((t.setup || "").trim().toLowerCase() !== from.toLowerCase()) continue;
+        if (!strategiesOf(t).some((name) => name.toLowerCase() === from.toLowerCase())) continue;
         const file = this.app.vault.getAbstractFileByPath(t.id);
         if (file instanceof TFile) {
           try {
-            await updateTradeFields(this.app, file, { setup: to });
-            changed++;
+            if (await renameTradeStrategy(this.app, file, from, to)) changed++;
           } catch (err) {
             console.error("[tradebook] setup rename: note failed", t.id, err);
           }
@@ -1259,6 +1278,7 @@ export default class TradebookPlugin extends Plugin {
    */
   tradeLogSelection: Set<string> = new Set<string>();
   tradeLogSelectMode = false;
+  tradeLogSelectionScope = "";
 
   /**
    * True when a trade belongs to an account the trader has archived. An
@@ -1555,8 +1575,39 @@ export default class TradebookPlugin extends Plugin {
       if (!base) continue;
       const baseTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === base.id);
       const followerTrades = trades.filter((t) => !isLeg(t) && this.mappedAccount(t.account)?.id === acc.id);
-      if (!baseTrades.length || !followerTrades.length) continue;
-      out.push(...proposeMatchesForAccount(accounts, acc.id, baseTrades, followerTrades));
+      if (baseTrades.length) out.push(...proposeMatchesForAccount(accounts, acc.id, baseTrades, followerTrades));
+
+      // An actual link is written before its generated review merge. If a vault
+      // write fails in between, the unsuperseded generated record is durable
+      // evidence that this confirmed pair still needs an explicit retry.
+      const accountKey = (name: string) => this.mappedAccount(name)?.id ?? (name || "").trim().toLowerCase();
+      for (const follower of trades) {
+        if (follower.isCopiedTrade !== true || follower.copyOrigin !== "imported"
+          || this.mappedAccount(follower.account)?.id !== acc.id) continue;
+        const copyKey = String(follower.copyBaseKey ?? "").trim();
+        if (!copyKey) continue;
+        let linkedBase = baseTrades.find((candidate) => String(candidate.copyBaseKey ?? "").trim() === copyKey);
+        if (!linkedBase) {
+          const unkeyedMatches = baseTrades.filter((candidate) => !String(candidate.copyBaseKey ?? "").trim() && sameDecision(candidate, follower));
+          if (unkeyedMatches.length === 1) linkedBase = unkeyedMatches[0];
+        }
+        if (!linkedBase || !generatedSiblings(trades, follower, accountKey).length) continue;
+        out.push({
+          accountId: acc.id,
+          copierName: acc.name,
+          baseAccountId: base.id,
+          baseName: base.name,
+          baseId: linkedBase.id,
+          followerId: follower.id,
+          date: follower.date,
+          symbol: follower.symbol,
+          direction: follower.direction,
+          entryTime: follower.entryTime,
+          ratio: follower.copyMultiplier ?? effectiveCopyConfig(acc, follower.date)?.ratio ?? acc.copyMultiplier ?? 1,
+          reason: "A confirmed link still has a generated review merge to finish.",
+          mergePending: true,
+        });
+      }
     }
     return out;
   }
@@ -1577,7 +1628,8 @@ export default class TradebookPlugin extends Plugin {
    * `copyConfigHistory`) and never deletes a note. Safe failures:
    *  - a note deleted after proposal → `"missing"`, nothing written;
    *  - a note edited so it no longer matches → `"changed"`, nothing written;
-   *  - an already-linked follower → `"already"`, nothing written.
+   *  - an already-linked follower is retried only when its imported-copy key and
+   *    account still match this proposal, so an interrupted generated merge can finish.
    */
   async applyCopierMatch(
     proposal: CopierMatchProposal
@@ -1586,36 +1638,63 @@ export default class TradebookPlugin extends Plugin {
     const follower = trades.find((t) => t.id === proposal.followerId);
     const base = trades.find((t) => t.id === proposal.baseId);
     if (!follower || !base) return "missing";
-    if (follower.isCopiedTrade) return "already";
-    if (isLeg(base) || !sameDecision(base, follower)) return "changed";
+    if (isLeg(base)) return "changed";
 
-    let baseKey = String(base.copyBaseKey ?? "").trim();
-    if (!baseKey) {
-      baseKey = "ck_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      await setTradeFields(this.app, base.id, { copy_base_key: baseKey });
-      base.copyBaseKey = baseKey;
+    const alreadyLinked = follower.isCopiedTrade === true;
+    if (this.mappedAccount(follower.account)?.id !== proposal.accountId
+      || this.mappedAccount(base.account)?.id !== proposal.baseAccountId) return "changed";
+    if (alreadyLinked) {
+      const followerKey = String(follower.copyBaseKey ?? "").trim();
+      const baseKey = String(base.copyBaseKey ?? "").trim();
+      if (follower.copyOrigin !== "imported" || !followerKey || (baseKey && baseKey !== followerKey)) return "changed";
+    } else if (!sameDecision(base, follower)) {
+      return "changed";
     }
 
-    const linked = linkFollower(follower, proposal, baseKey);
-    await setTradeFields(this.app, linked.id, {
-      is_copied_trade: true,
-      copied_from_account: proposal.baseName,
-      copy_base_key: baseKey,
-      copy_origin: "imported",
-      copy_multiplier: proposal.ratio,
-      data_source: "broker",
-    });
+    try {
+      let baseKey = String(base.copyBaseKey ?? "").trim();
+      if (!baseKey && alreadyLinked) baseKey = String(follower.copyBaseKey ?? "").trim();
+      if (!baseKey) baseKey = "ck_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      if (String(base.copyBaseKey ?? "").trim() !== baseKey) {
+        if (!(await setTradeFields(this.app, base.id, { copy_base_key: baseKey }))) {
+          throw new Error(`Could not save the leader copy link to ${base.id}`);
+        }
+        base.copyBaseKey = baseKey;
+      }
 
-    // The actual fill is now the authority for this leg: any generated model of
-    // the same account is merged (user data kept) and marked superseded.
-    const fresh = await this.loadTrades();
-    const models = generatedSiblings(fresh, linked, (name) =>
-      this.mappedAccount(name)?.id ?? (name || "").trim().toLowerCase()
-    );
-    for (const model of models) await this.supersedeGeneratedLeg(linked, model);
+      const linked = alreadyLinked ? follower : linkFollower(follower, proposal, baseKey);
+      if (!alreadyLinked && !(await setTradeFields(this.app, linked.id, {
+        is_copied_trade: true,
+        copied_from_account: proposal.baseName,
+        copy_base_key: baseKey,
+        copy_origin: "imported",
+        copy_multiplier: proposal.ratio,
+        data_source: "broker",
+      }))) {
+        throw new Error(`Could not save the follower copy link to ${linked.id}`);
+      }
 
-    this.clearTradeCache();
-    return "applied";
+      // Reload persisted state. If a prior attempt wrote only part of the merge,
+      // this same proposal can safely retry against the actual current records.
+      this.clearTradeCache();
+      const fresh = await this.loadTrades();
+      const persistedActual = fresh.find((trade) => trade.id === linked.id);
+      if (!persistedActual) throw new Error(`Could not reload the linked actual trade ${linked.id}`);
+      const models = generatedSiblings(fresh, persistedActual, (name) =>
+        this.mappedAccount(name)?.id ?? (name || "").trim().toLowerCase()
+      );
+      let accumulatedActual = persistedActual;
+      for (const model of models) {
+        accumulatedActual = await this.supersedeGeneratedLeg(accumulatedActual, model);
+      }
+
+      this.clearTradeCache();
+      return "applied";
+    } catch (error) {
+      // Keep the next attempt grounded in notes that may have partially persisted.
+      this.clearTradeCache();
+      throw error;
+    }
   }
 
   /**
@@ -1625,8 +1704,8 @@ export default class TradebookPlugin extends Plugin {
    * stamped `superseded_by`. Idempotent: a model already superseded by this
    * actual is left alone.
    */
-  private async supersedeGeneratedLeg(actual: Trade, generated: Trade): Promise<void> {
-    if (String(generated.supersededBy ?? "") === String(actual.id)) return;
+  private async supersedeGeneratedLeg(actual: Trade, generated: Trade): Promise<Trade> {
+    if (String(generated.supersededBy ?? "") === String(actual.id)) return actual;
     const merged = mergeGeneratedIntoActual(actual, generated);
 
     const fields: Record<string, string | number | boolean> = {};
@@ -1637,6 +1716,16 @@ export default class TradebookPlugin extends Plugin {
       ["setup", "setup"],
       ["mistake", "mistake"],
       ["sessionOverride", "session_override"],
+      ["review_plan", "review_plan"],
+      ["review_evidence_source", "review_evidence_source"],
+      ["review_plan_timing", "review_plan_timing"],
+      ["review_plan_provenance", "review_plan_provenance"],
+      ["review_plan_adherence", "review_plan_adherence"],
+      ["review_what_happened", "review_what_happened"],
+      ["review_repeat_change", "review_repeat_change"],
+      ["review_post_exit_observation", "review_post_exit_observation"],
+      ["review_post_exit_source", "review_post_exit_source"],
+      ["exit_reason", "exit_reason"],
     ];
     const mergedRec = merged as unknown as Record<string, string | undefined>;
     const actualRec = actual as unknown as Record<string, string | undefined>;
@@ -1644,30 +1733,108 @@ export default class TradebookPlugin extends Plugin {
       const value = mergedRec[prop];
       if (typeof value === "string" && value.trim() && !(actualRec[prop] ?? "").trim()) fields[key] = value;
     }
-    if (merged.reviewed && !actual.reviewed) fields.reviewed = true;
-    if (merged.psychologyAcknowledged && !actual.psychologyAcknowledged) fields.psychology_acknowledged = true;
-    if (merged.mistakesAcknowledged && !actual.mistakesAcknowledged) fields.mistakes_acknowledged = true;
+    if (typeof merged.review_post_exit_points === "number" && typeof actual.review_post_exit_points !== "number") {
+      fields.review_post_exit_points = merged.review_post_exit_points;
+    }
+    for (const [prop, key] of [["review_planned_entry", "review_planned_entry"], ["review_planned_stop", "review_planned_stop"], ["review_planned_target", "review_planned_target"], ["review_planned_quantity", "review_planned_quantity"]] as const) {
+      const value = merged[prop];
+      if (typeof value === "number" && typeof actual[prop] !== "number") fields[key] = value;
+    }
+    if (typeof merged.reviewed === "boolean" && actual.reviewed === undefined) fields.reviewed = merged.reviewed;
+    if (typeof merged.review_context_unavailable === "boolean" && actual.review_context_unavailable === undefined) {
+      fields.review_context_unavailable = merged.review_context_unavailable;
+    }
+    if (typeof merged.psychologyAcknowledged === "boolean" && actual.psychologyAcknowledged === undefined) {
+      fields.psychology_acknowledged = merged.psychologyAcknowledged;
+    }
+    if (typeof merged.mistakesAcknowledged === "boolean" && actual.mistakesAcknowledged === undefined) {
+      fields.mistakes_acknowledged = merged.mistakesAcknowledged;
+    }
     if (merged.rating && merged.rating > 0 && !(actual.rating && actual.rating > 0)) fields.rating = merged.rating;
-    if (Object.keys(fields).length) await setTradeFields(this.app, actual.id, fields);
-
     const arrays: Record<string, string[]> = {};
     for (const key of ["tags", "psychology_tags", "mistake_tags"] as const) {
       const before = actual[key] ?? [];
       const after = merged[key] ?? [];
       if (after.length !== before.length) arrays[key] = after;
     }
+    const screenshotsChanged = (merged.screenshots?.length ?? 0) !== (actual.screenshots?.length ?? 0);
+    const generatedHasReviewContent = [
+      generated.notes, generated.thesis, generated.review, generated.setup, generated.mistake, generated.sessionOverride,
+      generated.review_plan, generated.review_evidence_source, generated.review_plan_timing, generated.review_plan_provenance,
+      generated.review_plan_adherence, generated.review_what_happened, generated.review_repeat_change,
+      generated.review_post_exit_observation, generated.review_post_exit_source, generated.exit_reason,
+    ].some((value) => typeof value === "string" && value.trim().length > 0)
+      || [generated.tags, generated.psychology_tags, generated.mistake_tags].some((values) => (values?.length ?? 0) > 0)
+      || (generated.screenshots ?? []).some((shot) => !!shot && typeof shot.file === "string" && shot.file.trim().length > 0)
+      || [generated.review_planned_entry, generated.review_planned_stop, generated.review_planned_target,
+        generated.review_planned_quantity, generated.review_post_exit_points].some((value) => typeof value === "number" && Number.isFinite(value))
+      || (typeof generated.rating === "number" && generated.rating > 0)
+      || typeof generated.reviewed === "boolean"
+      || typeof generated.review_context_unavailable === "boolean"
+      || typeof generated.psychologyAcknowledged === "boolean"
+      || typeof generated.mistakesAcknowledged === "boolean";
+    if (generatedHasReviewContent) {
+      const provenance = `Review content reconciled from reconstructed copy: ${generated.id}. Actual trade facts take precedence.`;
+      const notes = typeof fields.notes === "string" ? fields.notes : actual.notes ?? "";
+      fields.notes = notes.includes(provenance) ? notes : [notes, provenance].filter(Boolean).join("\n\n");
+    }
     const actualFile = this.app.vault.getAbstractFileByPath(actual.id);
-    if (actualFile instanceof TFile) {
-      if (Object.keys(arrays).length) await updateTradeArrayFields(this.app, actualFile, arrays);
-      if ((merged.screenshots?.length ?? 0) !== (actual.screenshots?.length ?? 0)) {
-        await updateTradeScreenshots(this.app, actualFile, merged.screenshots ?? []);
+    const generatedFile = this.app.vault.getAbstractFileByPath(generated.id);
+    if (!(actualFile instanceof TFile)) throw new Error(`Actual trade file is unavailable: ${actual.id}`);
+    if (!(generatedFile instanceof TFile)) throw new Error(`Generated trade file is unavailable: ${generated.id}`);
+    const persistedScreenshots = screenshotsChanged
+      ? (merged.screenshots ?? []).filter((shot) => !!shot && typeof shot.file === "string" && shot.file.trim().length > 0)
+      : undefined;
+    if (Object.keys(fields).length && !(await setTradeFields(this.app, actual.id, fields))) {
+      throw new Error(`Could not persist merged review fields to ${actual.id}`);
+    }
+    if (Object.keys(arrays).length) await updateTradeArrayFields(this.app, actualFile, arrays);
+    if (persistedScreenshots) await updateTradeScreenshots(this.app, actualFile, persistedScreenshots);
+
+    // These helpers can resolve even when a malformed note has no writable
+    // frontmatter. Read the actual back before stamping the model as superseded;
+    // the linked actual + any still-unsuperseded model is the durable retry cue.
+    const persistedActual = parseTradeFromMarkdown(await this.app.vault.read(actualFile));
+    const persistedRecord = persistedActual as unknown as Record<string, unknown>;
+    const propertyByYamlKey: Record<string, string> = {
+      session_override: "sessionOverride",
+      psychology_acknowledged: "psychologyAcknowledged",
+      mistakes_acknowledged: "mistakesAcknowledged",
+    };
+    for (const [key, expected] of Object.entries(fields)) {
+      const property = propertyByYamlKey[key] ?? key;
+      if (persistedRecord[property] !== expected) {
+        throw new Error(`Merged field ${key} did not persist to ${actual.id}`);
+      }
+    }
+    for (const [key, expected] of Object.entries(arrays)) {
+      const found = persistedRecord[key];
+      if (!Array.isArray(found) || JSON.stringify(found) !== JSON.stringify(expected)) {
+        throw new Error(`Merged list ${key} did not persist to ${actual.id}`);
+      }
+    }
+    if (persistedScreenshots) {
+      const screenshotSignature = (shots: Array<{ file: string; note?: string }>) =>
+        JSON.stringify(shots.map((shot) => [shot.file, shot.note ?? ""]));
+      if (screenshotSignature(persistedActual.screenshots ?? []) !== screenshotSignature(persistedScreenshots)) {
+        throw new Error(`Merged screenshots did not persist to ${actual.id}`);
       }
     }
 
-    await setTradeFields(this.app, generated.id, {
+    const stamped = await setTradeFields(this.app, generated.id, {
       superseded_by: String(actual.id),
       superseded_at: todayIso(this.settings.timeZone),
     });
+    if (!stamped) throw new Error(`Could not persist supersession history to ${generated.id}`);
+    const persistedGenerated = parseTradeFromMarkdown(await this.app.vault.read(generatedFile));
+    if (String(persistedGenerated.supersededBy ?? "") !== String(actual.id)) {
+      throw new Error(`Supersession history did not persist to ${generated.id}`);
+    }
+    return {
+      ...merged,
+      ...(persistedScreenshots ? { screenshots: persistedScreenshots, screenshot: persistedScreenshots[0]?.file ?? "" } : {}),
+      notes: typeof fields.notes === "string" ? fields.notes : merged.notes,
+    };
   }
 
   /**
@@ -2184,8 +2351,8 @@ export default class TradebookPlugin extends Plugin {
         const _m = this.mappedAccount(t.account);
         // Prefer the mapped account's real type; fall back to the keyword guess.
         t.accountType = _m ? _m.type : classifyAccount(t.account, this.getAccountRules());
-        // Old notes carry the pre-fix quantity-multiplied points; the value is
-        // recomputed for display — the note itself is only rewritten on edit.
+        // Stored points may use an older definition; recompute from actual
+        // fills/scalars on read, without rewriting the note as a side effect.
         t.pnlPoints = tradePoints(t);
         trades.push(t);
       }

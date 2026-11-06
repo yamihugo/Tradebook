@@ -4,10 +4,45 @@ All notable changes to Tradebook are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
-Updates are published as [GitHub Releases](https://github.com/yamihugo/Tradebook/releases);
-BRAT picks them up automatically.
+Updates are published as [GitHub Releases](https://github.com/yamihugo/Tradebook/releases).
+Use Obsidian's Community plugin update check, BRAT if you installed through BRAT,
+or replace the three release assets manually while keeping `data.json`.
 
-## [Unreleased]
+## [Unreleased] — 1.1.0 candidate
+
+### Added
+
+- **Print Queue** — capture chart screenshots into persistent groups, then attach them to
+  the matching trade in Trade Detail when that trade record exists.
+- **Per Trade Review** — complete six signals for automatic review status or keep an
+  explicit manual reviewed marker distinct.
+- **Manual Trade actual exits** — record each partial exit's contract quantity, price and time;
+  the saved fill ledger supplies weighted trade totals and automatic TP/SL/BE labels.
+
+### Improved
+
+- **Trade Log** — filter by review state and strategy, search reflection text, and select
+  visible logical trade decisions. Before deleting a base trade, see which generated copies
+  will go; imported actual fills remain untouched.
+
+### Fixed
+
+- Reject malformed numeric execution facts instead of turning them into plausible values.
+- Escape order text in top-level and nested fill fields when writing YAML.
+- Show valid zero entry and exit prices as `0` in the Markdown note summary.
+- Read recognised TradeSea headers consistently regardless of letter case, without changing
+  other CSV dialects or the handling of cancelled tickets.
+- Preserve the published import format, symbol/P&L and timestamp safeguards, including
+  one TradeSea export per batch and refusal of unconfirmed date/zone formats.
+- Keep execution summaries calculated from the actual fills; imported execution facts
+  remain read-only. No additional execution-correction form or exit-type picker.
+- Save one strategy per explicit selection and clear both stored representations. Keep
+  legacy multiple assignments visible until the trader chooses one.
+- Use the same strategy/rating checks for Home gaps and automatic review.
+- Refresh recorded fees and net P&L after saving. Execution totals show aggregate costs
+  without inventing a per-fill allocation; account balance corrections remain separate.
+- Preserve review text, focus and scroll position during refresh so longer reflections stay
+  intact while typing.
 
 ## [1.0.3] - 2026-10-27
 
@@ -20,10 +55,10 @@ BRAT picks them up automatically.
 
 ### Added
 
-- **TradeSea import** — import the orders export format I have checked, review the trades,
-  then save. Use one TradeSea file per import batch. The importer refuses file or timestamp
-  formats it cannot identify rather than guessing. It does not apply the commission shown
-  in the file, so P&L is before costs.
+- **TradeSea import** — import the checked orders export, review the trades, then save.
+  Use one TradeSea file per import batch. The importer refuses unknown file or timestamp
+  formats rather than guessing. It does not apply the commission shown in the file, so
+  P&L is before costs.
 
 ## [1.0.1] - 2026-10-04
 

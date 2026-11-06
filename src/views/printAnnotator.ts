@@ -27,10 +27,15 @@ interface Shape {
   strokeWidth: number;
   strokeStyle: StrokeStyleName;
   opacity: number;
+  /** New sidecar fields; opacity remains as the legacy combined value. */
+  strokeOpacity?: number;
+  fillOpacity?: number;
   startArrowhead?: Arrowhead;
   endArrowhead?: Arrowhead;
   text?: string;
   fontSize?: number;
+  fontWeight?: "normal" | "bold";
+  fontStyle?: "normal" | "italic";
   /** Pre-sidebar sidecar flag — read on load, superseded by backgroundColor. */
   filled?: boolean;
 }
@@ -62,9 +67,9 @@ const PALETTE: { hex: string; name: string }[] = [
   { hex: "#ffffff", name: "White" },
 ];
 
-/** Background choices: the palette at 30% alpha, plus no fill at all. */
+/** Fill choices use pure colours; opacity is controlled separately. */
 const BG_CHOICES: { value: string; name: string }[] = [
-  ...PALETTE.map((c) => ({ value: `${c.hex}4d`, name: c.name })),
+  ...PALETTE.map((c) => ({ value: c.hex, name: c.name })),
   { value: "transparent", name: "Transparent" },
 ];
 
@@ -79,7 +84,7 @@ function hatchPattern(
   const hit = hatchCache.get(key);
   if (hit) return hit;
   const size = 8;
-  const off = document.createElement("canvas");
+  const off = createEl("canvas");
   off.width = size;
   off.height = size;
   const oc = off.getContext("2d");
@@ -176,7 +181,7 @@ export class PrintAnnotator {
     const app = this.plugin.app;
     const ext = (file.extension || "").toLowerCase();
     if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
-      new Notice("Only PNG / JPG / WebP prints can be annotated.");
+      new Notice("Only PNG / JPG / webp prints can be annotated.");
       return;
     }
 
@@ -207,10 +212,48 @@ export class PrintAnnotator {
     let currentStrokeWidth = 4;
     let currentStrokeStyle: StrokeStyleName = "solid";
     let currentOpacity = 100;
+    let currentFillOpacity = 30;
+    let currentTextBackgroundColor = "transparent";
+    let currentTextFillOpacity = 100;
+    let currentFontSize = 16;
+    let currentFontWeight: "normal" | "bold" = "normal";
+    let currentFontStyle: "normal" | "italic" = "normal";
     let currentStartArrowhead: Arrowhead = "none";
     let currentEndArrowhead: Arrowhead = "arrow";
     const shapes: Shape[] = [];
-    const redo: Shape[] = [];
+    interface HistorySnapshot {
+      shapes: Shape[];
+      selectedId: string | null;
+    }
+    const undoStack: HistorySnapshot[] = [];
+    const redoStack: HistorySnapshot[] = [];
+    const cloneShapes = (items: Shape[]): Shape[] => items.map((s) => ({ ...s, pts: s.pts.map((p) => ({ ...p })) }));
+    const snapshot = (): HistorySnapshot => ({
+      shapes: cloneShapes(shapes),
+      selectedId: selected?.id ?? null,
+    });
+    const restore = (state: HistorySnapshot): void => {
+      shapes.splice(0, shapes.length, ...cloneShapes(state.shapes));
+      selected = state.selectedId ? shapes.find((s) => s.id === state.selectedId) ?? null : null;
+      exitPointEdit();
+      redraw();
+      syncSidebar();
+    };
+    let pendingHistory: HistorySnapshot | null = null;
+    let dirty = false;
+    let setSaveState: (label: string) => void = () => {};
+    const markDirty = () => {
+      dirty = true;
+      setSaveState("Unsaved changes");
+    };
+    const beginHistory = () => { if (!pendingHistory) pendingHistory = snapshot(); };
+    const commitHistory = () => {
+      if (!pendingHistory) return;
+      undoStack.push(pendingHistory);
+      redoStack.length = 0;
+      pendingHistory = null;
+      markDirty();
+    };
     let current: Shape | null = null;
     let drawing = false;
     let selected: Shape | null = null;
@@ -278,12 +321,22 @@ export class PrintAnnotator {
     bar.createDiv({ cls: "tj-anno-sep" });
     const undoB = mkIcon(bar, "tj-anno-tool", "undo-2", "Undo");
     const redoB = mkIcon(bar, "tj-anno-tool", "redo-2", "Redo");
-    const fitB = mkIcon(bar, "tj-anno-tool", "maximize", "Fit");
+    const viewActions = bar.createDiv({ cls: "tj-anno-view-actions" });
+    const zoomOutB = mkIcon(viewActions, "tj-anno-tool", "minus", "Zoom out");
+    const zoomLabel = viewActions.createEl("button", {
+      cls: "tj-anno-zoom-label",
+      text: "100%",
+      attr: { type: "button", "aria-label": "Reset zoom to 100%" },
+    });
+    const zoomInB = mkIcon(viewActions, "tj-anno-tool", "plus", "Zoom in");
+    const fitB = mkIcon(viewActions, "tj-anno-tool", "maximize", "Fit image");
     bar.createDiv({ cls: "tj-anno-spacer" });
     const actions = bar.createDiv({ cls: "tj-anno-actions" });
-    const resetB = actions.createEl("button", { cls: "tj-actionbtn", text: "Reset", attr: { type: "button" } });
+    const saveState = actions.createSpan({ cls: "tj-anno-save-state", text: "Saved" });
+    setSaveState = (label) => { saveState.setText(label); };
+    const resetB = actions.createEl("button", { cls: "tj-actionbtn", text: "Clear all marks", attr: { type: "button" } });
     const cancelB = actions.createEl("button", { cls: "tj-actionbtn", text: "Cancel", attr: { type: "button" } });
-    const saveB = actions.createEl("button", { cls: "tj-actionbtn is-primary", text: "Save", attr: { type: "button" } });
+    const saveB = actions.createEl("button", { cls: "tj-actionbtn is-primary", text: "Save", attr: { type: "button", disabled: "true" } });
 
     // ---- Canvas + viewport ----
     const body = panel.createDiv({ cls: "tj-anno-body" });
@@ -337,6 +390,13 @@ export class PrintAnnotator {
           redraw();
           syncSidebar();
         } else close();
+        return;
+      }
+      if (e.key === "0") {
+        e.preventDefault();
+        fitToView();
+        updateZoomLabel();
+        redraw();
         return;
       }
       if (!mod && (e.key === "e" || e.key === "E")) {
@@ -407,7 +467,9 @@ export class PrintAnnotator {
       c.lineWidth = s.strokeWidth;
       c.lineCap = "round";
       c.lineJoin = "round";
-      c.globalAlpha = s.opacity / 100;
+      const strokeOpacity = (s.strokeOpacity ?? s.opacity ?? 100) / 100;
+      const fillOpacity = (s.fillOpacity ?? s.opacity ?? 100) / 100;
+      c.globalAlpha = strokeOpacity;
       c.setLineDash(s.strokeStyle === "dashed" ? [8, 6] : s.strokeStyle === "dotted" ? [2, 4] : []);
       const fillPaint = (): string | CanvasPattern | null => {
         if (s.tool !== "rect" && s.tool !== "ellipse") return null;
@@ -419,9 +481,11 @@ export class PrintAnnotator {
         const a = s.pts[0], b = s.pts[s.pts.length - 1];
         const paint = fillPaint();
         if (paint) {
+          c.globalAlpha = fillOpacity;
           c.fillStyle = paint;
           c.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
         }
+        c.globalAlpha = strokeOpacity;
         c.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
       } else if (s.tool === "ellipse" && s.pts.length >= 2) {
         const a = s.pts[0], b = s.pts[s.pts.length - 1];
@@ -429,9 +493,11 @@ export class PrintAnnotator {
         c.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
         const paint = fillPaint();
         if (paint) {
+          c.globalAlpha = fillOpacity;
           c.fillStyle = paint;
           c.fill();
         }
+        c.globalAlpha = strokeOpacity;
         c.stroke();
       } else if ((s.tool === "line" || s.tool === "arrow") && s.pts.length >= 2) {
         const geo = arrowGeometry(s.pts);
@@ -475,28 +541,35 @@ export class PrintAnnotator {
         c.stroke();
       } else if (s.tool === "text" && s.pts.length) {
         const fs = s.fontSize ?? 16;
-        c.font = `${fs}px ${getComputedStyle(canvas).fontFamily}`;
-        const m = c.measureText(s.text || "");
+        const fontWeight = s.fontWeight ?? "normal";
+        const fontStyle = s.fontStyle ?? "normal";
+        c.font = `${fontStyle} ${fontWeight} ${fs}px ${getComputedStyle(canvas).fontFamily}`;
+        const lines = (s.text || "").split(/\r?\n/);
+        const lineHeight = fs * TEXT_LINE;
+        const maxWidth = Math.max(0, ...lines.map((line) => c.measureText(line).width));
         const px = s.pts[0].x;
         const py = s.pts[0].y;
         const bx = px - TEXT_PAD_X;
         const by = py - TEXT_PAD_Y;
-        const bw = m.width + TEXT_PAD_X * 2;
-        const bh = fs * TEXT_LINE + TEXT_PAD_Y * 2;
+        const bw = maxWidth + TEXT_PAD_X * 2;
+        const bh = lines.length * lineHeight + TEXT_PAD_Y * 2;
         const bg = s.backgroundColor;
         if (bg && bg !== "transparent") {
           const paint = s.fillStyle === "solid" ? bg : hatchPattern(c, bg, s.fillStyle);
           if (paint) {
+            c.globalAlpha = fillOpacity;
             c.fillStyle = paint;
             c.fillRect(bx, by, bw, bh);
           }
+          c.globalAlpha = strokeOpacity;
           c.strokeStyle = s.strokeColor;
           c.lineWidth = s.strokeWidth;
           c.strokeRect(bx, by, bw, bh);
         }
         c.textBaseline = "top";
+        c.globalAlpha = strokeOpacity;
         c.fillStyle = s.strokeColor;
-        c.fillText(s.text || "", px, py);
+        lines.forEach((line, index) => c.fillText(line, px, py + index * lineHeight));
       }
       c.setLineDash([]);
       c.globalAlpha = 1;
@@ -504,13 +577,14 @@ export class PrintAnnotator {
 
     // ---- Selection geometry ----
     const accent = () => getComputedStyle(canvas).getPropertyValue("--interactive-accent").trim() || "#7c5cff";
-    const textFont = (size: number) => `${size}px ${getComputedStyle(canvas).fontFamily}`;
+    const textFont = (size: number, weight: "normal" | "bold" = "normal", style: "normal" | "italic" = "normal") =>
+      `${style} ${weight} ${size}px ${getComputedStyle(canvas).fontFamily}`;
 
-    const measureText = (text: string, size: number): number => {
+    const measureText = (text: string, size: number, weight: "normal" | "bold" = "normal", style: "normal" | "italic" = "normal"): number => {
       const c = c2d();
       c.save();
-      c.font = textFont(size);
-      const w = c.measureText(text).width;
+      c.font = textFont(size, weight, style);
+      const w = Math.max(0, ...(text || "").split(/\r?\n/).map((line) => c.measureText(line).width));
       c.restore();
       return w;
     };
@@ -519,12 +593,13 @@ export class PrintAnnotator {
       if (s.tool === "text") {
         // The badge, not the baseline: selection handles sit on the visible box.
         const fs = s.fontSize ?? 16;
-        const w = measureText(s.text || "", fs);
+        const w = measureText(s.text || "", fs, s.fontWeight ?? "normal", s.fontStyle ?? "normal");
+        const lineCount = Math.max(1, (s.text || "").split(/\r?\n/).length);
         return {
           x: s.pts[0].x - TEXT_PAD_X,
           y: s.pts[0].y - TEXT_PAD_Y,
           w: w + TEXT_PAD_X * 2,
-          h: fs * TEXT_LINE + TEXT_PAD_Y * 2,
+          h: lineCount * fs * TEXT_LINE + TEXT_PAD_Y * 2,
         };
       }
       if ((s.tool === "arrow" || s.tool === "line") && s.pts.length >= 2) {
@@ -689,6 +764,15 @@ export class PrintAnnotator {
       view.x = (viewW - img.naturalWidth * view.scale) / 2;
       view.y = (viewH - img.naturalHeight * view.scale) / 2;
     };
+    const updateZoomLabel = () => zoomLabel.setText(`${Math.round(view.scale * 100)}%`);
+    const zoomAt = (factor: number, px = viewW / 2, py = viewH / 2) => {
+      const newScale = Math.max(0.1, Math.min(8, view.scale * factor));
+      view.x = px - (px - view.x) * (newScale / view.scale);
+      view.y = py - (py - view.y) * (newScale / view.scale);
+      view.scale = newScale;
+      updateZoomLabel();
+      redraw();
+    };
 
     const tryFit = () => {
       if (fitted || !img.complete || !img.naturalWidth || viewW <= 1 || viewH <= 1) return;
@@ -697,8 +781,14 @@ export class PrintAnnotator {
     };
 
     img.onload = () => {
+      saveB.removeAttribute("disabled");
+      setSaveState(dirty ? "Unsaved changes" : "Saved");
       tryFit();
       redraw();
+    };
+    img.onerror = () => {
+      saveB.setAttr("disabled", "true");
+      setSaveState("Image failed to load");
     };
     img.src = app.vault.getResourcePath(source);
 
@@ -718,14 +808,18 @@ export class PrintAnnotator {
 
     // ---- Sidebar: style controls live here, the toolbar stays for tools ----
     const buildSidebar = () => {
+      const activeTool = selected?.tool ?? tool;
+      const isShape = activeTool === "rect" || activeTool === "ellipse";
+      const isFillable = isShape || activeTool === "text";
+      const isText = activeTool === "text";
       const section = (labelText: string): HTMLElement => {
         const sec = sidebar.createDiv({ cls: "tj-anno-sidebar-section" });
         sec.createSpan({ cls: "tj-anno-sidebar-label", text: labelText });
         return sec.createDiv({ cls: "tj-anno-sidebar-row" });
       };
 
-      // A) Stroke colour
-      const strokeRow = section("Stroke");
+      // A) Contextual colour
+      const strokeRow = section(isText ? "Text color" : isShape ? "Outline color" : "Color");
       const strokeSwatches: HTMLElement[] = [];
       for (const c of PALETTE) {
         const sw = strokeRow.createEl("button", { cls: "tj-anno-sidebar-swatch", attr: { type: "button" } });
@@ -735,75 +829,86 @@ export class PrintAnnotator {
         strokeSwatches.push(sw);
         sw.addEventListener("click", () => {
           currentStrokeColor = c.hex;
-          if (selected) selected.strokeColor = c.hex;
-          strokeSwatches.forEach((el, i) => el.toggleClass("is-active", PALETTE[i].hex === currentStrokeColor));
+          if (selected) { beginHistory(); selected.strokeColor = c.hex; commitHistory(); }
+          const activeColor = selected?.strokeColor ?? currentStrokeColor;
+          strokeSwatches.forEach((el, i) => el.toggleClass("is-active", PALETTE[i].hex === activeColor));
           redraw();
         });
       }
-      strokeSwatches.forEach((el, i) => el.toggleClass("is-active", PALETTE[i].hex === currentStrokeColor));
+      const activeColor = selected?.strokeColor ?? currentStrokeColor;
+      strokeSwatches.forEach((el, i) => el.toggleClass("is-active", PALETTE[i].hex === activeColor));
 
-      // B) Background — same colours at 30%, plus no fill at all
-      const bgRow = section("Background");
+      // B) Fill — only meaningful for shapes and text.
       const bgSwatches: HTMLElement[] = [];
-      for (const choice of BG_CHOICES) {
-        const sw = bgRow.createEl("button", { cls: "tj-anno-sidebar-swatch is-checker", attr: { type: "button" } });
-        sw.createSpan({ cls: "tj-sr-only", text: choice.name });
-        attachTip(sw, { title: choice.name });
-        if (choice.value !== "transparent") sw.style.backgroundColor = choice.value;
-        bgSwatches.push(sw);
-        sw.addEventListener("click", () => {
-          currentBackgroundColor = choice.value;
-          if (selected) selected.backgroundColor = choice.value;
-          bgSwatches.forEach((el, i) => el.toggleClass("is-active", BG_CHOICES[i].value === currentBackgroundColor));
-          redraw();
-        });
+      if (isFillable) {
+        const bgRow = section("Fill");
+        for (const choice of BG_CHOICES) {
+          const sw = bgRow.createEl("button", { cls: "tj-anno-sidebar-swatch is-checker", attr: { type: "button" } });
+          sw.createSpan({ cls: "tj-sr-only", text: choice.name });
+          attachTip(sw, { title: choice.name });
+          if (choice.value !== "transparent") sw.style.backgroundColor = choice.value;
+          bgSwatches.push(sw);
+          sw.addEventListener("click", () => {
+            if (selected) { beginHistory(); selected.backgroundColor = choice.value; commitHistory(); }
+            else if (isText) currentTextBackgroundColor = choice.value;
+            else currentBackgroundColor = choice.value;
+            const activeFill = selected?.backgroundColor ?? (isText ? currentTextBackgroundColor : currentBackgroundColor);
+            bgSwatches.forEach((el, i) => el.toggleClass("is-active", BG_CHOICES[i].value === activeFill));
+            redraw();
+          });
+        }
+        const activeFill = selected?.backgroundColor ?? (isText ? currentTextBackgroundColor : currentBackgroundColor);
+        bgSwatches.forEach((el, i) => el.toggleClass("is-active", BG_CHOICES[i].value === activeFill));
       }
-      bgSwatches.forEach((el, i) => el.toggleClass("is-active", BG_CHOICES[i].value === currentBackgroundColor));
 
-      // C) Stroke width
+      // C) Width — line/shape controls, not text.
       const widths = [
         { label: "S", value: 2, tip: "Thin stroke" },
         { label: "M", value: 4, tip: "Medium stroke" },
         { label: "L", value: 8, tip: "Thick stroke" },
       ];
-      const widthRow = section("Stroke width");
       const widthBtns: HTMLElement[] = [];
-      for (const w of widths) {
-        const b = widthRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: w.label, attr: { type: "button" } });
-        attachTip(b, { title: w.tip });
-        widthBtns.push(b);
-        b.addEventListener("click", () => {
-          currentStrokeWidth = w.value;
-          if (selected) selected.strokeWidth = w.value;
-          widthBtns.forEach((el, i) => el.toggleClass("is-active", widths[i].value === currentStrokeWidth));
-          redraw();
-        });
+      if (!isText && activeTool !== "eraser") {
+        const widthRow = section("Width");
+        for (const w of widths) {
+          const b = widthRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: w.label, attr: { type: "button" } });
+          attachTip(b, { title: w.tip });
+          widthBtns.push(b);
+          b.addEventListener("click", () => {
+            currentStrokeWidth = w.value;
+            if (selected) { beginHistory(); selected.strokeWidth = w.value; commitHistory(); }
+            widthBtns.forEach((el, i) => el.toggleClass("is-active", widths[i].value === currentStrokeWidth));
+            redraw();
+          });
+        }
+        widthBtns.forEach((el, i) => el.toggleClass("is-active", widths[i].value === currentStrokeWidth));
       }
-      widthBtns.forEach((el, i) => el.toggleClass("is-active", widths[i].value === currentStrokeWidth));
 
-      // D) Stroke style
+      // D) Line style — line/shape controls, not text.
       const styles = [
         { label: "—", value: "solid" as StrokeStyleName, tip: "Solid" },
         { label: "--", value: "dashed" as StrokeStyleName, tip: "Dashed" },
         { label: "···", value: "dotted" as StrokeStyleName, tip: "Dotted" },
       ];
-      const styleRow = section("Stroke style");
       const styleBtns: HTMLElement[] = [];
-      for (const st of styles) {
-        const b = styleRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: st.label, attr: { type: "button" } });
-        attachTip(b, { title: st.tip });
-        styleBtns.push(b);
-        b.addEventListener("click", () => {
-          currentStrokeStyle = st.value;
-          if (selected) selected.strokeStyle = st.value;
-          styleBtns.forEach((el, i) => el.toggleClass("is-active", styles[i].value === currentStrokeStyle));
-          redraw();
-        });
+      if (!isText && activeTool !== "eraser") {
+        const styleRow = section("Line style");
+        for (const st of styles) {
+          const b = styleRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: st.label, attr: { type: "button" } });
+          attachTip(b, { title: st.tip });
+          styleBtns.push(b);
+          b.addEventListener("click", () => {
+            currentStrokeStyle = st.value;
+            if (selected) { beginHistory(); selected.strokeStyle = st.value; commitHistory(); }
+            styleBtns.forEach((el, i) => el.toggleClass("is-active", styles[i].value === currentStrokeStyle));
+            redraw();
+          });
+        }
+        styleBtns.forEach((el, i) => el.toggleClass("is-active", styles[i].value === currentStrokeStyle));
       }
-      styleBtns.forEach((el, i) => el.toggleClass("is-active", styles[i].value === currentStrokeStyle));
 
-      // E) Opacity
-      const opacityRow = section("Opacity");
+      // E) Contextual opacity. Fill opacity is separate from outline/text opacity.
+      const opacityRow = section(isText ? "Text opacity" : isFillable ? "Outline opacity" : "Opacity");
       const opacityInput = opacityRow.createEl("input", {
         cls: "tj-anno-sidebar-slider",
         attr: { type: "range", min: "0", max: "100", step: "1" },
@@ -813,10 +918,27 @@ export class PrintAnnotator {
         const v = Number(opacityInput.value);
         currentOpacity = v;
         if (selected) {
+          beginHistory();
           selected.opacity = v;
+          selected.strokeOpacity = v;
+          commitHistory();
           redraw();
         }
       });
+      if (isFillable) {
+        const fillOpacityRow = section("Fill opacity");
+        const fillOpacityInput = fillOpacityRow.createEl("input", {
+          cls: "tj-anno-sidebar-slider",
+          attr: { type: "range", min: "0", max: "100", step: "1" },
+        });
+        fillOpacityInput.value = String(selected?.fillOpacity ?? (isText ? currentTextFillOpacity : currentFillOpacity));
+        fillOpacityInput.addEventListener("input", () => {
+          const v = Number(fillOpacityInput.value);
+          if (isText) currentTextFillOpacity = v;
+          else currentFillOpacity = v;
+          if (selected) { beginHistory(); selected.fillOpacity = v; commitHistory(); redraw(); }
+        });
+      }
 
       // F) Fill style — rect/ellipse fills only; text and lines ignore it.
       const fillStyles: { value: FillStyleName; icon: string; fallback: string; tip: string }[] = [
@@ -824,36 +946,80 @@ export class PrintAnnotator {
         { value: "hachure", icon: "lines", fallback: "▨", tip: "Hachure fill" },
         { value: "cross-hatch", icon: "grid-2x2", fallback: "▩", tip: "Cross-hatch fill" },
       ];
-      const fillRow = section("Fill style");
       const fillBtns: HTMLElement[] = [];
-      for (const f of fillStyles) {
-        const b = fillRow.createEl("button", {
-          cls: "tj-anno-sidebar-btn tj-anno-sidebar-iconbtn",
-          attr: { type: "button" },
-        });
-        b.createSpan({ cls: "tj-sr-only", text: f.tip });
-        let hasIcon = false;
-        try {
-          setIcon(b, f.icon);
-          hasIcon = !!b.querySelector("svg");
-        } catch {
-          hasIcon = false;
-        }
-        if (!hasIcon) b.createSpan({ text: f.fallback });
-        attachTip(b, { title: f.tip });
-        fillBtns.push(b);
-        b.addEventListener("click", () => {
-          currentFillStyle = f.value;
-          if (selected) {
-            selected.fillStyle = f.value;
-            redraw();
+      if (isFillable) {
+        const fillRow = section("Fill pattern");
+        for (const f of fillStyles) {
+          const b = fillRow.createEl("button", {
+            cls: "tj-anno-sidebar-btn tj-anno-sidebar-iconbtn",
+            attr: { type: "button" },
+          });
+          b.createSpan({ cls: "tj-sr-only", text: f.tip });
+          let hasIcon = false;
+          try {
+            setIcon(b, f.icon);
+            hasIcon = !!b.querySelector("svg");
+          } catch {
+            hasIcon = false;
           }
-          syncSidebar();
-        });
+          if (!hasIcon) b.createSpan({ text: f.fallback });
+          attachTip(b, { title: f.tip });
+          fillBtns.push(b);
+          b.addEventListener("click", () => {
+            currentFillStyle = f.value;
+            if (selected) { beginHistory(); selected.fillStyle = f.value; commitHistory(); redraw(); }
+            syncSidebar();
+          });
+        }
+      }
+
+      if (isText) {
+        const textSizeRow = section("Text size");
+        const textSizes = [12, 16, 20, 28];
+        for (const size of textSizes) {
+          const b = textSizeRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: String(size), attr: { type: "button" } });
+          attachTip(b, { title: `${size}px text` });
+          b.addEventListener("click", () => {
+            currentFontSize = size;
+            if (selected?.tool === "text") { beginHistory(); selected.fontSize = size; commitHistory(); redraw(); }
+            textSizeRow.querySelectorAll("button").forEach((el) => el.toggleClass("is-active", el === b));
+          });
+          b.toggleClass("is-active", (selected?.fontSize ?? currentFontSize) === size);
+        }
+
+        const textWeightRow = section("Text weight");
+        const weights: { label: string; value: "normal" | "bold" }[] = [
+          { label: "Regular", value: "normal" },
+          { label: "Bold", value: "bold" },
+        ];
+        for (const choice of weights) {
+          const b = textWeightRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: choice.label, attr: { type: "button" } });
+          b.addEventListener("click", () => {
+            currentFontWeight = choice.value;
+            if (selected?.tool === "text") { beginHistory(); selected.fontWeight = choice.value; commitHistory(); redraw(); }
+            textWeightRow.querySelectorAll("button").forEach((el) => el.toggleClass("is-active", el === b));
+          });
+          b.toggleClass("is-active", (selected?.fontWeight ?? currentFontWeight) === choice.value);
+        }
+
+        const textStyleRow = section("Text style");
+        const styles: { label: string; value: "normal" | "italic" }[] = [
+          { label: "Regular", value: "normal" },
+          { label: "Italic", value: "italic" },
+        ];
+        for (const choice of styles) {
+          const b = textStyleRow.createEl("button", { cls: "tj-anno-sidebar-btn", text: choice.label, attr: { type: "button" } });
+          b.addEventListener("click", () => {
+            currentFontStyle = choice.value;
+            if (selected?.tool === "text") { beginHistory(); selected.fontStyle = choice.value; commitHistory(); redraw(); }
+            textStyleRow.querySelectorAll("button").forEach((el) => el.toggleClass("is-active", el === b));
+          });
+          b.toggleClass("is-active", (selected?.fontStyle ?? currentFontStyle) === choice.value);
+        }
       }
 
       // Tool extras — arrow only (rebuildSidebar decides visibility).
-      if (tool === "arrow") {
+      if (activeTool === "arrow") {
         const headModes: { label: string; tip: string; start: Arrowhead; end: Arrowhead }[] = [
           { label: "←", tip: "Arrowhead at start", start: "arrow", end: "none" },
           { label: "→", tip: "Arrowhead at end", start: "none", end: "arrow" },
@@ -970,20 +1136,30 @@ export class PrintAnnotator {
           // Old sidecars carry color/size/filled; normalise once so nothing
           // legacy is ever written back.
           const stroke = s.strokeColor ?? s.color ?? "#7c5cff";
+          const rawBackground = s.backgroundColor ?? (s.filled ? stroke : "transparent");
+          const hasEmbeddedAlpha = /^#[0-9a-f]{8}$/i.test(rawBackground);
+          const background = hasEmbeddedAlpha ? rawBackground.slice(0, 7) : rawBackground;
+          const legacyFillOpacity = hasEmbeddedAlpha
+            ? Math.round((parseInt(rawBackground.slice(7), 16) / 255) * 100)
+            : s.fillOpacity ?? s.opacity ?? 100;
           shapes.push({
             id: s.id || nextShapeId(),
             tool: s.tool ?? "pen",
             pts: s.pts.map((p) => ({ x: p.x, y: p.y })),
             strokeColor: stroke,
-            backgroundColor: s.backgroundColor ?? (s.filled ? stroke : "transparent"),
+            backgroundColor: background,
             fillStyle: s.fillStyle ?? "solid",
             strokeWidth: s.strokeWidth ?? s.size ?? 4,
             strokeStyle: s.strokeStyle ?? "solid",
             opacity: s.opacity ?? 100,
+            strokeOpacity: s.strokeOpacity ?? s.opacity ?? 100,
+            fillOpacity: legacyFillOpacity,
             startArrowhead: s.startArrowhead,
             endArrowhead: s.endArrowhead,
             text: s.text,
             fontSize: s.fontSize,
+            fontWeight: s.fontWeight ?? "normal",
+            fontStyle: s.fontStyle ?? "normal",
           });
         }
         redraw();
@@ -1005,7 +1181,7 @@ export class PrintAnnotator {
     const startText = (e: PointerEvent) => {
       const p = toCanvas(e);
       const cr = canvas.getBoundingClientRect();
-      const ta = document.createElement("textarea");
+      const ta = createEl("textarea");
       ta.className = "tj-anno-textinput";
       ta.setCssStyles({ position: "absolute" });
       ta.style.left = `${e.clientX - cr.left}px`;
@@ -1013,21 +1189,23 @@ export class PrintAnnotator {
       ta.setCssStyles({ minWidth: "80px" });
       ta.setCssStyles({ minHeight: "24px" });
       ta.setCssStyles({ padding: "2px 4px" });
-      ta.setCssStyles({ background: "rgba(0,0,0,0.6)" });
+      ta.setCssStyles({ background: "transparent" });
       ta.style.color = currentStrokeColor;
-      ta.setCssStyles({ border: "1px dashed currentColor" });
+      ta.setCssStyles({ border: "none" });
       ta.setCssStyles({ outline: "none" });
-      ta.setCssStyles({ fontSize: "16px" });
+      ta.setCssStyles({ fontSize: `${currentFontSize}px` });
+      ta.setCssStyles({ fontWeight: currentFontWeight });
+      ta.setCssStyles({ fontStyle: currentFontStyle });
       ta.setCssStyles({ fontFamily: "inherit" });
       ta.setCssStyles({ lineHeight: "1.2" });
       ta.setCssStyles({ resize: "none" });
       ta.setCssStyles({ zIndex: "10" });
-      ta.setAttribute("rows", "1");
+      ta.setAttribute("rows", "2");
       ta.removeAttribute("placeholder");
       wrap.appendChild(ta);
       // Focus after layout, or the browser fires blur immediately and the
       // commit path removes the textarea before a single key lands.
-      requestAnimationFrame(() => ta.focus());
+      window.requestAnimationFrame(() => ta.focus());
       let done = false;
       const commit = () => {
         if (done) return;
@@ -1040,15 +1218,19 @@ export class PrintAnnotator {
             tool: "text",
             pts: [p],
             strokeColor: currentStrokeColor,
-            backgroundColor: currentBackgroundColor,
+            backgroundColor: currentTextBackgroundColor,
             fillStyle: currentFillStyle,
             strokeWidth: currentStrokeWidth,
             strokeStyle: currentStrokeStyle,
             opacity: currentOpacity,
-            fontSize: 16,
+            strokeOpacity: currentOpacity,
+            fillOpacity: currentTextFillOpacity,
+            fontSize: currentFontSize,
+            fontWeight: currentFontWeight,
+            fontStyle: currentFontStyle,
             text: value,
           });
-          redo.length = 0;
+          commitHistory();
           redraw();
         }
       };
@@ -1078,6 +1260,7 @@ export class PrintAnnotator {
     };
 
     const startMove = (e: PointerEvent, p: Pt, s: Shape) => {
+      beginHistory();
       moving = true;
       moveStart = p;
       moveOrig = s.pts.map((q) => ({ ...q }));
@@ -1085,6 +1268,7 @@ export class PrintAnnotator {
     };
 
     const startResize = (e: PointerEvent, handle: string, s: Shape) => {
+      beginHistory();
       resizing = true;
       resizeHandle = handle;
       resizeOrigBox = bboxOf(s);
@@ -1178,6 +1362,7 @@ export class PrintAnnotator {
       view.x = px - (px - view.x) * (newScale / view.scale);
       view.y = py - (py - view.y) * (newScale / view.scale);
       view.scale = newScale;
+      updateZoomLabel();
       redraw();
     }, { passive: false });
 
@@ -1195,6 +1380,7 @@ export class PrintAnnotator {
         const p = toCanvas(e);
         const handle = pointHandleAt(p);
         if (handle) {
+          beginHistory();
           if (handle.kind === "point") {
             draggingHandle = { index: handle.index };
           } else {
@@ -1229,13 +1415,14 @@ export class PrintAnnotator {
       if (tool === "eraser") {
         const hit = topShapeAt(toCanvas(e));
         if (hit) {
+          beginHistory();
           const idx = shapes.indexOf(hit);
           if (idx >= 0) {
             shapes.splice(idx, 1);
-            redo.push(hit);
           }
           if (selected === hit) selected = null;
           if (editingShape === hit) exitPointEdit();
+          commitHistory();
           redraw();
           syncSidebar();
         }
@@ -1247,6 +1434,7 @@ export class PrintAnnotator {
         return;
       }
       const p = toCanvas(e);
+      beginHistory();
       drawing = true;
       current = {
         id: nextShapeId(),
@@ -1258,6 +1446,8 @@ export class PrintAnnotator {
         strokeWidth: currentStrokeWidth,
         strokeStyle: currentStrokeStyle,
         opacity: currentOpacity,
+        strokeOpacity: currentOpacity,
+        fillOpacity: currentFillOpacity,
         ...(tool === "arrow"
           ? {
               startArrowhead: currentStartArrowhead,
@@ -1308,9 +1498,12 @@ export class PrintAnnotator {
       else current.pts[1] = p;
       redraw();
     });
-    const endDraw = () => {
+    const endDraw = (cancelled = false) => {
       if (draggingHandle) {
         draggingHandle = null;
+        if (cancelled && pendingHistory) { const previous = pendingHistory; pendingHistory = null; restore(previous); }
+        else commitHistory();
+        redraw();
         return;
       }
       if (panning) {
@@ -1318,20 +1511,33 @@ export class PrintAnnotator {
         updateCursor();
         return;
       }
-      if (moving) { moving = false; return; }
-      if (resizing) { resizing = false; return; }
+      if (moving) {
+        moving = false;
+        if (cancelled && pendingHistory) { const previous = pendingHistory; pendingHistory = null; restore(previous); }
+        else commitHistory();
+        return;
+      }
+      if (resizing) {
+        resizing = false;
+        if (cancelled && pendingHistory) { const previous = pendingHistory; pendingHistory = null; restore(previous); }
+        else commitHistory();
+        return;
+      }
       if (drawing && current) {
-        if (current.pts.length >= 2) {
+        if (!cancelled && current.pts.length >= 2) {
           shapes.push(current);
-          redo.length = 0;
+          commitHistory();
+        } else if (cancelled) {
+          pendingHistory = null;
         }
         current = null;
         drawing = false;
         redraw();
       }
     };
-    canvas.addEventListener("pointerup", endDraw);
-    canvas.addEventListener("pointerleave", endDraw);
+    canvas.addEventListener("pointerup", () => endDraw());
+    canvas.addEventListener("pointercancel", () => endDraw(true));
+    canvas.addEventListener("lostpointercapture", () => endDraw(true));
 
     canvas.addEventListener("dblclick", (e) => {
       const p = toCanvas(e);
@@ -1355,33 +1561,32 @@ export class PrintAnnotator {
     });
 
     const doUndo = () => {
-      const s = shapes.pop();
-      if (s) {
-        redo.push(s);
-        if (selected === s) selected = null;
-        if (editingShape === s) exitPointEdit();
-        redraw();
-        syncSidebar();
-      }
+      const previous = undoStack.pop();
+      if (!previous) return;
+      redoStack.push(snapshot());
+      pendingHistory = null;
+      restore(previous);
+      markDirty();
     };
     const doRedo = () => {
-      const s = redo.pop();
-      if (s) {
-        shapes.push(s);
-        redraw();
-        syncSidebar();
-      }
+      const next = redoStack.pop();
+      if (!next) return;
+      undoStack.push(snapshot());
+      pendingHistory = null;
+      restore(next);
+      markDirty();
     };
     const duplicateSelected = () => {
       if (!selected) return;
+      beginHistory();
       const clone: Shape = {
         ...selected,
         id: nextShapeId(),
         pts: selected.pts.map((q) => ({ x: q.x + 16, y: q.y + 16 })),
       };
       shapes.push(clone);
-      redo.length = 0;
       selected = clone;
+      commitHistory();
       redraw();
       syncSidebar();
     };
@@ -1389,10 +1594,11 @@ export class PrintAnnotator {
       if (!selected) return;
       const idx = shapes.indexOf(selected);
       if (idx < 0) return;
+      beginHistory();
       shapes.splice(idx, 1);
-      redo.push(selected);
       if (editingShape === selected) exitPointEdit();
       selected = null;
+      commitHistory();
       redraw();
       syncSidebar();
     };
@@ -1401,8 +1607,10 @@ export class PrintAnnotator {
       const i = shapes.indexOf(selected);
       const j = i + dir;
       if (i < 0 || j < 0 || j >= shapes.length) return;
+      beginHistory();
       shapes.splice(i, 1);
       shapes.splice(j, 0, selected);
+      commitHistory();
       redraw();
       syncSidebar();
     };
@@ -1410,8 +1618,10 @@ export class PrintAnnotator {
       if (!selected) return;
       const i = shapes.indexOf(selected);
       if (i <= 0) return;
+      beginHistory();
       shapes.splice(i, 1);
       shapes.unshift(selected);
+      commitHistory();
       redraw();
       syncSidebar();
     };
@@ -1419,8 +1629,10 @@ export class PrintAnnotator {
       if (!selected) return;
       const i = shapes.indexOf(selected);
       if (i < 0 || i >= shapes.length - 1) return;
+      beginHistory();
       shapes.splice(i, 1);
       shapes.push(selected);
+      commitHistory();
       redraw();
       syncSidebar();
     };
@@ -1429,13 +1641,19 @@ export class PrintAnnotator {
     redoB.addEventListener("click", doRedo);
     fitB.addEventListener("click", () => {
       fitToView();
+      updateZoomLabel();
       redraw();
     });
+    zoomOutB.addEventListener("click", () => zoomAt(1 / 1.25));
+    zoomInB.addEventListener("click", () => zoomAt(1.25));
+    zoomLabel.addEventListener("click", () => zoomAt(1 / view.scale));
     resetB.addEventListener("click", () => {
+      if (!shapes.length) return;
+      beginHistory();
       shapes.length = 0;
-      redo.length = 0;
       selected = null;
       exitPointEdit();
+      commitHistory();
       redraw();
       syncSidebar();
     });
@@ -1447,7 +1665,7 @@ export class PrintAnnotator {
     // Export at the print's own resolution, not the zoomed viewport, so the
     // saved file stays the whole chart — the view is only how we look at it.
     const exportBlob = (): Promise<Blob | null> => {
-      const out = document.createElement("canvas");
+      const out = createEl("canvas");
       out.width = img.naturalWidth;
       out.height = img.naturalHeight;
       const c = out.getContext("2d")!;
@@ -1456,14 +1674,13 @@ export class PrintAnnotator {
       return new Promise((res) => out.toBlob((b) => res(b), "image/png"));
     };
 
-    saveB.addEventListener("click", async () => {
+    saveB.addEventListener("click", () => void (async () => {
       saveB.setAttr("disabled", "true");
       try {
-        const payload: AnnotatorFile = { version: 1, shapes };
-        await app.vault.adapter.write(jsonPath, JSON.stringify(payload, null, 2));
-
+        const payload: AnnotatorFile = { version: 1, shapes: cloneShapes(shapes) };
         const blob: Blob | null = await exportBlob();
         if (!blob) {
+          setSaveState("Save failed — retry");
           new Notice("Could not export the annotated image.");
           return;
         }
@@ -1471,16 +1688,20 @@ export class PrintAnnotator {
         const existing = app.vault.getAbstractFileByPath(annotatedPath);
         if (existing instanceof TFile) await app.vault.modifyBinary(existing, data);
         else await app.vault.createBinary(annotatedPath, data);
+        await app.vault.adapter.write(jsonPath, JSON.stringify(payload, null, 2));
+        dirty = false;
+        setSaveState("Saved");
 
-        new Notice("Print annotated and saved.");
-        onSaved?.(annotatedPath.split("/").pop() as string);
+        new Notice("Print marked up and saved.");
+        onSaved?.(annotatedPath);
         close();
       } catch (err) {
-        console.error("[tradebook] annotate save failed", err);
-        new Notice("Could not save the annotated print.");
+        console.error("[tradebook] markup save failed", err);
+        setSaveState("Save failed — retry");
+        new Notice("Could not save the marked-up print.");
       } finally {
-        saveB.removeAttribute("disabled");
+        if (img.complete && img.naturalWidth > 0) saveB.removeAttribute("disabled");
       }
-    });
+    })());
   }
 }

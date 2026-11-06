@@ -118,5 +118,5 @@ export async function buildDiagnostics(plugin: TradebookPlugin): Promise<string>
 
 // Test hook: the harness checks the report without going through the settings UI.
 if (typeof window !== "undefined") {
-  (window as any).__tjDiagnostics = { buildDiagnostics, diagnosticsFilename };
+  window.__tjDiagnostics = { buildDiagnostics, diagnosticsFilename };
 }

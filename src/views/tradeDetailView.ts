@@ -4,8 +4,8 @@ import { Trade } from "../types";
 import { renderAppShell } from "../ui";
 import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice } from "../tz";
 import { legBaseKey } from "../lib/copy";
-import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots } from "../storage";
-import { normalizeTags, reviewOptions } from "../lib/tags";
+import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots, setTradeStrategy } from "../storage";
+import { normalizeTags, reviewOptions, reviewTagGroups } from "../lib/tags";
 
 /**
  * Whether this trade carries a complete cost record.
@@ -18,19 +18,47 @@ import { normalizeTags, reviewOptions } from "../lib/tags";
 function hasRecordedCosts(t: Trade): boolean {
   return Number.isFinite(t.commission) && Number.isFinite(t.fees);
 }
+
+function isScreenshotEntry(entry: { file?: unknown } | null | undefined): boolean {
+  return typeof entry?.file === "string" && entry.file.trim().length > 0;
+}
+
+import { reviewHtmlToMarkdown, reviewMarkdownToHtml } from "../lib/reviewRichText";
+
 import { PrintAnnotator } from "./printAnnotator";
+import {
+  attachGroupToTrade,
+  listPendingAttachGroups,
+  parsePrintGroupDragPayload,
+  PRINT_GROUP_MIME,
+  type AttachGroupOutcome,
+} from "../lib/printGroupAttach";
+import { type PrintGroup } from "../lib/printGroup";
 import { attachTip } from "../lib/tip";
 import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass, tradePoints } from "../lib/fills";
-import { futuresSpec } from "../futures";
-import { sessionLabel, sessionOf, SESSION_UNKNOWN } from "../lib/sessions";
-import { formatDate } from "../lib/dates";
-import { holdFmtOf, tradeR } from "../lib/tradeTable";
-import { mountDropdown, DropdownItem } from "../lib/dropdown";
+import { knownFuturesSpec } from "../futures";
+import { sessionOf } from "../lib/sessions";
+import { holdFmtOf } from "../lib/tradeTable";
+import { recordedRisk } from "../lib/risk";
+import { mountDropdown, mountMultiDropdown, DropdownItem, MultiDropdown } from "../lib/dropdown";
 import { freeNumeric } from "../lib/numeric";
-import { feeForTrade, netPnl, priceFromRisk, round2, splitFeeTotal } from "../lib/fees";
-import { optionalSummary, reviewStatus } from "../lib/review";
+import { strategiesOf } from "../lib/strategySelection";
+import { feeForTrade, netPnl, round2, splitFeeTotal } from "../lib/fees";
+import { parsePlannedNumber, reviewStatus, planDifferences, type ReviewCheckKey, type ReviewState } from "../lib/review";
 
 export const TRADE_DETAIL_VIEW_TYPE = "tradebook-trade-detail-view";
+
+import { renderTradeCard, type ExportOptions, type ExportOrientation, type ExportTheme, type TradeCardResult } from "../lib/tradeCard";
+
+function reviewStateHint(state: ReviewState): string {
+  switch (state) {
+    case "reviewed": return "All six review signals are complete.";
+    case "reviewed-with-missing-context": return "All six signals are complete; relevant context was explicitly marked unavailable.";
+    case "legacy-marked-reviewed": return "This record was explicitly marked reviewed outside the six-signal check.";
+    case "reopened": return "This review was explicitly reopened.";
+    default: return "Complete all six review signals to mark this trade reviewed.";
+  }
+}
 
 /**
  * Out-of-the-box tag chips. They are only *suggestions*: they sit in the review
@@ -49,10 +77,19 @@ export class TradeDetailView extends ItemView {
   setupOptions: string[] = [];
   /** Pending debounced review saves, keyed by field — flushed on switch/close. */
   private _saveTimers: Record<string, { timer: number; run: () => Promise<void> }> = {};
+  /** Last local write; the global vault invalidation should not redraw this view immediately. */
+  private _lastLocalWriteAt = 0;
+  private _refreshRetry: number | null = null;
   /** Screenshot on show in the carousel — reset whenever the trade changes. */
   private _activePrint = 0;
+  /** Prevent editor/viewport state from crossing a trade switch during render. */
+  private _renderedTradeId: string | null = null;
+  /** Optional-depth disclosure choice is retained only for the current trade. */
+  private _optionalOpen: { tradeId: string; open: boolean } | null = null;
   /** Tear-down for an open Enlarge lightbox (removes overlay + key listener). */
   private _lightboxCleanup: (() => void) | null = null;
+  /** This view's active body-mounted tag picker, scoped to its trade and group. */
+  private _ownedTagPopover: { panel: HTMLElement; tradeId: string; group: string; close: () => void } | null = null;
   /** Cleanups for document-level listeners added on render (e.g. paste). */
   private _pasteCleanups: Array<() => void> = [];
 
@@ -133,9 +170,8 @@ export class TradeDetailView extends ItemView {
     this.flushReviewSaves();
     this._activePrint = 0;
     this.trade = trade;
-    // Points are recomputed from the fills/scalars on display: a note written
-    // before the fix carries the old quantity-multiplied value, and the note
-    // itself is only rewritten when the user edits it.
+    // Recompute the derived realized-points value from actual fills/scalars;
+    // legacy stored values may use an older definition and are not trusted.
     trade.pnlPoints = tradePoints(trade);
     if (this.allTrades.length === 0) this.allTrades = await this.loadScope();
     this.index = this.allTrades.findIndex((t) => t.id === trade.id);
@@ -163,7 +199,7 @@ export class TradeDetailView extends ItemView {
     if (!this.trade) {
       // Try to restore from view state (survives Obsidian reload)
       let saved: { tradeId?: string; from?: { type: "tradelog" | "account"; accountId?: string; tradeIds?: string[] } } | undefined;
-      try { saved = (this.leaf as any).getViewState?.()?.state; } catch { /* */ }
+      try { saved = this.leaf.getViewState?.()?.state; } catch { /* */ }
       if (saved?.from) this.from = saved.from;
       const savedId = saved?.tradeId;
       const trades = await this.loadScope();
@@ -180,6 +216,8 @@ export class TradeDetailView extends ItemView {
 
   async onClose(): Promise<void> {
     this.flushReviewSaves();
+    if (this._refreshRetry !== null) window.clearTimeout(this._refreshRetry);
+    this._refreshRetry = null;
     window.removeEventListener("keydown", this.keydownHandler);
     this._lightboxCleanup?.();
     // Clean up the document-level paste listener(s).
@@ -187,6 +225,31 @@ export class TradeDetailView extends ItemView {
     this._pasteCleanups = [];
   }
 
+  /**
+   * Vault writes invalidate every TradeBook view. Keep this view's local edit
+   * surface stable while its own write is propagating; the next external reload
+   * still renders normally.
+   */
+  async refresh(): Promise<void> {
+    const id = this.trade?.id;
+    if (!id) return;
+    const active = this.contentEl.ownerDocument.activeElement;
+    const editing = active instanceof HTMLElement && this.contentEl.contains(active) &&
+      (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+    if (editing || Object.keys(this._saveTimers).length || Date.now() - this._lastLocalWriteAt < 1500) {
+      if (this._refreshRetry !== null) window.clearTimeout(this._refreshRetry);
+      this._refreshRetry = window.setTimeout(() => { this._refreshRetry = null; if (this.trade?.id === id) void this.refresh(); }, 1600);
+      return;
+    }
+    const writeAt = this._lastLocalWriteAt;
+    const scope = await this.loadScope();
+    if (this.trade?.id !== id || this._lastLocalWriteAt !== writeAt || Object.keys(this._saveTimers).length) return;
+    const focused = this.contentEl.ownerDocument.activeElement;
+    if (focused instanceof HTMLElement && this.contentEl.contains(focused) && (focused.isContentEditable || focused.tagName === "INPUT" || focused.tagName === "TEXTAREA")) return;
+    const latest = scope.find((trade) => trade.id === id);
+    if (latest) { this.trade = latest; this.allTrades = scope; this.index = scope.indexOf(latest); }
+    this.render();
+  }
   async prev(): Promise<void> {
     if (this.index <= 0) return;
     this.index -= 1;
@@ -203,20 +266,63 @@ export class TradeDetailView extends ItemView {
 
   render(): void {
     const root = this.contentEl;
+    const scrollHost = root.closest<HTMLElement>(".view-content") ?? root.parentElement;
+    const preservedScroll = root.childElementCount > 0 && scrollHost && this._renderedTradeId === this.trade?.id
+      ? { top: scrollHost.scrollTop, left: scrollHost.scrollLeft }
+      : null;
+    const retainedFocus = this._renderedTradeId === this.trade?.id
+      ? (() => {
+          const active = root.ownerDocument.activeElement as HTMLElement | null;
+          const owned = this._ownedTagPopover;
+          const inOwnedPicker = !!owned && owned.tradeId === this.trade?.id && owned.panel.contains(active);
+          const captured = active && (root.contains(active) || inOwnedPicker) && active.dataset.reviewControl
+            ? inOwnedPicker
+              ? { key: "tags", group: owned!.group }
+              : { key: active.dataset.reviewControl, group: active.dataset.reviewGroup ?? null }
+            : null;
+          // The body-mounted picker cannot survive root.empty(); close only this
+          // view's same-trade picker, then restore to its group's Add-tag trigger.
+          if (inOwnedPicker) owned!.close();
+          return captured;
+        })()
+      : null;
+    const editorStates = this._renderedTradeId === this.trade?.id
+      ? Array.from(root.querySelectorAll<HTMLTextAreaElement>(".tj-td-textarea"))
+      .map((area) => ({
+        area,
+        key: area.getAttribute("data-review-field"),
+        active: document.activeElement === area,
+      }))
+      .filter(({ key, active }) => !!key && (active || !!this._saveTimers[key as string]))
+      .map(({ area, key, active }) => ({
+        key: key as string,
+        value: area.value,
+        selectionStart: area.selectionStart,
+        selectionEnd: area.selectionEnd,
+        scrollTop: area.scrollTop,
+        scrollLeft: area.scrollLeft,
+        active,
+      }))
+      : [];
     root.empty();
     root.addClass("tj-trade-detail");
     const main = renderAppShell(root, this.plugin, "");
 
     const t = this.trade;
+    const sameTradeRender = !!t && this._renderedTradeId === t.id;
+    if (!sameTradeRender) this._optionalOpen = null;
     if (!t) {
       main.createDiv({ cls: "tj-empty", text: "No trade selected — open one from the Trade Log, Calendar or Dashboard." });
+      this._renderedTradeId = null;
       return;
     }
+    this._renderedTradeId = t.id;
 
     const zone = this.plugin.settings.timeZone;
 
     // ---- Header ----
-    const head = main.createDiv({ cls: "tj-td-head" });
+    const top = main.createDiv({ cls: "tj-td-top" });
+    const head = top.createDiv({ cls: "tj-td-head" });
 
     // Segmented nav: Back + Prev + Counter + Next
     const navBtns = head.createDiv({ cls: "tj-td-nav" });
@@ -233,7 +339,7 @@ export class TradeDetailView extends ItemView {
       else void this.plugin.openTradeLog();
     });
     if (backToAccount) {
-      const tlBtn = navBtns.createEl("button", { cls: "tj-seg-btn", text: "Trade Log" });
+      const tlBtn = navBtns.createEl("button", { cls: "tj-seg-btn", text: "Trade log" });
       tlBtn.addEventListener("click", () => void this.plugin.openTradeLogForAccount(origin.accountId as string));
     }
 
@@ -242,7 +348,7 @@ export class TradeDetailView extends ItemView {
     prevBtn.disabled = this.index <= 0;
     prevBtn.addEventListener("click", () => void this.prev());
 
-    navBtns.createEl("span", { cls: "tj-td-counter", text: `${this.index + 1} / ${this.allTrades.length}` });
+    navBtns.createSpan({ cls: "tj-td-counter", text: `${this.index + 1} / ${this.allTrades.length}` });
     if (backToAccount) {
       const acc = this.plugin.settings.propAccounts.find((a) => a.id === origin.accountId);
       const scope = navBtns.createSpan({ cls: "tj-td-scope", text: acc?.name ?? "This account" });
@@ -254,105 +360,22 @@ export class TradeDetailView extends ItemView {
     nextBtn.disabled = this.index < 0 || this.index >= this.allTrades.length - 1;
     nextBtn.addEventListener("click", () => void this.next());
 
-    // ---- Review dots (4 required stages — automatic indicators) ----
+    // ---- Review signals: matching bubbles with concise hover labels ----
     const dotsState = reviewStatus(t);
-    // The automatic review state and its "Mark as reviewed" action share one row:
-    // the button sits to the right of the dots, not orphaned on a line below.
     const reviewWrap = head.createDiv({ cls: "tj-td-review-wrap" });
-    const reviewStateHost = reviewWrap.createDiv({ cls: "tj-td-review-state" });
-    const reviewDots = reviewStateHost.createDiv({ cls: "tj-td-review-dots" });
-    for (const chk of dotsState.checks.filter((c) => c.required)) {
-      const dot = reviewDots.createEl("span", { cls: "tj-td-review-dot" + (chk.done ? " done" : "") });
-      dot.createSpan({ cls: "tj-sr-only", text: `${chk.label}: ${chk.done ? "complete" : "missing"}` });
-      attachTip(dot, { title: chk.label, sub: chk.done ? "Complete" : "Missing" });
+    const reviewDots = reviewWrap.createDiv({ cls: "tj-td-review-dots", attr: { role: "group" } });
+    const bubbleKeys: ReviewCheckKey[] = ["setup", "rating", "psychology", "mistakes", "whatHappened", "repeatChange"];
+    for (const key of bubbleKeys) {
+      const check = dotsState.checks.find((item) => item.key === key);
+      if (!check) continue;
+      const dot = reviewDots.createSpan({ cls: "tj-td-review-dot" + (check.required ? " is-core" : "") + (check.done ? " done" : "") });
+      dot.dataset.reviewKey = check.key;
+      dot.setAttr("role", "img");
+      dot.setAttr("tabindex", "0");
+      dot.createSpan({ cls: "tj-sr-only", text: check.label });
+      attachTip(dot, { title: check.label });
     }
-    const optSummary = reviewStateHost.createSpan({ cls: "tj-td-hero-summary", text: dotsState.optionalSummary });
-    optSummary.toggleClass("is-hidden", !dotsState.optionalSummary);
-
-    // The stop is a fact about the plan, not a review step: it is written *before*
-    // the trade and cannot be reconstructed afterwards (the broker's fills do not
-    // carry it), so it never gates "Complete". But the Home's Focus Areas lists it
-    // as "Without stop", so the Detail states it here as well — a decision that
-    // reads covered must not be the one hiding a missing risk plan.
-    // Three different stories, and the badge has to tell them apart: a stop the
-    // platform filed, a stop only the trader knows about (a rule, not a level),
-    // and a file whose only stop already sits past break-even — which is not the
-    // same as no stop at all.
-    const stopLevels = t.stopLevels ?? [];
-    const hasStop = typeof t.stopLoss === "number" && t.stopLoss > 0;
-    const assumed = t.stopSource === "assumed";
-    const pastBreakEven = !hasStop && !assumed && stopLevels.length > 0;
-    const riskLabel = assumed
-      ? "Risk assumed"
-      : pastBreakEven
-      ? "Stop past break-even"
-      : hasStop
-      ? "Risk recorded"
-      : "Stop not recorded";
-    const riskFlag = reviewStateHost.createSpan({
-      cls:
-        "tj-td-risk-flag " + (hasStop || assumed ? (assumed ? "is-assumed" : "is-on") : "is-missing"),
-    });
-    const riskIcon = riskFlag.createSpan({ cls: "tj-td-risk-flag-icon" });
-    setIcon(riskIcon, hasStop || assumed ? "check-circle" : "alert-triangle");
-    riskFlag.createSpan({ cls: "tj-td-risk-flag-text", text: riskLabel });
-    if (assumed) {
-      attachTip(riskFlag, {
-        title: "Risk assumed, not recorded",
-        value: fmtPrice(t.stopLoss),
-        sub: "This stop was derived from a risk rule — a dollar amount the journal turned into a price — not from a stop filed with the broker. Everything derived from it is a model of the trade, not the trade.",
-      });
-    } else if (hasStop) {
-      const stop = t.stopLoss as number;
-      const riskDollars = t.entryPrice
-        ? Math.abs(t.entryPrice - stop) * futuresSpec(t.symbol).pointValue * (t.quantity || 1)
-        : null;
-      const moved = stopLevels.length > 1;
-      attachTip(riskFlag, {
-        title: moved ? "Risk recorded — the stop was moved" : "Risk recorded",
-        value: fmtPrice(stop),
-        sub: [
-          t.stopSource === "broker" ? "Read from the platform's own export." : "",
-          riskDollars
-            ? `${fmtMoney(riskDollars)} at risk. R on this trade is profit ÷ that risk.`
-            : "Add an entry price to see the risk in money.",
-          moved ? `Levels filed: ${stopLevels.map((l) => fmtPrice(l)).join(" → ")}.` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      });
-    } else if (pastBreakEven) {
-      attachTip(riskFlag, {
-        title: "The file holds a stop, but not the one this trade carried",
-        value: fmtPrice(stopLevels[0]),
-        sub: "The only level in the export already sits at or past break-even, so there is no initial risk to work from. R is left empty rather than invented; the Focus Areas still lists this trade under Without stop.",
-      });
-    } else {
-      attachTip(riskFlag, {
-        title: "Stop not recorded",
-        sub: "No stop on this trade, so it cannot show R. The Focus Areas lists it under Without stop.",
-      });
-    }
-
-    // The trader's word closes the queue: a decision not written up can be
-    // marked reviewed, which completes it without inventing a checklist. The
-    // badge is the control that reopens it — this button only ever marks.
-    if (!dotsState.complete) {
-      const mark = reviewWrap.createEl("button", {
-        cls: "tj-td-markreviewed",
-        text: "Mark as reviewed",
-        attr: { type: "button" },
-      });
-      attachTip(mark, {
-        title: "Mark this decision reviewed",
-        sub: "It leaves the review queue and counts as reviewed everywhere. The checklist still shows what the note holds — reviewing does not invent fields.",
-      });
-      mark.addEventListener("click", async () => {
-        this.trade!.reviewed = true;
-        await this.saveFields({ reviewed: "true" });
-        this.render();
-      });
-    }
+    // Review completion remains automatic; the bubbles only identify review fields.
 
     // Multi-account badge — this trade lives in more than one account when it was
     // copied. The badge waits for the expanded records, then shows itself only if
@@ -378,7 +401,7 @@ export class TradeDetailView extends ItemView {
     });
     setIcon(refresh, "refresh-cw");
     attachTip(refresh, { title: "Reload from note", sub: "For when you edited the file by hand." });
-    refresh.addEventListener("click", async () => {
+    refresh.addEventListener("click", () => void (async () => {
       const currentId = this.trade?.id;
       if (!currentId) return;
       this.plugin.clearTradeCache();
@@ -390,7 +413,7 @@ export class TradeDetailView extends ItemView {
         this.index = fresh.findIndex((x) => x.id === currentId);
       }
       this.render();
-    });
+    })());
     const delBtn = headActions.createEl("button", {
       cls: "tj-iconbtn",
       attr: { type: "button", "aria-label": "Delete trade" },
@@ -405,7 +428,7 @@ export class TradeDetailView extends ItemView {
         ? "Moves this copy's note to the vault trash. The original and its other copies stay."
         : "Moves the note to the vault trash, along with the copies generated from it. Real imported copies stay.",
     });
-    delBtn.addEventListener("click", async () => {
+    delBtn.addEventListener("click", () => void (async () => {
       const extra = isCopied
         ? " Only this copy will be removed."
         : " Its generated copies will be removed too.";
@@ -414,7 +437,7 @@ export class TradeDetailView extends ItemView {
         if (backToAccount) await this.plugin.openAccountDashboard(undefined, origin.accountId as string);
         else await this.plugin.openTradeLog();
       }
-    });
+    })());
 
     // ---- Body ----
     const body = main.createDiv({ cls: "tj-td-body" });
@@ -422,7 +445,7 @@ export class TradeDetailView extends ItemView {
     // ---- Hero bar — title and badges left, headline figures right ----
     const dirLabel = t.direction === "long" ? "Long" : t.direction === "short" ? "Short" : "—";
     const reviewState = reviewStatus(t);
-    const hero = body.createDiv({ cls: "tj-td-hero" });
+    const hero = top.createDiv({ cls: "tj-td-hero" });
     const heroTitle = hero.createDiv({ cls: "tj-td-hero-title-group" });
     heroTitle.createSpan({ cls: "tj-td-hero-title", text: `${t.symbol} · ${dirLabel}` });
     heroTitle.createSpan({
@@ -459,42 +482,14 @@ export class TradeDetailView extends ItemView {
       heroTitle.createSpan({ cls: `tj-td-hero-badge is-${t.direction}`, text: dirLabel });
     }
     if (t.setup) heroTitle.createSpan({ cls: "tj-td-hero-badge", text: t.setup });
-    // The badge is a control only where a click can change the verdict.
-    // `reviewed: true` never closes a review on its own — only `reviewed: false`
-    // reopens a complete one — so a button on "Needs Review" promised a click
-    // that could not do anything. It states what is missing instead.
-    // One verdict, one word: "Reviewed" when the trader's word (or a full
-    // write-up) has closed it, "Needs review" otherwise. A reviewed badge is the
-    // control that reopens; an open one is state only — the button beside it is
-    // what marks it reviewed.
-    const statusCls =
-      "tj-td-hero-badge is-status " + (reviewState.complete ? "is-reviewed" : "is-needs-review");
-    const statusText = reviewState.complete ? "Reviewed" : "Needs review";
-    const missing = reviewState.missing;
-    if (reviewState.complete) {
-      const statusBadge = heroTitle.createEl("button", {
-        cls: statusCls,
-        text: statusText,
-        attr: { type: "button" },
-      });
-      attachTip(statusBadge, {
-        title: "Reviewed",
-        sub: reviewState.writtenUp
-          ? "Every review step is written. Click to reopen it."
-          : "Marked reviewed — out of the queue. Click to reopen it; the checklist below still shows what the note holds.",
-      });
-      statusBadge.addEventListener("click", async () => {
-        this.trade!.reviewed = false;
-        await this.saveField("reviewed", "false");
-        this.render();
-      });
-    } else {
-      const statusBadge = heroTitle.createSpan({ cls: statusCls, text: statusText });
-      attachTip(statusBadge, {
-        title: "Needs review",
-        sub: `Needs: ${missing.join(", ")}. The stop is a plan, not a review step — it is stated on its own line.`,
-      });
-    }
+    const statusCls = `tj-td-hero-badge is-status is-${reviewState.state}`;
+
+    // Completion is a read-only automatic state. The human core is what makes a
+    // new review complete; older records may remain closed for compatibility, but
+    // the user never has to press a second confirmation button.
+    const statusBadge = heroTitle.createSpan({ cls: statusCls, text: reviewState.label });
+    statusBadge.setAttr("aria-label", reviewState.label);
+    statusBadge.setAttr("title", reviewStateHint(reviewState.state));
     const heroMetrics = hero.createDiv({ cls: "tj-td-hero-metrics" });
     const heroMetric = (label: string, value: string, tone = "") => {
       const metric = heroMetrics.createDiv({ cls: "tj-td-hero-metric" });
@@ -511,48 +506,87 @@ export class TradeDetailView extends ItemView {
     const heroGross = t.pnl;
     const heroCosts = round2((t.commission || 0) + (t.fees || 0));
     const heroNet = netPnl(t);
-    const netMetric = heroMetric("Net P&L", fmtMoney2(heroNet), heroNet >= 0 ? "pos" : "neg");
+    const hasHeroNet = Number.isFinite(heroNet);
+    const netMetric = heroMetric(
+      "Net P&L",
+      hasHeroNet ? fmtMoney2(heroNet) : "—",
+      hasHeroNet ? (heroNet >= 0 ? "pos" : "neg") : "",
+    );
     attachTip(netMetric, {
       title: "Net P&L",
-      // The honest version says which costs are actually in it. A trade whose
-      // fees were never recorded used to read exactly like one that recorded
-      // everything, and nothing on the page said so.
-      sub: !hasRecordedCosts(t)
-        ? `Gross ${fmtMoney2(heroGross)}, less whatever costs this trade recorded \u2014 commission alone is common when an import carries no fee lines, so this figure is a floor, not a final result.`
-        : `After recorded commission and fees. Gross ${fmtMoney2(heroGross)}; recorded costs ${fmtMoneyAbs(heroCosts)}. Payouts and deposits are not trading results.`,
+      sub: !hasHeroNet
+        ? "P&L is unavailable from the recorded actuals; no estimate was substituted."
+        : !hasRecordedCosts(t)
+          ? `Gross ${Number.isFinite(heroGross) ? fmtMoney2(heroGross) : "—"}, less whatever costs this trade recorded — commission alone is common when an import carries no fee lines, so this figure is a floor, not a final result.`
+          : `After recorded commission and fees. Gross ${Number.isFinite(heroGross) ? fmtMoney2(heroGross) : "—"}; recorded costs ${fmtMoneyAbs(heroCosts)}. Payouts and deposits are not trading results.`,
     });
-    if (!hasRecordedCosts(t)) {
-      // Said once, quietly, next to the numbers it qualifies.
+    if (!hasHeroNet) {
       heroMetrics.createDiv({
         cls: "tj-td-hero-warn",
-        text: "Costs on this trade are incomplete \u2014 commission is recorded, fees are not. Net is a floor.",
+        text: "P&L unavailable from the recorded actuals — no estimate was substituted.",
+      });
+    } else if (!hasRecordedCosts(t)) {
+      heroMetrics.createDiv({
+        cls: "tj-td-hero-warn",
+        text: "Costs on this trade are incomplete — commission is recorded, fees are not. Net is a floor.",
       });
     }
-    heroMetric("Points", heroPtsStr, (heroPts ?? 0) >= 0 ? "pos" : "neg");
+    const pointsMetric = heroMetric(
+      "Points",
+      heroPtsStr,
+      Number.isFinite(heroPts) ? (heroPts >= 0 ? "pos" : "neg") : "",
+    );
+    pointsMetric.addClass("tj-td-hero-points");
     heroMetric("Hold Time", holdFmtOf(t));
-    heroMetrics.createDiv({ cls: "tj-td-hero-context", text: `Gross ${fmtMoney2(heroGross)} · costs ${fmtMoneyAbs(heroCosts)}` });
 
     // Two-column layout
     const cols = body.createDiv({ cls: "tj-td-cols" });
 
     // ================================================================
-    // LEFT COLUMN — two cards: Execution & Risk, then Review & Psychology
+    // LEFT COLUMN — the visible Execution & Risk card, then Review
     // ================================================================
     const leftCol = cols.createDiv({ cls: "tj-td-left" });
+    const reviewWorkspace = leftCol.createDiv({ cls: "tj-td-review-workspace" });
+    const pageScroll = leftCol.closest<HTMLElement>(".tj-app-main");
+    leftCol.addEventListener("wheel", (event) => {
+      if (!pageScroll || Math.abs(event.deltaY) < 1) return;
+      const maxLeftScroll = Math.max(0, leftCol.scrollHeight - leftCol.clientHeight);
+      const atTop = leftCol.scrollTop <= 0 && event.deltaY < 0;
+      const atBottom = leftCol.scrollTop >= maxLeftScroll - 1 && event.deltaY > 0;
+      if (maxLeftScroll === 0 || atTop || atBottom) {
+        pageScroll.scrollTop += event.deltaY;
+        event.preventDefault();
+      }
+    }, { passive: false });
+    cols.addEventListener("wheel", (event) => {
+      if (!pageScroll || event.defaultPrevented || Math.abs(event.deltaY) < 1) return;
+      if (event.target instanceof Node && leftCol.contains(event.target)) return;
+      const maxLeftScroll = Math.max(0, leftCol.scrollHeight - leftCol.clientHeight);
+      const atTop = leftCol.scrollTop <= 0 && event.deltaY < 0;
+      const atBottom = leftCol.scrollTop >= maxLeftScroll - 1 && event.deltaY > 0;
+      if (maxLeftScroll > 0 && !atTop && !atBottom) {
+        leftCol.scrollTop += event.deltaY;
+      } else {
+        pageScroll.scrollTop += event.deltaY;
+      }
+      event.preventDefault();
+    }, { passive: false });
 
     /** A framed card with an uppercase section head — the page's surface unit. */
     const panelCard = (host: HTMLElement, title: string): HTMLElement => {
       const card = host.createDiv({ cls: "tj-td-panel" });
       const cardHead = card.createDiv({ cls: "tj-td-panel-head" });
-      cardHead.createEl("div", { cls: "tj-td-panel-title", text: title });
+      cardHead.createDiv({ cls: "tj-td-panel-title", text: title });
       return card.createDiv({ cls: "tj-td-panel-body" });
     };
-    const execCard = panelCard(leftCol, "Execution & Risk");
-    const reviewCard = panelCard(leftCol, "Critical Review & Psychology");
+    const execCard = panelCard(reviewWorkspace, "Execution & Risk");
+    const reviewCard = panelCard(reviewWorkspace, "Review");
 
+    const execGrid = execCard.createDiv({ cls: "tj-td-exec-grid" });
+    const execFacts = execGrid.createDiv({ cls: "tj-td-exec-group" });
+    const execRisk = execGrid.createDiv({ cls: "tj-td-exec-group" });
+    const execExtra = execGrid.createDiv({ cls: "tj-td-exec-group tj-td-exec-extra" });
     // --- Click-to-edit helpers ---
-    const spec = futuresSpec(t.symbol);
-    const pointValue = spec.pointValue;
 
     /** Make a value span clickable → transforms into an input on click. */
     const editableRow = (
@@ -563,8 +597,9 @@ export class TradeDetailView extends ItemView {
       opts?: { numeric?: boolean; tip?: string }
     ) => {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
-      r.createEl("span", { cls: "tj-td-flip-key", text: label });
-      const valSpan = r.createEl("span", { cls: "tj-td-flip-val", text: currentValue });
+      r.dataset.execLabel = label;
+      r.createSpan({ cls: "tj-td-flip-key", text: label });
+      const valSpan = r.createSpan({ cls: "tj-td-flip-val", text: currentValue });
       valSpan.setCssStyles({ cursor: "pointer" });
       attachTip(
         valSpan,
@@ -574,7 +609,7 @@ export class TradeDetailView extends ItemView {
       );
       valSpan.addEventListener("click", () => {
         // Replace span with input
-        const input = document.createElement("input");
+        const input = createEl("input");
         input.type = opts?.numeric ? "number" : "text";
         input.className = "tj-td-flip-input";
         input.value = currentValue.replace(/[^0-9.-]/g, "");
@@ -605,195 +640,71 @@ export class TradeDetailView extends ItemView {
     // Static (computed) row — not editable
     const row = (host: HTMLElement, label: string, value: string, tone = "") => {
       const r = host.createDiv({ cls: "tj-td-flip-row" });
-      r.createEl("span", { cls: "tj-td-flip-key", text: label });
-      r.createEl("span", { cls: "tj-td-flip-val" + (tone ? " " + tone : ""), text: value });
+      r.dataset.execLabel = label;
+      r.createSpan({ cls: "tj-td-flip-key", text: label });
+      r.createSpan({ cls: "tj-td-flip-val" + (tone ? " " + tone : ""), text: value });
+      return r;
     };
-
-    const fillData = fillSet(t);
 
     // The dollars at risk are derived, never stored: a stop and an entry are
     // all the note needs, and the risk follows from the symbol's point value.
-    const qty = t.quantity || 1;
-    const riskDollar = (t.stopLoss && t.entryPrice)
-      ? Math.abs(t.entryPrice - t.stopLoss) * pointValue * qty
-      : null;
+    const riskDollar = recordedRisk(t);
 
-    // ---- Entry → Exit (each price edits on its own) ----
-    const eeRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    eeRow.createEl("span", { cls: "tj-td-flip-key", text: "Entry → Exit" });
-    const eeVal = eeRow.createEl("span", { cls: "tj-td-flip-val" });
-    const entryPart = eeVal.createEl("span", { cls: "tj-td-ee-part", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—" });
-    eeVal.createEl("span", { cls: "tj-td-ee-arrow", text: " → " });
-    const exitPart = eeVal.createEl("span", { cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
-    const editPrice = (part: HTMLElement, current: number, onSave: (price: number) => Promise<void>) => {
-      part.setCssStyles({ cursor: "pointer" });
-      attachTip(part, { title: "Click to edit", sub: "Change this price" });
-      part.addEventListener("click", () => {
-        const input = document.createElement("input");
-        input.type = "number";
-        input.className = "tj-td-flip-input";
-        input.value = current ? String(current) : "";
-        freeNumeric(input);
-        input.setCssStyles({ width: "100%" });
-        part.replaceWith(input);
-        input.focus();
-        input.select();
-        const restore = () => {
-          const s = document.createElement("span");
-          s.className = "tj-td-ee-part";
-          s.textContent = current ? fmtPrice(current) : "—";
-          input.replaceWith(s);
-        };
-        input.addEventListener("blur", async () => {
-          const price = parseFloat(input.value.trim());
-          if (Number.isFinite(price) && price !== current) await onSave(price);
-          else restore();
-        });
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-          if (e.key === "Escape") { e.preventDefault(); restore(); }
-        });
-      });
-    };
-    editPrice(entryPart, t.entryPrice, async (price) => {
-      this.trade!.entryPrice = price;
-      await this.saveFields({ entry_price: String(price) });
-      this.render();
-    });
-    editPrice(exitPart, t.exitPrice, async (price) => {
-      this.trade!.exitPrice = price;
-      await this.saveFields({ exit_price: String(price) });
-      this.render();
-    });
+    // ---- Entry → Exit (derived from authoritative executions) ----
+    const eeRow = execFacts.createDiv({ cls: "tj-td-flip-row tj-td-exec-wide" });
+    eeRow.dataset.execLabel = "Entry → Exit";
+    eeRow.createSpan({ cls: "tj-td-flip-key", text: "Entry → Exit" });
+    const eeVal = eeRow.createSpan({ cls: "tj-td-flip-val" });
+    eeVal.createSpan({ cls: "tj-td-ee-part", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—" });
+    eeVal.createSpan({ cls: "tj-td-ee-arrow", text: " → " });
+    eeVal.createSpan({ cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
+    attachTip(eeVal, { title: "Recorded executions", sub: "These prices come from the executions. Correct original manual executions below; imported executions remain authoritative." });
 
-    // ---- R-Multiple (pnl over the dollars at risk) ----
-    const rMultiple = riskDollar && riskDollar > 0 ? t.pnl / riskDollar : null;
+    // ---- Gross result and R (gross P&L over the recorded risk basis) ----
+    const rMultiple = Number.isFinite(t.pnl) && riskDollar !== null && riskDollar > 0 ? t.pnl / riskDollar : null;
     const rTone = rMultiple !== null ? (rMultiple >= 0 ? "pos" : "neg") : "";
-    const rRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    rRow.createEl("span", { cls: "tj-td-flip-key", text: "R-Multiple" });
-    rRow.createEl("span", {
+    row(execRisk, "Gross P&L", Number.isFinite(t.pnl) ? fmtMoney2(t.pnl) : "—", Number.isFinite(t.pnl) ? (t.pnl >= 0 ? "pos" : "neg") : "");
+    const rRow = execRisk.createDiv({ cls: "tj-td-flip-row" });
+    rRow.dataset.execLabel = "R";
+    rRow.createSpan({ cls: "tj-td-flip-key", text: "R" });
+    rRow.createSpan({
       cls: "tj-td-flip-val" + (rTone ? " " + rTone : "") + (rMultiple !== null ? " is-hero" : ""),
       text: rMultiple !== null ? `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(2)}R` : "—",
     });
+    execRisk.createDiv({ cls: "tj-td-exec-subseparator" });
 
-    // ---- Contracts (editable) ----
+    // ---- Contracts (derived) ----
     const contractsVal = String(t.quantity ?? 1);
-    editableRow(execCard, "Contracts", contractsVal, async (raw) => {
-      const n = parseInt(raw, 10);
-      if (Number.isFinite(n) && n > 0) {
-        this.trade!.quantity = n;
-        await this.saveFields({ quantity: String(n) });
+    row(execFacts, "Contracts", contractsVal);
+
+    // The initial stop defines the original risk denominator. A later recorded
+    // stop is shown separately and never rewrites that history.
+    editableRow(execRisk, "Stop", t.stopLoss ? fmtPrice(t.stopLoss) : "—", async (raw) => {
+      const price = parseFloat(raw);
+      if (Number.isFinite(price) && price > 0) {
+        this.trade!.stopLoss = price;
+        await this.saveFields({ stop_loss: String(price) });
         this.render();
       }
     }, { numeric: true });
-
-    // ---- Stop / Risk and Target (one row each, one input, two formats) ----
-    // A plain number is the price; a `$` amount derives it from the entry — the
-    // stop sits on the losing side of the trade, the target on the winning side.
-    // One parser for both rows, so they can never drift apart. The click is
-    // delegated from the card so a row keeps working after its value span is
-    // rebuilt — a cancel used to leave a dead span behind.
-    const parsePriceOrDollars = (raw: string, towards: "stop" | "target"): number | null => {
-      if (raw.startsWith("$")) {
-        const dollars = parseFloat(raw.replace(/[$,]/g, ""));
-        if (!Number.isFinite(dollars) || !t.entryPrice) return null;
-        // The stop uses the shared helper so it matches the Manual Trade.
-        if (towards === "stop") return priceFromRisk(t.entryPrice, t.direction, dollars, pointValue, qty);
-        const dist = dollars / pointValue / qty;
-        return t.direction === "long" ? t.entryPrice + dist : t.entryPrice - dist;
-      }
-      const price = parseFloat(raw.replace(/[,$]/g, ""));
-      return Number.isFinite(price) ? price : null;
-    };
-
-    const stopDisplay = t.stopLoss ? fmtPrice(t.stopLoss) : "";
-    const riskDisplay = riskDollar !== null ? `$${riskDollar.toFixed(0)}` : "";
-    const srText = stopDisplay
-      ? riskDisplay
-        ? `${stopDisplay} / ${riskDisplay}`
-        : stopDisplay
-      : "— / —";
-    const targetDollars = t.target && t.entryPrice
-      ? Math.abs(t.target - t.entryPrice) * pointValue * qty
-      : null;
-    const targetText = t.target
-      ? `${fmtPrice(t.target)} / ${targetDollars !== null ? `$${targetDollars.toFixed(2)}` : "—"}`
-      : "— / —";
-    const srRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    srRow.createEl("span", { cls: "tj-td-flip-key", text: "Stop / Risk" });
-    const srVal = srRow.createEl("span", {
-      cls: "tj-td-flip-val",
-      text: srText,
-      attr: { "data-field": "stopLoss" },
-    });
-    srVal.setCssStyles({ cursor: "pointer" });
-    attachTip(srVal, { title: "Click to edit", sub: "A price, or a $ risk." });
-
-    const beginPriceOrDollarsEdit = (span: HTMLElement) => {
-      const field: "stopLoss" | "target" = span.dataset.field === "target" ? "target" : "stopLoss";
-      const towards = field === "target" ? "target" : "stop";
-      const shown = field === "target" ? targetText : srText;
-      const tip = field === "target"
-        ? { title: "Click to edit", sub: "A price, or a $ target." }
-        : { title: "Click to edit", sub: "A price, or a $ risk." };
-      const input = document.createElement("input");
-      input.type = "text";
-      input.className = "tj-td-flip-input";
-      input.value = field === "target" ? (t.target ? String(t.target) : "") : (t.stopLoss ? String(t.stopLoss) : "");
-      input.placeholder = field === "target" ? "Price or $ target" : "Price or $ risk";
-      input.setCssStyles({ width: "100%" });
-      span.replaceWith(input);
-      input.focus();
-      input.select();
-      const restore = () => {
-        const s = document.createElement("span");
-        s.className = "tj-td-flip-val";
-        s.setAttribute("data-field", field);
-        s.setCssStyles({ cursor: "pointer" });
-        s.textContent = shown;
-        input.replaceWith(s);
-        attachTip(s, tip);
-      };
-      input.addEventListener("blur", async () => {
-        const price = parsePriceOrDollars(input.value.trim(), towards);
-        if (price !== null) {
-          const rounded = Math.round(price * 100) / 100;
-          if (field === "target") {
-            this.trade!.target = rounded;
-            await this.saveFields({ target: String(rounded) });
-          } else {
-            this.trade!.stopLoss = rounded;
-            await this.saveFields({ stop_loss: String(rounded) });
-          }
-          this.render();
-        } else restore();
-      });
-      input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") { e.preventDefault(); input.blur(); }
-        if (e.key === "Escape") { e.preventDefault(); restore(); }
-      });
-    };
-    execCard.addEventListener("click", (e) => {
-      const span = (e.target as HTMLElement | null)?.closest<HTMLElement>(
-        ".tj-td-flip-val[data-field='stopLoss'], .tj-td-flip-val[data-field='target']"
-      );
-      if (span && execCard.contains(span)) beginPriceOrDollarsEdit(span);
-    });
-
-    // ---- Target (same two formats as Stop / Risk) ----
-    const tgRow = execCard.createDiv({ cls: "tj-td-flip-row" });
-    tgRow.createEl("span", { cls: "tj-td-flip-key", text: "Target" });
-    const tgVal = tgRow.createEl("span", {
-      cls: "tj-td-flip-val",
-      text: targetText,
-      attr: { "data-field": "target" },
-    });
-    tgVal.setCssStyles({ cursor: "pointer" });
-    attachTip(tgVal, { title: "Click to edit", sub: "A price, or a $ target." });
+    editableRow(execRisk, "Risk", riskDollar !== null && riskDollar > 0 ? `$${riskDollar.toFixed(2)}` : "—", async (raw) => {
+      const dollars = parseFloat(raw.replace(/[$,]/g, ""));
+      const spec = knownFuturesSpec(t.symbol || "");
+      const quantity = Number(t.quantity);
+      const entry = Number(t.entryPrice);
+      if (!spec || !Number.isFinite(dollars) || dollars <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(entry) || entry <= 0) return;
+      const points = dollars / (spec.pointValue * quantity);
+      const stop = t.direction === "short" ? entry + points : entry - points;
+      if (!Number.isFinite(stop) || stop <= 0) return;
+      this.trade!.stopLoss = stop;
+      await this.saveFields({ stop_loss: String(stop) });
+      this.render();
+    }, { numeric: true });
 
     const sessKey = sessionOf(t, zone);
-    const sessRow = execCard.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });
-    sessRow.createEl("span", { cls: "tj-td-flip-key", text: "Session" });
+    const sessRow = execExtra.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });
+    sessRow.dataset.execLabel = "Session";
+    sessRow.createSpan({ cls: "tj-td-flip-key", text: "Session" });
     const sessWrap = sessRow.createDiv({ cls: "tj-td-flip-strat-wrap" });
     const sessItems: DropdownItem[] = [
       { id: "newyork", label: "New York", note: "09:30–16:00 ET" },
@@ -805,16 +716,16 @@ export class TradeDetailView extends ItemView {
     mountDropdown(
       sessWrap,
       sessItems,
-      (t as any).sessionOverride || sessKey || "",
-      async (id) => {
+      t.sessionOverride || sessKey || "",
+      (id) => void (async () => {
         if (id === "__auto__") {
-          delete (t as any).sessionOverride;
+          delete t.sessionOverride;
         } else {
-          (t as any).sessionOverride = id;
+          t.sessionOverride = id;
         }
         await this.saveFields({ session_override: id === "__auto__" ? "" : id });
         this.render();
-      },
+      })(),
       { placeholder: "Session…" }
     );
 
@@ -828,15 +739,19 @@ export class TradeDetailView extends ItemView {
     const fees = mapped
       ? feeForTrade(t, this.plugin.feeAdjustmentsFor(mapped.id))
       : { real: realFees, allocated: 0, total: realFees };
-    const feesSpan = editableRow(execCard, "Fees", `$${realFees.toFixed(2)}`, async (raw) => {
+    const feesSpan = editableRow(execExtra, "Fees", `$${realFees.toFixed(2)}`, async (raw) => {
       const val = parseFloat(raw.replace(/[$]/g, ""));
       if (Number.isFinite(val)) {
         // The edited number is the platform's total. Keep the recorded
         // commission and put the rest in fees, so the split survives the edit
         // and the total stays exactly what was typed.
         const split = splitFeeTotal(val, t.commission || 0);
-        await this.saveFields({ fees: String(split.fees), commission: String(split.commission) });
-        this.render();
+        try {
+          await this.saveFields({ fees: String(split.fees), commission: String(split.commission) });
+          t.fees = split.fees;
+          t.commission = split.commission;
+          if (this.trade?.id === t.id) this.render();
+        } catch { /* saveFields already reports the failure; keep the displayed record. */ }
       }
     }, {
       numeric: true,
@@ -850,71 +765,53 @@ export class TradeDetailView extends ItemView {
     }
 
     // ---- Order Type / Max position / Fill count (every row visible) ----
-    const otRow = execCard.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat" });
-    otRow.createEl("span", { cls: "tj-td-flip-key", text: "Order Type" });
+    const otRow = execExtra.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat tj-td-order-type-row tj-td-source-detail" });
+    otRow.createSpan({ cls: "tj-td-flip-key", text: "Order Type" });
     const otWrap = otRow.createDiv({ cls: "tj-td-flip-strat-wrap" });
     mountDropdown(otWrap, [
       { id: "Limit", label: "Limit" },
       { id: "Market", label: "Market" },
       { id: "Stop", label: "Stop" },
       { id: "Stop Limit", label: "Stop Limit" },
-    ], t.orderType || "", async (id) => {
+    ], t.orderType || "", (id) => void (async () => {
       this.trade!.orderType = id || undefined;
-      await this.saveField("order_type" as any, id);
+      await this.saveField("orderType", id);
       this.render();
-    }, { placeholder: "—" });
+    })(), { placeholder: "—" });
 
-    row(execCard, "Max position", String(fillData.positionSize || t.quantity || 1));
-    row(execCard, "Fill count", String(fillData.fills.length));
 
-    // ---- Strategy + Rating, side by side ----
-    const twoCol = reviewCard.createDiv({ cls: "tj-td-two-col" });
-
-    const stratField = twoCol.createDiv({ cls: "tj-td-field" });
-    const stratLbl = stratField.createEl("div", { cls: "tj-td-field-label" });
-    stratLbl.createEl("span", { text: "Strategy" });
-    const stratWrap = stratField.createDiv({ cls: "tj-td-flip-strat-wrap" });
-    const setupItems: DropdownItem[] = [
-      { id: "__none__", label: "No strategy", note: "Record it without filing it under one" },
-    ];
-    for (const s of this.setupOptions) setupItems.push({ id: s, label: s });
-    setupItems.push({ id: "__new__", label: "＋ New strategy…", note: "Saved to Strategies" });
-    const currentSetup = (t.setup || "").trim();
-    if (currentSetup && !this.setupOptions.some((s) => s.toLowerCase() === currentSetup.toLowerCase())) {
-      setupItems.unshift({ id: currentSetup, label: currentSetup });
+    // ---- Strategy belongs with the objective execution/risk facts ----
+    const stratField = execExtra.createDiv({ cls: "tj-td-flip-row tj-td-flip-row-strat tj-td-strategy-field" });
+    stratField.dataset.execLabel = "Strategy";
+    stratField.createSpan({ cls: "tj-td-flip-key", text: "Strategy" });
+    const stratWrap = stratField.createDiv({ cls: "tj-td-flip-strat-wrap tj-td-strategy-multi" });
+    const currentSetups = strategiesOf(t);
+    const strategyItems: DropdownItem[] = this.setupOptions.map((name) => ({ id: name, label: name }));
+    for (const current of currentSetups) {
+      if (!strategyItems.some((item) => item.id.toLowerCase() === current.toLowerCase())) strategyItems.unshift({ id: current, label: current });
     }
-    mountDropdown(
-      stratWrap,
-      setupItems,
-      currentSetup,
-      async (id) => {
-        if (id === "__none__") {
-          this.trade!.setup = "";
-          await this.saveField("setup", "");
-          this.render();
-          return;
-        }
-        if (id === "__new__") {
-          const name = window.prompt("Name your strategy");
-          if (!name || !name.trim()) return;
-          const clean = await this.plugin.addSetup(name);
-          this.setupOptions = await this.plugin.knownSetups();
-          this.trade!.setup = clean;
-          await this.saveField("setup", clean);
-          this.render();
-          return;
-        }
-        this.trade!.setup = id;
-        await this.saveField("setup", id);
-        this.render();
-      },
-      { placeholder: "Pick a strategy…", title: "Strategy this trade followed" }
-    );
+    strategyItems.push({ id: "__none__", label: "No strategy" });
+    strategyItems.push({ id: "__new__", label: "＋ New strategy…" });
+    if (currentSetups.length > 1) stratWrap.createDiv({ cls: "tj-td-execs-note", text: `Existing assignments: ${currentSetups.join(" · ")}. Choose one strategy to resolve them; nothing is removed until you choose.` });
+    const strategyDropdown = mountDropdown(stratWrap, strategyItems, currentSetups.length === 1 ? currentSetups[0] : "",
+      (id) => void (async () => {
+        if (id === "__new__") { await this.plugin.openSetupsForCreation(); return; }
+        const choice = id === "__none__" ? "" : id;
+        try {
+          const file = this.app.vault.getAbstractFileByPath(t.id);
+          if (!(file instanceof TFile)) throw new Error("Trade note not found.");
+          this._lastLocalWriteAt = Date.now();
+          await setTradeStrategy(this.app, file, choice);
+          t.setup = choice; t.setups = choice ? [choice] : [];
+          if (this.trade?.id === t.id) { this.trade = t; this.render(); }
+        } catch { new Notice("Could not save the strategy. Existing assignments were kept."); }
+      })(), { placeholder: currentSetups.length > 1 ? "Choose one strategy…" : "Choose strategy…" });
+    strategyDropdown.querySelector<HTMLElement>(".tj-mg-dd-btn")!.dataset.reviewControl = "strategy";
 
-    // ---- Rating — 5 loose stars, hover lights 1..N ----
-    const ratingField = twoCol.createDiv({ cls: "tj-td-field" });
-    const ratingLbl = ratingField.createEl("div", { cls: "tj-td-field-label" });
-    ratingLbl.createEl("span", { text: "Rating" });
+    // ---- Rating — 5 loose stars, immediately after reflection ----
+    const ratingField = reviewCard.createDiv({ cls: "tj-td-field tj-td-process-rating" });
+    const ratingLbl = ratingField.createDiv({ cls: "tj-td-field-label" });
+    ratingLbl.createSpan({ text: "Self-rating" });
     const starsWrap = ratingField.createDiv({ cls: "tj-td-stars" });
     const starEls: HTMLElement[] = [];
     const glyphEls: HTMLElement[] = [];
@@ -928,8 +825,9 @@ export class TradeDetailView extends ItemView {
     const setStarHover = (n: number) => {
       starEls.forEach((el, i) => el.toggleClass("hover-on", n >= 0 && i < n));
     };
+    const ratingTradeId = t.id;
     for (let s = 1; s <= 5; s++) {
-      const star = starsWrap.createEl("button", { cls: "tj-td-star", attr: { type: "button" } });
+      const star = starsWrap.createEl("button", { cls: "tj-td-star", attr: { type: "button", "data-review-control": `rating:${s}` } });
       glyphEls.push(star.createSpan({ cls: "tj-td-star-glyph", text: (t.rating ?? 0) >= s ? "★" : "☆" }));
       star.createSpan({ cls: "tj-sr-only", text: `Rate ${s} of 5` });
       attachTip(star, { title: `${s}/5`, sub: "Click the same star again to clear." });
@@ -940,7 +838,7 @@ export class TradeDetailView extends ItemView {
         paintStars(next);
         setStarHover(-1);
         this.refreshReviewHeader();
-        this.debounceReview("rating", () => this.saveField("rating", String(next)), 400);
+        this.debounceReview("rating", () => this.saveField("rating", String(next), ratingTradeId), 400);
       });
       starEls.push(star);
     }
@@ -953,47 +851,84 @@ export class TradeDetailView extends ItemView {
     // land in `psychology_tags` / `mistake_tags` as native YAML arrays; mistakes
     // also mirror into the legacy `mistake` scalar via `setTradeMistakeTags`.
     const tagSection = (
+      host: HTMLElement,
       key: "psychology_tags" | "mistake_tags",
       label: string,
       tip: string,
       ack: { field: "psychologyAcknowledged" | "mistakesAcknowledged"; text: string }
     ) => {
       const mistake = key === "mistake_tags";
-      const field = reviewCard.createDiv({
+      const field = host.createDiv({
         cls: "tj-td-field tj-td-tags" + (mistake ? " tj-td-tags--mistakes" : ""),
       });
-      const lbl = field.createEl("div", { cls: "tj-td-field-label" });
+      const lbl = field.createDiv({ cls: "tj-td-field-label" });
       const lblText = lbl.createSpan({ text: label });
       attachTip(lblText, { title: label, sub: tip });
-      const addBtn = lbl.createEl("button", { cls: "tj-td-ghostbtn", text: "＋ Add tag", attr: { type: "button" } });
+      const controls = field.createDiv({ cls: "tj-td-tag-controls" });
+      const selectorHost = controls.createDiv({ cls: "tj-td-selector-host" });
+      const ackBtn = controls.createEl("button", {
+        cls: "tj-td-ack" + (mistake ? " is-mistake" : " is-psychology"),
+        text: ack.text,
+        attr: { type: "button", "aria-pressed": "false" },
+      });
+      ackBtn.dataset.reviewControl = "ack";
+      ackBtn.dataset.reviewGroup = key;
       const chipsWrap = field.createDiv({ cls: "tj-td-tagchips" });
 
-      const ackBtn = field.createEl("button", { cls: "tj-td-ack", text: ack.text, attr: { type: "button" } });
-      const paintAck = () => ackBtn.toggleClass("on", this.trade?.[ack.field] === true);
+      const paintAck = () => {
+        const declared = this.trade?.[ack.field] === true;
+        const hasTags = (this.trade?.[key]?.length ?? 0) > 0;
+        const active = declared && !hasTags;
+        ackBtn.toggleClass("on", active);
+        ackBtn.toggleClass("is-selected", active);
+        ackBtn.disabled = false;
+        ackBtn.setText(ack.text);
+        ackBtn.setAttr("aria-pressed", String(active));
+        ackBtn.setAttr("title", hasTags ? "Clear the selected tags and record that there was nothing to record." : "Choose this when there is nothing to record.");
+      };
       paintAck();
-      ackBtn.addEventListener("click", async () => {
-        const next = this.trade?.[ack.field] !== true;
-        this.trade![ack.field] = next;
-        await this.saveAck(ack.field, next);
-        paintAck();
-        this.refreshReviewHeader();
-      });
 
-      const write = (tags: string[]) => {
+      const write = (tags: string[], immediate = false): Promise<void> => {
         const id = this.trade?.id;
-        if (!id) return;
-        const file = this.app.vault.getAbstractFileByPath(id) as TFile;
-        if (!(file instanceof TFile)) return;
-        this.debounceReview(key, async () => {
+        if (!id) return Promise.resolve();
+        const file = this.app.vault.getAbstractFileByPath(id);
+        if (!(file instanceof TFile)) return Promise.resolve();
+        const run = async () => {
           try {
+            this._lastLocalWriteAt = Date.now();
             if (mistake) await setTradeMistakeTags(this.app, file, tags);
             else await updateTradeArrayFields(this.app, file, { psychology_tags: tags });
           } catch (err) {
             console.error("[tradebook] failed to save tags:", err);
             new Notice("Could not save tags — check the file still exists.");
           }
-        });
+        };
+        if (immediate) {
+          const pending = this._saveTimers[key];
+          if (pending) window.clearTimeout(pending.timer);
+          delete this._saveTimers[key];
+          return run();
+        }
+        this.debounceReview(key, run);
+        return Promise.resolve();
       };
+
+      let picker: MultiDropdown | null = null;
+
+      ackBtn.addEventListener("click", () => void (async () => {
+        const hasTags = (this.trade?.[key]?.length ?? 0) > 0;
+        if (hasTags) {
+          this.trade![key] = [];
+          picker?.setValues([]);
+          paintChips();
+        }
+        const next = hasTags ? true : this.trade?.[ack.field] !== true;
+        this.trade![ack.field] = next;
+        paintAck();
+        this.refreshReviewHeader();
+        if (hasTags) await write([], true);
+        await this.saveAck(ack.field, next);
+      })());
 
       /** Logging a tag contradicts a standing "none" — the acknowledgement steps aside. */
       const clearAckIfNeeded = () => {
@@ -1014,6 +949,8 @@ export class TradeDetailView extends ItemView {
             text: tag,
             attr: { type: "button" },
           });
+          chip.dataset.reviewControl = "tag_chip";
+          chip.dataset.reviewGroup = key;
           chip.addEventListener("click", () => toggle(tag));
         }
       };
@@ -1026,175 +963,426 @@ export class TradeDetailView extends ItemView {
         const next = has ? cur.filter((v) => v.toLowerCase() !== tag.toLowerCase()) : [...cur, tag];
         const clean = normalizeTags(next);
         this.trade![key] = clean;
-        write(clean);
+        picker?.setValues(clean);
+        void write(clean);
         if (!has) clearAckIfNeeded();
+        paintAck();
         paintChips();
-        paintPop?.();
         this.refreshReviewHeader();
       };
 
-      // ---- Tag popover: the vocabulary (plus any tag already on the trade) ----
-      let pop: HTMLElement | null = null;
-      let popCleanup: (() => void) | null = null;
-      let paintPop: (() => void) | null = null;
-
-      const closePop = () => {
-        if (!pop) return;
-        popCleanup?.();
-        popCleanup = null;
-        paintPop = null;
-        pop.remove();
-        pop = null;
-      };
-
-      const openPop = () => {
-        closePop();
-        const doc = this.contentEl.ownerDocument;
-        const win = doc.defaultView ?? window;
-        pop = doc.body.createDiv({ cls: "tj-td-tagpop" });
-
-        paintPop = () => {
+      const grouped = reviewTagGroups(this.plugin.settings, mistake ? "mistakes" : "psychology");
+      const listed = new Set(grouped.flatMap((group) => group.tags.map((tag) => tag.toLowerCase())));
+      const items: DropdownItem[] = grouped.flatMap((group) => group.tags.map((tag, index) => ({
+        id: tag,
+        label: tag,
+        heading: index === 0 ? group.label : undefined,
+      })));
+      for (const tag of normalizeTags([...this.knownTags(key), ...(this.trade?.[key] ?? [])])) {
+        if (!listed.has(tag.toLowerCase())) items.push({ id: tag, label: tag });
+      }
+      picker = mountMultiDropdown(
+        selectorHost,
+        items,
+        this.trade?.[key] ?? [],
+        (values) => {
+          const clean = normalizeTags(values);
+          this.trade![key] = clean;
+          picker?.setValues(clean);
+          void write(clean);
+          if (clean.length) clearAckIfNeeded();
+          paintAck();
           paintChips();
-          if (!pop) return;
-          const panel = pop;
-          panel.empty();
-          const tags = (this.trade?.[key] ?? []);
-          const on = new Set(tags.map((v) => v.toLowerCase()));
-          for (const tag of normalizeTags([...this.knownTags(key), ...tags])) {
-            const isOn = on.has(tag.toLowerCase());
-            const row = panel.createDiv({ cls: "tj-td-tagpop-row" + (isOn ? " is-on" : "") });
-            row.createSpan({ cls: "tj-td-tagpop-check", text: isOn ? "✓" : "" });
-            row.createSpan({ cls: "tj-td-tagpop-lbl", text: tag });
-            row.addEventListener("click", (e) => {
-              e.stopPropagation();
-              toggle(tag);
-            });
-          }
-          const done = panel.createEl("button", { cls: "tj-td-tagpop-done", text: "Done", attr: { type: "button" } });
-          done.addEventListener("click", (e) => {
-            e.stopPropagation();
-            closePop();
-          });
-        };
-        paintPop();
-
-        // Pin under the ghost link, flipped up when there is no room below.
-        const place = () => {
-          if (!pop || !addBtn.isConnected) {
-            closePop();
-            return;
-          }
-          const r = addBtn.getBoundingClientRect();
-          const w = pop.offsetWidth;
-          const h = pop.offsetHeight;
-          let left = r.right - w;
-          let top = r.bottom + 6;
-          if (left < 8) left = 8;
-          if (left + w > win.innerWidth - 8) left = win.innerWidth - 8 - w;
-          if (top + h > win.innerHeight - 8 && r.top - 6 - h > 8) top = r.top - 6 - h;
-          pop.style.left = `${Math.round(left)}px`;
-          pop.style.top = `${Math.round(top)}px`;
-        };
-        place();
-
-        const onDoc = (e: MouseEvent) => {
-          const target = e.target as Node | null;
-          if (pop && target && (pop.contains(target) || addBtn.contains(target))) return;
-          closePop();
-        };
-        const onKey = (e: KeyboardEvent) => {
-          if (e.key === "Escape") closePop();
-        };
-        const observer =
-          typeof MutationObserver === "undefined"
-            ? null
-            : new MutationObserver(() => {
-                if (pop && !addBtn.isConnected) closePop();
-              });
-        observer?.observe(doc.body, { childList: true, subtree: true });
-        doc.addEventListener("mousedown", onDoc, true);
-        doc.addEventListener("keydown", onKey, true);
-        win.addEventListener("resize", place);
-        win.addEventListener("scroll", place, true);
-        popCleanup = () => {
-          observer?.disconnect();
-          doc.removeEventListener("mousedown", onDoc, true);
-          doc.removeEventListener("keydown", onKey, true);
-          win.removeEventListener("resize", place);
-          win.removeEventListener("scroll", place, true);
-        };
-      };
-
-      addBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (pop) closePop();
-        else openPop();
-      });
+          this.refreshReviewHeader();
+        },
+        { placeholder: mistake ? "Add issue…" : "Add state…", summary: false },
+      );
+      picker.querySelector<HTMLElement>(".tj-mg-dd-btn")!.dataset.reviewControl = "tags";
+      picker.querySelector<HTMLElement>(".tj-mg-dd-btn")!.dataset.reviewGroup = key;
     };
-    tagSection(
-      "psychology_tags",
-      "Psychology State",
-      "How you felt in the trade — patient, anxious, revenge. Reused across trades for review.",
-      { field: "psychologyAcknowledged", text: "No psychology state to log" }
+    // Market context/news stays independent from Psychology and Mistakes.
+    const marketContext = reviewCard.createDiv({ cls: "tj-td-field tj-td-market-context" });
+    const marketContextLabel = marketContext.createDiv({ cls: "tj-td-field-label" });
+    marketContextLabel.createSpan({ text: "Market context / news" });
+    marketContextLabel.createSpan({ cls: "tj-td-char-count", text: "Optional · external conditions only" });
+    const marketContextGrid = marketContext.createDiv({ cls: "tj-td-two-col tj-td-two-col--equal tj-td-market-context-grid" });
+    const marketPicker = (
+      host: HTMLElement,
+      label: string,
+      items: DropdownItem[],
+      key: "market_context_timing" | "market_context_effect",
+      placeholder: string,
+    ) => {
+      const field = host.createDiv({ cls: "tj-td-field tj-td-market-picker" });
+      field.createDiv({ cls: "tj-td-field-label", text: label });
+      const current = Array.from(new Set((t[key] ?? []).map((value) => value.trim()).filter(Boolean)));
+      const picker = mountMultiDropdown(
+        field,
+        items,
+        current,
+        (values) => void (async () => {
+          const clean = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+          this.trade![key] = clean;
+          const file = this.app.vault.getAbstractFileByPath(this.trade!.id);
+          if (file instanceof TFile) await updateTradeArrayFields(this.app, file, { [key]: clean });
+          this.refreshReviewHeader();
+        })(),
+        { placeholder },
+      );
+      picker.querySelector<HTMLElement>(".tj-mg-dd-btn")!.dataset.reviewControl = key;
+    };
+    marketPicker(
+      marketContextGrid,
+      "When was it relevant?",
+      [
+        { id: "event-approaching-before-entry", label: "Approaching before entry" },
+        { id: "event-approaching-in-trade", label: "Approaching while in trade" },
+        { id: "event-released-in-trade", label: "Released while in trade" },
+        { id: "event-after-exit", label: "After exit" },
+      ],
+      "market_context_timing",
+      "Select event timing…",
     );
-    tagSection(
-      "mistake_tags",
-      "Execution Mistakes",
-      "What went wrong on the execution — FOMO entry, early exit. Feeds the discipline review.",
-      { field: "mistakesAcknowledged", text: "No mistakes this trade" }
+    marketPicker(
+      marketContextGrid,
+      "What did it affect?",
+      [
+        { id: "no-observed-effect", label: "No observed effect" },
+        { id: "volatility-or-liquidity-changed", label: "Volatility / liquidity" },
+        { id: "management-changed", label: "Management" },
+        { id: "exit-changed", label: "Exit" },
+        { id: "impact-uncertain", label: "Impact uncertain" },
+      ],
+      "market_context_effect",
+      "Select observed effect…",
     );
 
-    // ---- Notes textarea (replaces thesis/review/mistake) ----
-    const notesGroup = reviewCard.createDiv({ cls: "tj-td-field" });
-    const notesLbl = notesGroup.createEl("div", { cls: "tj-td-field-label" });
-    notesLbl.createEl("span", { text: "Notes" });
-    const notesCharCount = notesLbl.createEl("span", { cls: "tj-td-char-count" });
-    const notesVal = t.notes || t.thesis || t.review || t.mistake || "";
-    notesCharCount.textContent = notesVal ? `${notesVal.length} chars` : "Optional";
-    const notesArea = notesGroup.createEl("textarea", {
-      cls: "tj-td-textarea",
-      attr: { rows: "3", placeholder: "What did you see? What went well or poorly?" },
+    // Pair both explicit declarations with the tags they qualify.
+    const psychologyExecution = reviewCard.createDiv({ cls: "tj-td-two-col tj-td-two-col--equal tj-td-review-patterns" });
+    tagSection(
+      psychologyExecution,
+      "psychology_tags",
+      "Psychology",
+      "How you felt in the trade — patient, anxious, revenge. Reused across trades for review.",
+      { field: "psychologyAcknowledged", text: "No psychology state" }
+    );
+    tagSection(
+      psychologyExecution,
+      "mistake_tags",
+      "Execution / Mistakes",
+      "Declare a mechanical, entry, exit, sizing, or discipline issue. Nothing is inferred from results.",
+      { field: "mistakesAcknowledged", text: "No execution issue" }
+    );
+    if ([t.review_planned_entry, t.review_planned_stop, t.review_planned_target, t.review_planned_quantity].some((value) => typeof value === "number" && Number.isFinite(value))) {
+      const adherenceField = reviewCard.createDiv({ cls: "tj-td-field tj-td-plan-adherence tj-td-review-adherence" });
+      const adherenceLabel = adherenceField.createDiv({ cls: "tj-td-field-label" });
+      adherenceLabel.createSpan({ text: "Plan adherence" });
+      adherenceLabel.createSpan({ cls: "tj-td-char-count", text: "Optional · manual plan recorded" });
+      const adherenceChoices = adherenceField.createDiv({ cls: "tj-td-choice-row" });
+      const choices: Array<[NonNullable<Trade["review_plan_adherence"]>, string]> = [
+        ["followed", "Followed plan"],
+        ["changed", "Changed plan"],
+        ["not-recorded", "Not recorded"],
+      ];
+      const paintAdherence = () => {
+        adherenceChoices.querySelectorAll<HTMLElement>("button").forEach((button) => {
+          button.toggleClass("is-active", button.dataset.value === t.review_plan_adherence);
+        });
+      };
+      for (const [value, label] of choices) {
+        const button = adherenceChoices.createEl("button", {
+          cls: "tj-td-choice",
+          text: label,
+          attr: { type: "button", "data-value": value, "data-review-control": `adherence:${value}` },
+        });
+        button.addEventListener("click", () => {
+          t.review_plan_adherence = value;
+          paintAdherence();
+          void this.saveField("review_plan_adherence", value);
+          this.refreshReviewHeader();
+        });
+      }
+      paintAdherence();
+    }
+
+
+    if (planDifferences(t).length) {
+      const diffField = reviewCard.createDiv({ cls: "tj-td-field tj-td-plan-differences tj-td-review-differences" });
+      const diffLabel = diffField.createDiv({ cls: "tj-td-field-label" });
+      diffLabel.createSpan({ text: "Planned vs actual differences" });
+      diffLabel.createSpan({ cls: "tj-td-char-count", text: "Neutral comparison" });
+      for (const diff of planDifferences(t)) {
+        diffField.createDiv({ cls: "tj-td-review-difference", text: `${diff.label}: planned ${diff.planned}, actual ${diff.actual}, difference ${diff.difference}` });
+      }
+    }
+
+    // Exit reason — manual declaration, never auto-classified
+    {
+      const exitReasonField = reviewCard.createDiv({ cls: "tj-td-field tj-td-review-exit" });
+      exitReasonField.createDiv({ cls: "tj-td-field-label", text: "Why did I close?" });
+      const reasonChoices: DropdownItem[] = [
+        { id: "stop/invalidation reached", label: "Stop / invalidation reached" },
+        { id: "target/planned objective reached", label: "Target / planned objective reached" },
+        { id: "breakeven/scratch exit", label: "Breakeven / scratch exit" },
+        { id: "trailing/managed stop", label: "Trailing / managed stop" },
+        { id: "thesis/setup no longer valid", label: "Thesis / setup no longer valid" },
+        { id: "time/session ended", label: "Time / session ended" },
+        { id: "market/news context changed", label: "Market / news context changed" },
+        { id: "risk/comfort changed", label: "Risk / comfort changed" },
+        { id: "forced/external close", label: "Forced / external close" },
+        { id: "mixed/multiple reasons", label: "Mixed / multiple reasons" },
+        { id: "other", label: "Other" },
+      ];
+      const legacyExitLabels: Record<string, string> = {
+        "planned stop": "Planned stop",
+        "target hit": "Target hit",
+        "early exit": "Early exit",
+        "trailing stop": "Trailing stop",
+        discretionary: "Discretionary",
+        error: "Error",
+      };
+      const currentExitReason = t.exit_reason || "";
+      if (currentExitReason && legacyExitLabels[currentExitReason]) {
+        reasonChoices.unshift({ id: currentExitReason, label: `${legacyExitLabels[currentExitReason]} (legacy)` });
+      }
+      const exitReasonWrap = exitReasonField.createDiv({ cls: "tj-td-flip-strat-wrap" });
+      const exitReasonDropdown = mountDropdown(
+        exitReasonWrap,
+        reasonChoices,
+        t.exit_reason || "",
+        (id) => void (async () => {
+          this.trade!.exit_reason = id as Trade["exit_reason"] || undefined;
+          await this.saveField("exit_reason", id || "");
+          this.refreshReviewHeader();
+        })(),
+        { placeholder: "Select exit reason…" }
+      );
+      exitReasonDropdown.querySelector<HTMLElement>(".tj-mg-dd-btn")!.dataset.reviewControl = "exit_reason";
+    }
+
+    const reviewGroup = reviewCard.createDiv({ cls: "tj-td-review-prompts" });
+    const coreReviewGroup = reviewGroup.createDiv({ cls: "tj-td-review-core" });
+    const contextChoice = coreReviewGroup.createDiv({ cls: "tj-td-context-choice" });
+    const contextLabel = contextChoice.createEl("label", { cls: "tj-td-context-label" });
+    const contextInput = contextLabel.createEl("input", { attr: { type: "checkbox", "data-review-control": "context" } });
+    contextInput.checked = t.review_context_unavailable === true;
+    contextLabel.createSpan({ text: "Relevant context unavailable" });
+    contextChoice.createSpan({
+      cls: "tj-td-context-help",
+      text: "Optional. Select only when relevant context was genuinely unavailable.",
     });
-    notesArea.value = notesVal;
-    notesArea.addEventListener("input", () => {
-      const val = notesArea.value.trim();
-      notesCharCount.textContent = val.length > 0 ? `${val.length} chars` : "Optional";
-      if (val === (this.trade!.notes ?? notesVal)) return;
-      this.trade!.notes = val;
-      this.debounceReview("notes", async () => {
-        await this.saveField("notes", val);
+    contextInput.addEventListener("change", () => {
+      t.review_context_unavailable = contextInput.checked;
+      void this.saveField("review_context_unavailable", contextInput.checked);
+      this.refreshReviewHeader();
+    });
+    const optionalDetails = reviewGroup.createEl("details", { cls: "tj-td-review-more" });
+    optionalDetails.open = this._optionalOpen?.tradeId === t.id
+      ? this._optionalOpen.open
+      : false;
+    optionalDetails.addEventListener("toggle", () => {
+      this._optionalOpen = { tradeId: t.id, open: optionalDetails.open };
+    });
+    const optionalSummary = optionalDetails.createEl("summary", { cls: "tj-td-review-more-summary", attr: { "data-review-control": "optional" } });
+    optionalSummary.createSpan({ text: "Optional review details" });
+    optionalSummary.createSpan({ cls: "tj-td-char-count", text: "Plan · order context · post-exit · older notes" });
+    const optionalReviewGroup = optionalDetails.createDiv({ cls: "tj-td-review-more-body" });
+
+    const reviewTextField = (
+      key: "review_plan" | "review_what_happened" | "review_repeat_change" | "review_post_exit_observation",
+      label: string,
+      placeholder: string,
+      optional: boolean,
+      onInput?: (value: string) => void,
+    ): void => {
+      const host = optional ? optionalReviewGroup : coreReviewGroup;
+      const tradeId = t.id;
+      const group = host.createDiv({ cls: `tj-td-field tj-td-review-field-${key}` });
+      const fieldLabel = group.createDiv({ cls: "tj-td-field-label" });
+      fieldLabel.createSpan({ text: label });
+      if (optional) fieldLabel.createSpan({ cls: "tj-td-char-count", text: "Optional" });
+      const toolbar = group.createDiv({ cls: "tj-td-markdown-toolbar", attr: { "aria-label": "Formatting" } });
+      const area = group.createDiv({
+        cls: "tj-td-rich-editor",
+        attr: {
+          contenteditable: "true",
+          role: "textbox",
+          "aria-multiline": "true",
+          "data-review-field": key,
+          "data-placeholder": placeholder,
+        },
+      });
+      const parsedReview = new DOMParser().parseFromString(reviewMarkdownToHtml(this.trade?.[key] ?? ""), "text/html");
+      area.replaceChildren(...Array.from(parsedReview.body.childNodes).map((node) => document.importNode(node, true)));
+      const runCommand = (command: string, value?: string) => {
+        area.focus();
+        document.execCommand(command, false, value);
+        area.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      const shortcut = (labelText: string, title: string, command: string, value?: string) => {
+        const button = toolbar.createEl("button", { cls: "tj-td-markdown-button", text: labelText, attr: { type: "button", title } });
+        button.addEventListener("mousedown", (event) => event.preventDefault());
+        button.addEventListener("click", () => runCommand(command, value));
+      };
+      shortcut("B", "Bold", "bold");
+      shortcut("I", "Italic", "italic");
+      shortcut("H", "Heading", "formatBlock", "<h2>");
+      shortcut("•", "Bullet list", "insertUnorderedList");
+      area.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") { event.preventDefault(); runCommand("bold"); }
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "i") { event.preventDefault(); runCommand("italic"); }
+      });
+      area.addEventListener("input", () => {
+        const val = reviewHtmlToMarkdown(area);
+        this.trade![key] = val;
+        onInput?.(val);
+        this.debounceReview(key, async () => {
+          await this.saveField(key, val, tradeId);
+          this.refreshReviewHeader();
+        });
+      });
+      area.addEventListener("blur", () => this.flushReviewSaves());
+    };
+    reviewTextField("review_plan", "Plan / context", "What did you intend before or during the trade?", true);
+    const manualPlan = optionalReviewGroup.createDiv({ cls: "tj-td-field tj-td-manual-plan" });
+    const timingLabel = manualPlan.createDiv({ cls: "tj-td-field-label" });
+    timingLabel.createSpan({ text: "Plan timing" });
+    timingLabel.createSpan({ cls: "tj-td-char-count", text: "Explicit or unknown" });
+    const timing = manualPlan.createEl("select", { cls: "tj-td-input", attr: { "aria-label": "Plan timing", "data-review-control": "plan_timing" } });
+    for (const option of [["unknown", "Timing not recorded"], ["before-entry", "Before entry"], ["during-trade", "During trade"], ["after-exit", "After exit"]] as const) {
+      timing.createEl("option", { value: option[0], text: option[1] });
+    }
+    timing.value = t.review_plan_timing ?? "unknown";
+    timing.addEventListener("change", () => {
+      t.review_plan_timing = timing.value as Trade["review_plan_timing"];
+      void this.saveField("review_plan_timing", timing.value);
+    });
+    const planInputs: Array<["review_planned_entry" | "review_planned_stop" | "review_planned_target" | "review_planned_quantity", string]> = [
+      ["review_planned_entry", "Planned entry"], ["review_planned_stop", "Planned stop"], ["review_planned_target", "Planned target"], ["review_planned_quantity", "Planned quantity"],
+    ];
+    for (const [key, label] of planInputs) {
+      const fieldLabel = manualPlan.createDiv({ cls: "tj-td-field-label" });
+      fieldLabel.createSpan({ text: label });
+      fieldLabel.createSpan({ cls: "tj-td-char-count", text: "Manual plan" });
+      const input = manualPlan.createEl("input", { cls: "tj-td-input", attr: { type: "number", step: "any", placeholder: label, "data-review-control": key } });
+      input.value = typeof t[key] === "number" ? String(t[key]) : "";
+      input.addEventListener("change", () => {
+        const value = input.value.trim();
+        const parsed = parsePlannedNumber(value, key);
+        (t as unknown as Record<string, unknown>)[key] = parsed;
+        void this.saveField(key, parsed === undefined ? "" : String(parsed));
+        if (value && !t.review_plan_provenance) {
+          t.review_plan_provenance = "manual";
+          void this.saveField("review_plan_provenance", "manual");
+        }
         this.refreshReviewHeader();
       });
+    }
+    if (!t.recordedOrderFacts?.length && typeof t.target === "number" && Number.isFinite(t.target) && t.target > 0) {
+      const recordedTarget = optionalReviewGroup.createDiv({ cls: "tj-td-field tj-td-recorded-order-context" });
+      const targetLabel = recordedTarget.createDiv({ cls: "tj-td-field-label" });
+      targetLabel.createSpan({ text: "Recorded target price" });
+      targetLabel.createSpan({ cls: "tj-td-char-count", text: "Not an exit fill · legacy source/status unavailable" });
+      const targetInput = recordedTarget.createEl("input", {
+        cls: "tj-td-input",
+        attr: { type: "number", step: "any", "aria-label": "Recorded target price, not an exit fill" },
+      });
+      targetInput.value = String(t.target);
+      targetInput.addEventListener("change", () => {
+        const raw = targetInput.value.trim();
+        const parsed = raw ? Number(raw) : 0;
+        if (raw && (!Number.isFinite(parsed) || parsed <= 0)) return;
+        t.target = parsed;
+        void this.saveFields({ target: String(parsed) });
+      });
+    }
+    const recordedOrderFacts = t.recordedOrderFacts ?? [];
+    if (recordedOrderFacts.length) {
+      const orderContext = optionalReviewGroup.createDiv({ cls: "tj-td-field tj-td-recorded-order-context" });
+      const orderContextLabel = orderContext.createDiv({ cls: "tj-td-field-label" });
+      orderContextLabel.createSpan({ text: "Recorded order facts" });
+      orderContextLabel.createSpan({ cls: "tj-td-char-count", text: "Order records · not execution fills" });
+      const orderContextRows = orderContext.createDiv({ cls: "tj-td-order-fact-list" });
+      const sourceLabel = (source: string) => source === "tradesea" ? "TradeSea export"
+        : source === "orders" ? "Orders export"
+          : source === "fills" ? "Fills export"
+            : "Unknown export";
+      for (const fact of recordedOrderFacts) {
+        const parts = [
+          fact.stopPrice !== undefined ? `Stop ${fmtPrice(fact.stopPrice)}` : "",
+          fact.limitPrice !== undefined ? `Limit ${fmtPrice(fact.limitPrice)}` : "",
+          fact.quantity !== undefined ? `Order qty ${fact.quantity}` : "",
+          fact.orderType || "",
+          `Status ${fact.status || "unavailable"}`,
+          Number.isFinite(Date.parse(fact.recordedAt)) ? `Recorded ${fact.recordedAt}` : "Time unavailable",
+          sourceLabel(fact.source),
+        ].filter(Boolean);
+        orderContextRows.createDiv({ cls: "tj-td-order-fact", text: parts.join(" · ") });
+      }
+    }
+    reviewTextField("review_what_happened", "What happened", "Record one concise observation.", false);
+    reviewTextField("review_repeat_change", "What would you repeat or change?", "What would you repeat or change next time?", false);
+    const postExitTradeId = t.id;
+    reviewTextField(
+      "review_post_exit_observation",
+      "Post-exit observation",
+      "Optional: what happened after you were out? Keep this as an observation, not an inferred calculation.",
+      true,
+      (value) => {
+        t.review_post_exit_source = value.trim() || typeof t.review_post_exit_points === "number" ? "manual" : undefined;
+        this.debounceReview("review_post_exit_source", () => this.saveField("review_post_exit_source", t.review_post_exit_source ?? "", postExitTradeId), 400);
+      },
+    );
+
+    const postExitPoints = optionalReviewGroup.createDiv({ cls: "tj-td-field tj-td-future-observation" });
+    const postExitLabel = postExitPoints.createDiv({ cls: "tj-td-field-label" });
+    postExitLabel.createSpan({ text: "Known post-exit points" });
+    postExitLabel.createSpan({ cls: "tj-td-char-count", text: "Manual only · optional" });
+    const postExitInput = postExitPoints.createEl("input", {
+      cls: "tj-td-input",
+      attr: { type: "number", step: "0.01", placeholder: "Only enter a known/manual observation" },
     });
-    // Leaving the field is the one moment a half-typed word should stop waiting.
-    notesArea.addEventListener("blur", () => this.flushReviewSaves());
+    postExitInput.value = typeof t.review_post_exit_points === "number" ? String(t.review_post_exit_points) : "";
+    postExitInput.addEventListener("change", () => {
+      const value = postExitInput.value.trim();
+      t.review_post_exit_points = value === "" ? undefined : Number(value);
+      t.review_post_exit_source = value === "" ? undefined : "manual";
+      void this.saveField("review_post_exit_points", value);
+      void this.saveField("review_post_exit_source", t.review_post_exit_source ?? "");
+    });
+
+    // Preserve legacy free-form content as read-only compatibility text; the two
+    // core prompts remain the only editable reflection fields and completion gate.
+    const legacyReviewFields = [
+      ["Legacy notes", t.notes],
+      ["Legacy review", t.review],
+      ["Legacy thesis", t.thesis],
+      ["Legacy mistake", t.mistake],
+    ].filter(([, value]) => String(value ?? "").trim());
+    if (legacyReviewFields.length) {
+      const legacy = optionalReviewGroup.createDiv({ cls: "tj-td-legacy-review" });
+      legacy.createDiv({ cls: "tj-td-field-label", text: "Older saved review text" });
+      for (const [label, value] of legacyReviewFields) {
+        const item = legacy.createDiv({ cls: "tj-td-legacy-review-item" });
+        item.createDiv({ cls: "tj-td-legacy-review-label", text: label });
+        item.createDiv({ cls: "tj-td-legacy-review-value", text: String(value).trim() });
+      }
+    }
 
     // ================================================================
     // RIGHT COLUMN — Screenshots & visual analysis + Executions
     // ================================================================
     const rightCol = cols.createDiv({ cls: "tj-td-right" });
 
-    // Build the print list from the array (one-time migration from the legacy scalar).
-    const shot = t.screenshot && t.screenshot.trim();
-    if ((!t.screenshots || t.screenshots.length === 0) && shot && shot.toLowerCase() !== "added") {
-      t.screenshots = [];
-      for (const p of shot.split(/[,;\n]+/)) {
-        const trimmed = p.trim();
-        if (trimmed) t.screenshots.push({ file: trimmed });
-      }
-      void this.saveScreenshotsNow();
-    }
-    const prints = (t.screenshots ?? []).filter((s) => s.file);
-    if (this._activePrint >= prints.length) this._activePrint = 0;
-
+    // Resolve a display-only fallback for legacy scalar references; rendering never migrates note data.
+    const prints = this.resolveScreenshotEntries(t);
+    if (this._activePrint < 0 || this._activePrint >= prints.length) this._activePrint = 0;
     // ---- Screenshot card ----
     const shotCard = rightCol.createDiv({ cls: "tj-td-panel tj-td-shot-card" });
     const dzHeader = shotCard.createDiv({ cls: "tj-td-panel-head tj-td-shot-head" });
-    dzHeader.createEl("div", {
+    dzHeader.createDiv({
       cls: "tj-td-panel-title",
-      text: prints.length
-        ? `Screenshots & Visual Analysis (${prints.length})`
-        : "Screenshots & Visual Analysis",
+      text: "Visual analysis",
     });
     const dzActions = dzHeader.createDiv({ cls: "tj-td-dropzone-actions" });
 
@@ -1203,17 +1391,13 @@ export class TradeDetailView extends ItemView {
 
     // Show the prints — one large preview plus a thumbnail strip to switch.
     if (prints.length > 0) {
-      const active = prints[this._activePrint];
+      const active = prints[this._activePrint]?.entry;
       const activeFile = this.resolveImageFile(active.file);
       if (activeFile) {
         const annotateBtn = dzActions.createEl("button", {
-          cls: "tj-btn tj-mini", text: "Annotate", attr: { type: "button" },
+          cls: "tj-btn tj-mini tj-td-media-action", text: "Mark up", attr: { type: "button", "aria-label": "Mark up selected screenshot" },
         });
         annotateBtn.addEventListener("click", () => this.annotate(activeFile));
-        const enlargeBtn = dzActions.createEl("button", {
-          cls: "tj-btn tj-mini", text: "Enlarge", attr: { type: "button" },
-        });
-        enlargeBtn.addEventListener("click", () => this.openPrintLarge(activeFile));
       }
 
       const carousel = shotCard.createDiv({ cls: "tj-td-shot-carousel" });
@@ -1228,43 +1412,105 @@ export class TradeDetailView extends ItemView {
           attr: { src: resolved, alt: `Print ${this._activePrint + 1}` },
         });
         img.addClass("tj-td-shot-img");
+        const syncStageRatio = () => {
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            mainWrap.style.aspectRatio = `${img.naturalWidth} / ${img.naturalHeight}`;
+          }
+        };
+        img.addEventListener("load", syncStageRatio);
+        syncStageRatio();
         img.addEventListener("error", () => { img.setCssStyles({ opacity: "0.2" }); });
         if (activeFile) {
           img.addEventListener("click", () => this.openPrintLarge(activeFile));
-          const overlay = mainWrap.createDiv({ cls: "tj-td-shot-annotate" });
-          overlay.setText("Annotate");
-          overlay.addEventListener("click", () => this.annotate(activeFile));
         }
       } else {
         mainWrap.createDiv({ cls: "tj-hint", text: `Print not found: ${active.file}` });
       }
 
       const thumbs = carousel.createDiv({ cls: "tj-td-shot-thumbs" });
-      prints.forEach((p, i) => {
+      prints.forEach(({ entry: p, sourceIndex }, i) => {
         const thumb = thumbs.createDiv({
           cls: "tj-td-shot-thumb" + (i === this._activePrint ? " is-active" : ""),
+          attr: { draggable: "true" },
         });
+        const showButton = thumb.createEl("button", {
+          cls: "tj-td-shot-show",
+          attr: { type: "button", "aria-pressed": i === this._activePrint ? "true" : "false" },
+        });
+        showButton.createSpan({ cls: "tj-sr-only", text: `Show print ${i + 1}` });
         const tr = this.resolveImage(p.file);
-        if (tr) thumb.createEl("img", { attr: { src: tr, alt: `Print ${i + 1}` } });
-        else thumb.createDiv({ cls: "tj-td-shot-thumb-missing", text: "?" });
-        thumb.createSpan({ cls: "tj-td-shot-thumb-label", text: `Print ${i + 1}` });
-        const x = thumb.createEl("button", { cls: "tj-td-shot-remove", attr: { type: "button" } });
+        if (tr) showButton.createEl("img", { attr: { src: tr, alt: "" } });
+        else showButton.createDiv({ cls: "tj-td-shot-thumb-missing", text: "?" });
+        showButton.createSpan({ cls: "tj-td-shot-thumb-label", text: `Print ${i + 1}` });
+        const x = thumb.createEl("button", { cls: "tj-td-shot-remove", attr: { type: "button", "aria-label": `Remove print ${i + 1}` } });
         x.createSpan({ cls: "tj-sr-only", text: `Remove print ${i + 1}` });
-        setIcon(x, "x");
-        x.addEventListener("click", async (ev) => {
+        x.createSpan({ cls: "tj-td-shot-remove-icon", text: "×" });
+        x.addEventListener("click", (ev) => void (async () => {
           ev.stopPropagation();
-          await this.removeScreenshot(i);
+          if (sourceIndex >= 0) await this.removeScreenshot(sourceIndex);
+        })());
+        thumb.addEventListener("dragstart", (ev) => {
+          if (sourceIndex < 0) { ev.preventDefault(); return; }
+          ev.stopPropagation();
+          ev.dataTransfer?.setData("application/x-tradebook-screenshot-index", String(sourceIndex));
+          ev.dataTransfer?.setData("text/plain", `tradebook-screenshot:${sourceIndex}`);
+          if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
+          thumb.addClass("is-dragging");
         });
-        thumb.addEventListener("click", () => {
+        thumb.addEventListener("dragend", () => {
+          thumb.removeClass("is-dragging");
+          thumbs.querySelectorAll(".is-drop-target").forEach((target) => target.removeClass("is-drop-target"));
+        });
+        thumb.addEventListener("dragenter", (ev) => {
+          const types = ev.dataTransfer?.types ?? [];
+          if (!Array.from(types).includes("application/x-tradebook-screenshot-index") && !Array.from(types).includes("text/plain")) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+          thumb.addClass("is-drop-target");
+        });
+        thumb.addEventListener("dragover", (ev) => {
+          const types = ev.dataTransfer?.types ?? [];
+          if (!Array.from(types).includes("application/x-tradebook-screenshot-index") && !Array.from(types).includes("text/plain")) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
+          thumb.addClass("is-drop-target");
+        });
+        thumb.addEventListener("dragleave", () => thumb.removeClass("is-drop-target"));
+        thumb.addEventListener("drop", (ev) => void (async () => {
+          const dt = ev.dataTransfer;
+          thumb.removeClass("is-drop-target");
+          if (!dt || (!Array.from(dt.types).includes("application/x-tradebook-screenshot-index") && !Array.from(dt.types).includes("text/plain")) || dt.files.length) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const raw = dt.getData("application/x-tradebook-screenshot-index") || (dt.getData("text/plain").match(/^tradebook-screenshot:(\d+)$/)?.[1] ?? "");
+          if (!/^(0|[1-9]\d*)$/.test(raw)) return;
+          const from = Number(raw);
+          if (this.trade?.id !== t.id) return;
+          const resolved = this.resolveScreenshotEntries(t);
+          const length = resolved.reduce((end, shot) => Math.max(end, shot.sourceIndex + 1), t.screenshots?.length ?? 0);
+          const validOrigin = resolved.some((shot) => shot.sourceIndex === from);
+          const validTarget = resolved.some((shot) => shot.sourceIndex === sourceIndex);
+          if (Number.isSafeInteger(from) && validOrigin && validTarget && from !== sourceIndex) {
+            const rect = thumb.getBoundingClientRect();
+            const after = ev.clientX >= rect.left + rect.width / 2;
+            const insertion = sourceIndex + (after ? 1 : 0);
+            const to = Math.max(0, Math.min(length - 1, insertion - (from < insertion ? 1 : 0)));
+            await this.reorderScreenshots(from, to);
+          }
+        })());
+        showButton.addEventListener("click", () => {
           if (i === this._activePrint) return;
           this._activePrint = i;
           this.render();
         });
-        attachTip(thumb, { title: `Print ${i + 1}`, sub: "Click to show it large." });
+        attachTip(showButton, { title: `Print ${i + 1}`, sub: "Show this screenshot." });
       });
 
       // The add tile closes the strip — same square shape, dashed, never a bar.
-      const addTile = thumbs.createDiv({ cls: "tj-td-shot-add" });
+      const addTile = thumbs.createDiv({ cls: "tj-td-shot-add", attr: { role: "button", tabindex: "0" } });
+      addTile.createSpan({ cls: "tj-sr-only", text: "Add screenshot" });
       const addPlus = addTile.createDiv({ cls: "tj-td-shot-add-plus" });
       setIcon(addPlus, "plus");
       addTile.createSpan({ cls: "tj-td-shot-add-label", text: "Add Print" });
@@ -1272,18 +1518,18 @@ export class TradeDetailView extends ItemView {
       addTarget = addTile;
     } else {
       // Empty state: the whole card is the drop target.
-      const addDropzone = shotCard.createDiv({ cls: "tj-td-dropzone" });
+      const addDropzone = shotCard.createDiv({ cls: "tj-td-dropzone", attr: { role: "button", "aria-label": "Add screenshot" } });
       const iconDiv = addDropzone.createDiv({ cls: "tj-td-dropzone-icon" });
       setIcon(iconDiv, "image");
       const textDiv = addDropzone.createDiv({ cls: "tj-td-dropzone-text" });
       textDiv.createEl("strong", { text: "Drop screenshot here" });
-      textDiv.createEl("span", { text: "PNG, JPG, or WebP" });
+      textDiv.createSpan({ text: "PNG, JPG, or WebP" });
       const hint = addDropzone.createDiv({ cls: "tj-td-dropzone-hint" });
-      hint.createEl("span", { text: "or" });
+      hint.createSpan({ text: "or" });
       hint.createEl("kbd", { text: "Ctrl" });
-      hint.createEl("span", { text: "+" });
+      hint.createSpan({ text: "+" });
       hint.createEl("kbd", { text: "V" });
-      hint.createEl("span", { text: "to paste" });
+      hint.createSpan({ text: "to paste" });
       addTarget = addDropzone;
     }
 
@@ -1293,28 +1539,54 @@ export class TradeDetailView extends ItemView {
     });
     fileInput.setCssStyles({ display: "none" });
 
+    addTarget.setAttr("tabindex", "0");
+    addTarget.addEventListener("keydown", (e) => {
+      if (e.target !== addTarget || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      fileInput.click();
+    });
     addTarget.addEventListener("click", (e) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       fileInput.click();
     });
-    fileInput.addEventListener("change", async () => {
+    fileInput.addEventListener("change", () => void (async () => {
       if (fileInput.files && fileInput.files[0]) {
         await this.handleScreenshotFile(fileInput.files[0]);
         fileInput.value = "";
       }
-    });
+    })());
 
-    // Drag & drop
+    // Drag & drop — accept only the supported image/group payloads so unrelated
+    // drags retain their normal destination behavior.
+    const isAcceptedDrop = (dt: DataTransfer | null) => !!dt &&
+      (Array.from(dt.types).includes(PRINT_GROUP_MIME) || dt.files.length > 0);
     const stop = (e: Event) => { e.preventDefault(); e.stopPropagation(); };
-    addTarget.addEventListener("dragenter", (e) => { stop(e); addTarget.addClass("over"); });
-    addTarget.addEventListener("dragover", (e) => { stop(e); addTarget.addClass("over"); });
+    addTarget.addEventListener("dragenter", (e) => {
+      if (!isAcceptedDrop((e as DragEvent).dataTransfer)) return;
+      stop(e); addTarget.addClass("over");
+    });
+    addTarget.addEventListener("dragover", (e) => {
+      if (!isAcceptedDrop((e as DragEvent).dataTransfer)) return;
+      stop(e); addTarget.addClass("over");
+    });
     addTarget.addEventListener("dragleave", () => { addTarget.removeClass("over"); });
-    addTarget.addEventListener("drop", async (e) => {
+    addTarget.addEventListener("drop", (e) => void (async () => {
+      const dt = (e as DragEvent).dataTransfer;
+      if (!isAcceptedDrop(dt)) return;
       stop(e);
       addTarget.removeClass("over");
-      const file = e.dataTransfer?.files?.[0];
+      if (!dt) return;
+      // A Print Group drag carries the private MIME; an image drop carries
+      // files. The private MIME wins so a group dropped over the dropzone is
+      // filed, not treated as a missing image.
+      const groupRaw = dt.getData(PRINT_GROUP_MIME);
+      if (groupRaw) {
+        await this.handlePrintGroupDrop(groupRaw);
+        return;
+      }
+      const file = dt.files?.[0];
       if (file) await this.handleScreenshotFile(file);
-    });
+    })());
 
     // Ctrl+V paste (when hovered or focused)
     let hovered = false;
@@ -1323,7 +1595,7 @@ export class TradeDetailView extends ItemView {
     addTarget.addEventListener("mouseleave", () => { hovered = false; });
     addTarget.addEventListener("focus", () => { hovered = true; });
     addTarget.addEventListener("blur", () => { hovered = false; });
-    const onPaste = async (e: ClipboardEvent) => {
+    const onPasteAsync = async (e: ClipboardEvent) => {
       if (!hovered && document.activeElement !== addTarget) return;
       const items = e.clipboardData?.items;
       if (!items) return;
@@ -1338,12 +1610,51 @@ export class TradeDetailView extends ItemView {
     // One document listener at a time: a re-render clears the previous one, so
     // they cannot pile up on the document as the reader moves between trades.
     this._pasteCleanups.forEach((fn) => fn());
+    const onPaste = (e: ClipboardEvent) => void onPasteAsync(e);
     this._pasteCleanups = [() => document.removeEventListener("paste", onPaste, true)];
     document.addEventListener("paste", onPaste, true);
 
     // ---- Accounts block (copied trades) ----
     // ---- Executions (bottom — detailed, read-only) ----
     this.renderExecutions(body, t);
+
+    for (const editorState of editorStates) {
+      const nextEditor = Array.from(root.querySelectorAll<HTMLTextAreaElement>(".tj-td-textarea"))
+        .find((area) => area.getAttribute("data-review-field") === editorState.key);
+      if (!nextEditor) continue;
+      nextEditor.value = editorState.value;
+      nextEditor.setSelectionRange(editorState.selectionStart, editorState.selectionEnd);
+      nextEditor.scrollTop = editorState.scrollTop;
+      nextEditor.scrollLeft = editorState.scrollLeft;
+      if (editorState.active) nextEditor.focus({ preventScroll: true });
+    }
+    // Retained focus for the non-textarea review controls. The captured control
+    // may have been rebuilt or removed for another trade, so only restore when
+    // the element still exists in this render. No values are replayed.
+    if (retainedFocus?.key) {
+      const restored = Array.from(root.querySelectorAll<HTMLElement>("[data-review-control]"))
+        .find((el) => el.dataset.reviewControl === retainedFocus.key && (retainedFocus.group === null || el.dataset.reviewGroup === retainedFocus.group));
+      const isFocusableControl = (el: HTMLElement) => {
+        const tag = el.tagName.toLowerCase();
+        const naturallyFocusable = tag === "button" || tag === "input" || tag === "select" || tag === "textarea" || tag === "summary";
+        return naturallyFocusable && el.isConnected && !("disabled" in el && (el as HTMLButtonElement).disabled);
+      };
+      if (restored && isFocusableControl(restored)) {
+        try { restored.focus({ preventScroll: true }); } catch { /* The host may be tearing down this view. */ }
+      }
+    }
+    const restoreViewport = () => {
+      if (!preservedScroll || !scrollHost) return;
+      scrollHost.scrollTop = preservedScroll.top;
+      scrollHost.scrollLeft = preservedScroll.left;
+    };
+    restoreViewport();
+    if (preservedScroll && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        restoreViewport();
+        window.requestAnimationFrame(restoreViewport);
+      });
+    }
   }
 
   // ---- Multi-account badge + popover ----
@@ -1379,7 +1690,7 @@ export class TradeDetailView extends ItemView {
 
     const pop = host.createDiv({ cls: "tj-td-accpop" });
     pop.setCssStyles({ display: "none" });
-    pop.createDiv({ cls: "tj-td-accpop-t", text: "Original and copies" });
+    pop.createDiv({ cls: "tj-td-accpop-t", text: "Linked accounts" });
 
     const table = pop.createDiv({ cls: "tj-td-acctable" });
     const head2 = table.createDiv({ cls: "tj-td-acctable-row is-head" });
@@ -1407,7 +1718,7 @@ export class TradeDetailView extends ItemView {
       });
     }
     pop.createDiv({ cls: "tj-td-execs-note" })
-      .setText("Your trading numbers count this decision once; the money is what it made in each account.");
+      .setText("One decision, separate account results.");
 
     const close = () => { pop.setCssStyles({ display: "none" }); document.removeEventListener("mousedown", onDoc); };
     const onDoc = (e: MouseEvent) => { if (!host.contains(e.target as Node)) close(); };
@@ -1425,7 +1736,7 @@ export class TradeDetailView extends ItemView {
     const set: FillSet = fillSet(t);
     const box = host.createDiv({ cls: "tj-td-panel tj-td-execs" });
     const head = box.createDiv({ cls: "tj-td-panel-head tj-td-execs-head" });
-    head.createEl("div", { cls: "tj-td-panel-title", text: "Executions" });
+    head.createDiv({ cls: "tj-td-panel-title", text: "Executions" });
     head.createSpan({
       cls: "tj-td-execs-count",
       text: set.isMulti
@@ -1433,20 +1744,20 @@ export class TradeDetailView extends ItemView {
         : "single fill",
     });
 
-    const fees = set.fills.reduce((s, f) => s + (f.fees || 0), 0);
+    const fillCosts = set.fills.reduce((s, f) => s + (f.fees || 0), 0);
 
     const table = box.createEl("table", { cls: "tj-td-execs-table" });
     const headRow = table.createEl("thead").createEl("tr");
     for (const col of [
       { label: "Time", align: "" }, { label: "Side", align: "" },
       { label: "Qty", align: "r" }, { label: "Price", align: "r" },
-      { label: "Points", align: "r" }, { label: "P&L", align: "r" },
+      { label: "Points/contract", align: "r" }, { label: "P&L", align: "r" },
       { label: "Fees", align: "r" }, { label: "Fill", align: "" },
     ]) {
       headRow.createEl("th", { cls: col.align, text: col.label });
     }
 
-    const pointValue = futuresSpec(t.symbol).pointValue;
+    const pointValue = knownFuturesSpec(t.symbol)?.pointValue ?? 0;
     const tbody = table.createEl("tbody");
     for (const f of set.fills) {
       const isExit = set.exits.includes(f);
@@ -1457,11 +1768,14 @@ export class TradeDetailView extends ItemView {
       row.createEl("td", { cls: "r", text: `${f.qty}` });
       row.createEl("td", { cls: "r", text: fmtPrice(f.price) });
       const be = isExit && set.explicit && isBreakEven(f, set.avgEntry, pointValue);
-      // Points are the fill's own distance from the (weighted) entry, signed by
-      // direction — quantity never multiplies them. A break-even close counts 0.
+      // Exit points use that fill's matched-lot gross P&L, divided by its own
+      // contracts and point value. This keeps scale-ins and break-even exits
+      // from being replaced by a best-price estimate or an averaged entry.
       const points = be
         ? 0
-        : isExit && set.avgEntry > 0
+        : isExit && Number.isFinite(f.pnl) && pointValue > 0 && f.qty > 0
+        ? (f.pnl as number) / (pointValue * f.qty)
+        : !set.explicit && isExit && set.avgEntry > 0
         ? t.direction === "long" ? f.price - set.avgEntry : set.avgEntry - f.price
         : NaN;
       row.createEl("td", { cls: "r", text: Number.isFinite(points) ? `${points >= 0 ? "+" : ""}${points.toFixed(2)}` : "—" });
@@ -1486,11 +1800,18 @@ export class TradeDetailView extends ItemView {
       text: Number.isFinite(totalPts) ? `${totalPts >= 0 ? "+" : ""}${totalPts.toFixed(2)}` : "—",
     });
     const totalPnlCell = totals.createEl("td", { cls: "r tj-tbl-pnl" });
-    totalPnlCell.addClass(toneClass(t.pnl));
-    totalPnlCell.setText(t.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(t.pnl));
-    totals.createEl("td", { cls: "r", text: `$${fees.toFixed(2)}` });
+    if (Number.isFinite(t.pnl)) {
+      totalPnlCell.addClass(toneClass(t.pnl));
+      totalPnlCell.setText(t.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(t.pnl));
+    } else {
+      totalPnlCell.setText("—");
+    }
+    totals.createEl("td", { cls: "r", text: `$${((t.commission || 0) + (t.fees || 0)).toFixed(2)}` });
     totals.createEl("td", { cls: "tj-td-execs-tag" });
 
+    if (set.explicit && Math.abs(fillCosts - ((t.commission || 0) + (t.fees || 0))) > 0.005) {
+      box.createDiv({ cls: "tj-td-execs-note", text: "The total shows recorded trade costs. Costs are not fully allocated to individual fills; no split has been inferred." });
+    }
     const note = box.createDiv({ cls: "tj-td-execs-note" });
     if (set.isMulti) {
       note.setText(set.exits.length > 1
@@ -1528,54 +1849,41 @@ export class TradeDetailView extends ItemView {
     }
   }
 
-  /**
-   * Re-paint the review state after an edit — the header dots, the status badge,
-   * the optional-step summary and the "Mark as reviewed" control.
-   *
-   * When an edit moves the trade across the reviewed line — the fourth required
-   * field filled, or one cleared — the mark control has to appear or go, and the
-   * badge has to change element (`<span>` while open, `<button>` once reviewed).
-   * Those two are not patchable in place, so the header is rebuilt; every other
-   * edit is a pure re-paint.
-   */
+  /** Re-paint the automatic review state after a structured field edit. */
   private refreshReviewHeader(): void {
     const t = this.trade;
     if (!t) return;
     const status = reviewStatus(t);
     const root = this.contentEl;
 
-    const required = status.checks.filter((c) => c.required);
-    root.querySelectorAll<HTMLElement>(".tj-td-review-dot").forEach((dot, i) => {
-      if (required[i]) dot.toggleClass("done", required[i].done);
+    const checks = new Map(status.checks.map((check) => [check.key, check]));
+    root.querySelectorAll<HTMLElement>(".tj-td-review-dot").forEach((dot) => {
+      const check = checks.get(dot.dataset.reviewKey as ReviewCheckKey);
+      if (!check) return;
+      dot.toggleClass("done", check.done);
+      dot.toggleClass("is-core", check.required);
     });
-
-    // The "Mark as reviewed" control exists only while the decision is open, and
-    // the badge changes element (span ⇄ button) when it is closed. A mismatch
-    // means the trade crossed that line, and the header is rebuilt.
-    const mark = root.querySelector<HTMLElement>(".tj-td-markreviewed");
-    if (status.complete === !!mark) {
-      this.render();
-      return;
-    }
-
     const badge = root.querySelector<HTMLElement>(".tj-td-hero-badge.is-status");
     if (badge) {
-      badge.toggleClass("is-reviewed", status.complete);
-      badge.toggleClass("is-needs-review", !status.complete);
-      badge.setText(status.complete ? "Reviewed" : "Needs review");
+      const states: ReviewState[] = ["needs-review", "reviewed", "reviewed-with-missing-context", "legacy-marked-reviewed", "reopened"];
+      for (const state of states) badge.toggleClass(`is-${state}`, status.state === state);
+      badge.setText(status.label);
+      badge.setAttr("aria-label", status.label);
+      badge.setAttr("title", reviewStateHint(status.state));
     }
 
-    const summary = root.querySelector<HTMLElement>(".tj-td-hero-summary");
-    if (summary) {
-      summary.setText(status.optionalSummary);
-      summary.toggleClass("is-hidden", !status.optionalSummary);
-    }
   }
 
   // ---- Save ----
-  async saveField(key: "setup" | "review" | "mistake" | "thesis" | "notes" | "rating" | "reviewed" | "orderType" | "direction", value: string): Promise<void> {
+  async saveField(key: "setup" | "review" | "mistake" | "thesis" | "notes" | "review_plan" | "review_planned_entry" | "review_planned_stop" | "review_planned_target" | "review_planned_quantity" | "review_plan_timing" | "review_plan_provenance" | "review_plan_adherence" | "review_what_happened" | "review_repeat_change" | "review_post_exit_observation" | "review_post_exit_points" | "review_post_exit_source" | "review_evidence_source" | "review_context_unavailable" | "rating" | "reviewed" | "orderType" | "direction" | "exit_reason", value: string | number | boolean, targetId = this.trade?.id): Promise<void> {
     try {
-      if (this.trade?.id) await updateTradeFields(this.app, (this.app.vault.getAbstractFileByPath(this.trade.id) as TFile), { [key]: value });
+      if (targetId) {
+        const f = this.app.vault.getAbstractFileByPath(targetId);
+        if (f instanceof TFile) {
+          this._lastLocalWriteAt = Date.now();
+          await updateTradeFields(this.app, f, { [key]: value });
+        }
+      }
     } catch (err) {
       console.error("[tradebook] failed to save trade field:", err);
       new Notice("Could not save — check the file still exists.");
@@ -1587,32 +1895,61 @@ export class TradeDetailView extends ItemView {
    * legacy `screenshot` scalar pointing at the first one. This is the only path
    * that touches `screenshots` — the old JSON-string route destroyed the block.
    */
-  async saveScreenshotsNow(): Promise<void> {
-    const t = this.trade;
-    if (!t?.id) return;
-    const file = this.app.vault.getAbstractFileByPath(t.id) as TFile;
-    if (!(file instanceof TFile)) return;
+  async saveScreenshotsNow(t: Trade | null = this.trade): Promise<boolean> {
+    if (!t?.id) return false;
+    const file = this.app.vault.getAbstractFileByPath(t.id);
+    if (!(file instanceof TFile)) return false;
     const shots = t.screenshots ?? [];
-    t.screenshot = shots[0]?.file ?? "";
     try {
+      this._lastLocalWriteAt = Date.now();
       await updateTradeScreenshots(this.app, file, shots);
+      if (this.trade?.id === t.id) t.screenshot = shots.find(isScreenshotEntry)?.file ?? "";
+      return true;
     } catch (err) {
       console.error("[tradebook] failed to save screenshots:", err);
-      new Notice("Could not save screenshots — check the file still exists.");
+      if (this.trade?.id === t.id) new Notice("Could not save screenshots — check the file still exists.");
+      return false;
     }
+  }
+
+  /** Resolve valid structured entries, or legacy scalar references, without mutating the trade. */
+  private resolveScreenshotEntries(t: Trade): Array<{ entry: NonNullable<Trade['screenshots']>[number]; sourceIndex: number }> {
+    const shots = t.screenshots ?? [];
+    const resolved = shots.map((entry, sourceIndex) => ({ entry, sourceIndex }))
+      .filter(({ entry }) => isScreenshotEntry(entry));
+    if (resolved.length) return resolved;
+    const legacy = (t.screenshot || "").trim();
+    if (!legacy || legacy.toLowerCase() === "added") return [];
+    return legacy.split(/[,;\n]+/).map((part) => part.trim()).filter(Boolean)
+      .map((file, offset) => ({ entry: { file }, sourceIndex: shots.length + offset }));
+  }
+
+  /** Materialize only the valid legacy fallback, after an explicit screenshot edit. */
+  private materializeScreenshotEntries(t: Trade): NonNullable<Trade['screenshots']> {
+    const shots = t.screenshots ?? [];
+    const resolved = this.resolveScreenshotEntries(t);
+    if (resolved.length && resolved[0].sourceIndex >= shots.length) {
+      const legacy = resolved.map(({ entry }) => ({ ...entry }));
+      t.screenshots = [...shots, ...legacy];
+      return t.screenshots;
+    }
+    if (!t.screenshots) t.screenshots = [];
+    return t.screenshots;
   }
 
   /** Save a dropped/pasted/selected image to the vault and link it to the trade. */
   async handleScreenshotFile(file: File): Promise<void> {
     if (!file.type.startsWith("image/")) {
-      new Notice("That's not an image — drop a screenshot (PNG/JPG/WebP).");
+      new Notice("That's not an image — drop a screenshot (PNG/JPG/webp).");
       return;
     }
     const t = this.trade;
     if (!t?.id) return;
+    const tradeId = t.id;
     const ext = (file.name.split(".").pop() || "png").toLowerCase();
     const dir = this.plugin.getAttachmentsFolder(t.date);
     await this.plugin.ensureVaultFolder(dir);
+    if (this.trade?.id !== tradeId) return;
     // The name is the trade's own file name, never typed by hand.
     const tradeBase = (t.id.split("/").pop() || "").replace(/\.md$/i, "");
     const safeName = tradeBase.replace(/[\\/:*?"<>|]+/g, "-").trim() || "trade";
@@ -1624,52 +1961,191 @@ export class TradeDetailView extends ItemView {
       finalPath = normalizePath(`${dir}/${safeName} print ${counter}.${ext}`);
     }
     const buffer = await file.arrayBuffer();
+    if (this.trade?.id !== tradeId) return;
     await this.plugin.app.vault.createBinary(finalPath, buffer);
+    if (this.trade?.id !== tradeId) return;
     const linkName = finalPath.split("/").pop() as string;
 
-    // Add to screenshots array — migrate legacy field first
-    if (!t.screenshots || t.screenshots.length === 0) {
-      t.screenshots = [];
-      const legacy = (t.screenshot || "").trim();
-      if (legacy && legacy.toLowerCase() !== "added") {
-        for (const p of legacy.split(/[,;\n]+/)) {
-          const trimmed = p.trim();
-          if (trimmed) t.screenshots.push({ file: trimmed });
-        }
-      }
-    }
-    t.screenshots.push({ file: linkName });
-    this._activePrint = t.screenshots.length - 1;
+    const shots = this.materializeScreenshotEntries(t);
+    shots.push({ file: linkName });
+    this._activePrint = this.resolveScreenshotEntries(t).length - 1;
 
-    await this.saveScreenshotsNow();
+    const saved = await this.saveScreenshotsNow(t);
+    if (this.trade?.id !== tradeId || !saved) return;
     new Notice(`Screenshot saved: ${linkName}`);
     this.render();
+  }
+
+  /** Reorder screenshots inside Trade Detail without touching Print Queue history. */
+  async reorderScreenshots(from: number, to: number): Promise<void> {
+    const t = this.trade;
+    if (!t?.id) return;
+    const tradeId = t.id;
+    const entries = this.resolveScreenshotEntries(t);
+    const rawLength = (t.screenshots ?? []).length + (entries.length && entries[0].sourceIndex >= (t.screenshots ?? []).length ? entries.length : 0);
+    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to < 0 || from >= rawLength || to >= rawLength || from === to) return;
+    if (!entries.some(({ sourceIndex }) => sourceIndex === from)) return;
+    const shots = this.materializeScreenshotEntries(t);
+    if (!isScreenshotEntry(shots[from])) return;
+    const visibleBefore = shots.filter((shot) => isScreenshotEntry(shot));
+    const activeEntry = visibleBefore[this._activePrint];
+    const [moved] = shots.splice(from, 1);
+    shots.splice(to, 0, moved);
+    const visibleAfter = shots.filter((shot) => isScreenshotEntry(shot));
+    const activeAfter = activeEntry ? visibleAfter.indexOf(activeEntry) : -1;
+    if (activeAfter >= 0) this._activePrint = activeAfter;
+    if (!await this.saveScreenshotsNow(t) || this.trade?.id !== tradeId) return;
+    this.render();
+    this.contentEl.querySelector<HTMLElement>(".tj-td-shot-thumb.is-active .tj-td-shot-show")?.focus({ preventScroll: true });
   }
 
   /** Remove a screenshot by index from the screenshots array. */
   async removeScreenshot(index: number): Promise<void> {
     const t = this.trade;
     if (!t?.id) return;
-    const shots = t.screenshots ?? [];
-    if (index < 0 || index >= shots.length) return;
+    const tradeId = t.id;
+    const entries = this.resolveScreenshotEntries(t);
+    const rawLength = (t.screenshots ?? []).length + (entries.length && entries[0].sourceIndex >= (t.screenshots ?? []).length ? entries.length : 0);
+    if (!Number.isSafeInteger(index) || index < 0 || index >= rawLength) return;
+    if (!entries.some(({ sourceIndex }) => sourceIndex === index)) return;
+    const shots = this.materializeScreenshotEntries(t);
+    if (!isScreenshotEntry(shots[index])) return;
+    const activeEntry = shots.filter((shot) => isScreenshotEntry(shot))[this._activePrint];
     shots.splice(index, 1);
     t.screenshots = shots;
-    if (this._activePrint >= shots.length) this._activePrint = Math.max(0, shots.length - 1);
+    const visibleAfter = shots.filter((shot) => isScreenshotEntry(shot));
+    const retainedActive = activeEntry ? visibleAfter.indexOf(activeEntry) : -1;
+    this._activePrint = retainedActive >= 0 ? retainedActive : Math.min(this._activePrint, Math.max(0, visibleAfter.length - 1));
 
-    await this.saveScreenshotsNow();
+    if (!await this.saveScreenshotsNow(t) || this.trade?.id !== tradeId) return;
     new Notice("Screenshot removed.");
     this.render();
+    this.contentEl.querySelector<HTMLElement>(".tj-td-shot-thumb.is-active .tj-td-shot-show")?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Phase E: the single attach seam. Both the Print Group drop and the
+   * secondary attach action route through here, so filing behaviour can never
+   * drift between the two entry points.
+   */
+  async attachPrintGroup(groupId: string): Promise<AttachGroupOutcome> {
+    const t = this.trade;
+    if (!t?.id) return { ok: false, error: "No trade selected", rolledBack: false };
+    const outcome = await attachGroupToTrade(this.app, t, t.id, groupId, "", this.plugin.getTradesFolder());
+    if (outcome.ok) {
+      const notice = outcome.idempotent
+        ? "Print group already attached."
+        : outcome.screenshotCount === 0
+          ? "Print group attached; its screenshots were already on this trade."
+          : `Attached ${outcome.screenshotCount} print${outcome.screenshotCount === 1 ? "" : "s"}.`;
+      new Notice(notice);
+      this.render();
+    } else {
+      new Notice(outcome.error || "Could not attach the print group.");
+    }
+    return outcome;
+  }
+
+  /**
+   * Phase E: handle a Print Group drag payload dropped onto the screenshot
+   * area. The payload is private and carries the group id only; the trade link
+   * and the group are validated before anything is written.
+   */
+  private async handlePrintGroupDrop(raw: string): Promise<void> {
+    const payload = parsePrintGroupDragPayload(raw);
+    if (!payload) {
+      new Notice("That is not a print group.");
+      return;
+    }
+    await this.attachPrintGroup(payload.groupId);
+  }
+
+  /**
+   * Phase E: secondary attach action. Lists every pending group; picking one
+   * files it into this trade through the same seam as a drop.
+   */
+  private async openAttachPicker(anchor: HTMLElement): Promise<void> {
+    const doc = this.contentEl.ownerDocument;
+    const win = doc.defaultView ?? window;
+    const t = this.trade;
+    if (!t?.id) return;
+
+    let groups: PrintGroup[] = [];
+    try {
+      groups = await listPendingAttachGroups(this.plugin.app, "");
+    } catch {
+      groups = [];
+    }
+    if (!groups.length) {
+      new Notice("No pending print groups to attach.");
+      return;
+    }
+
+    const pop = doc.body.createDiv({ cls: "tj-td-tagpop" });
+    pop.createDiv({ cls: "tj-td-tagpop-t", text: "Attach a print group" });
+
+    const list = pop.createDiv({ cls: "tj-td-tagpop-list" });
+    for (const g of groups) {
+      const row = list.createDiv({ cls: "tj-td-tagpop-row" });
+      row.createSpan({ cls: "tj-td-tagpop-lbl", text: g.name });
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        close();
+        void this.attachPrintGroup(g.id);
+      });
+    }
+
+    const done = pop.createEl("button", { cls: "tj-td-tagpop-done", text: "Done", attr: { type: "button" } });
+    done.addEventListener("click", (e) => { e.stopPropagation(); close(); });
+
+    const close = () => {
+      pop.remove();
+      doc.removeEventListener("mousedown", onDoc, true);
+      doc.removeEventListener("keydown", onKey, true);
+      win.removeEventListener("resize", place);
+      win.removeEventListener("scroll", place, true);
+    };
+    const onDoc = (e: MouseEvent) => {
+      if (pop.contains(e.target as Node)) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    doc.addEventListener("mousedown", onDoc, true);
+    doc.addEventListener("keydown", onKey, true);
+
+    const place = () => {
+      const r = anchor.getBoundingClientRect();
+      const w = pop.offsetWidth || 240;
+      const h = pop.offsetHeight || 120;
+      let left = r.left;
+      let top = r.bottom + 6;
+      if (left + w > win.innerWidth - 8) left = win.innerWidth - 8 - w;
+      if (left < 8) left = 8;
+      if (top + h > win.innerHeight - 8 && r.top - 6 - h > 8) top = r.top - 6 - h;
+      pop.style.left = `${Math.round(left)}px`;
+      pop.style.top = `${Math.round(top)}px`;
+    };
+    place();
+    win.addEventListener("resize", place);
+    win.addEventListener("scroll", place, true);
   }
 
   /** Save multiple fields at once to the trade note. */
   async saveFields(fields: Record<string, string>): Promise<void> {
     try {
       if (this.trade?.id) {
-        await updateTradeFields(this.app, (this.app.vault.getAbstractFileByPath(this.trade.id) as TFile), fields);
+        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
+        if (f instanceof TFile) {
+          this._lastLocalWriteAt = Date.now();
+          await updateTradeFields(this.app, f, fields);
+          return;
+        }
       }
+      throw new Error("Trade note not found.");
     } catch (err) {
       console.error("[tradebook] failed to save trade fields:", err);
       new Notice("Could not save — check the file still exists.");
+      throw err;
     }
   }
 
@@ -1678,7 +2154,11 @@ export class TradeDetailView extends ItemView {
     const yamlKey = key === "mistakesAcknowledged" ? "mistakes_acknowledged" : "psychology_acknowledged";
     try {
       if (this.trade?.id) {
-        await updateTradeFields(this.app, this.app.vault.getAbstractFileByPath(this.trade.id) as TFile, { [yamlKey]: value });
+        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
+        if (f instanceof TFile) {
+          this._lastLocalWriteAt = Date.now();
+          await updateTradeFields(this.app, f, { [yamlKey]: value });
+        }
       }
     } catch (err) {
       console.error("[tradebook] failed to save acknowledgement:", err);
@@ -1693,7 +2173,7 @@ export class TradeDetailView extends ItemView {
     if (file instanceof TFile) {
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
     }
   }
 
@@ -1701,7 +2181,7 @@ export class TradeDetailView extends ItemView {
 
   annotate(file: TFile): void {
     if (!this.annotator) this.annotator = new PrintAnnotator(this.plugin);
-    this.annotator.open(file, (annotatedName) => this.pointPrintAt(file, annotatedName));
+    this.annotator.open(file, (annotatedName) => void this.pointPrintAt(file, annotatedName));
   }
 
   /**
@@ -1741,28 +2221,11 @@ export class TradeDetailView extends ItemView {
   }
 
   resolveImage(link: string): string | null {
-    const raw = (link || "").trim();
-    if (!raw) return null;
-    const inner = raw.replace(/^\[\[/, "").replace(/\]\]$/, "");
-    const target = inner.split("|")[0].split("#")[0].trim();
-    const candidates = [
-      raw,
-      target,
-      ...this.plugin.attachmentCandidates(target, this.trade?.date),
-    ];
-    for (const c of candidates) {
-      try {
-        const file = this.app.vault.getAbstractFileByPath(c);
-        if (file instanceof TFile && file.extension && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(file.extension.toLowerCase()))
-          return this.app.vault.getResourcePath(file);
-      } catch { /* */ }
-    }
-    try {
-      const f = this.app.vault.getAbstractFileByPath(target);
-      if (f instanceof TFile && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes((f.extension || "").toLowerCase()))
-        return this.app.vault.getResourcePath(f);
-    } catch { /* */ }
-    return null;
+    const file = this.resolveImageFile(link);
+    if (!file) return null;
+    const extension = (file.extension || "").toLowerCase();
+    if (!["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(extension)) return null;
+    try { return this.app.vault.getResourcePath(file); } catch { return null; }
   }
 
   // ---- Export Trade Card as PNG ----
@@ -1771,7 +2234,8 @@ export class TradeDetailView extends ItemView {
     if (!t) return;
 
     // Options state
-    const opts = { screenshot: true, stats: true, rating: true, notes: false, psychology: false, hidePnl: false };
+    const printEntries = this.resolveScreenshotEntries(t);
+    const opts: ExportOptions = { orientation: "vertical", theme: "dark", screenshot: true, stats: true, rating: true, notes: false, repeatChange: false, exitReason: false, psychology: true, hidePnl: false, primaryPrint: 0 };
 
     // Overlay
     const overlay = document.body.createDiv({ cls: "tj-overlay" });
@@ -1780,73 +2244,136 @@ export class TradeDetailView extends ItemView {
     const panel = overlay.createDiv({ cls: "tj-export-panel" });
     panel.addEventListener("click", (e) => e.stopPropagation());
 
-    // Title
-    panel.createEl("div", { cls: "tj-export-title", text: "Export Trade Card" });
+    const header = panel.createDiv({ cls: "tj-export-header" });
+    header.createDiv({ cls: "tj-export-title", text: "Export Trade Card" });
+    const appearance = header.createDiv({ cls: "tj-export-config" });
+    const orientationRow = appearance.createDiv({ cls: "tj-export-preset-row", attr: { role: "group", "aria-label": "Orientation" } });
+    orientationRow.createSpan({ cls: "tj-export-control-label", text: "Orientation" });
+    const verticalPreset = orientationRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset is-active", text: "Vertical", attr: { type: "button", "aria-pressed": "true" } });
+    const horizontalPreset = orientationRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset", text: "Horizontal", attr: { type: "button", "aria-pressed": "false" } });
+    const themeRow = appearance.createDiv({ cls: "tj-export-preset-row", attr: { role: "group", "aria-label": "Theme" } });
+    themeRow.createSpan({ cls: "tj-export-control-label", text: "Theme" });
+    const darkTheme = themeRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset is-active", text: "Dark", attr: { type: "button", "aria-pressed": "true" } });
+    const lightTheme = themeRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset", text: "Light", attr: { type: "button", "aria-pressed": "false" } });
+    const setTheme = (theme: ExportTheme): void => {
+      opts.theme = theme;
+      darkTheme.toggleClass("is-active", theme === "dark"); lightTheme.toggleClass("is-active", theme === "light");
+      darkTheme.setAttribute("aria-pressed", String(theme === "dark")); lightTheme.setAttribute("aria-pressed", String(theme === "light"));
+      schedulePreview();
+    };
+    darkTheme.addEventListener("click", () => setTheme("dark"));
+    lightTheme.addEventListener("click", () => setTheme("light"));
 
-    // Side-by-side body: left = options, right = preview
     const body = panel.createDiv({ cls: "tj-export-body" });
     const leftCol = body.createDiv({ cls: "tj-export-left" });
     const rightCol = body.createDiv({ cls: "tj-export-right" });
 
+    const printSection = leftCol.createDiv({ cls: "tj-export-print-section", attr: { role: "radiogroup", "aria-label": "Main screenshot" } });
+    printSection.createDiv({ cls: "tj-export-section-title", text: "Main screenshot" });
+    printSection.createDiv({ cls: "tj-export-print-help", text: printEntries.length ? "Choose one print." : "No screenshots." });
+    const printRows: Array<{ index: number; row: HTMLButtonElement }> = [];
+    printEntries.forEach((_, index) => {
+      const row = printSection.createEl("button", { cls: "tj-export-print-row", attr: { type: "button", role: "radio", "aria-checked": index === 0 ? "true" : "false" } });
+      row.createSpan({ cls: "tj-export-radio", attr: { "aria-hidden": "true" } });
+      row.createSpan({ cls: "tj-export-print-name", text: `Print ${index + 1}` });
+      printRows.push({ index, row });
+      const choose = (): void => {
+        opts.primaryPrint = index;
+        refreshPrintRows();
+        schedulePreview();
+      };
+      row.addEventListener("click", choose);
+      row.addEventListener("keydown", (event) => {
+        if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(event.key)) return;
+        event.preventDefault();
+        const next = (index + (event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1) + printRows.length) % printRows.length;
+        printRows[next].row.click();
+        printRows[next].row.focus();
+      });
+    });
+    const refreshPrintRows = (): void => {
+      for (const item of printRows) {
+        const selected = opts.primaryPrint === item.index;
+        item.row.toggleClass("on", selected);
+        item.row.setAttribute("aria-checked", String(selected));
+        item.row.tabIndex = selected ? 0 : -1;
+      }
+    };
+    refreshPrintRows();
+
     // ── Left: Toggle-all + sections ──
     const toggleAll = leftCol.createDiv({ cls: "tj-export-toggle-all" });
-    toggleAll.createEl("span", { text: "Include in card", cls: "tj-export-toggle-label" });
-    const toggleAllBtn = toggleAll.createEl("button", { cls: "tj-export-toggle-btn", text: "Select all" });
+    toggleAll.createSpan({ text: "Include", cls: "tj-export-toggle-label" });
+    const toggleAllBtn = toggleAll.createEl("button", { cls: "tj-export-toggle-btn", text: "Select all", attr: { type: "button", "aria-label": "Select all sections" } });
 
     // Option definitions
-    type OptKey = keyof typeof opts;
+    type OptKey = Exclude<keyof typeof opts, "orientation" | "theme" | "imageFit" | "primaryPrint">;
+    const optionKeys: OptKey[] = ["screenshot", "stats", "rating", "notes", "repeatChange", "exitReason", "psychology", "hidePnl"];
     const sections: Array<{ title: string; items: Array<{ key: OptKey; label: string; desc: string }> }> = [
-      { title: "Visual", items: [{ key: "screenshot", label: "Screenshot", desc: "Trade chart / print" }] },
-      {
-        title: "Data",
-        items: [
-          { key: "stats", label: "Stats", desc: "Points, R-Multiple, Hold Time, Fees, details" },
-          { key: "rating", label: "Rating", desc: "Execution rating stars" },
-          { key: "psychology", label: "Psychology & Mistakes", desc: "Tag chips from your review" },
-        ],
-      },
-      {
-        title: "Review Notes",
-        items: [
-          { key: "notes", label: "Notes", desc: "What you wrote on the trade" },
-        ],
-      },
-      {
-        title: "Privacy",
-        items: [
-          { key: "hidePnl", label: "Hide P&L", desc: "Remove P&L and Risk from card" },
-        ],
-      },
+      { title: "", items: [
+        { key: "screenshot", label: "Screenshot", desc: "" },
+        { key: "stats", label: "Stats", desc: "P&L, fees, points, R and hold time" },
+        { key: "rating", label: "Self-rating", desc: "" },
+        { key: "psychology", label: "Tags", desc: "Psychology and mistakes" },
+      ] },
+      { title: "Review", items: [
+        { key: "notes", label: "What happened?", desc: "" },
+        { key: "repeatChange", label: "Repeat or change", desc: "" },
+        { key: "exitReason", label: "Why did I close?", desc: "" },
+      ] },
+      { title: "Privacy", items: [
+        { key: "hidePnl", label: "Hide money", desc: "Does not change screenshots." },
+      ] },
     ];
 
-    const optionEls: HTMLElement[] = [];
+    const optionEls: Array<{ key: OptKey; row: HTMLElement }> = [];
+    const contentKeys = optionKeys.filter((key) => key !== "hidePnl");
 
     const refreshToggleAll = () => {
-      const allOn = Object.values(opts).every((v) => v);
-      toggleAllBtn.textContent = allOn ? "Deselect all" : "Select all";
+      const allOn = contentKeys.every((key) => opts[key]);
+      toggleAllBtn.textContent = allOn ? "Clear" : "Select all";
+      toggleAllBtn.setAttribute("aria-label", allOn ? "Clear included sections" : "Select all sections");
     };
 
     // Redraw preview on every toggle
-    let previewDebounce: ReturnType<typeof setTimeout> | null = null;
+    let previewDebounce: number | null = null;
     const schedulePreview = () => {
-      if (previewDebounce) clearTimeout(previewDebounce);
-      previewDebounce = setTimeout(() => void drawPreview(), 150);
+      if (previewDebounce) window.clearTimeout(previewDebounce);
+      [pngBtn, jpgBtn, clipBtn].forEach((button) => { button.disabled = true; });
+      previewCanvas.getContext("2d")?.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewStatus.setText("Updating preview…");
+      previewDebounce = window.setTimeout(() => void drawPreview(), 100);
     };
+
+    const setOrientation = (orientation: ExportOrientation): void => {
+      opts.orientation = orientation;
+      verticalPreset.toggleClass("is-active", orientation === "vertical");
+      horizontalPreset.toggleClass("is-active", orientation === "horizontal");
+      verticalPreset.setAttribute("aria-pressed", String(orientation === "vertical"));
+      horizontalPreset.setAttribute("aria-pressed", String(orientation === "horizontal"));
+      schedulePreview();
+    };
+    verticalPreset.addEventListener("click", () => setOrientation("vertical"));
+    horizontalPreset.addEventListener("click", () => setOrientation("horizontal"));
 
     for (const sec of sections) {
       const secEl = leftCol.createDiv({ cls: "tj-export-section" });
-      secEl.createEl("div", { cls: "tj-export-section-title", text: sec.title });
+      if (sec.title) secEl.createDiv({ cls: "tj-export-section-title", text: sec.title });
       for (const item of sec.items) {
-        const row = secEl.createDiv({ cls: "tj-export-option" + (opts[item.key] ? " on" : "") });
-        optionEls.push(row);
+        const row = secEl.createDiv({ cls: "tj-export-option" + (opts[item.key] ? " on" : ""), attr: { role: "checkbox", "aria-checked": String(opts[item.key]), tabindex: "0", "aria-label": item.label } });
+        optionEls.push({ key: item.key, row });
+        row.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); row.click(); }
+        });
         const cb = row.createDiv({ cls: "tj-export-checkbox" });
         setIcon(cb, "check");
         const txt = row.createDiv({ cls: "tj-export-option-text" });
-        txt.createEl("div", { cls: "tj-export-option-label", text: item.label });
-        txt.createEl("div", { cls: "tj-export-option-desc", text: item.desc });
+        txt.createDiv({ cls: "tj-export-option-label", text: item.label });
+        if (item.desc) txt.createDiv({ cls: "tj-export-option-desc", text: item.desc });
         row.addEventListener("click", () => {
           opts[item.key] = !opts[item.key];
           row.classList.toggle("on", opts[item.key]);
+          row.setAttribute("aria-checked", String(opts[item.key]));
           refreshToggleAll();
           schedulePreview();
         });
@@ -1854,28 +2381,48 @@ export class TradeDetailView extends ItemView {
     }
 
     toggleAllBtn.addEventListener("click", () => {
-      const allOn = Object.values(opts).every((v) => v);
+      const allOn = contentKeys.every((key) => opts[key]);
       const newState = !allOn;
-      (Object.keys(opts) as OptKey[]).forEach((k) => { opts[k] = newState; });
-      optionEls.forEach((el) => el.classList.toggle("on", newState));
+      contentKeys.forEach((k) => { opts[k] = newState; });
+      optionEls.forEach(({ key, row }) => { row.classList.toggle("on", opts[key]); row.setAttribute("aria-checked", String(opts[key])); });
       refreshToggleAll();
       schedulePreview();
     });
 
+    const framing = leftCol.createDiv({ cls: "tj-export-section" });
+    framing.createDiv({ cls: "tj-export-section-title", text: "Image fit" });
+    const framingRow = framing.createDiv({ cls: "tj-export-preset-row" });
+    const fitPrints = framingRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset is-active", text: "Fit", attr: { type: "button", "aria-pressed": "true" } });
+    const fillPrints = framingRow.createEl("button", { cls: "tj-wz-seg-opt tj-export-preset", text: "Fill", attr: { type: "button", "aria-pressed": "false" } });
+    const framingHelp = framing.createDiv({ cls: "tj-export-print-help", text: "Keep the whole image." });
+    const setFraming = (fit: "contain" | "cover"): void => {
+      opts.imageFit = fit;
+      fitPrints.toggleClass("is-active", fit === "contain");
+      fillPrints.toggleClass("is-active", fit === "cover");
+      fitPrints.setAttribute("aria-pressed", String(fit === "contain")); fillPrints.setAttribute("aria-pressed", String(fit === "cover"));
+      framingHelp.setText(fit === "cover" ? "Crop edges to fill." : "Keep the whole image.");
+      schedulePreview();
+    };
+    fitPrints.addEventListener("click", () => setFraming("contain"));
+    fillPrints.addEventListener("click", () => setFraming("cover"));
+
     // Export buttons (left column, bottom)
     const btnRow = leftCol.createDiv({ cls: "tj-export-btn-row" });
 
-    const makeBtn = (icon: string, label: string, cls: string): HTMLElement => {
-      const btn = btnRow.createEl("button", { cls });
+    const makeBtn = (icon: string, label: string, cls: string): HTMLButtonElement => {
+      const btn = btnRow.createEl("button", { cls, attr: { type: "button", "aria-label": label === "Copy" ? "Copy image" : `Download ${label}` } });
       setIcon(btn, icon);
-      btn.createEl("span", { text: label });
+      btn.createSpan({ text: label });
       return btn;
     };
 
     const doExport = async (fmt: "png" | "jpg" | "clip") => {
-      const canvas = await this.buildExportCanvas(opts);
-      if (!canvas) { new Notice("Export failed"); return; }
-      const t = this.trade!;
+      let result: TradeCardResult | null;
+      try { result = await getOutput(); }
+      catch (error) { new Notice(error instanceof Error ? error.message : "Export failed"); return; }
+      if (!result) { new Notice("Export failed"); return; }
+      const canvas = result.canvas;
+      const canvases = [canvas];
       if (fmt === "clip") {
         try {
           const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/png"));
@@ -1886,13 +2433,16 @@ export class TradeDetailView extends ItemView {
       } else {
         const mime = fmt === "jpg" ? "image/jpeg" : "image/png";
         const ext = fmt === "jpg" ? "jpg" : "png";
-        const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, mime, 0.92));
-        if (!blob) { new Notice("Export failed"); return; }
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.download = `${(t.symbol || "unknown").toUpperCase()}-${(t.direction || "unknown").toUpperCase()}-${t.date || "unknown"}${t.setup ? "-" + t.setup.replace(/[\\/:*?"<>|]+/g, "-") : ""}.${ext}`;
-        a.href = url; a.click(); URL.revokeObjectURL(url);
-        new Notice(`Saved as ${ext.toUpperCase()}!`);
+        for (const [index, page] of canvases.entries()) {
+          const blob = await new Promise<Blob | null>((r) => page.toBlob(r, mime, 0.92));
+          if (!blob) { new Notice("Export failed"); return; }
+          const url = URL.createObjectURL(blob);
+          const a = createEl("a");
+          const suffix = canvases.length > 1 ? `-page-${index + 1}` : "";
+          a.download = `${(t.symbol || "unknown").toUpperCase()}-${(t.direction || "unknown").toUpperCase()}-${t.date || "unknown"}${t.setup ? "-" + t.setup.replace(/[\\/:*?"<>|]+/g, "-") : ""}${suffix}.${ext}`;
+          a.href = url; a.click(); URL.revokeObjectURL(url);
+        }
+        new Notice(canvases.length > 1 ? `Saved ${canvases.length} ${ext.toUpperCase()} pages!` : `Saved as ${ext.toUpperCase()}!`);
       }
       overlay.remove();
     };
@@ -1904,463 +2454,58 @@ export class TradeDetailView extends ItemView {
     jpgBtn.addEventListener("click", () => void doExport("jpg"));
     clipBtn.addEventListener("click", () => void doExport("clip"));
 
-    leftCol.createEl("div", { cls: "tj-export-hint", text: "JPG is smaller · PNG is lossless" });
+    leftCol.createDiv({ cls: "tj-export-hint", text: "Height adjusts to include all text." });
 
     // ── Right: Live preview ──
-    const previewLabel = rightCol.createEl("div", { cls: "tj-export-preview-label" });
-    previewLabel.setText("Live Preview");
+    const previewLabel = rightCol.createDiv({ cls: "tj-export-preview-label" });
+    previewLabel.setText("Preview");
     const previewWrap = rightCol.createDiv({ cls: "tj-export-preview-wrap" });
-    const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } }) as HTMLCanvasElement;
+    const previewCanvas = previewWrap.createEl("canvas", { attr: { width: 1080 } });
     previewCanvas.setCssStyles({ width: "100%" });
     previewCanvas.setCssStyles({ height: "auto" });
     previewCanvas.setCssStyles({ borderRadius: "6px" });
 
+    const previewStatus = leftCol.createDiv({ cls: "tj-export-status", attr: { role: "status", "aria-live": "polite" } });
+    let job: { key: string; promise: Promise<TradeCardResult | null> } | null = null;
+    const selectionKey = (): string => JSON.stringify(opts);
+    const getOutput = (): Promise<TradeCardResult | null> => {
+      if (this.trade !== t) return Promise.reject(new Error("The active trade changed. Close and reopen Export Trade Card."));
+      const key = selectionKey();
+      if (!job || job.key !== key) job = { key, promise: this.buildExportCanvas({ ...opts }) };
+      return job.promise;
+    };
     const drawPreview = async () => {
-      const canvas = await this.buildExportCanvas(opts);
-      if (!canvas) return;
-      previewCanvas.width = canvas.width;
-      previewCanvas.height = canvas.height;
-      const pctx = previewCanvas.getContext("2d");
-      if (pctx) pctx.drawImage(canvas, 0, 0);
+      const key = selectionKey();
+      previewWrap.dataset.theme = opts.theme;
+      try {
+        const result = await getOutput();
+        if (!overlay.isConnected || key !== selectionKey() || !result) return;
+        const canvas = result.canvas;
+        previewCanvas.width = canvas.width;
+        previewCanvas.height = canvas.height;
+        const expanded = canvas.height > (opts.orientation === "vertical" ? 1350 : 1080);
+        previewWrap.dataset.expanded = String(expanded);
+        previewCanvas.setCssStyles({ width: expanded || canvas.width > canvas.height ? "100%" : "auto", height: expanded || canvas.width > canvas.height ? "auto" : "100%", maxWidth: "100%", maxHeight: expanded ? "none" : "100%" });
+        previewCanvas.getContext("2d")?.drawImage(canvas, 0, 0);
+        previewStatus.setText(result.warnings.join(" "));
+        [pngBtn, jpgBtn, clipBtn].forEach((button) => { button.disabled = false; });
+      } catch (error) {
+        if (key !== selectionKey() || !overlay.isConnected) return;
+        previewCanvas.getContext("2d")?.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        previewStatus.setText(error instanceof Error ? error.message : "Export could not be rendered.");
+      }
     };
     schedulePreview();
   }
 
-  private async buildExportCanvas(opts: { screenshot: boolean; stats: boolean; rating: boolean; notes: boolean; psychology: boolean; hidePnl: boolean }): Promise<HTMLCanvasElement | null> {
+  private async buildExportCanvas(opts: ExportOptions): Promise<TradeCardResult | null> {
     const t = this.trade;
     if (!t) return null;
-
-    const zone = this.plugin.settings.timeZone;
-    const W = 1080, PAD = 48;
-    const lineH = 20;
-
-    // Collect screenshot URLs
-    const prints: string[] = [];
-    if (t.screenshots && t.screenshots.length > 0) {
-      for (const s of t.screenshots) {
-        const url = this.resolveImage(s.file);
-        if (url) prints.push(url);
-      }
-    } else if (t.screenshot && t.screenshot.trim() && t.screenshot.trim().toLowerCase() !== "added") {
-      const url = this.resolveImage(t.screenshot);
-      if (url) prints.push(url);
-    }
-
-    // Pre-load images
-    const loadImg = (url: string): Promise<HTMLImageElement | null> =>
-      new Promise((res) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => res(img);
-        img.onerror = () => res(null);
-        img.src = url;
-      });
-
-    const images = await Promise.all(prints.map(loadImg));
-    const validImages = images.filter((x): x is HTMLImageElement => !!x);
-
-    // Collect notes for text wrapping (need a temp canvas context for measureText)
-    const tempCanvas = document.createElement("canvas");
-    const tempCtx = tempCanvas.getContext("2d")!;
-    const maxTextW = W - PAD * 2;
-
-    const wrapText = (ctx2: CanvasRenderingContext2D, text: string, maxW: number): string[] => {
-      const words = text.split(/\s+/);
-      const lines: string[] = [];
-      let cur = "";
-      for (const word of words) {
-        const test = cur ? cur + " " + word : word;
-        if (ctx2.measureText(test).width > maxW && cur) {
-          lines.push(cur);
-          cur = word;
-        } else {
-          cur = test;
-        }
-      }
-      if (cur) lines.push(cur);
-      return lines;
-    };
-
-    // Notes — first non-empty of the v3.3 field and its legacy predecessors.
-    const notesText = [t.notes, t.review, t.thesis].map((s) => (s || "").trim()).find(Boolean) ?? "";
-    const showNotes = opts.notes && !!notesText;
-    const noteLines: string[] = [];
-    if (showNotes) {
-      tempCtx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-      noteLines.push(...wrapText(tempCtx, notesText, maxTextW));
-    }
-
-    // Psychology & Mistakes chips — pre-measured so the height math matches.
-    const psychTags = (t.psychology_tags ?? []).map((s) => String(s).trim()).filter(Boolean);
-    let mistakeTags = (t.mistake_tags ?? []).map((s) => String(s).trim()).filter(Boolean);
-    if (!mistakeTags.length) {
-      // Legacy fallback: the old free-text mistake becomes a single chip.
-      const legacyMistake = (t.mistake || "").trim();
-      if (legacyMistake) mistakeTags = [legacyMistake];
-    }
-    const showPsych = opts.psychology && (psychTags.length > 0 || mistakeTags.length > 0);
-    type Chip = { text: string; w: number };
-    const chipRowsOf = (tags: string[]): Chip[][] => {
-      tempCtx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-      const rows: Chip[][] = [];
-      let row: Chip[] = [];
-      let rowW = 0;
-      for (const tag of tags) {
-        const w = tempCtx.measureText(tag).width + 20; // 10px padding per side
-        const gap = row.length ? 4 : 0;
-        if (row.length && rowW + gap + w > maxTextW) {
-          rows.push(row);
-          row = [];
-          rowW = 0;
-        }
-        row.push({ text: tag, w });
-        rowW += (row.length > 1 ? 4 : 0) + w;
-      }
-      if (row.length) rows.push(row);
-      return rows;
-    };
-    const psychChipRows = showPsych ? chipRowsOf(psychTags) : [];
-    const mistakeChipRows = showPsych ? chipRowsOf(mistakeTags) : [];
-
-    // Pre-measure screenshot heights
-    const imgMaxW = W - PAD * 2;
-    const imgMaxH = 400;
-    const imgScales: Array<{ img: HTMLImageElement; w: number; h: number }> = [];
-    for (const img of validImages) {
-      const scale = Math.min(imgMaxW / img.width, imgMaxH / img.height);
-      imgScales.push({ img, w: img.width * scale, h: img.height * scale });
-    }
-
-    // ── Compute height ──
-    let totalH = PAD;
-    totalH += 100; // header (title + badges row, meta line)
-    totalH += 32;  // separator (hero ↔ next section)
-    if (opts.screenshot) {
-      if (imgScales.length > 0) {
-        for (const is2 of imgScales) totalH += is2.h + 16;
-      } else {
-        totalH += 232; // placeholder
-      }
-      totalH += 32; // separator (screenshot ↔ next section)
-    }
-    if (opts.stats) {
-      totalH += 92;  // statline
-      totalH += 32;  // hairline (stats ↔ fields)
-      totalH += 74;  // fields row
-      totalH += 32;  // separator (fields ↔ next section)
-    }
-    if (opts.rating) {
-      totalH += 54;
-    }
-    if (showPsych) {
-      if (opts.rating) totalH += 32; // separator (rating ↔ psych)
-      if (psychChipRows.length) totalH += 18 + 6 + psychChipRows.length * 22 + (psychChipRows.length - 1) * 6 + 16;
-      if (mistakeChipRows.length) totalH += 18 + 6 + mistakeChipRows.length * 22 + (mistakeChipRows.length - 1) * 6 + 16;
-    }
-    if (showNotes) {
-      if (showPsych || opts.rating) totalH += 32; // separator before notes
-      totalH += 24 + noteLines.length * lineH + 16;
-    }
-    totalH += PAD; // bottom padding
-
-    // ── Create canvas ──
-    const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = totalH;
-    const ctx = canvas.getContext("2d")!;
-
-    // Background
-    ctx.fillStyle = "#0d0d0d";
-    ctx.fillRect(0, 0, W, totalH);
-
-    // Dot pattern
-    ctx.fillStyle = "rgba(255,255,255,0.02)";
-    for (let dx = 0; dx < W; dx += 20) {
-      for (let dy = 0; dy < totalH; dy += 20) {
-        ctx.beginPath();
-        ctx.arc(dx, dy, 0.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
-    let y = PAD;
-
-    // ── Header (always) — v3.3 hero: "MES · Long" + badges, date/time below ──
-    const dirLabel = t.direction === "long" ? "Long" : t.direction === "short" ? "Short" : "—";
-    const titleText = `${t.symbol || "—"} · ${dirLabel}`;
-    ctx.textBaseline = "top";
-    ctx.letterSpacing = "-0.01em";
-    ctx.font = "bold 42px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#f0f1f2";
-    ctx.fillText(titleText, PAD, y);
-    const titleW = ctx.measureText(titleText).width;
-    ctx.letterSpacing = "0em";
-
-    ctx.font = "bold 18px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    const badgeH = 38;
-    const badgeX = PAD + titleW + 16;
-
-    // 1. Direction badge — LONG green / SHORT red, 12% tint.
-    const isLong = t.direction === "long";
-    const badgeText = isLong ? "LONG" : "SHORT";
-    const badgeBg = isLong ? "rgba(52,209,122,0.12)" : "rgba(255,93,72,0.12)";
-    const badgeFg = isLong ? "#34d17a" : "#ff5d48";
-    const badgeW = ctx.measureText(badgeText).width + 28;
-    ctx.fillStyle = badgeBg;
-    this.roundRect(ctx, badgeX, y + 6, badgeW, badgeH, 19);
-    ctx.fill();
-    ctx.fillStyle = badgeFg;
-    ctx.fillText(badgeText, badgeX + 14, y + 13);
-
-    // 2. Strategy badge — neutral pill (hairline + 4% white), if set.
-    if (t.setup) {
-      const stratW = ctx.measureText(t.setup).width + 28;
-      const sx = badgeX + badgeW + 10;
-      ctx.fillStyle = "rgba(255,255,255,0.04)";
-      this.roundRect(ctx, sx, y + 6, stratW, badgeH, 19);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 1;
-      this.roundRect(ctx, sx, y + 6, stratW, badgeH, 19);
-      ctx.stroke();
-      ctx.fillStyle = "#8a9099"; // --tj-fg-3
-      ctx.fillText(t.setup, sx + 14, y + 13);
-    }
-
-    // 3. Review status — right-aligned on the title row, same pill as LONG.
-    const complete = reviewStatus(t).complete;
-    const statusText = complete ? "REVIEWED" : "NEEDS REVIEW";
-    const statusFg = complete ? "#34d17a" : "#d9a441"; // green / --tj-tone-mid
-    const statusBg = complete ? "rgba(52,209,122,0.12)" : "rgba(217,164,65,0.12)";
-    const statusW = ctx.measureText(statusText).width + 28;
-    ctx.fillStyle = statusBg;
-    this.roundRect(ctx, W - PAD - statusW, y + 6, statusW, badgeH, 19);
-    ctx.fill();
-    ctx.fillStyle = statusFg;
-    ctx.fillText(statusText, W - PAD - statusW + 14, y + 13);
-
-    y += 60;
-
-    // Second line — date (settings.dateFormat) and entry time only.
-    const dateStr = formatDate(t.date, this.plugin.settings.dateFormat);
-    const whenText = t.entryTime ? `${dateStr}, ${t.entryTime}` : dateStr;
-    ctx.fillStyle = "#8a9099"; // --tj-fg-3
-    ctx.font = "16px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    ctx.fillText(whenText, PAD, y);
-    y += 40;
-
-    // Separator (hero ↔ next section)
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-    y += 32;
-
-    // ── Screenshots (conditional) ──
-    if (opts.screenshot) {
-      if (imgScales.length > 0) {
-        for (const { img, w, h } of imgScales) {
-          const imgX = PAD + (imgMaxW - w) / 2;
-          ctx.fillStyle = "#111111";
-          this.roundRect(ctx, imgX - 4, y - 4, w + 8, h + 8, 8);
-          ctx.fill();
-          ctx.drawImage(img, imgX, y, w, h);
-          y += h + 16;
-        }
-      } else {
-        ctx.fillStyle = "#111111";
-        this.roundRect(ctx, PAD, y, imgMaxW, 200, 8);
-        ctx.fill();
-        ctx.fillStyle = "#333";
-        ctx.font = "28px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("No screenshot", W / 2, y + 90);
-        ctx.textAlign = "left";
-        y += 232;
-      }
-
-      // Separator
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-      y += 32;
-    }
-
-    // ── Stats (conditional) — v3.3 statline: columns on hairlines, no boxes ──
-    if (opts.stats) {
-      const pnl = typeof t.pnl === "number" && Number.isFinite(t.pnl) ? t.pnl : 0;
-      const pts = typeof t.pnlPoints === "number" && Number.isFinite(t.pnlPoints) ? t.pnlPoints : 0;
-      const rm = tradeR(t) ?? 0;
-
-      const kpis = [
-        ...(!opts.hidePnl ? [{ label: "P&L", value: `${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`, color: pnl >= 0 ? "#34d17a" : "#ff5d48" }] : []),
-        { label: "Points", value: pts.toFixed(2), color: "#dcddde" },
-        { label: "R-Multiple", value: `${rm.toFixed(2)}R`, color: "#dcddde" },
-        { label: "Hold Time", value: holdFmtOf(t), color: "#dcddde" },
-      ];
-      const kpiCount = kpis.length;
-      const kpiW = (W - PAD * 2) / kpiCount;
-      kpis.forEach((kpi, i) => {
-        const kx = PAD + i * kpiW;
-        if (i > 0) {
-          ctx.strokeStyle = "rgba(255,255,255,0.08)";
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(kx, y);
-          ctx.lineTo(kx, y + 76);
-          ctx.stroke();
-        }
-        const tx = kx + (i > 0 ? 16 : 0);
-        ctx.fillStyle = "#8a9099"; // --tj-fg-3
-        ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillText(kpi.label.toUpperCase(), tx, y + 4);
-        ctx.fillStyle = kpi.color;
-        ctx.font = "bold 32px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillText(kpi.value, tx, y + 24);
-      });
-      y += 92;
-
-      // Hairline between the statline and the fields row.
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-      y += 32;
-
-      // Fields row — Stop / Risk, Target, Contracts, Session (4 per row).
-      const stopPrice = t.stopLoss;
-      const entryPrice = t.entryPrice;
-      let stopRiskValue = "— / —";
-      if (stopPrice && entryPrice) {
-        const riskDollars = Math.abs(entryPrice - stopPrice) * (futuresSpec(t.symbol)?.pointValue ?? 1) * (t.quantity || 1);
-        // Hide P&L still hides the risk figure; the stop itself stays.
-        stopRiskValue = opts.hidePnl
-          ? `${fmtPrice(stopPrice)} / —`
-          : `${fmtPrice(stopPrice)} / $${riskDollars.toFixed(0)}`;
-      }
-      const sessValue = sessionLabel(t, zone);
-      const details = [
-        { label: "Stop / Risk", value: stopRiskValue },
-        { label: "Target", value: t.target ? fmtPrice(t.target) : "—" },
-        { label: "Contracts", value: String(t.quantity) },
-        { label: "Session", value: !sessValue || sessValue === SESSION_UNKNOWN ? "—" : sessValue },
-      ];
-      details.forEach((d, i) => {
-        const dx = PAD + i * ((W - PAD * 2) / details.length);
-        ctx.fillStyle = "#8a9099";
-        ctx.font = "18px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillText(d.label, dx, y);
-        ctx.fillStyle = "#dcddde";
-        ctx.font = "bold 24px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillText(d.value, dx, y + 26);
-      });
-      y += 74;
-
-      // Separator
-      ctx.strokeStyle = "rgba(255,255,255,0.06)";
-      ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-      y += 32;
-    }
-
-    // ── Rating (conditional) — loose stars, no boxes ──
-    if (opts.rating) {
-      const rating = t.rating ?? 0;
-      ctx.fillStyle = "#8a9099"; // --tj-fg-3
-      ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-      ctx.fillText("Execution Rating".toUpperCase(), PAD, y);
-      y += 24;
-      // 20px stars (outer diameter), 8px gap.
-      const starR = 10;
-      const starStep = starR * 2 + 8;
-      for (let i = 0; i < 5; i++) {
-        const cx = PAD + starR + i * starStep;
-        const cy = y + starR;
-        ctx.beginPath();
-        for (let p = 0; p < 5; p++) {
-          const angle = (p * 4 * Math.PI) / 5 - Math.PI / 2;
-          const px = cx + starR * Math.cos(angle);
-          const py = cy + starR * Math.sin(angle);
-          if (p === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.fillStyle = i < rating ? "#f5b301" : "rgba(255,255,255,0.15)";
-        ctx.fill();
-      }
-      y += starR * 2 + 10;
-    }
-
-    // ── Psychology & Mistakes (optional) — below rating, above notes ──
-    if (showPsych) {
-      if (opts.rating) {
-        ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-        y += 32;
-      }
-      const accent = getComputedStyle(document.body).getPropertyValue("--interactive-accent").trim() || "#7f6df2";
-      const drawChipSection = (label: string, rows: Chip[][], textColor: string) => {
-        if (!rows.length) return;
-        ctx.fillStyle = "#8a9099"; // --tj-fg-3
-        ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        ctx.fillText(label.toUpperCase(), PAD, y);
-        y += 18 + 6;
-        ctx.font = "12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-        let rowY = y;
-        for (const row of rows) {
-          let cx = PAD;
-          for (const chip of row) {
-            ctx.strokeStyle = "rgba(255,255,255,0.14)";
-            ctx.lineWidth = 1;
-            this.roundRect(ctx, cx, rowY, chip.w, 22, 11);
-            ctx.stroke();
-            ctx.fillStyle = textColor;
-            ctx.fillText(chip.text, cx + 10, rowY + 5);
-            cx += chip.w + 4;
-          }
-          rowY += 22 + 6;
-        }
-        y = rowY - 6 + 16;
-      };
-      drawChipSection("Psychology", psychChipRows, accent);
-      drawChipSection("Mistakes", mistakeChipRows, "#ff5d48"); // --color-red-bright
-    }
-
-    // ── Notes (conditional) ──
-    if (showNotes) {
-      if (showPsych || opts.rating) {
-        // Separator before notes (stats/screenshot already end on one)
-        ctx.strokeStyle = "rgba(255,255,255,0.06)";
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
-        y += 32;
-      }
-      ctx.fillStyle = "#8a9099"; // --tj-fg-3
-      ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-      ctx.fillText("Notes".toUpperCase(), PAD, y);
-      y += 24;
-      ctx.fillStyle = "#dcddde"; // --tj-fg-1
-      ctx.font = "14px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-      for (const line of noteLines) {
-        ctx.fillText(line, PAD, y);
-        y += lineH;
-      }
-      y += 16;
-    }
-
-    return canvas;
-  }
-
-  // Canvas helpers
-  private roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.arcTo(x + w, y, x + w, y + r, r);
-    ctx.lineTo(x + w, y + h - r);
-    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-    ctx.lineTo(x + r, y + h);
-    ctx.arcTo(x, y + h, x, y + h - r, r);
-    ctx.lineTo(x, y + r);
-    ctx.arcTo(x, y, x + r, y, r);
-    ctx.closePath();
+    const entries = this.resolveScreenshotEntries(t);
+    return renderTradeCard(t, opts, this.plugin.settings.timeZone, (index) => {
+      const entry = entries[index];
+      return entry ? this.resolveImage(entry.entry.file) : null;
+    });
   }
 
   async openScreenshot(link: string): Promise<void> {
@@ -2371,17 +2516,14 @@ export class TradeDetailView extends ItemView {
     if (file instanceof TFile) {
       const leaf = this.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      this.app.workspace.revealLeaf(leaf);
+      await this.app.workspace.revealLeaf(leaf);
     } else {
       new Notice("Attachment not found: " + target);
     }
   }
 
-  /**
-   * Enlarge — show a print over the whole window without leaving the review.
-   * A click anywhere or Escape closes it; the previous lightbox is torn down
-   * first so a second Enlarge never stacks overlays.
-   */
+  /** Open the selected print on click; wheel zooms around the pointer and
+   * dragging pans the image while zoomed. */
   private openPrintLarge(file: TFile): void {
     const src = this.resolveImage(file.path);
     if (!src) {
@@ -2393,9 +2535,63 @@ export class TradeDetailView extends ItemView {
     const overlay = doc.body.createDiv({ cls: "tj-td-lightbox" });
     overlay.setAttr("role", "dialog");
     overlay.setAttr("aria-modal", "true");
-    overlay.createEl("img", { cls: "tj-td-lightbox-img", attr: { src, alt: file.basename } });
+    overlay.setAttr("aria-label", `Expanded print ${file.basename}`);
+    const img = overlay.createEl("img", { cls: "tj-td-lightbox-img", attr: { src, alt: file.basename } });
+    const hint = overlay.createDiv({ cls: "tj-td-lightbox-hint", text: "Scroll to zoom · drag to pan · Esc to close" });
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let startOffsetX = 0;
+    let startOffsetY = 0;
+    const paint = () => {
+      img.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
+      img.style.cursor = scale > 1 ? (dragging ? "grabbing" : "grab") : "zoom-in";
+      hint.toggleClass("is-hidden", scale > 1.01);
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = img.getBoundingClientRect();
+      const pointerX = e.clientX - (rect.left + rect.width / 2);
+      const pointerY = e.clientY - (rect.top + rect.height / 2);
+      const next = Math.max(1, Math.min(8, scale * (e.deltaY < 0 ? 1.12 : 0.89)));
+      const ratio = next / scale;
+      offsetX = e.clientX - (rect.left + rect.width / 2) - pointerX * ratio;
+      offsetY = e.clientY - (rect.top + rect.height / 2) - pointerY * ratio;
+      scale = next;
+      if (scale <= 1.01) { scale = 1; offsetX = 0; offsetY = 0; }
+      paint();
+    };
+    const onPointerDown = (e: PointerEvent) => {
+      if (scale <= 1.01 || e.button !== 0) return;
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startOffsetX = offsetX;
+      startOffsetY = offsetY;
+      img.setPointerCapture(e.pointerId);
+      paint();
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      offsetX = startOffsetX + e.clientX - startX;
+      offsetY = startOffsetY + e.clientY - startY;
+      paint();
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      dragging = false;
+      try { img.releasePointerCapture(e.pointerId); } catch { /* already released */ }
+      paint();
+    };
     const close = () => {
       doc.removeEventListener("keydown", onKey, true);
+      img.removeEventListener("wheel", onWheel);
+      img.removeEventListener("pointerdown", onPointerDown);
+      img.removeEventListener("pointermove", onPointerMove);
+      img.removeEventListener("pointerup", onPointerUp);
       overlay.remove();
       this._lightboxCleanup = null;
     };
@@ -2405,9 +2601,20 @@ export class TradeDetailView extends ItemView {
         e.stopPropagation();
         close();
       }
+      if (e.key === "0") {
+        scale = 1;
+        offsetX = 0;
+        offsetY = 0;
+        paint();
+      }
     };
-    overlay.addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    img.addEventListener("wheel", onWheel, { passive: false });
+    img.addEventListener("pointerdown", onPointerDown);
+    img.addEventListener("pointermove", onPointerMove);
+    img.addEventListener("pointerup", onPointerUp);
     doc.addEventListener("keydown", onKey, true);
     this._lightboxCleanup = close;
+    paint();
   }
 }

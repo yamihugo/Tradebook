@@ -64,26 +64,60 @@ function unionScreenshots(a?: PrintEntry[], b?: PrintEntry[]): PrintEntry[] | un
 /**
  * Fill the actual's gaps from the reconstructed model. The actual always wins:
  * the generated leg only supplies what the actual does not have. Arrays union,
- * screenshots union, acknowledgements OR — so nothing the trader wrote is ever
- * lost, and nothing they wrote on the actual is overwritten.
+ * screenshots union; explicit declarations on the actual take precedence.
+ * The original generated record remains available as superseded history.
  */
 export function mergeGeneratedIntoActual(actual: Trade, generated: Trade): Trade {
   const merged: Trade = { ...actual };
   const src = generated as unknown as Record<string, string | undefined>;
   const dst = merged as unknown as Record<string, string | undefined>;
-  for (const key of ["notes", "thesis", "review", "setup", "mistake", "sessionOverride"] as const) {
+  for (const key of [
+    "notes",
+    "thesis",
+    "review",
+    "setup",
+    "mistake",
+    "sessionOverride",
+    "review_plan",
+    "review_evidence_source",
+    "review_plan_timing",
+    "review_plan_provenance",
+    "review_plan_adherence",
+    "review_what_happened",
+    "review_repeat_change",
+    "review_post_exit_observation",
+    "review_post_exit_source",
+    "exit_reason",
+  ] as const) {
     if (!nonEmpty(dst[key]) && nonEmpty(src[key])) dst[key] = src[key];
   }
+  for (const key of ["review_planned_entry", "review_planned_stop", "review_planned_target", "review_planned_quantity"] as const) {
+    if (typeof merged[key] !== "number" && typeof generated[key] === "number") merged[key] = generated[key];
+  }
+  if (typeof merged.review_post_exit_points !== "number" && typeof generated.review_post_exit_points === "number") {
+    merged.review_post_exit_points = generated.review_post_exit_points;
+  }
   merged.tags = unionStrings(merged.tags, generated.tags);
-  merged.psychology_tags = unionStrings(merged.psychology_tags, generated.psychology_tags);
-  merged.mistake_tags = unionStrings(merged.mistake_tags, generated.mistake_tags);
+  // `true` alone means explicit "nothing to record". `false` clears that
+  // declaration, remains distinct from absent, and may coexist with tags.
+  if (actual.psychologyAcknowledged !== true) {
+    merged.psychology_tags = unionStrings(merged.psychology_tags, generated.psychology_tags);
+  }
+  if (actual.mistakesAcknowledged !== true) {
+    merged.mistake_tags = unionStrings(merged.mistake_tags, generated.mistake_tags);
+  }
   merged.screenshots = unionScreenshots(merged.screenshots, generated.screenshots);
   if (!merged.screenshot) {
     merged.screenshot = merged.screenshots?.length ? merged.screenshots[0].file : generated.screenshot || "";
   }
-  if (!merged.reviewed && generated.reviewed) merged.reviewed = true;
-  if (!merged.psychologyAcknowledged && generated.psychologyAcknowledged) merged.psychologyAcknowledged = true;
-  if (!merged.mistakesAcknowledged && generated.mistakesAcknowledged) merged.mistakesAcknowledged = true;
+  merged.reviewed = actual.reviewed ?? generated.reviewed;
+  merged.review_context_unavailable = actual.review_context_unavailable ?? generated.review_context_unavailable;
+  if (actual.psychologyAcknowledged === undefined && !merged.psychology_tags?.length) {
+    merged.psychologyAcknowledged = generated.psychologyAcknowledged;
+  }
+  if (actual.mistakesAcknowledged === undefined && !merged.mistake_tags?.length) {
+    merged.mistakesAcknowledged = generated.mistakesAcknowledged;
+  }
   if (!(merged.rating && merged.rating > 0) && generated.rating && generated.rating > 0) merged.rating = generated.rating;
   return merged;
 }

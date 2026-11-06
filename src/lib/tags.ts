@@ -16,11 +16,9 @@ import type { Trade } from "../types";
  * trade. Nothing is applied automatically, because a journal records what the
  * trader declares, it does not infer a motive from a P&L.
  *
- * Mistakes are grouped by where in the trade the error happened (Entry, Exit,
- * Sizing & risk, Discipline); the group is an index for the eye, never a tag
- * itself. The list follows the published guidance (TradeReveal: four error
- * families; TradeMedic: doubling down is the costliest, overtrading the most
- * common).
+ * Mistakes are grouped by where in the trade the error happened (Entry timing,
+ * Entry validity, Management & exit, Risk & size, Discipline & process); the
+ * group is an index for the eye, never a tag itself.
  */
 export interface TagGroup {
   id: string;
@@ -29,13 +27,27 @@ export interface TagGroup {
 }
 
 export const MISTAKE_GROUPS: TagGroup[] = [
-  { id: "entry", label: "Entry", tags: ["Chased entry", "Early entry", "No setup", "Revenge entry", "Hesitated"] },
-  { id: "exit", label: "Exit", tags: ["Moved stop", "No stop", "Cut winner early", "Let loser run"] },
-  { id: "risk", label: "Sizing & risk", tags: ["Oversized", "Undersized", "Doubling down"] },
-  { id: "discipline", label: "Discipline", tags: ["Overtrading", "Off-session", "Distracted", "Rule break"] },
+  { id: "entry-timing", label: "Entry timing", tags: ["Entered early", "Entered late", "Chased entry"] },
+  { id: "entry-validity", label: "Entry validity", tags: ["No valid setup", "Outside session"] },
+  { id: "management-exit", label: "Management & exit", tags: ["Took profit early / Cut winner early", "Let loss run / Late exit", "Moved stop", "No stop", "No target"] },
+  { id: "risk-size", label: "Risk & size", tags: ["Too large size", "Too small size"] },
+  { id: "discipline-process", label: "Discipline & process", tags: ["Overtraded", "Revenge entry", "Broke plan / rules"] },
 ];
 
-export const PSYCHOLOGY_TAGS = ["Confident", "Calm", "Anxious", "Impatient", "Frustrated", "FOMO", "Revenge", "Bored"];
+export const PSYCHOLOGY_TAGS = [
+  "Calm",
+  "Focused",
+  "Confident",
+  "Overconfident",
+  "Anxious",
+  "Frustrated",
+  "Impatient",
+  "Bored",
+  "Hesitant",
+  "Distracted",
+  "FOMO",
+  "Revenge",
+];
 
 /** Every mistake tag in the library, in reading order. */
 export function allMistakeTags(): string[] {
@@ -47,11 +59,39 @@ export function libraryFor(key: "mistakes" | "psychology"): string[] {
   return key === "mistakes" ? allMistakeTags() : PSYCHOLOGY_TAGS.slice();
 }
 
+const LEGACY_REVIEW_OPTION_MAP: Record<string, string | undefined> = {
+  "early entry": "Entered early",
+  "late entry": "Entered late",
+  "missed entry": undefined,
+  "early exit": "Took profit early / Cut winner early",
+  "late exit": "Let loss run / Late exit",
+  "order error": "Broke plan / rules",
+  "execution mismatch": "Broke plan / rules",
+  "chased entry": "Chased entry",
+  "no setup": "No valid setup",
+  "revenge entry": "Revenge entry",
+  "hesitated": undefined,
+  "moved stop": "Moved stop",
+  "no stop": "No stop",
+  "cut winner early": "Took profit early / Cut winner early",
+  "let loser run": "Let loss run / Late exit",
+  "oversized": "Too large size",
+  "undersized": "Too small size",
+  "doubling down": undefined,
+  "overtrading": "Overtraded",
+  "off-session": "Outside session",
+  "distracted": undefined,
+  "rule break": "Broke plan / rules",
+};
+
+function migrateReviewOption(tag: string): string | undefined {
+  return LEGACY_REVIEW_OPTION_MAP[tag.trim().toLowerCase()] ?? (libraryFor("mistakes").includes(tag) ? tag : undefined);
+}
+
 /**
- * The set the trader chose to see offered during review. Absent = the whole
- * library; an explicit empty list = no suggestions (only the trader's own tags
- * from notes and whatever they type). Values no longer in the library are
- * dropped, so a renamed tag never lingers.
+ * The set the trader chose to see offered during review. Legacy saved labels
+ * are migrated to the approved vocabulary so an older settings file cannot
+ * silently hide newly approved options.
  */
 export function reviewOptions(
   settings: { reviewOptions?: { mistakes?: string[]; psychology?: string[] } } | undefined,
@@ -59,8 +99,24 @@ export function reviewOptions(
 ): string[] {
   const chosen = settings?.reviewOptions?.[key];
   if (!chosen) return libraryFor(key);
-  const allowed = new Set(libraryFor(key));
-  return chosen.filter((t) => allowed.has(t));
+  if (key === "psychology") {
+    const allowed = new Set(libraryFor(key));
+    return chosen.filter((tag) => allowed.has(tag));
+  }
+  return Array.from(new Set(chosen.map(migrateReviewOption).filter((tag): tag is string => Boolean(tag))));
+}
+
+/** Grouped picker data for the Trade Detail review surface. */
+export function reviewTagGroups(
+  settings: { reviewOptions?: { mistakes?: string[]; psychology?: string[] } } | undefined,
+  key: "mistakes" | "psychology"
+): TagGroup[] {
+  if (key === "psychology") return [{ id: "psychology", label: "Psychology", tags: reviewOptions(settings, key) }];
+  const allowed = new Set(reviewOptions(settings, key));
+  return MISTAKE_GROUPS.map((group) => ({
+    ...group,
+    tags: group.tags.filter((tag) => allowed.has(tag)),
+  }));
 }
 
 /** Trim and collapse internal whitespace: "  FOMO   Entry " -> "FOMO Entry". */
@@ -122,7 +178,17 @@ export function isDeclaredRevenge(t: Trade): boolean {
  * motive we inferred. `Confident` and `Calm` are deliberately left out — a
  * state is not an error, and only the adverse ones feed the Tilt attribution.
  */
-const NEGATIVE_PSYCHOLOGY_TAGS = new Set(["anxious", "impatient", "frustrated", "fomo", "revenge", "bored"]);
+const NEGATIVE_PSYCHOLOGY_TAGS = new Set([
+  "overconfident",
+  "anxious",
+  "impatient",
+  "frustrated",
+  "bored",
+  "hesitant",
+  "distracted",
+  "fomo",
+  "revenge",
+]);
 export function inNegativeState(t: Trade): boolean {
   return psychologyTagsOf(t).some((tag) => NEGATIVE_PSYCHOLOGY_TAGS.has(normalizeTag(tag).toLowerCase()));
 }

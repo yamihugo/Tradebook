@@ -1,4 +1,4 @@
-import { AccountType, Execution, ImportCosts, InstantSource, OrphanCost, ParsedResult, TimeIssues, Trade, TradeFill } from "./types";
+import { AccountType, Execution, ImportCosts, InstantSource, OrphanCost, ParsedResult, RecordedOrderFact, TimeIssues, Trade, TradeFill } from "./types";
 import { AccountRule, classifyAccount, futuresSpec, knownFuturesSpec, rootSymbol } from "./futures";
 import { zoneWallParts } from "./tz";
 import { parseInstant } from "./lib/instant";
@@ -9,6 +9,15 @@ function parseFloatSafe(v: string | undefined | null): number {
   const clean = String(v).replace(/[$,]/g, "").trim();
   const n = parseFloat(clean);
   return isNaN(n) ? 0 : n;
+}
+
+/** Complete execution cell only; never turn malformed broker facts into zero.
+ * Keep cash and planned-order parsing on their existing contracts. */
+function parseExecutionNumber(raw: string): number {
+  const cell = raw.trim();
+  if (!/^(?:[+-]?\$?|\$[+-]?)(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?|\.\d+)$/.test(cell)) return NaN;
+  const value = Number(cell.replace(/[$,]/g, ""));
+  return Number.isFinite(value) ? value : NaN;
 }
 
 /** A price column, or NaN when the cell is empty. `parseFloatSafe` cannot be
@@ -70,12 +79,15 @@ function headerHas(cells: string[], aliases: string[]): boolean {
   return cells.some((c) => aliases.includes(c));
 }
 
-function parseCsv(text: string): Record<string, string>[] {
+function parseCsv(text: string, canonicalHeaders: readonly string[] = []): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return rows;
 
-  const header = splitLine(lines[0]).map((h) => h.trim());
+  const header = splitLine(lines[0]).map((h) => {
+    const trimmed = h.trim();
+    return canonicalHeaders.find((name) => name.toLowerCase() === trimmed.toLowerCase()) ?? trimmed;
+  });
   for (let i = 1; i < lines.length; i++) {
     const vals = splitLine(lines[i]);
     const row: Record<string, string> = {};
@@ -138,9 +150,14 @@ const FILL_KEYS = {
 export interface OrderFact {
   account: string;
   symbol: string;
-  side: "buy" | "sell";
+  side?: "buy" | "sell";
+  source: RecordedOrderFact["source"];
   /** The order's own creation stamp — a working order has no fill to time it. */
   time: Date;
+  status?: string;
+  orderId?: string;
+  orderType?: string;
+  quantity?: number;
   stopPrice?: number;
   limitPrice?: number;
 }
@@ -148,6 +165,9 @@ export interface OrderFact {
 const ORDER_TIME_KEYS = ["Timestamp", "timestamp", "Create Time", "create time", "Order Time", "Last Timestamp"];
 const STOP_KEYS = ["Stop Price", "stopPrice", "Stop"];
 const LIMIT_KEYS = ["Limit Price", "limitPrice", "Limit"];
+const ORDER_STATUS_KEYS = ["Order Status", "OrderStatus", "Status", "status"];
+const ORDER_ID_KEYS = ["Order ID", "OrderId", "orderId", "OrderID", "_orderId"];
+const ORDER_QUANTITY_KEYS = ["Order Quantity", "Order Qty", "order qty", "Quantity", "Qty"];
 
 export interface CsvImportZones {
   /** Zone the export was written in (naive stamps only), when the file or the
@@ -254,18 +274,19 @@ export function isCashHistoryCsv(text: string): boolean {
  * mapping screen has nothing to point at; the trader maps this one row to the
  * journal account the trades really belong to.
  */
-const TRADESEA_HEADER_KEYS = [
-  "time",
-  "symbol",
-  "qty",
-  "side",
-  "order type",
-  "limit price",
-  "stop price",
-  "avg price",
-  "commission",
-  "status",
+const TRADESEA_HEADER_NAMES = [
+  "Time",
+  "Symbol",
+  "Qty",
+  "Side",
+  "Order Type",
+  "Limit Price",
+  "Stop Price",
+  "Avg Price",
+  "Commission",
+  "Status",
 ];
+const TRADESEA_HEADER_KEYS = TRADESEA_HEADER_NAMES.map((name) => name.toLowerCase());
 const TRADESEA_ACCOUNT_LABEL = "TradeSea";
 
 export type CsvKind = "cash" | "orders" | "fills" | "tradesea" | "unknown";
@@ -465,12 +486,15 @@ export function parseTradeovateCsv(
   zones?: CsvImportZones,
   costs?: CashCosts
 ): ParsedResult {
-  const robj = parseCsv(fileText);
+
   // What the gate calls this file, read from the very classifier that let it in.
   // The reader needs it once — to give a kind that names no account its constant
   // label (see `KIND_ACCOUNT_LABEL`) and to say honestly why an empty file was
   // empty — never to special-case the parse loop per broker.
   const kind = csvKind(fileText);
+  // Recognition and row reading share the same ten TradeSea column names.
+  // Other dialects and cash history retain their existing header behavior.
+  const robj = parseCsv(fileText, kind === "tradesea" ? TRADESEA_HEADER_NAMES : []);
   const warnings: string[] = [];
   const executions: Execution[] = [];
   let skipped = 0;
@@ -524,11 +548,18 @@ export function parseTradeovateCsv(
     const rawStamp = firstNonEmpty(row, EXEC_KEYS.timestamp);
     const stamp = parseInstant(rawStamp, { sourceZone: zones?.sourceZone });
     const timestamp = stamp.status === "ok" ? stamp.instant : null;
-    // Explicit offsets (numeric or a confirmed TradeSea abbreviation) are true
-    // instants. Naive stamps still follow the reader's declared/system zone.
+    // Where the instant's zone came from. A stamp that named its own zone (a
+    // TradeSea abbreviation) is a statement about the file, so `source-zone`
+    // stands and the row carries the zone it named — the import screen's choice
+    // does not override it. A naive stamp read in *this computer's* zone says
+    // `system-zone` instead of dressing a choice of the reader up as the file's
+    // own zone (see `CsvImportZones.systemSource`).
+    const stampZone = stamp.status === "ok" ? stamp.stampZone : undefined;
     const naiveSource: InstantSource =
       stamp.status === "ok" && stamp.source === "offset"
         ? "offset"
+        : stampZone
+        ? "source-zone"
         : zones?.systemSource
         ? "system-zone"
         : "source-zone";
@@ -537,8 +568,9 @@ export function parseTradeovateCsv(
     // the kind table, never a branch here. `detectedAccounts` skips an empty
     // cell, which would leave the mapping screen with nothing to point at.
     const account = firstNonEmpty(row, EXEC_KEYS.account) || KIND_ACCOUNT_LABEL[kind];
-    // Only the TradeSea sample dialect carries an exchange prefix in the symbol.
-    // Keep every existing report on its established root-symbol path.
+    // The exchange prefix is stripped where the symbol is read, so the contract
+    // name the journal files and keys its costs on is the contract — never the
+    // venue (`CME:ES` → `ES`). Nowhere else in the reader carries the strip.
     const rawSymbol = firstNonEmpty(row, EXEC_KEYS.symbol);
     const symbol = kind === "tradesea" ? withoutExchangePrefix(rawSymbol) : rawSymbol;
     let sideRaw = firstNonEmpty(row, EXEC_KEYS.side).toLowerCase();
@@ -555,6 +587,16 @@ export function parseTradeovateCsv(
     const stopPrice = parsePrice(firstNonEmpty(row, STOP_KEYS));
     const limitPrice = parsePrice(firstNonEmpty(row, LIMIT_KEYS));
     const factSideRaw = firstNonEmpty(row, EXEC_KEYS.side).toLowerCase();
+    const factSide = factSideRaw.includes("buy") || ["b", "l", "long"].includes(factSideRaw)
+      ? "buy"
+      : factSideRaw.includes("sell") || ["s", "short"].includes(factSideRaw)
+        ? "sell"
+        : undefined;
+    const orderQuantityKeys = kind === "fills"
+      ? ["Order Quantity", "Order Qty", "order qty"]
+      : ORDER_QUANTITY_KEYS;
+    const orderQuantityRaw = firstNonEmpty(row, orderQuantityKeys).replace(/,/g, "");
+    const orderQuantity = Number(orderQuantityRaw);
     const orderStamp = parseInstant(firstNonEmpty(row, ORDER_TIME_KEYS), { sourceZone: zones?.sourceZone });
     if (
       Number.isFinite(stopPrice) ||
@@ -567,8 +609,13 @@ export function parseTradeovateCsv(
         orderFacts.push({
           account: factAccount,
           symbol: rootSymbol(factSymbol),
-          side: factSideRaw.includes("buy") || factSideRaw === "b" || factSideRaw === "l" ? "buy" : "sell",
+          ...(factSide ? { side: factSide } : {}),
+          source: kind === "orders" || kind === "fills" || kind === "tradesea" ? kind : "unknown",
           time: factTime,
+          ...(firstNonEmpty(row, ORDER_STATUS_KEYS) ? { status: firstNonEmpty(row, ORDER_STATUS_KEYS) } : {}),
+          ...(firstNonEmpty(row, ORDER_ID_KEYS) ? { orderId: firstNonEmpty(row, ORDER_ID_KEYS) } : {}),
+          ...(firstNonEmpty(row, EXEC_KEYS.orderType) ? { orderType: firstNonEmpty(row, EXEC_KEYS.orderType) } : {}),
+          ...(Number.isFinite(orderQuantity) && orderQuantity > 0 ? { quantity: orderQuantity } : {}),
           ...(Number.isFinite(stopPrice) ? { stopPrice } : {}),
           ...(Number.isFinite(limitPrice) ? { limitPrice } : {}),
         });
@@ -626,13 +673,12 @@ export function parseTradeovateCsv(
       continue;
     }
 
-    const qty = Math.abs(parseFloatSafe(qtyStr));
-    if (qty <= 0) {
+    const qty = parseExecutionNumber(qtyStr);
+    const price = parseExecutionNumber(priceStr);
+    if (!Number.isSafeInteger(qty) || qty <= 0 || !Number.isFinite(price)) {
       skipped++;
       continue;
     }
-
-    const price = parseFloatSafe(priceStr);
     // Costs never come from the trades file. It carries the broker's own
     // commission and nothing else — no exchange, clearing or NFA — and a
     // partial cost reads as a full one, so the journal would print a net P&L
@@ -667,6 +713,7 @@ export function parseTradeovateCsv(
       orderType: firstNonEmpty(row, EXEC_KEYS.orderType),
       costKey,
       timestampSource,
+      stampZone,
     });
   }
 
@@ -853,8 +900,9 @@ export function parseTradeovateCsv(
  * can carry a stamp a few seconds *earlier* than the fill that opened the
  * position.
  *
- * Deliberately short. A wider tolerance can quietly hand an unrelated earlier
- * order's level to the trade that came after it.
+ * Deliberately short. In a real export a bracket filed a full minute before the
+ * entry turned out to be an abandoned entry attempt, not a protective stop — and
+ * a wide tolerance would quietly hand its level to the trade that came after.
  */
 const ORDER_LEAD_MS = 30000;
 
@@ -897,7 +945,9 @@ function attachRecordedStops(
     if (!group?.length) continue;
     const ms = fact.time.getTime();
     // The closing side only: the side that opened the position filed triggers.
-    const closers = group.filter((t) => fact.side === (t.direction === "long" ? "sell" : "buy"));
+    const closers = fact.side
+      ? group.filter((t) => fact.side === (t.direction === "long" ? "sell" : "buy"))
+      : [];
     // Containment is evidence. The lead below is only a tolerance, so it is
     // consulted when no trade window holds the order — otherwise a stop filed
     // seconds before the next entry would look like a claim on that next trade.
@@ -926,6 +976,17 @@ function attachRecordedStops(
     const own = claimed.get(t.id);
     if (!own?.length) continue;
     own.sort((a, b) => a.time.getTime() - b.time.getTime());
+    t.recordedOrderFacts = own.map((fact) => ({
+      source: fact.source,
+      recordedAt: fact.time.toISOString(),
+      ...(fact.side ? { side: fact.side } : {}),
+      ...(fact.status ? { status: fact.status } : {}),
+      ...(fact.orderId ? { orderId: fact.orderId } : {}),
+      ...(fact.orderType ? { orderType: fact.orderType } : {}),
+      ...(fact.quantity ? { quantity: fact.quantity } : {}),
+      ...(fact.stopPrice !== undefined ? { stopPrice: fact.stopPrice } : {}),
+      ...(fact.limitPrice !== undefined ? { limitPrice: fact.limitPrice } : {}),
+    }));
 
     const levels: number[] = [];
     for (const f of own) {
@@ -992,9 +1053,11 @@ function pairRoundTrips(
     const instantSource: InstantSource = fills.every((f) => f.timestampSource === "offset")
       ? "offset"
       : picked ?? (zones?.systemSource ? "system-zone" : "source-zone");
-    // Explicit offsets are self-contained instants; naive stamps retain the
-    // reader's selected source zone as provenance.
-    const sourceZone = instantSource === "offset" ? undefined : zones?.sourceZone;
+    // The zone the note records is the one the stamps named for themselves — a
+    // TradeSea abbreviation is a statement about the file — falling back to the
+    // zone the reader was given for a naive file. Never a guess either way.
+    const namedZone = fills.find((f) => f.stampZone)?.stampZone;
+    const sourceZone = instantSource === "offset" ? undefined : namedZone ?? zones?.sourceZone;
     const lots: { sign: 1 | -1; qty: number; price: number; time: Date }[] = [];
     let pos: {
       dir: "long" | "short";
@@ -1064,8 +1127,8 @@ function pairRoundTrips(
         // reads the same price the trader actually got, not one lucky execution.
         const avgEntry = averagePrice(entryFills) || pos.openPrice;
         const avgExit = averagePrice(exitFills) || fill.price;
-        // Points: the furthest an exit actually closed from the entry — no
-        // break-even counts, contracts never multiply. Same rule as tradePoints().
+        // Realized gross points per closed contract, weighted by each exit's
+        // matched-lot P&L. Break-even exits contribute zero, not missing weight.
         const points = pointsOf(
           pos.dir,
           avgEntry,
@@ -1202,5 +1265,5 @@ function round2(n: number): number {
 
 // Test hook (see lib/fills.ts): lets the harness feed a CSV and inspect the fills.
 if (typeof window !== "undefined") {
-  (window as any).__tjCsv = { parseTradeovateCsv };
+  (window as unknown as { __tjCsv: { parseTradeovateCsv: typeof parseTradeovateCsv } }).__tjCsv = { parseTradeovateCsv };
 }

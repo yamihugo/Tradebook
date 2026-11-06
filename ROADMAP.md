@@ -1,55 +1,67 @@
 # Roadmap
 
-My first priority is making Tradebook reliable and comfortable to use every day.
-This is the direction I want to take it, with room to adjust as people use it and share
-feedback. Released changes are listed in the [changelog](CHANGELOG.md).
+My first priority is making Tradebook reliable and comfortable to use every day. I want to keep improving the parts people already use, while leaving room to adjust as issues and feedback come in.
 
-## Current priorities
+This page explains the direction. The [changelog](CHANGELOG.md) records the changes for each version.
 
-- Fix bugs and UI issues reported through everyday use.
-- Improve keyboard and mouse navigation across the core interface.
-- Improve light mode.
-- Add a first-run guide and contextual help.
-- Polish interactions and lightweight animations.
-- Optimize layouts and navigation for phones and tablets.
-- Continue improving trade and account analysis where the available data supports it.
+## What I'm focusing on
 
-Smaller improvements may ship first, while larger changes need more development and
-testing. The list is not a fixed release order, and there are no delivery dates yet.
+- Fixing bugs and UI issues found during everyday use.
+- Making keyboard and mouse navigation easier across the main screens.
+- Improving light mode.
+- Adding a first-run guide and help where it's needed.
+- Tidying up interactions and lightweight animations.
+- Making layouts and navigation more comfortable on phones and tablets.
+- Improving trade and account analysis where the available data supports it.
 
-## Future development
+Some of these changes are small; others need more development and testing. I haven't set delivery dates or a fixed release order.
 
-Once the core workflow is stable and the improvements above are in place, I want to
-build out the strategy and review side of Tradebook. This is a larger phase of development
-that will take time.
+## Further strategy and review work
 
-- **Strategy Tabs** — dedicated spaces for reviewing individual strategies.
-- **Strategy Lab** — a space for exploring and testing strategies.
-- **Missing Trades** — record setups you identified but did not take.
+Once the core workflow is more settled, I want to spend more time on the strategy and review side of Tradebook. The plans include:
+
+- **Strategy Tabs:** dedicated spaces for reviewing individual strategies.
+- **Strategy Lab:** a space for exploring and testing strategies.
+- **Missing Trades:** a way to record setups you identified but didn't take.
 - Review templates tailored to each strategy.
 - Improvements to psychology and behavioural review.
 
-## Ideas under consideration
+These are plans for later work, not features I'm claiming are ready now.
 
-These are possibilities I may explore later. They are not committed features, and some
-may never become part of Tradebook.
+## Ideas I'm considering
+
+I may explore these too, but they aren't committed features. Some may never become part of Tradebook.
 
 - Custom keyboard shortcuts.
 - Optional visual themes.
 - External bookmarks or sidebar links that open in your browser.
 - Offline voice notes.
+- Export/import of settings and account configurations.
+- More chart types and visualisations in Home.
 
 ## Imports
 
-Tradebook currently supports **Tradovate Orders, Fills and Cash History**, and the
-**TradeSea orders export**. See [import limitations](KNOWN-LIMITATIONS.md#import-formats)
-for the current scope.
+Tradebook currently supports **Tradovate Orders, Fills and Cash History**, and the **TradeSea orders export**. The [import limitations](KNOWN-LIMITATIONS.md#import-formats) explain what those imports cover.
 
-Import improvements will be guided by reported issues and anonymized export samples.
-Additional formats will only be listed as supported once their account information,
-timestamps, trades and costs have been checked against real exports. Documentation alone
-is not enough to confirm compatibility.
+I'll use reported issues and anonymized export samples to guide further import work. Before listing another format as supported, its account information, timestamps, trades and costs need to be checked against real exports. Documentation alone isn't enough to confirm that it works.
 
-If you would like another format supported, [open an issue](https://github.com/yamihugo/Tradebook/issues)
-with the platform and export type. Remove personal and account identifiers before
-sharing any sample files.
+If you'd like another format supported, [open an issue](https://github.com/yamihugo/Tradebook/issues) with the platform and export type. Please remove personal and account identifiers before sharing a sample.
+
+## Prop firm & platform support (planned)
+
+I'm gathering export samples and documentation for additional prop firms and platforms. Each new format needs:
+
+1. Verified export format (orders, fills, cash history)
+2. Account information, timestamps, trades and costs structure
+3. Real export samples tested against the importer
+
+Platforms I'm looking at include (not a commitment, just areas of active research):
+
+- **Topstep** — export formats and API
+- **Earn2Trade** / **Gauntlet Mini** — export formats
+- **The Funded Trader (TFT)** / **FTMO** — export formats
+- **Apex Trader Funding** — export formats
+- **Rithmic / NinjaTrader** — export formats
+- **Interactive Brokers (IBKR)** — flex queries / activity statements
+
+If you use one of these and can share an anonymized export sample, [open an issue](https://github.com/yamihugo/Tradebook/issues). That helps me understand the format and build proper support.

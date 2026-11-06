@@ -491,9 +491,26 @@ export function legsOf(trades: Trade[], baseKey: string): Trade[] {
   return trades.filter((t) => isLeg(t) && legBaseKey(t) === baseKey);
 }
 
+/** Copy impact when deleting selected base trades: generated legs go, real imported fills stay. */
+export function linkedDeletionImpact(selected: Trade[], allTrades: Trade[]): {
+  generatedIds: Set<string>;
+  importedIds: Set<string>;
+} {
+  const generatedIds = new Set<string>();
+  const importedIds = new Set<string>();
+  const selectedBaseKeys = new Set(selected.filter((trade) => !isLeg(trade)).map(legBaseKey));
+  for (const baseKey of selectedBaseKeys) {
+    for (const leg of legsOf(allTrades, baseKey)) {
+      if (leg.copyOrigin === "imported") importedIds.add(leg.id);
+      else generatedIds.add(leg.id);
+    }
+  }
+  return { generatedIds, importedIds };
+}
+
 /** A virtual leg is synthesized in memory and has no file on disk. */
 export function isVirtualLeg(t: Trade | undefined | null): boolean {
-  return !!t && (t as any).copyVirtual === true;
+  return !!t && (t as Trade & { copyVirtual?: boolean }).copyVirtual === true;
 }
 
 /**
@@ -510,7 +527,7 @@ export function synthesizeLegs(plugin: TradebookPlugin, base: Trade): Trade[] {
     if (!cfg) continue;
     const leg = buildLeg(base, acc, cfg);
     if (!leg.symbol || leg.quantity <= 0) continue;
-    (leg as any).copyVirtual = true;
+    (leg as Trade & { copyVirtual?: boolean }).copyVirtual = true;
     leg.id = `${legBaseKey(base)}::copy::${acc.id}`;
     out.push(leg);
   }
@@ -670,7 +687,7 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     // Generated copy legs are a model and carry no broker-confirmed costs.
     costCoverage: { commission: false, fees: false },
     pnl,
-    pnlPoints: hasPoints ? round2(basePoints) : 0,
+    pnlPoints: hasPoints ? round2(basePoints) : Number.NaN,
     setup: base.setup,
     mistake: base.mistake,
     thesis: base.thesis,
@@ -780,7 +797,7 @@ export async function deleteLegs(plugin: TradebookPlugin, baseKey: string): Prom
  */
 export async function materializeLeg(plugin: TradebookPlugin, leg: Trade): Promise<string> {
   const copy: Trade = { ...leg };
-  delete (copy as any).copyVirtual;
+  delete (copy as Trade & { copyVirtual?: boolean }).copyVirtual;
   copy.id = "";
   await saveTrade(plugin.app, plugin.getTradesFolder(), copy, plugin.settings.dateFormat);
   plugin.clearTradeCache();

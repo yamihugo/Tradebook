@@ -1,4 +1,10 @@
 import type { Trade } from "../types";
+import { tradeRows } from "./tradeTable";
+
+/** Return one selectable row per logical decision in the current visible population. */
+export function visibleDecisionTrades(trades: Trade[]): Trade[] {
+  return tradeRows(trades).map((row) => row.rep).filter((trade) => !!trade.id);
+}
 
 /** Stable identity for the population a bulk selection belongs to. */
 export function tradeSelectionScopeKey(scope: Record<string, unknown>): string {

@@ -67,8 +67,10 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
     c.createDiv({ cls: "tj-kpi-label", text: label });
     c.createDiv({ cls: "tj-kpi-value", text: value });
   };
-  statKpi("P&L", fmtMoney2(trade.pnl), trade.pnl >= 0 ? "pos" : "neg");
-  statKpi("Points", `${trade.pnlPoints ?? "—"} pts`, (trade.pnlPoints ?? 0) >= 0 ? "pos" : "neg");
+  const pnl = Number.isFinite(trade.pnl) ? fmtMoney2(trade.pnl) : "—";
+  statKpi("P&L", pnl, Number.isFinite(trade.pnl) ? (trade.pnl >= 0 ? "pos" : "neg") : "neutral");
+  const points = Number.isFinite(trade.pnlPoints) ? `${trade.pnlPoints.toFixed(2)} pts/contract` : "—";
+  statKpi("Realized pts/contract", points, Number.isFinite(trade.pnlPoints) ? (trade.pnlPoints >= 0 ? "pos" : "neg") : "neutral");
   statKpi("Qty", String(trade.quantity ?? 1));
   statKpi("Entry", `${fmtPrice(trade.entryPrice)} ${trade.entryTime || ""}`);
   statKpi("Exit", `${fmtPrice(trade.exitPrice)} ${trade.exitTime || ""}`);
@@ -109,7 +111,7 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
     area.addEventListener("change", () => {
       const val = area.value.trim();
       if (val === value) return;
-      (trade as any)[key] = val;
+      trade[key] = val;
       void saveTradeField(plugin, trade, key, val);
     });
   };
@@ -121,15 +123,15 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
   const foot = modal.createDiv({ cls: "tj-trade-modal-foot" });
   const noteBtn = foot.createEl("button", { text: "Open note", cls: "tj-btn tj-mini" });
 attachTip(noteBtn, { title: "Open note", sub: "The raw markdown file, in Obsidian." });
-  noteBtn.addEventListener("click", async () => {
+  noteBtn.addEventListener("click", () => void (async () => {
     if (!trade.id) return;
     const file = plugin.app.vault.getAbstractFileByPath(trade.id);
     if (file instanceof TFile) {
       const leaf = plugin.app.workspace.getLeaf(false);
       await leaf.openFile(file);
-      plugin.app.workspace.revealLeaf(leaf);
+      await plugin.app.workspace.revealLeaf(leaf);
     }
-  });
+  })());
 
   // Click outside closes
   overlay.addEventListener("click", (e) => {

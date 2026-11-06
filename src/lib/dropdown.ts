@@ -52,7 +52,15 @@ export interface DropdownOpts {
   block?: boolean;
   /** Where the floating list opens. Default: below, flipping up when it would not fit. */
   side?: "below" | "above";
+  /** Optional final action for a multi-select list, such as opening registry creation. */
+  onCreate?: () => void;
+  /** Keep the trigger label quiet when selected values are rendered elsewhere as chips. */
+  summary?: boolean;
 }
+
+export type MultiDropdown = HTMLElement & {
+  setValues: (values: string[]) => void;
+};
 
 interface OpenMenu {
   wrap: HTMLElement;
@@ -315,4 +323,168 @@ export function mountDropdown(
   });
 
   return wrap;
+}
+
+/**
+ * A portal-backed multi-select for small controlled vocabularies such as the
+ * strategies assigned to one trade. It deliberately shares the visual language
+ * and floating behaviour of mountDropdown while keeping the list open as each
+ * selection is toggled.
+ */
+export function mountMultiDropdown(
+  host: HTMLElement,
+  items: DropdownItem[],
+  values: string[],
+  onChange: (ids: string[]) => void,
+  opts: DropdownOpts = {}
+): MultiDropdown {
+  const doc = host.ownerDocument;
+  const win = doc.defaultView ?? window;
+  const wrap = host.createDiv({
+    cls: "tj-mg-dd tj-mg-dd-multi" +
+      (opts.align === "right" ? " is-right" : "") +
+      (opts.block ? " is-block" : "") +
+      (opts.size === "sm" ? " is-sm" : ""),
+  });
+  const btn = wrap.createEl("button", {
+    cls: "tj-mg-dd-btn",
+    attr: { type: "button", "aria-haspopup": "listbox", "aria-expanded": "false" },
+  });
+  const label = btn.createSpan({ cls: "tj-mg-dd-val" });
+  btn.createSpan({ cls: "tj-mg-dd-chev", text: "▾" });
+  let chosen = [...values];
+  const paint = (): void => {
+    const labels = chosen.filter((id) => id !== "__new__").map((id) => items.find((it) => it.id === id)?.label ?? id).filter(Boolean);
+    label.setText(opts.summary === false ? (opts.placeholder || "—") : labels.join(" · ") || opts.placeholder || "—");
+    label.toggleClass("is-placeholder", labels.length === 0);
+    btn.setAttribute("aria-label", labels.length ? labels.join(", ") : (opts.placeholder ?? "Choose options"));
+  };
+  const setValues = (nextValues: string[]): void => {
+    chosen = [...nextValues];
+    paint();
+    if (isOpen) paintList();
+  };
+  paint();
+
+  if (opts.title) attachTip(btn, { title: opts.title, sub: opts.sub });
+  const list = wrap.createDiv({ cls: "tj-mg-dd-list", attr: { role: "listbox", "aria-multiselectable": "true" } });
+  let isOpen = false;
+  let activeIndex = -1;
+  let optionRows: HTMLElement[] = [];
+  const paintActive = (index: number, scroll = false): void => {
+    activeIndex = index;
+    optionRows.forEach((row, i) => row.toggleClass("is-active", i === index));
+    const row = optionRows[index];
+    if (row && scroll) row.scrollIntoView({ block: "nearest" });
+  };
+  const toggleItem = (it: DropdownItem): void => {
+    if (it.disabled || it.id === "__new__") return;
+    const exists = chosen.some((id) => id.toLowerCase() === it.id.toLowerCase());
+    chosen = exists ? chosen.filter((id) => id.toLowerCase() !== it.id.toLowerCase()) : [...chosen, it.id];
+    paint();
+    paintList();
+    onChange([...chosen]);
+  };
+  const paintList = (): void => {
+    list.empty();
+    optionRows = [];
+    activeIndex = -1;
+    for (const it of items) {
+      if (it.heading) list.createDiv({ cls: "tj-mg-dd-head", text: it.heading });
+      const on = chosen.some((id) => id.toLowerCase() === it.id.toLowerCase());
+      const row = list.createDiv({
+        cls: "tj-mg-dd-item" + (on ? " on" : "") + (it.disabled ? " is-off" : ""),
+        attr: { role: "option", "aria-selected": String(on) },
+      });
+      row.dataset.ddValue = it.id;
+      row.createSpan({ cls: "tj-mg-dd-check", text: on ? "✓" : "" });
+      const txt = row.createDiv({ cls: "tj-mg-dd-txt" });
+      txt.createDiv({ cls: "tj-mg-dd-lbl", text: it.label });
+      if (it.note) txt.createDiv({ cls: "tj-mg-dd-note", text: it.note });
+      if (it.disabled) continue;
+      optionRows.push(row);
+      row.addEventListener("mouseenter", () => paintActive(optionRows.indexOf(row)));
+      if (it.id === "__new__") {
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          close();
+          opts.onCreate?.();
+        });
+        continue;
+      }
+      row.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleItem(it);
+      });
+    }
+  };
+  const place = (): void => {
+    if (!isOpen || !list.isConnected) return;
+    const r = btn.getBoundingClientRect();
+    const w = list.offsetWidth;
+    const h = list.offsetHeight;
+    let left = opts.align === "right" ? r.right - w : r.left;
+    let top = r.bottom + 6;
+    if (left < 8) left = 8;
+    if (left + w > win.innerWidth - 8) left = win.innerWidth - 8 - w;
+    if (top + h > win.innerHeight - 8 && r.top - h - 6 > 8) top = r.top - h - 6;
+    list.style.left = `${Math.round(left)}px`;
+    list.style.top = `${Math.round(top)}px`;
+  };
+  const close = (): void => {
+    if (!isOpen) return;
+    isOpen = false;
+    btn.setAttribute("aria-expanded", "false");
+    list.removeClass("is-portal");
+     list.setCssStyles({ left: "", top: "" });
+     wrap.appendChild(list);
+     if (active?.wrap === wrap) {
+       active = null;
+       stopWatching();
+     }
+   };
+  const open = (): void => {
+    if (isOpen) { close(); return; }
+    closeAll(wrap);
+    paintList();
+    isOpen = true;
+    btn.setAttribute("aria-expanded", "true");
+    list.addClass("is-portal");
+    doc.body.appendChild(list);
+    active = { wrap, list, close };
+    startWatching(doc);
+    place();
+    paintActive(optionRows.length ? 0 : -1);
+  };
+  btn.addEventListener("click", (e) => { e.stopPropagation(); open(); });
+  btn.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && isOpen) { e.preventDefault(); close(); return; }
+    if (!isOpen) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!optionRows.length) return;
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      const from = activeIndex < 0 ? (delta > 0 ? -1 : 0) : activeIndex;
+      paintActive((from + delta + optionRows.length) % optionRows.length, true);
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      paintActive(e.key === "Home" ? 0 : optionRows.length - 1, true);
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const row = optionRows[activeIndex];
+      const item = row ? items.find((it) => it.id === row.dataset.ddValue) : undefined;
+      if (item) toggleItem(item);
+    }
+  });
+  win.addEventListener("resize", place);
+  win.addEventListener("scroll", place, true);
+  (wrap as unknown as MultiDropdown).setValues = setValues;
+  return wrap as unknown as MultiDropdown;
 }

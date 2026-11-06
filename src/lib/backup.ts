@@ -117,5 +117,5 @@ export function summariseBackup(raw: unknown): BackupSummary {
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__tjBackup = { buildBackup, summariseBackup, backupFilename, BACKUP_KIND, BACKUP_VERSION };
+  window.__tjBackup = { buildBackup, summariseBackup, backupFilename, BACKUP_KIND, BACKUP_VERSION };
 }

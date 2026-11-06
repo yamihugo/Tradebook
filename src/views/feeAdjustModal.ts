@@ -74,7 +74,7 @@ class FeeAdjustModal extends Modal {
     // The balance field is the whole point of the screen: hand it the cursor on
     // open. `render()` restores it after each repaint as long as it was there.
     window.setTimeout(() => {
-      (this.contentEl.querySelector("input.tj-payout-input") as HTMLInputElement | null)?.focus();
+      this.contentEl.querySelector<HTMLInputElement>("input.tj-payout-input")?.focus();
     }, 0);
     // The trades arrive after the first paint; the window is worked out again
     // once they are here, so the counts and the preview are never guessed.
@@ -366,13 +366,13 @@ class FeeAdjustModal extends Modal {
     const save = actions.createEl("button", { cls: "tj-actionbtn", attr: { type: "button" } });
     setIcon(save.createSpan({ cls: "tj-btn-icon" }), "check");
     save.createSpan({ text: "Log adjustment" });
-    save.addEventListener("click", async () => {
+    save.addEventListener("click", () => void (async () => {
       const raw = haveInput.value.trim();
       const parsed = raw === "" ? NaN : parseFloat(raw);
       if (!Number.isFinite(parsed)) {
         this.error = "Enter the balance you have first — for example 49,263.66.";
         this.render();
-        (this.contentEl.querySelector("input.tj-payout-input") as HTMLInputElement | null)?.focus();
+        this.contentEl.querySelector<HTMLInputElement>("input.tj-payout-input")?.focus();
         return;
       }
       const diff = Math.round((parsed - this.journalBalance) * 100) / 100;
@@ -409,7 +409,7 @@ class FeeAdjustModal extends Modal {
           : `Logged ${fmtMoney(diff)} on ${this.accountName()}.`
       );
       this.refresh();
-    });
+    })());
 
     if (!adjustments.length) {
       const empty = contentEl.createDiv({ cls: "tj-payout-empty" });
@@ -440,10 +440,10 @@ class FeeAdjustModal extends Modal {
         attr: { type: "button", "aria-label": "Remove correction" },
       });
       setIcon(del, "x");
-      del.addEventListener("click", async () => {
+      del.addEventListener("click", () => void (async () => {
         await this.plugin.removeFeeAdjustment(a.id);
         this.refresh();
-      });
+      })());
     }
 
     const foot = contentEl.createDiv({ cls: "tj-fees-total" });

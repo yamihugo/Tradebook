@@ -8,3 +8,23 @@ declare module "*.png" {
   const dataUri: string;
   export default dataUri;
 }
+
+interface Window {
+    __tjBackup?: unknown;
+    __tjBreakdown?: unknown;
+    __tjChartKit?: unknown;
+    __tjDiagnostics?: unknown;
+    __tjFills?: unknown;
+    __tjGrid?: unknown;
+    __tjMetrics?: unknown;
+    __tjMoney?: unknown;
+    __tjPeriodComparisons?: unknown;
+    __tjPeriods?: unknown;
+    __tjProcess?: unknown;
+    __tjReportedHistory?: unknown;
+    __tjReview?: unknown;
+    __tjScore?: unknown;
+    __tjSessions?: unknown;
+    __tjTradeTable?: unknown;
+    __tjTrends?: unknown;
+  }

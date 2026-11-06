@@ -969,7 +969,7 @@ export class AccountsListView extends ItemView {
     const acc = this.accounts().find((a) => a.id === sec.heroId);
     const nameEl = sh.querySelector<HTMLElement>(".tj-acct-h1-t");
     if (!acc || !nameEl) return;
-    const input = document.createElement("input");
+    const input = createEl("input");
     input.type = "text";
     input.className = "tj-acct-sname-input";
     input.value = acc.copyGroupName ?? "";
@@ -1059,7 +1059,7 @@ export class AccountsListView extends ItemView {
 
   /** A card that shows its own failure — far better than an empty list. */
   private errorTile(acc: PropAccount, err: unknown): HTMLElement {
-    const tile = document.createElement("div");
+    const tile = createDiv();
     tile.className = "tj-acct-tile is-error";
     tile.createDiv({ cls: "tj-acct-tile-edge" }).setCssStyles({ background: "var(--color-red, #ff5d48)" });
     tile.createDiv({ cls: "tj-acct-hd-1", text: acc.name });
@@ -1077,13 +1077,12 @@ export class AccountsListView extends ItemView {
    * The corner logo says which firm it is at a glance.
    */
   private renderTile(acc: PropAccount, st: AccStats): HTMLElement {
-    const tile = document.createElement("div");
+    const tile = createDiv();
     const demo = this.isDemo(acc);
     tile.className = "tj-acct-tile" + (demo ? " is-demo" : "");
     // The account id travels with the card: handy for support ("which card is
     // this?") and it keeps the test harnesses honest without matching names.
     tile.dataset.account = acc.id;
-    const m = st.m;
 
     const edge = tile.createDiv({ cls: "tj-acct-tile-edge" });
     // Same source as the dashboard's "Room to loss floor": the floor model, not
@@ -1444,21 +1443,21 @@ export class AccountsListView extends ItemView {
     box.createEl("h3", { text: "Archived (past evals)" });
     for (const acc of archived) {
       const row = box.createDiv({ cls: "tj-archived-row" });
-      row.createEl("span", { text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
+      row.createSpan({ text: `${acc.name}  ·  $${(acc.size / 1000).toFixed(0)}K` });
       row
         .createEl("button", { text: "Restore", cls: "tj-btn tj-mini", attr: { type: "button" } })
-        .addEventListener("click", async () => {
+        .addEventListener("click", () => void (async () => {
           await this.plugin.unarchiveAccount(acc.id);
           this.render();
-        });
+        })());
       row
         .createEl("button", { text: "Delete record", cls: "tj-btn tj-mini", attr: { type: "button" } })
-        .addEventListener("click", async () => {
+        .addEventListener("click", () => void (async () => {
           if (!window.confirm(`Remove ${acc.name} from the archive? Its trades stay in the journal.`)) return;
           this.plugin.settings.archivedAccounts = (this.plugin.settings.archivedAccounts || []).filter((a) => a.id !== acc.id);
           await this.plugin.saveSettings();
           this.render();
-        });
+        })());
     }
   }
 
