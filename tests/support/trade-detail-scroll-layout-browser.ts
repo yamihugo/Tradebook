@@ -37,8 +37,10 @@ async function runDetailLayoutCases(width:number) {
   const tiles=[...root.querySelectorAll<HTMLElement>('.tj-td-shot-thumb')];
   check(tiles.length===12,'twelve thumbnail tiles',tiles.length);
   for(const [i,tile] of tiles.entries()){
-    const tr=tile.getBoundingClientRect(),show=tile.querySelector('button')!.getBoundingClientRect(),img=tile.querySelector('img')!.getBoundingClientRect(),label=tile.querySelector('.tj-td-shot-thumb-label')!.getBoundingClientRect();
+    const tr=tile.getBoundingClientRect(),show=tile.querySelector('button.tj-td-shot-show')!.getBoundingClientRect(),remove=tile.querySelector('button.tj-td-shot-remove')!.getBoundingClientRect(),img=tile.querySelector('img')!.getBoundingClientRect(),label=tile.querySelector('.tj-td-shot-thumb-label')!.getBoundingClientRect();
     check(img.bottom<=tr.bottom+1 && label.bottom<=tr.bottom+1 && show.bottom<=tr.bottom+1,`tile ${i} contains its image and label`,{tileHeight:tr.height,imageBottom:img.bottom-tr.top,labelBottom:label.bottom-tr.top,showHeight:show.height});
+    const removeCoversLabel=remove.left<label.right && remove.right>label.left && remove.top<label.bottom && remove.bottom>label.top;
+    check(!removeCoversLabel,`tile ${i} remove control does not cover its label`,{label:label.toJSON(),remove:remove.toJSON()});
   }
   for(let i=0;i<tiles.length-1;i++){
     const a=tiles[i].getBoundingClientRect(),b=tiles[i+1].getBoundingClientRect();
