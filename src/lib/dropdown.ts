@@ -436,14 +436,13 @@ export function mountMultiDropdown(
     isOpen = false;
     btn.setAttribute("aria-expanded", "false");
     list.removeClass("is-portal");
-    list.style.left = "";
-    list.style.top = "";
-    wrap.appendChild(list);
-    if (active?.wrap === wrap) {
-      active = null;
-      stopWatching();
-    }
-  };
+     list.setCssStyles({ left: "", top: "" });
+     wrap.appendChild(list);
+     if (active?.wrap === wrap) {
+       active = null;
+       stopWatching();
+     }
+   };
   const open = (): void => {
     if (isOpen) { close(); return; }
     closeAll(wrap);
