@@ -109,6 +109,10 @@ If you use a platform not listed above and can share an **anonymized export samp
   identify or attach a group to a trade; attach the group to the correct Trade Detail
   explicitly after the trade record exists. The queue does not interpret chart images.
 
+## File names and screenshot links
+
+- The file-name repair updates stored screenshot references when it renames the matching files. It does not automatically repair links that were already broken by an earlier rename. Back up the vault before using the repair and check existing affected trades separately.
+
 ## Times and timezones
 
 - An imported timestamp with its own offset (`Z`, `±HH:MM`, a numeric TradeSea GMT/UTC

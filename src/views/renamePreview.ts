@@ -56,7 +56,7 @@ class RenamePreviewModal extends Modal {
       text:
         `${plural(total, "note")} would be renamed` +
         (prints ? ` and ${plural(prints, "print")} would follow.` : ".") +
-        " Links and embeds are updated, so nothing in your notes breaks.",
+        " Trade screenshot references are updated for completed renames. Back up your vault before continuing.",
     });
     if (this.plan.skipped) {
       contentEl.createEl("p", {
@@ -108,10 +108,9 @@ class RenamePreviewModal extends Modal {
         this.close();
       } catch (err) {
         console.error("[tradebook] rename failed:", err);
-        new Notice("Could not rename files — check the console.");
-        go.removeAttribute("disabled");
-        go.setText("Try again");
-        this.working = false;
+        new Notice(err instanceof Error ? err.message : "Rename stopped. Do not retry until the affected files have been checked.");
+        // A partial or unverified recovery must never rerun the stale preview.
+        go.setText("Stopped — close and inspect");
       }
     })());
   }
