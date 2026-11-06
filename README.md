@@ -51,14 +51,10 @@ For a manual installation, replace only `main.js`, `manifest.json` and `styles.c
 
 ## Getting started
 
-<a href="https://www.youtube.com/embed/4stW4AuxoLQ?start=274" target="_blank" rel="noopener">
-  <img src="https://img.youtube.com/vi/4stW4AuxoLQ/hqdefault.jpg" alt="Tradebook walkthrough" width="320" style="border-radius: 8px; border: 1px solid #444; cursor: pointer;">
-</a>
+[![Tradebook walkthrough](https://img.youtube.com/vi/4stW4AuxoLQ/hqdefault.jpg)](https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s)
 
 There's a short walkthrough video here: **Tradebook walkthrough**
 👉 https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s
-
-Click the thumbnail above to open the video directly in YouTube's player (opens in a new tab).
 
 ### 1. Add an account
 
