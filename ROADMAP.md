@@ -36,6 +36,8 @@ I may explore these too, but they aren't committed features. Some may never beco
 - Optional visual themes.
 - External bookmarks or sidebar links that open in your browser.
 - Offline voice notes.
+- Export/import of settings and account configurations.
+- More chart types and visualisations in Home.
 
 ## Imports
 
@@ -44,3 +46,22 @@ Tradebook currently supports **Tradovate Orders, Fills and Cash History**, and t
 I'll use reported issues and anonymized export samples to guide further import work. Before listing another format as supported, its account information, timestamps, trades and costs need to be checked against real exports. Documentation alone isn't enough to confirm that it works.
 
 If you'd like another format supported, [open an issue](https://github.com/yamihugo/Tradebook/issues) with the platform and export type. Please remove personal and account identifiers before sharing a sample.
+
+## Prop firm & platform support (planned)
+
+I'm gathering export samples and documentation for additional prop firms and platforms. Each new format needs:
+
+1. Verified export format (orders, fills, cash history)
+2. Account information, timestamps, trades and costs structure
+3. Real export samples tested against the importer
+
+Platforms I'm looking at include (not a commitment, just areas of active research):
+
+- **Topstep** — export formats and API
+- **Earn2Trade** / **Gauntlet Mini** — export formats
+- **The Funded Trader (TFT)** / **FTMO** — export formats
+- **Apex Trader Funding** — export formats
+- **Rithmic / NinjaTrader** — export formats
+- **Interactive Brokers (IBKR)** — flex queries / activity statements
+
+If you use one of these and can share an anonymized export sample, [open an issue](https://github.com/yamihugo/Tradebook/issues). That helps me understand the format and build proper support.

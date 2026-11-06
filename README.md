@@ -45,11 +45,13 @@ Tradebook opens in the left sidebar. From there you can visit **Home**, **Accoun
 
 ### Updating
 
-For the normal Community plugin installation, go to **Settings → Community plugins → Check for updates**.
+For the normal Community plugin installation, go to **Settings → Community plugins → Check for updates** in Obsidian.
 
-If you installed through BRAT, update through BRAT instead. For a manual installation, replace only `main.js`, `manifest.json` and `styles.css` in the plugin folder. Keep your existing `data.json`; it holds your settings and account configuration.
+For a manual installation, replace only `main.js`, `manifest.json` and `styles.css` in the plugin folder. Keep your existing `data.json`; it holds your settings and account configuration.
 
 ## Getting started
+
+[![Tradebook for Obsidian – Free Futures Trading Journal | Setup Guide](https://img.youtube.com/vi/4stW4AuxoLQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s)
 
 There's a short walkthrough video here: **Tradebook for Obsidian – Free Futures Trading Journal | Setup Guide**
 👉 https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s

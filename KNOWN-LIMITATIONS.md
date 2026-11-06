@@ -31,21 +31,51 @@ mistaken for a missing feature.
 
 ## Import formats
 
-- **Tradovate Orders, Fills and Cash History, and the TradeSea orders export, are the
-  supported formats.** There is no generic arbitrary-CSV importer, and other brokers'
-  exports are not supported. When a file cannot be recognised, Tradebook says so rather
-  than guessing.
-- **Tradovate's Performance Report is not supported.** It is a screen, not a ledger.
-- **Support is verified against the project's canonical Tradovate export contract.** No
-  anonymised real-world Tradovate exports are committed to the repository, so the formats
-  are not yet confirmed against live broker files.
-- **TradeSea support is sample-based, not a vendor format contract.** The importer requires
-  the complete observed orders-file header. Validated timestamps use a month-first slash
-  date with a comma before the clock. The observed `EDT` token is fixed UTC−04:00; numeric
-  GMT/UTC offsets are applied literally. Other alphabetic zone tokens and unobserved date
-  layouts are refused. The file has no account id, so import one file per batch. Commission
-  is not applied, so reported P&L is before costs. Whether exports are limited to one day is
-  unverified.
+### Currently supported
+
+- **Tradovate Orders, Fills and Cash History** — the standard Tradovate exports.
+  - **Orders**: `orderId`, `Account`, `B/S`, `Contract`, `Product`, `Status`, `Quantity`, `Type`, `Limit Price`, `Stop Price`, `Filled Qty`, `Avg Fill Price`, `Fill Time`, `Timestamp`
+  - **Fills**: `Fill ID`, `Account`, `Symbol`, `Side`, `Quantity`, `Price`, `Commission`, `Fees`, `Fill Time`, `Order ID`
+  - **Cash History**: platform's own line items with timestamps, amounts and descriptions
+
+- **TradeSea orders export** — the checked orders export file
+  - Must have the complete observed header: `Time, Symbol, Qty, Side, Order Type, Limit Price, Stop Price, Avg Price, Commission, Status`
+  - No account column (the importer assigns "TradeSea" as the account label)
+  - One TradeSea export per import batch
+  - Commission is not applied; P&L is before costs
+  - `EDT` is fixed UTC−04:00; numeric GMT/UTC offsets applied literally
+  - Other alphabetic zone tokens and unconfirmed date layouts are refused
+
+### How to export from supported platforms
+
+**Tradovate** (web or desktop):
+1. Open Tradovate → Reports → Orders / Fills / Cash History
+2. Set the date range you want
+3. Click **Export CSV** for each report type
+4. In Tradebook, use **Import CSV** and select the files (Orders + Fills together, Cash History separately if available)
+
+**TradeSea** (web):
+1. Open TradeSea → Reports → Orders Export
+2. Download the CSV
+2. In Tradebook, use **Import CSV** and select the TradeSea file (one at a time)
+
+### Not currently supported
+
+- **Tradovate Performance Report** — it's a screen, not a ledger
+- **Rithmic / NinjaTrader exports** — format not yet verified
+- **Interactive Brokers Flex Queries / Activity Statements** — not yet implemented
+- **Topstep / Earn2Trade / Gauntlet Mini / TFT / FTMO / Apex** — export formats not yet verified
+- **Generic/arbitrary CSV** — no generic importer; each format must be verified
+
+### Adding new formats
+
+I'm actively researching additional prop firm and platform exports. Before listing a format as supported, I need:
+
+1. Verified export format (orders, fills, cash history or equivalent)
+2. Account information, timestamps, trades and costs structure
+3. Real export samples tested against the importer
+
+If you use a platform not listed above and can share an **anonymized export sample**, [open an issue](https://github.com/yamihugo/Tradebook/issues). That helps me understand the format and build proper support. Please remove personal and account identifiers before sharing any sample.
 
 ## Copy Trading
 
