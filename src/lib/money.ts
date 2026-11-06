@@ -588,7 +588,7 @@ export function summarizeFinancials(
 
 // Test hook, same pattern as the other pure modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjMoney = {
+  window.__tjMoney = {
     netTotal, grossTotal, netWins, netLosses, grossWin, grossLoss,
     profitFactor, grossProfitFactor, largestGrossWin, largestGrossLoss, largestNetWin, largestNetLoss,
     expectancy, avgWin, avgLoss, largestWin, largestLoss,

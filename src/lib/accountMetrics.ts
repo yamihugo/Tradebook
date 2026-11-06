@@ -346,12 +346,10 @@ export function computeDrawdownEpisodes(
 
   const episodes: DrawdownEpisode[] = [];
   let peak = initialBalance;
-  let peakDate = dailyBalances[0]?.date ?? "";
   let inDD = false;
   let ddStart = "";
   let ddPeak = initialBalance;
   let ddTrough = initialBalance;
-  let ddTroughDate = "";
   let ddTrades = 0;
 
   for (let i = 0; i < dailyBalances.length; i++) {
@@ -378,20 +376,17 @@ export function computeDrawdownEpisodes(
         inDD = false;
       }
       peak = balance;
-      peakDate = date;
     } else if (!inDD) {
       // Start new drawdown
       inDD = true;
       ddStart = date;
       ddPeak = peak;
       ddTrough = balance;
-      ddTroughDate = date;
       ddTrades = 0;
     } else {
       // Continuing drawdown
       if (balance < ddTrough) {
         ddTrough = balance;
-        ddTroughDate = date;
       }
     }
     if (inDD) ddTrades++;
@@ -431,11 +426,6 @@ export function computeDrawdownEpisodes(
     pctTimeInDD: totalDays > 0 ? Math.min(100, (ddDays / totalDays) * 100) : 0,
   };
 }
-
-const minutesOf = (t: string): number | null => {
-  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(t || "");
-  return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) + (m[3] ? parseInt(m[3], 10) / 60 : 0) : null;
-};
 
 export function computeAccountMetrics(input: AccountMetricsInput): AccountMetrics {
   const { trades, size, target = 0, maxLoss = 0, dailyLoss = 0, consistency = 0 } = input;
@@ -689,5 +679,5 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__tjAccountMetrics = { computeAccountMetrics };
+  (window as unknown as { __tjAccountMetrics: { computeAccountMetrics: unknown } }).__tjAccountMetrics = { computeAccountMetrics };
 }

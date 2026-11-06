@@ -1,4 +1,4 @@
-import { Notice, setIcon } from "obsidian";
+import { Notice } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import {
@@ -27,6 +27,7 @@ import { fmtMoney2, isDateStr, todayKey, zoneShortLabel } from "../tz";
 import { holdFmtOf } from "../lib/tradeTable";
 import { ManualPin, pinManualInstants } from "../lib/instant";
 import { netPnl, priceFromRisk } from "../lib/fees";
+import { buildManualExitFills, isManualClock, type ManualExitFillInput } from "../lib/manualTradeFills";
 import { sessionOf } from "../lib/sessions";
 import { mountDropdown, DropdownItem } from "../lib/dropdown";
 import { openAccountWizard } from "./accountWizard";
@@ -35,6 +36,12 @@ export interface AddTradePanelOptions {
   onSaveDone?: () => void;
   /** Closes the frame around the panel — the same as its ✕. */
   onCancel?: () => void;
+}
+
+interface ManualExitDraft {
+  quantity: string;
+  price: string;
+  time: string;
 }
 
 function createDefaultManualTrade(journalZone = ""): Trade {
@@ -96,6 +103,7 @@ export class AddTradePanel {
   manualTrades: Trade[] = [];
   pickedAccounts = new Set<string>();
   private prefilledBase = "";
+  private exitDrafts = new WeakMap<Trade, ManualExitDraft[]>();
   knownSetups: string[] = [];
 
   constructor(plugin: TradebookPlugin, opts: AddTradePanelOptions = {}) {
@@ -151,6 +159,20 @@ export class AddTradePanel {
     return t;
   }
 
+  private exitsFor(t: Trade): ManualExitDraft[] {
+    const current = this.exitDrafts.get(t);
+    if (current) return current;
+    const drafts = [
+      {
+        quantity: String(t.quantity || 1),
+        price: t.exitPrice > 0 ? String(t.exitPrice) : "",
+        time: t.exitTime || "",
+      },
+    ];
+    this.exitDrafts.set(t, drafts);
+    return drafts;
+  }
+
   renderBody(): void {
     if (!this.bodyEl) return;
     this.bodyEl.empty();
@@ -174,11 +196,12 @@ export class AddTradePanel {
     const priced = knownFuturesSpec(t.symbol || "");
     const pointValue = priced ? priced.pointValue : null;
     const tz = zoneShortLabel(t.timezone || this.plugin.settings.timeZone);
+    const exitDrafts = this.exitsFor(t);
 
     const field = (label: string, badge?: string): HTMLElement => {
       const f = grid.createDiv({ cls: "tj-add-f" });
       const head = f.createDiv({ cls: "tj-add-f-head" });
-      head.createEl("span", { cls: "tj-add-f-lbl", text: label });
+      head.createSpan({ cls: "tj-add-f-lbl", text: label });
       if (badge) head.createSpan({ cls: "tj-add-tz", text: badge });
       return f;
     };
@@ -331,7 +354,7 @@ export class AddTradePanel {
       fSetup.createDiv({ cls: "tj-add-ctl" }),
       setupItems,
       currentSetup || "__none__",
-      async (id) => {
+      (id) => void (async () => {
         if (id === "__new__") {
           const name = window.prompt("Name your strategy");
           if (!name || !name.trim()) return;
@@ -347,7 +370,7 @@ export class AddTradePanel {
         }
         t.setup = id;
         this.renderBody();
-      },
+      })(),
       { placeholder: "No strategy" }
     );
 
@@ -384,7 +407,10 @@ export class AddTradePanel {
     qtyInput.value = String(t.quantity || 1);
     qtyInput.addEventListener("input", () => {
       const n = parseInt(qtyInput.value, 10);
-      if (Number.isFinite(n) && n > 0) t.quantity = n;
+      if (Number.isFinite(n) && n > 0) {
+        t.quantity = n;
+        if (exitDrafts.length === 1) exitDrafts[0].quantity = String(n);
+      }
       paint();
     });
 
@@ -407,29 +433,21 @@ export class AddTradePanel {
       paint();
     });
 
-    // ---- Exit price ----
-    const fExit = field("Exit price");
-    const exitInput = freeNumeric(
-      fExit.createEl("input", {
-        cls: "tj-add-input",
-        type: "number",
-      })
-    );
-    exitInput.value = t.exitPrice ? String(t.exitPrice) : "";
-    exitInput.addEventListener("input", () => {
-      t.exitPrice = parseFloat(exitInput.value) || 0;
-      paint();
-    });
-
     // ---- Times (HH:MM:SS, kept n the journal's own clock) ----
     /** Re-mounts the Session dropdown in place when the entry time moves it. */
     let remountSession: (() => void) | null = null;
-    const timeInput = (host: HTMLElement, value: string, onSet: (v: string) => void) => {
+    const timeInput = (
+      host: HTMLElement,
+      value: string,
+      onSet: (v: string) => void,
+      ariaLabel?: string,
+    ): HTMLInputElement => {
       const input = host.createEl("input", {
         cls: "tj-add-input",
         type: "text",
-        attr: { placeholder: "HH:MM:SS", inputmode: "numeric", autocomplete: "off" },
+        attr: { placeholder: "Hh:mm:ss", inputmode: "numeric", autocomplete: "off" },
       });
+      if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
       input.value = value || "";
       input.addEventListener("change", () => {
         const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(input.value.trim());
@@ -442,14 +460,29 @@ export class AddTradePanel {
         }
         paint();
       });
+      return input;
     };
     timeInput(field("Entry time", tz), t.entryTime || "", (v) => {
       t.entryTime = v;
       // The session follows the entry time unless the trader pinned one.
-      if (!(t as any).sessionOverride) remountSession?.();
+      if (!t.sessionOverride) remountSession?.();
     });
-    timeInput(field("Exit time", tz), t.exitTime || "", (v) => {
-      t.exitTime = v;
+    // Each row is an actual close, not a planned target. The total position
+    // size stays above; when there is more than one exit, each row must account
+    // for its own whole-contract quantity.
+    const exitsSection = block.createDiv({ cls: "tj-add-exits" });
+    const exitsHead = exitsSection.createDiv({ cls: "tj-add-exits-head" });
+    exitsHead.createSpan({ cls: "tj-add-exits-title", text: "Actual exits" });
+    const addExitButton = exitsHead.createEl("button", {
+      cls: "tj-actionbtn tj-add-exit-add",
+      text: "+ Add exit",
+      attr: { type: "button" },
+    });
+    const exitList = exitsSection.createDiv({ cls: "tj-add-exit-list" });
+    const exitSummary = exitsSection.createDiv({ cls: "tj-add-hint", attr: { "aria-live": "polite" } });
+    exitsSection.createDiv({
+      cls: "tj-add-hint",
+      text: "Record the prices and times that actually filled. Exit quantities must add up to the trade size. TP, SL and BE labels are calculated automatically.",
     });
 
     // ---- The strip: what the trade came to, updated as you type ----
@@ -460,7 +493,7 @@ export class AddTradePanel {
       return c.createSpan({ cls: "tj-add-strip-v" });
     };
     const vPnl = cell("P&L");
-    const vPts = cell("Points");
+    const vPts = cell("Realized pts/contract");
     const vHold = cell("Hold");
     strip.createDiv({ cls: "tj-add-strip-spacer" });
     const vNet = cell("Net after fees");
@@ -470,30 +503,151 @@ export class AddTradePanel {
 
     const paint = () => {
       const qty = t.quantity || 1;
-      if (t.entryPrice > 0 && t.exitPrice > 0) {
-        const pts = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+      const multiple = exitDrafts.length > 1;
+      const quantities = exitDrafts.map((draft) => (multiple ? Number(draft.quantity) : qty));
+      const validQuantities = quantities.every((value) => Number.isSafeInteger(value) && value > 0);
+      const exitQty = quantities.reduce(
+        (sum, value) => sum + (Number.isSafeInteger(value) && value > 0 ? value : 0),
+        0,
+      );
+      const exitValues = exitDrafts.map((draft) => Number.parseFloat(draft.price));
+      const validPrices = exitValues.every((value) => Number.isFinite(value) && value > 0);
+      const validTimes = !multiple || (isManualClock(t.entryTime) && exitDrafts.every((draft) => isManualClock(draft.time)));
+      const quantityMatches = validQuantities && exitQty === qty;
+      const hasActualPrices = t.entryPrice > 0 && validPrices && validTimes && quantityMatches;
+      const weightedExit = hasActualPrices
+        ? exitDrafts.reduce((sum, draft, index) => sum + exitValues[index] * quantities[index], 0) / exitQty
+        : 0;
+      if (multiple) {
+        exitSummary.setText(
+          quantityMatches
+            ? `Exit quantities match the trade size (${exitQty} contracts).`
+            : !validQuantities
+              ? `Enter a whole-contract quantity for every exit (${exitQty} / ${qty} assigned).`
+              : `Exit quantities: ${exitQty} / ${qty} contracts — they must match the trade size.`,
+        );
+      } else {
+        exitSummary.setText(`All ${qty} contract${qty === 1 ? "" : "s"} close on this exit.`);
+      }
+      addExitButton.disabled = qty <= exitDrafts.length;
+      if (hasActualPrices) {
+        t.exitPrice = weightedExit;
+        if (multiple) {
+          const entrySeconds = t.entryTime.split(":").map(Number).reduce((total, value, index) => total + value * [3600, 60, 1][index], 0);
+          const latestExit = exitDrafts
+            .map((draft) => {
+              const parts = draft.time.split(":").map(Number);
+              const seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+              return { time: draft.time, order: seconds + (seconds < entrySeconds ? 86400 : 0) };
+            })
+            .sort((a, b) => a.order - b.order)[exitDrafts.length - 1];
+          t.exitTime = latestExit.time;
+        } else {
+          t.exitTime = exitDrafts[0].time;
+        }
+      }
+      if (hasActualPrices) {
+        const pts = t.direction === "long" ? weightedExit - t.entryPrice : t.entryPrice - weightedExit;
         // pnl is the GROSS: points × pointValue × qty. Commission and fees stay
         // in their own fields; the net is derived for the strip's last cell. With
         // no priced contract there is no point value to multiply by, so the
         // money waits — the points below are price distance and stand on their own.
-        t.pnl = pointValue === null ? 0 : Math.round(pts * pointValue * qty * 100) / 100;
+        t.pnl = pointValue === null ? Number.NaN : Math.round(pts * pointValue * qty * 100) / 100;
         // Points are price distance — the quantity never multiplies them.
         t.pnlPoints = Math.round(pts * 100) / 100;
       } else {
-        t.pnl = 0;
-        t.pnlPoints = 0;
+        t.pnl = Number.NaN;
+        t.pnlPoints = Number.NaN;
       }
       const net = netPnl(t);
-      vPnl.setText(pointValue === null ? "—" : fmtMoney2(t.pnl));
-      vPnl.className = "tj-add-strip-v " + (pointValue === null || t.pnl >= 0 ? "pos" : "neg");
-      vPts.setText(`${t.pnlPoints >= 0 ? "+" : ""}${t.pnlPoints.toFixed(2)}`);
+      vPnl.setText(!hasActualPrices || !Number.isFinite(t.pnl) ? "—" : fmtMoney2(t.pnl));
+      vPnl.className = "tj-add-strip-v " + (!Number.isFinite(t.pnl) ? "" : t.pnl >= 0 ? "pos" : "neg");
+      vPts.setText(Number.isFinite(t.pnlPoints) ? `${t.pnlPoints >= 0 ? "+" : ""}${t.pnlPoints.toFixed(2)}` : "—");
       vPts.className = "tj-add-strip-v";
       vHold.setText(holdFmtOf(t));
       vHold.className = "tj-add-strip-v";
-      vNet.setText(pointValue === null ? "—" : fmtMoney2(net));
-      vNet.className = "tj-add-strip-v " + (pointValue === null || net >= 0 ? "pos" : "neg");
+      vNet.setText(!hasActualPrices || !Number.isFinite(net) ? "—" : fmtMoney2(net));
+      vNet.className = "tj-add-strip-v " + (!Number.isFinite(net) ? "" : net >= 0 ? "pos" : "neg");
       paintExtra();
     };
+
+    const renderExitRows = (): void => {
+      exitList.empty();
+      const multiple = exitDrafts.length > 1;
+      exitDrafts.forEach((draft, index) => {
+        const row = exitList.createDiv({ cls: "tj-add-exit-row" });
+        const rowHead = row.createDiv({ cls: "tj-add-exit-head" });
+        rowHead.createSpan({ cls: "tj-add-exit-title", text: `Exit ${index + 1}` });
+        if (multiple) {
+          const remove = rowHead.createEl("button", {
+            cls: "tj-actionbtn tj-add-exit-remove",
+            text: "Remove",
+            attr: { type: "button", "aria-label": `Remove exit ${index + 1}` },
+          });
+          remove.addEventListener("click", () => {
+            exitDrafts.splice(index, 1);
+            if (exitDrafts.length === 1) exitDrafts[0].quantity = String(t.quantity || 1);
+            renderExitRows();
+            paint();
+          });
+        }
+        const fields = row.createDiv({ cls: "tj-add-exit-fields" });
+        const makeField = (label: string, id: string): HTMLElement => {
+          const fieldEl = fields.createDiv({ cls: "tj-add-f" });
+          fieldEl.createEl("label", { cls: "tj-add-f-lbl", text: label, attr: { for: id } });
+          return fieldEl;
+        };
+        if (multiple) {
+          const id = `tj-manual-exit-${i}-${index}-quantity`;
+          const quantityInput = freeNumeric(
+            makeField("Contracts", id).createEl("input", {
+              cls: "tj-add-input",
+              type: "number",
+              attr: { min: "1", step: "1", id, "aria-label": `Exit ${index + 1} contracts` },
+            }),
+          );
+          quantityInput.value = draft.quantity;
+          quantityInput.addEventListener("input", () => {
+            draft.quantity = quantityInput.value;
+            paint();
+          });
+        }
+        const priceId = `tj-manual-exit-${i}-${index}-price`;
+        const priceInput = freeNumeric(
+          makeField("Price", priceId).createEl("input", {
+            cls: "tj-add-input",
+            type: "number",
+            attr: { id: priceId, "aria-label": `Exit ${index + 1} price` },
+          }),
+        );
+        priceInput.value = draft.price;
+        priceInput.addEventListener("input", () => {
+          draft.price = priceInput.value;
+          paint();
+        });
+        const timeId = `tj-manual-exit-${i}-${index}-time`;
+        const timeField = fields.createDiv({ cls: "tj-add-f" });
+        const timeHead = timeField.createDiv({ cls: "tj-add-f-head" });
+        timeHead.createEl("label", { cls: "tj-add-f-lbl", text: "Time", attr: { for: timeId } });
+        if (tz) timeHead.createSpan({ cls: "tj-add-tz", text: tz });
+        const time = timeInput(
+          timeField,
+          draft.time,
+          (value) => {
+            draft.time = value;
+          },
+          `Exit ${index + 1} time`,
+        );
+        time.id = timeId;
+      });
+      addExitButton.disabled = (t.quantity || 1) <= exitDrafts.length;
+    };
+    addExitButton.addEventListener("click", () => {
+      if ((t.quantity || 1) <= exitDrafts.length) return;
+      exitDrafts.push({ quantity: "", price: "", time: "" });
+      renderExitRows();
+      paint();
+    });
 
     // ---- More details (folded): the plan, the order, the fees, the rating ----
     const more = block.createEl("details", { cls: "tj-add-more" });
@@ -503,7 +657,7 @@ export class AddTradePanel {
     const mGrid = more.createDiv({ cls: "tj-add-grid" });
     const mField = (label: string): HTMLElement => {
       const f = mGrid.createDiv({ cls: "tj-add-f" });
-      f.createEl("span", { cls: "tj-add-f-lbl", text: label });
+      f.createSpan({ cls: "tj-add-f-lbl", text: label });
       return f;
     };
 
@@ -656,14 +810,14 @@ export class AddTradePanel {
     const sessHost = fSess.createDiv({ cls: "tj-add-ctl" });
     remountSession = () => {
       sessHost.empty();
-      const sessVal = (t as any).sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
+      const sessVal = t.sessionOverride || sessionOf(t, this.plugin.settings?.timeZone || "") || "";
       mountDropdown(
         sessHost,
         sessItems,
         sessVal,
         (id) => {
-          if (id === "__auto__") delete (t as any).sessionOverride;
-          else (t as any).sessionOverride = id;
+          if (id === "__auto__") delete t.sessionOverride;
+          else t.sessionOverride = id;
         },
         { placeholder: "Session…" }
       );
@@ -689,7 +843,7 @@ export class AddTradePanel {
 
     // ---- Rating ----
     const ratingRow = more.createDiv({ cls: "tj-add-more-row" });
-    ratingRow.createEl("span", { cls: "tj-add-f-lbl", text: "Rating" });
+    ratingRow.createSpan({ cls: "tj-add-f-lbl", text: "Rating" });
     const stars = ratingRow.createDiv({ cls: "tj-add-stars" });
     const drawStars = () => {
       stars.empty();
@@ -708,6 +862,7 @@ export class AddTradePanel {
     };
     drawStars();
 
+    renderExitRows();
     paint();
   }
 
@@ -723,7 +878,7 @@ export class AddTradePanel {
     const box = parent.createDiv({ cls: "tj-add-accounts" });
     const head = box.createDiv({ cls: "tj-add-accounts-head" });
     head.createSpan({ cls: "tj-add-accounts-lbl", text: "Accounts on this trade" });
-    const link = head.createEl("a", { cls: "tj-add-accounts-add", text: "+ Add an account" });
+    const link = head.createEl("a", { cls: "tj-add-accounts-add", text: "+ add an account" });
     link.addEventListener("click", (e) => {
       e.preventDefault();
       openAccountWizard(this.plugin, { onDone: () => this.renderBody() });
@@ -828,7 +983,7 @@ export class AddTradePanel {
       text: "Save trade",
       attr: { type: "button" },
     });
-    save.addEventListener("click", () => this.doSave(save));
+    save.addEventListener("click", () => void this.doSave(save));
     // A trade belongs to an account. With none, there is nowhere to put it —
     // say so on the button instead of failing after the click.
     if (!(this.plugin.settings.propAccounts || []).some((a) => a.name)) {
@@ -843,10 +998,13 @@ export class AddTradePanel {
   // ================================================================
 
   /** Why a hand-written time could not be pinned, in trader's language. */
-  private pinMessage(pin: Exclude<ManualPin, { status: "ok" } | { status: "no-zone" }>): string {
+  private pinMessage(
+    pin: Exclude<ManualPin, { status: "ok" } | { status: "no-zone" }>,
+    exitNumber?: number,
+  ): string {
     const zone = zoneShortLabel(pin.zone) || pin.zone;
     const when = `${pin.issue.date} ${pin.issue.time || ""}`.trim();
-    const field = pin.field === "entry" ? "Entry" : "Exit";
+    const field = pin.field === "entry" ? "Entry" : exitNumber ? `Exit ${exitNumber}` : "Exit";
     if (pin.status === "gap") {
       return `${field} time ${when} does not exist in ${zone} — the clock jumps forward that night. Move the time and save again.`;
     }
@@ -871,39 +1029,89 @@ export class AddTradePanel {
         new Notice("Pick an account and a symbol.");
         return;
       }
-      if (!(t.entryPrice > 0) || !(t.exitPrice > 0)) {
-        new Notice("Fill the entry and exit prices.");
+      if (!(Number.isSafeInteger(t.quantity) && t.quantity > 0) || !(t.entryPrice > 0)) {
+        new Notice("Enter a whole-contract quantity and a valid entry price.");
         return;
       }
-      // Pin the canonical instants in the journal zone. A wall clock with no
-      // single instant that night (the hour the clock jumped over, or the one it
-      // played twice) is refused here — the journal does not round it into a
-      // plausible UTC and then keep it as if it were true.
-      const pin = pinManualInstants(t.date, t.entryTime, t.exitTime, this.plugin.settings.timeZone);
-      if (pin.status === "gap" || pin.status === "ambiguous" || pin.status === "invalid") {
-        new Notice(this.pinMessage(pin));
+      const drafts = this.exitsFor(t);
+      const multiple = drafts.length > 1;
+      const exits: ManualExitFillInput[] = drafts.map((draft) => ({
+        quantity: multiple ? Number(draft.quantity) : t.quantity,
+        price: Number.parseFloat(draft.price),
+        time: draft.time.trim(),
+      }));
+      if (exits.some((exit) => !Number.isFinite(exit.price) || exit.price <= 0)) {
+        new Notice("Enter a valid price for every actual exit.");
         return;
       }
-      if (pin.status === "ok") {
+      if (multiple) {
+        if (drafts.length > t.quantity) {
+          new Notice("Each exit needs at least one contract; remove an exit row or increase the trade quantity.");
+          return;
+        }
+        if (exits.some((exit) => !Number.isSafeInteger(exit.quantity) || exit.quantity <= 0)) {
+          new Notice("Enter a whole-contract quantity for every actual exit.");
+          return;
+        }
+        const exitQuantity = exits.reduce((sum, exit) => sum + exit.quantity, 0);
+        if (exitQuantity !== t.quantity) {
+          new Notice(`Exit quantities total ${exitQuantity}; they must equal the trade quantity of ${t.quantity}.`);
+          return;
+        }
+        if (!isManualClock(t.entryTime) || exits.some((exit) => !isManualClock(exit.time))) {
+          new Notice("Enter the entry time and a time for every actual exit so the exit order stays accurate.");
+          return;
+        }
+      }
+      // Pin each exit independently in the journal zone. A wall clock with no
+      // single instant that night is refused rather than rounded into a plausible
+      // UTC; this keeps partial exits in their actual chronological order.
+      const timezone = this.plugin.settings.timeZone || "";
+      const pins: ManualPin[] = [];
+      for (let exitIndex = 0; exitIndex < exits.length; exitIndex++) {
+        const pin = pinManualInstants(t.date, t.entryTime, exits[exitIndex].time, timezone);
+        if (pin.status === "gap" || pin.status === "ambiguous" || pin.status === "invalid") {
+          new Notice(this.pinMessage(pin, exitIndex + 1));
+          return;
+        }
+        pins.push(pin);
+      }
+      if (pins[0]?.status === "ok") {
+        const pin = pins[0];
         t.entryInstant = pin.entryInstant;
-        t.exitInstant = pin.exitInstant;
         t.instantSource = pin.source;
         t.sourceZone = pin.zone;
+        for (let exitIndex = 0; exitIndex < exits.length; exitIndex++) {
+          const exitPin = pins[exitIndex];
+          if (exitPin.status === "ok") exits[exitIndex].instant = exitPin.exitInstant;
+        }
       } else {
-        // No journal zone: the wall clock is kept exactly as typed and no
-        // instant is recorded at all. Absence is honest; a UTC we cannot stand
-        // behind is not.
+        // No journal zone: keep the trader's wall clock and record no instant.
         delete t.entryInstant;
         delete t.exitInstant;
         delete t.instantSource;
         delete t.sourceZone;
       }
-      const spec = futuresSpec(t.symbol);
-      const points = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
-      // pnl is the GROSS; commission and fees are recorded in their own fields.
-      t.pnl = Math.round(points * spec.pointValue * t.quantity * 100) / 100;
-      // Points are price distance — the quantity never multiplies them.
-      t.pnlPoints = Math.round(points * 100) / 100;
+      if (multiple) {
+        const built = buildManualExitFills(t, exits, !multiple);
+        if (!built.ok) {
+          new Notice(built.error);
+          return;
+        }
+        Object.assign(t, built.trade);
+      } else {
+        const exit = exits[0];
+        t.exitPrice = exit.price;
+        t.exitTime = exit.time;
+        if (pins[0].status === "ok") t.exitInstant = pins[0].exitInstant;
+        else delete t.exitInstant;
+        const spec = knownFuturesSpec(t.symbol);
+        const points = t.direction === "long" ? t.exitPrice - t.entryPrice : t.entryPrice - t.exitPrice;
+        // pnl is the GROSS; commission and fees are recorded in their own fields.
+        t.pnl = spec ? Math.round(points * spec.pointValue * t.quantity * 100) / 100 : Number.NaN;
+        // Points are price distance — the quantity never multiplies them.
+        t.pnlPoints = Math.round(points * 100) / 100;
+      }
       t.accountType = this.plugin.resolveAccountType(t.account);
     }
     // Copies for the ticked accounts — the journal records every leg it was told about.

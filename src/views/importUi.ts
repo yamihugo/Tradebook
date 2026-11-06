@@ -272,7 +272,7 @@ class ImportCsvModal extends Modal {
       setIcon(err.createSpan({ cls: "tj-import-casherr-ico" }), "circle-alert");
       err.createSpan({ text: this.cashError });
     }
-    const drop = this.cashEl.createEl("div", { cls: "tj-dropzone is-cash" });
+    const drop = this.cashEl.createDiv({ cls: "tj-dropzone is-cash" });
     drop.createDiv({ cls: "tj-drop-text", text: "Drop the Cash History CSV here" });
     drop.createDiv({ cls: "tj-drop-sub", text: "or click to choose a file" });
     const input = drop.createEl("input", { type: "file", attr: { accept: ".csv,.txt,text/csv" } });
@@ -1106,7 +1106,7 @@ class ImportCsvModal extends Modal {
       const btn = warn.createEl("button", { cls: "tj-actionbtn is-primary", text: "Create an account" });
       btn.addEventListener("click", () => {
         this.close();
-        this.plugin.openAccounts();
+        void this.plugin.openAccounts();
       });
       this.renderStages();
       return;
@@ -1283,7 +1283,7 @@ class ImportCsvModal extends Modal {
         setupRow.createDiv({ cls: "tj-import-setupctl" }),
         setupItems,
         this.setupPick || "__none__",
-        async (id) => {
+        (id) => void (async () => {
           if (id === "__new__") {
             const name = window.prompt("Name your strategy");
             if (!name || !name.trim()) return;
@@ -1293,7 +1293,7 @@ class ImportCsvModal extends Modal {
             this.setupPick = id === "__none__" ? "" : id;
           }
           await this.renderReview();
-        },
+        })(),
         { title: "Applied to every trade in this file", align: "left" }
       );
       if (this.knownSetups.length !== 1) {
@@ -1318,7 +1318,7 @@ class ImportCsvModal extends Modal {
         text: this.markAllReviewed ? "All reviewed" : "Mark all as reviewed",
         attr: { type: "button" },
       });
-      markBtn.addEventListener("click", async () => {
+      markBtn.addEventListener("click", () => void (async () => {
         this.markAllReviewed = !this.markAllReviewed;
         markBtn.setText(this.markAllReviewed ? "All reviewed" : "Mark all as reviewed");
         markBtn.toggleClass("is-on", this.markAllReviewed);
@@ -1328,7 +1328,7 @@ class ImportCsvModal extends Modal {
             : ""
         );
         await this.renderReview();
-      });
+      })());
       if (this.markAllReviewed) {
         markNote.setText(
           `All ${t.length} trades in this file will be marked reviewed — out of the queue. The checklist still shows what each note holds.`

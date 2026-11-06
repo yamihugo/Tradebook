@@ -104,5 +104,5 @@ export function dateInComparison(date: string, bounds: PeriodBounds | null): boo
 }
 
 if (typeof window !== "undefined") {
-  (window as any).__tjPeriodComparisons = { periodComparison, dateInComparison };
+  window.__tjPeriodComparisons = { periodComparison, dateInComparison };
 }

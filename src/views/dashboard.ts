@@ -1,13 +1,13 @@
-import { ItemView, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
 import { PropAccount, Trade } from "../types";
-import { accountFilters, kpiCard, renderAppShell, svgPath } from "../ui";
+import { accountFilters, renderAppShell } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, fmtMoneyAbs, fmtMoneyCompact, isFiniteNumber, todayKey, zoneWallParts } from "../tz";
-import { updateTradeFields } from "../storage";
 import { attachTip } from "../lib/tip";
 
 import { netPnl } from "../lib/fees";
+import { hasSingleStrategy, hasValidRating } from "../lib/strategySelection";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import {
   clamp as gClamp,
@@ -19,7 +19,6 @@ import {
   GridItem,
   gridRows,
   layoutForColumns,
-  moveBandOrder,
   moveItem as gridMove,
   placeNew,
   resizeItem as gridResize,
@@ -45,7 +44,7 @@ import { dimensionTiles } from "../lib/breakdown";
 import { normalizeOrderType, tradeRows, tradeR, type TradeRow } from "../lib/tradeTable";
 import { mountDateField, parseDateInput } from "../lib/dates";
 import { inNegativeState, normalizeTags, reviewOptions } from "../lib/tags";
-import { hasPrint, hasText, reviewStatus, reviewSummary } from "../lib/review";
+import { hasPrint, reviewStatus, reviewSummary, reviewRepresentativesForVisibleTrades } from "../lib/review";
 import { DEFAULT_REENTRY_WINDOW_MINUTES, netOutcomes, reentrySignals, computeProcessSignals } from "../lib/process";
 import { sessionLabel } from "../lib/sessions";
 import { killTip, showTip, moveTip } from "../lib/tip";
@@ -1218,7 +1217,7 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   ensureLayout(): void {
-    const raw = this.layout() as any[] | undefined;
+    const raw = this.layout() as (GridItem & { id?: string; size?: number; rows?: number })[] | undefined;
     if (!raw) {
       this.setLayout(this.defaultLayout());
       return;
@@ -1234,7 +1233,7 @@ export abstract class WidgetGridView extends ItemView {
     const isOld = layout.some((it) => it.id !== undefined || it.size !== undefined);
     if (isOld) {
       const conv = layout.map((it) => ({
-        i: it.id,
+        i: it.id ?? "",
         w: gClamp((it.size ?? 2) * 6, 1, GRID_COLS), // 1->6, 2->12, 3->18, 4->24
         h: it.rows === 2 ? 8 : it.id === "kpi" ? 2 : 4,
       }));
@@ -1245,7 +1244,7 @@ export abstract class WidgetGridView extends ItemView {
         outer: for (;;) {
           for (let x = 0; x + c.w <= GRID_COLS; x++) {
             if (!packed.some((p) => collides({ ...c, x, y }, p))) {
-              packed.push({ i: c.i, x, y, w: c.w, h: c.h });
+              packed.push({ i: c.i ?? "", x, y, w: c.w, h: c.h });
               break outer;
             }
           }
@@ -1371,7 +1370,7 @@ export abstract class WidgetGridView extends ItemView {
         const band = this.layoutBand([...this.bandEntries(full), { i: id, x: 0, y: BAND_Y, w: BAND_W, h: BAND_H }]);
         this.setLayout([...this.gridEntries(full), ...band]);
       }
-      this.saveLayout();
+      void this.saveLayout();
       return;
     }
     const isMetric = id.startsWith("m.");
@@ -1379,17 +1378,17 @@ export abstract class WidgetGridView extends ItemView {
     const w = Math.min(this.activeCols, Math.max(min.w, NEW_W[id] ?? (isMetric ? 3 : 12)));
     const h = Math.max(min.h, NEW_H[id] ?? (isMetric ? 2 : 6));
     this.commitLayout(placeNew(this.getLayout(), id, w, h, this.activeCols));
-    this.saveLayout();
+    void this.saveLayout();
   }
 
   removeWidget(id: string): void {
     if (this.isBandMetric(id)) {
       this.setLayout(this.storedLayout().filter((item) => item.i !== id));
-      this.saveLayout();
+      void this.saveLayout();
       return;
     }
     this.commitLayout(compactVertical(this.getLayout().filter((item) => item.i !== id)));
-    this.saveLayout();
+    void this.saveLayout();
   }
 
   // ---------------- Grid engine: pure layout helpers (lib/grid.ts) ----------------
@@ -1460,7 +1459,7 @@ export abstract class WidgetGridView extends ItemView {
     if (this._lastBodyDims.get(body) === dims) return;
     this._lastBodyDims.set(body, dims);
     if (this._bodyRedrawRaf) cancelAnimationFrame(this._bodyRedrawRaf);
-    this._bodyRedrawRaf = requestAnimationFrame(() => {
+    this._bodyRedrawRaf = window.requestAnimationFrame(() => {
       this._bodyRedrawRaf = 0;
       fn();
     });
@@ -1561,7 +1560,7 @@ export abstract class WidgetGridView extends ItemView {
     const onMove = (ev: PointerEvent) => {
       latest = { x: ev.clientX, y: ev.clientY };
       if (moveRaf) return;
-      moveRaf = requestAnimationFrame(() => {
+      moveRaf = window.requestAnimationFrame(() => {
         moveRaf = 0;
         updateAt(latest.x, latest.y);
       });
@@ -1640,14 +1639,14 @@ export abstract class WidgetGridView extends ItemView {
         const me = this.cardEls.get(item.i);
         if (me) {
           // Keep the resized widget's own content in step with its new size.
-          const body = me.querySelector(".tj-gridcard-body") as HTMLElement | null;
+          const body = me.querySelector<HTMLElement>(".tj-gridcard-body");
           if (body) this.scheduleBodyRedraw(body);
         }
       };
       const onMove = (ev: PointerEvent) => {
         latest = { x: ev.clientX, y: ev.clientY };
         if (moveRaf) return;
-        moveRaf = requestAnimationFrame(() => {
+        moveRaf = window.requestAnimationFrame(() => {
           moveRaf = 0;
           updateAt(latest.x, latest.y);
         });
@@ -1717,7 +1716,7 @@ export abstract class WidgetGridView extends ItemView {
       "scroll",
       () => {
         if (scrollRaf) return;
-        scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = window.requestAnimationFrame(() => {
           scrollRaf = 0;
           applyScroll();
         });
@@ -2521,7 +2520,7 @@ export abstract class WidgetGridView extends ItemView {
         }
         if (this._interacting) return;
         if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
-        this._resizeRaf = requestAnimationFrame(() => {
+        this._resizeRaf = window.requestAnimationFrame(() => {
           this._resizeRaf = 0;
           const targets = [...this._pendingResize];
           this._pendingResize.clear();
@@ -2695,14 +2694,14 @@ export abstract class WidgetGridView extends ItemView {
         if (fn) fn();
       }
       if (this._idleQueue.length) {
-        const ric = (window as any).requestIdleCallback;
+        const ric = (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
         if (typeof ric === "function") ric(run);
         else window.setTimeout(() => run(null), 0);
       } else {
         this._idleScheduled = false;
       }
     };
-    const ric = (typeof window !== "undefined") && (window as any).requestIdleCallback;
+    const ric = (typeof window !== "undefined") && (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
     if (typeof ric === "function") ric(run);
     else window.setTimeout(() => run(null), 0);
   }
@@ -2755,14 +2754,14 @@ export abstract class WidgetGridView extends ItemView {
         el.textContent = fmt(value);
         this.metricDisplay.set(id, value);
       }
-      if (t < 1) this._tweens.set(id, requestAnimationFrame(tick));
+      if (t < 1) this._tweens.set(id, window.requestAnimationFrame(tick));
       else {
         el.textContent = target;
         this.metricDisplay.set(id, to);
         this._tweens.delete(id);
       }
     };
-    this._tweens.set(id, requestAnimationFrame(tick));
+    this._tweens.set(id, window.requestAnimationFrame(tick));
   }
 
   private costCoverageWarning(financials: FinancialSummary): string {
@@ -3690,7 +3689,6 @@ export abstract class WidgetGridView extends ItemView {
     const netRevenge = netOf(revengeRows);
     const netRegular = netOf(regularRows);
     const share = (revengeRows.length / rows.length) * 100;
-    const toneOf = (n: number | null): string => (n === null || n === 0 ? "" : n > 0 ? "is-pos" : "is-neg");
     const money = (n: number | null): string => (n === null ? "—" : fmtMoney2(n));
     const pct = (n: number | null): string => (n === null ? "—" : `${n.toFixed(0)}%`);
     const rText = (n: number | null): string => (n === null ? "—" : `${n < 0 ? "−" : "+"}${Math.abs(n).toFixed(2)}R`);
@@ -4231,16 +4229,16 @@ export abstract class WidgetGridView extends ItemView {
       return;
     }
     // One decision per row, read from the original note: a copy is born
-    // incomplete (`reviewed: false`) and must not be a second decision.
-    const reps = tradeRows(trades).map((row) => row.rep);
-    const hasRating = (t: Trade) => (t.rating ?? 0) > 0;
+    // incomplete (`reviewed: false`) and must not be a second decision. Home may
+    // scope the visible list down to copied legs only (for example, an explicit
+    // demo-account filter), so derive representatives from the full loaded set
+    // and retain only the decision keys present in that visible scope.
+    const reps = reviewRepresentativesForVisibleTrades(this.trades, trades, tradeRows(this.trades));
+    const hasRating = hasValidRating;
     const hasStop = (t: Trade) => typeof t.stopLoss === "number" && t.stopLoss > 0;
-    // One row per gap, counted on that same original note, and only for gaps
-    // the Trade Log can filter. "Unreviewed" takes trades that carry every
-    // field, so no trade is ever counted by two rows. The count and the door's
-    // lens are the same predicate — they cannot drift apart.
-    const unreviewed = (t: Trade) =>
-      hasText(t.setup) && hasPrint(t) && hasRating(t) && hasStop(t) && !reviewStatus(t).complete;
+    // The Home lens uses the same reviewStatus predicate as the coverage count;
+    // factual gaps remain separate rows rather than changing what "Unreviewed" means.
+    const unreviewed = (t: Trade) => !reviewStatus(t).complete;
     // A reviewed decision is closed: it leaves the queue, so it is out of every
     // gap row — otherwise reviewing would never empty the queue. The rows still
     // measure facts; "Without stop" counts a rule's assumed risk as defined,
@@ -4255,7 +4253,7 @@ export abstract class WidgetGridView extends ItemView {
       hint?: string;
       lens?: { label: string; test: (t: Trade) => boolean };
     }[] = [
-      { label: "Without strategy", icon: "list", quality: "nosetup", n: open.filter((t) => !hasText(t.setup)).length },
+      { label: "Needs strategy selection", icon: "list", quality: "nosetup", n: open.filter((t) => !hasSingleStrategy(t)).length },
       { label: "Without screenshot", icon: "image", quality: "noprint", n: open.filter((t) => !hasPrint(t)).length },
       { label: "Without rating", icon: "star", quality: "norating", n: open.filter((t) => !hasRating(t)).length },
       {
@@ -4297,7 +4295,7 @@ export abstract class WidgetGridView extends ItemView {
     const review = reviewSummary(reps);
     const reviewed = review.complete;
     const writtenUp = review.writtenUp;
-    const pct = total ? Math.round((reviewed / total) * 100) : 100;
+    const pct = total ? Math.round((reviewed / total) * 100) : 0;
     const hero = body.createDiv({ cls: "tj-focus-hero" });
     const ring = hero.createDiv({ cls: "tj-focus-ring" });
     // The ramp is a CSS colour-mix over the tone tokens, so it follows the
@@ -4331,10 +4329,10 @@ export abstract class WidgetGridView extends ItemView {
     attachTip(ring, {
       title: "Review coverage",
       value: `${pct}%`,
-      sub: `${reviewed} of ${total} decisions reviewed in this scope; ${writtenUp} of them hold the full checklist.`,
+      sub: `${reviewed} of ${total} decisions are reviewed; ${writtenUp} have both reflection prompts recorded.`,
     });
     const legend = hero.createDiv({ cls: "tj-focus-legend" });
-    legend.createDiv({ cls: "tj-focus-legend-value", text: `${reviewed} of ${total} decisions reviewed` });
+    legend.createDiv({ cls: "tj-focus-legend-value", text: `${reviewed} of ${total} reviewed` });
 
     const list = body.createDiv({ cls: "tj-focus-list" });
     if (!rows.length) {
@@ -4605,7 +4603,7 @@ export abstract class WidgetGridView extends ItemView {
     drawChart();
     const chartW = chart.clientWidth;
     const chartH = chart.clientHeight;
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!chart.isConnected) return;
       if (Math.abs(chart.clientWidth - chartW) > 1 || Math.abs(chart.clientHeight - chartH) > 1) drawChart();
     });

@@ -1,8 +1,12 @@
 import { App, TFile, normalizePath } from "obsidian";
-import { PrintEntry, Trade, TradeFill } from "./types";
+import { PrintEntry, RecordedOrderFact, Trade, TradeFill } from "./types";
 import { formatDateFile } from "./lib/dates";
 import { normalizeOrderType } from "./lib/tradeTable";
 import { fmtPrice } from "./tz";
+import { parsePlannedNumber, type PlannedNumberField } from "./lib/review";
+import { buildManualExitFills, type ManualExitFillInput } from "./lib/manualTradeFills";
+import { pinManualInstants } from "./lib/instant";
+import { strategiesOf } from "./lib/strategySelection";
 
 /**
  * The `fills:` block, written only when a position was scaled in or out.
@@ -28,19 +32,28 @@ function fillLines(t: Trade): string[] {
     out.push(`    price: ${f.price}`);
     if (Number.isFinite(f.pnl)) out.push(`    pnl: ${f.pnl}`);
     if (Number.isFinite(f.fees)) out.push(`    fees: ${f.fees}`);
-    if (f.orderType) out.push(`    order_type: "${f.orderType}"`);
+    if (f.orderType) out.push(`    order_type: ${quoteYaml(f.orderType)}`);
+    if (f.exitType && f.exitTypeSource) {
+      out.push(`    exit_type: "${f.exitType}"`);
+      out.push(`    exit_type_source: "${f.exitTypeSource}"`);
+    }
     if (f.fillId) out.push(`    fill_id: "${f.fillId.replace(/"/g, '\\"')}"`);
   }
   return out;
 }
 
+function validScreenshotEntries(shots: PrintEntry[] | null | undefined): PrintEntry[] {
+  return (shots ?? []).filter((shot): shot is PrintEntry =>
+    !!shot && typeof shot.file === "string" && shot.file.trim().length > 0);
+}
+
 function screenshotsLines(t: Trade): string[] {
-  const shots = t.screenshots ?? [];
+  const shots = validScreenshotEntries(t.screenshots);
   if (!shots.length) return [];
   const out = ["screenshots:"];
-  for (const s of shots) {
-    out.push(`  - file: "${s.file}"`);
-    if (s.note) out.push(`    note: "${s.note.replace(/"/g, '\\"')}"`);
+  for (const shot of shots) {
+    out.push(`  - file: ${quoteYaml(shot.file)}`);
+    if (shot.note) out.push(`    note: ${quoteYaml(shot.note)}`);
   }
   return out;
 }
@@ -69,6 +82,36 @@ function parseNumberArray(raw: string): number[] {
     .split(",")
     .map((x) => parseFloat(x.trim()))
     .filter((x) => Number.isFinite(x));
+}
+
+function parseRecordedOrderFacts(raw: string): RecordedOrderFact[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const sources = new Set<RecordedOrderFact["source"]>(["orders", "fills", "tradesea", "unknown"]);
+  return parsed.flatMap((item): RecordedOrderFact[] => {
+    if (!item || typeof item !== "object") return [];
+    const value = item as Record<string, unknown>;
+    if (typeof value.recordedAt !== "string" || !Number.isFinite(Date.parse(value.recordedAt))) return [];
+    const source = sources.has(value.source as RecordedOrderFact["source"])
+      ? value.source as RecordedOrderFact["source"]
+      : "unknown";
+    return [{
+      source,
+      recordedAt: value.recordedAt,
+      ...(value.side === "buy" || value.side === "sell" ? { side: value.side } : {}),
+      ...(typeof value.status === "string" && value.status ? { status: value.status } : {}),
+      ...(typeof value.orderId === "string" && value.orderId ? { orderId: value.orderId } : {}),
+      ...(typeof value.orderType === "string" && value.orderType ? { orderType: value.orderType } : {}),
+      ...(typeof value.quantity === "number" && Number.isFinite(value.quantity) && value.quantity > 0 ? { quantity: value.quantity } : {}),
+      ...(typeof value.stopPrice === "number" && Number.isFinite(value.stopPrice) ? { stopPrice: value.stopPrice } : {}),
+      ...(typeof value.limitPrice === "number" && Number.isFinite(value.limitPrice) ? { limitPrice: value.limitPrice } : {}),
+    }];
+  });
 }
 
 export function tradeToMarkdown(t: Trade): string {
@@ -100,6 +143,7 @@ export function tradeToMarkdown(t: Trade): string {
     // so a moved stop still reads as a moved stop after a reload.
     t.stopSource ? `stop_source: "${t.stopSource}"` : null,
     t.stopLevels?.length ? `stop_levels: ${numberArray(t.stopLevels)}` : null,
+    t.recordedOrderFacts?.length ? `recorded_order_facts: ${quoteYaml(JSON.stringify(t.recordedOrderFacts))}` : null,
     num("pnl", t.pnl),
     num("pnl_points", t.pnlPoints),
     // The platform's bill lives at the trade level as well as inside each fill:
@@ -112,15 +156,33 @@ export function tradeToMarkdown(t: Trade): string {
     `exit_time: ${t.exitTime}`,
     ...fillLines(t),
     `setup: ${quoteYaml(t.setup ?? "")}`,
+    t.setups ? `setups: ${inlineArray(t.setups)}` : null,
+    t.market_context_timing ? `market_context_timing: ${inlineArray(t.market_context_timing)}` : null,
+    t.market_context_effect ? `market_context_effect: ${inlineArray(t.market_context_effect)}` : null,
+    t.market_context_ref ? `market_context_ref: ${quoteYaml(t.market_context_ref)}` : null,
     `mistake: ${quoteYaml(t.mistake ?? "")}`,
     `thesis: ${quoteYaml(t.thesis ?? "")}`,
     `review: ${quoteYaml(t.review ?? "")}`,
-    t.orderType ? `order_type: "${t.orderType}"` : null,
+    t.orderType ? `order_type: ${quoteYaml(t.orderType)}` : null,
     t.fillId ? `fill_id: ${quoteYaml(t.fillId)}` : null,
     // The import's stable identity, written only when it exists. A note that
     // predates the key keeps its absence; the importer recomputes it then.
     t.importKey ? `import_key: ${quoteYaml(t.importKey)}` : null,
     t.notes ? `notes: ${quoteYaml(t.notes)}` : null,
+    t.review_plan ? `review_plan: ${quoteYaml(t.review_plan)}` : null,
+    num("review_planned_entry", t.review_planned_entry),
+    num("review_planned_stop", t.review_planned_stop),
+    num("review_planned_target", t.review_planned_target),
+    num("review_planned_quantity", t.review_planned_quantity),
+    t.review_plan_timing ? `review_plan_timing: "${t.review_plan_timing}"` : null,
+    t.review_plan_provenance ? `review_plan_provenance: "${t.review_plan_provenance}"` : null,
+    t.review_plan_adherence ? `review_plan_adherence: "${t.review_plan_adherence}"` : null,
+    t.review_what_happened ? `review_what_happened: ${quoteYaml(t.review_what_happened)}` : null,
+    t.review_repeat_change ? `review_repeat_change: ${quoteYaml(t.review_repeat_change)}` : null,
+    t.review_post_exit_observation ? `review_post_exit_observation: ${quoteYaml(t.review_post_exit_observation)}` : null,
+    num("review_post_exit_points", t.review_post_exit_points),
+    t.review_post_exit_source ? `review_post_exit_source: "${t.review_post_exit_source}"` : null,
+    t.exit_reason ? `exit_reason: "${t.exit_reason}"` : null,
     t.timezone ? `timezone: "${t.timezone}"` : null,
     // Canonical instants + their provenance. Written only when they exist: a
     // note that predates the contract keeps its honest absence instead of a
@@ -137,6 +199,8 @@ export function tradeToMarkdown(t: Trade): string {
     // decide", which is a real third state: writing `false` for an unset flag
     // turned every fully written-up trade into a permanent "Needs review".
     typeof t.reviewed === "boolean" ? `reviewed: ${t.reviewed ? "true" : "false"}` : null,
+    typeof t.review_context_unavailable === "boolean" ? `review_context_unavailable: ${t.review_context_unavailable ? "true" : "false"}` : null,
+    t.review_evidence_source ? `review_evidence_source: "${t.review_evidence_source}"` : null,
     t.origin ? `origin: "${t.origin}"` : null,
     // Explicit provenance, written only when known. A note that predates the
     // key keeps its absence; nothing is guessed on the way out.
@@ -146,10 +210,9 @@ export function tradeToMarkdown(t: Trade): string {
     `tags: ${inlineArray(t.tags)}`,
     `psychology_tags: ${inlineArray(t.psychology_tags)}`,
     `mistake_tags: ${inlineArray(t.mistake_tags)}`,
-    // Only written when true: a false/absent flag is the default and stays out
-    // of the note, so an untouched trade carries no acknowledgement noise.
-    t.psychologyAcknowledged ? `psychology_acknowledged: true` : null,
-    t.mistakesAcknowledged ? `mistakes_acknowledged: true` : null,
+    // Preserve explicit false separately from absence for generated-copy merges.
+    typeof t.psychologyAcknowledged === "boolean" ? `psychology_acknowledged: ${t.psychologyAcknowledged ? "true" : "false"}` : null,
+    typeof t.mistakesAcknowledged === "boolean" ? `mistakes_acknowledged: ${t.mistakesAcknowledged ? "true" : "false"}` : null,
   ].filter((line): line is string => line !== null);
   if (t.isCopiedTrade) {
     frontmatter.push(
@@ -171,13 +234,15 @@ export function tradeToMarkdown(t: Trade): string {
   }
   const frontmatterText = frontmatter.join("\n");
 
+  const pointsText = Number.isFinite(t.pnlPoints) ? `${t.pnlPoints} realized pts/contract` : "—";
+  const pnlText = Number.isFinite(t.pnl) ? `$${t.pnl}` : "—";
   const body = `# ${t.symbol} ${t.direction === "long" ? "Long" : "Short"} — ${t.date}
 
 | Account | ${t.account} (${t.accountType}) |
 | Direction | ${t.direction} · ${t.quantity} contract(s) |
-| Entry | ${fmtPrice(t.entryPrice)} @ ${t.entryTime || "\u2014"} |
-| Exit | ${fmtPrice(t.exitPrice)} @ ${t.exitTime || "\u2014"} |
-| P&L | $${t.pnl} (${t.pnlPoints} pts) |
+| Entry | ${t.entryPrice === 0 ? "0" : fmtPrice(t.entryPrice)} @ ${t.entryTime || "\u2014"} |
+| Exit | ${t.exitPrice === 0 ? "0" : fmtPrice(t.exitPrice)} @ ${t.exitTime || "\u2014"} |
+| P&L | ${pnlText} (${pointsText}) |
 
 ## Notes
 
@@ -313,7 +378,9 @@ function parseFills(fm: string): TradeFill[] {
     else if (key === "price") cur.price = parseFloat(value);
     else if (key === "pnl") cur.pnl = parseFloat(value);
     else if (key === "fees") cur.fees = parseFloat(value);
-    else if (key === "order_type") cur.orderType = value;
+    else if (key === "order_type") cur.orderType = decodeScreenshotScalar(raw);
+    else if (key === "exit_type" && (value === "tp" || value === "sl" || value === "be")) cur.exitType = value;
+    else if (key === "exit_type_source" && (value === "manual" || value === "broker")) cur.exitTypeSource = value;
     else if (key === "fill_id") cur.fillId = value;
   };
   for (let i = start + 1; i < lines.length; i++) {
@@ -341,6 +408,22 @@ function parseFills(fm: string): TradeFill[] {
  * Read the `screenshots:` block back. Each entry has a `file` (required) and
  * an optional `note`. Tolerant: entries without a file are skipped.
  */
+/** Decode the quoted form emitted by quoteYaml; tolerate older plain/quoted values. */
+function decodeScreenshotScalar(raw: string): string {
+  const value = raw.trim();
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const decoded: unknown = JSON.parse(value);
+      if (typeof decoded === "string") return decoded;
+    } catch {
+      // Older notes may contain literal, non-JSON backslashes inside quotes.
+    }
+    return value.slice(1, -1).replace(/\\(\\|"|n)/g, (_match: string, escaped: string) => escaped === "n" ? "\n" : escaped);
+  }
+  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1).replace(/''/g, "'");
+  return value;
+}
+
 function parseScreenshots(fm: string): PrintEntry[] {
   const lines = fm.split(/\r?\n/);
   const start = lines.findIndex((l) => /^screenshots:\s*$/.test(l));
@@ -355,7 +438,7 @@ function parseScreenshots(fm: string): PrintEntry[] {
       cur = {};
       const kv = /^\s+-\s+(\w+):\s*(.*)$/.exec(line);
       if (kv) {
-        const val = kv[2].replace(/^"|"$/g, "").trim();
+        const val = decodeScreenshotScalar(kv[2]);
         if (kv[1] === "file") cur.file = val;
         else if (kv[1] === "note") cur.note = val;
       }
@@ -364,7 +447,7 @@ function parseScreenshots(fm: string): PrintEntry[] {
     // Continuation of current item (indented key: value)
     const cont = /^\s+(\w+):\s*(.*)$/.exec(line);
     if (cont && cur) {
-      const val = cont[2].replace(/^"|"$/g, "").trim();
+      const val = decodeScreenshotScalar(cont[2]);
       if (cont[1] === "file") cur.file = val;
       else if (cont[1] === "note") cur.note = val;
       continue;
@@ -381,7 +464,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
   const fm = m[1];
   const body = content.slice(m[0].length);
   const get = (key: string): string => {
-    const re = new RegExp(`^\\s*${key}:\\s*(.*)$`, "m");
+    const re = new RegExp(`^${key}:[ \\t]*(.*)$`, "m");
     const match = fm.match(re);
     // Written by quoteYaml: undo the escapes in one pass, so a literal
     // backslash stays a backslash and a real newline comes back as a newline.
@@ -392,7 +475,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
           .trim()
       : "";
   };
-  const has = (key: string): boolean => new RegExp(`^\\s*${key}\\s*:`, "m").test(fm);
+  const has = (key: string): boolean => new RegExp(`^${key}[ \\t]*:`, "m").test(fm);
   const mistake = get("mistake") || bodySection(body, "Mistakes");
   const legacyTags = parseInlineArray(get("tags"));
   return {
@@ -409,6 +492,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     target: parseFloat(get("target")) || 0,
     stopSource: (get("stop_source") as Trade["stopSource"]) || undefined,
     stopLevels: has("stop_levels") ? parseNumberArray(get("stop_levels")) : undefined,
+    recordedOrderFacts: has("recorded_order_facts") ? parseRecordedOrderFacts(get("recorded_order_facts")) : undefined,
     pnl: parseFloat(get("pnl")),
     pnlPoints: parseFloat(get("pnl_points")),
     commission: parseFloat(get("commission")) || 0,
@@ -422,7 +506,11 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     entryTime: get("entry_time"),
     exitTime: get("exit_time"),
     fills: parseFills(fm),
-    setup: get("setup") || bodySection(body, "Setup"),
+    setup: has("setup") ? get("setup") : bodySection(body, "Setup"),
+    setups: has("setups") ? parseInlineArray(get("setups")) : (get("setup") ? [get("setup")] : []),
+    market_context_timing: has("market_context_timing") ? parseInlineArray(get("market_context_timing")) : [],
+    market_context_effect: has("market_context_effect") ? parseInlineArray(get("market_context_effect")) : [],
+    market_context_ref: get("market_context_ref") || undefined,
     mistake,
     thesis: get("thesis") || bodySection(body, "Thesis"),
     review: get("review") || bodySection(body, "Review"),
@@ -430,24 +518,44 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     fillId: get("fill_id"),
     importKey: get("import_key") || undefined,
     notes: get("notes"),
+    review_plan: get("review_plan") || undefined,
+    review_planned_entry: parsePlannedNumber(get("review_planned_entry"), "review_planned_entry"),
+    review_planned_stop: parsePlannedNumber(get("review_planned_stop"), "review_planned_stop"),
+    review_planned_target: parsePlannedNumber(get("review_planned_target"), "review_planned_target"),
+    review_planned_quantity: parsePlannedNumber(get("review_planned_quantity"), "review_planned_quantity"),
+    review_plan_timing: (["unknown", "before-entry", "during-trade", "after-exit"] as const).includes(get("review_plan_timing") as "unknown" | "before-entry" | "during-trade" | "after-exit")
+      ? get("review_plan_timing") as Trade["review_plan_timing"]
+      : undefined,
+    review_plan_provenance: (get("review_plan_provenance") || undefined) as Trade["review_plan_provenance"],
+    review_plan_adherence: (get("review_plan_adherence") || undefined) as Trade["review_plan_adherence"],
+    review_what_happened: get("review_what_happened") || undefined,
+    review_repeat_change: get("review_repeat_change") || undefined,
+    review_post_exit_observation: get("review_post_exit_observation") || undefined,
+    review_post_exit_points: Number.isFinite(parseFloat(get("review_post_exit_points"))) ? parseFloat(get("review_post_exit_points")) : undefined,
+    review_post_exit_source: (get("review_post_exit_source") || undefined) as Trade["review_post_exit_source"],
+    exit_reason: (get("exit_reason") || undefined) as Trade["exit_reason"],
     timezone: get("timezone"),
     entryInstant: get("entry_instant") || undefined,
     exitInstant: get("exit_instant") || undefined,
     sourceZone: get("source_zone") || undefined,
     instantSource: (get("instant_source") || undefined) as Trade["instantSource"],
     sessionOverride: get("session_override") || get("sessionOverride") || undefined,
-    screenshot: get("screenshot"),
+    screenshot: decodeScreenshotScalar(fm.match(/^screenshot:[ \t]*(.*)$/m)?.[1] ?? ""),
     screenshots: parseScreenshots(fm),
-    rating: parseInt(get("rating"), 10) || 0,
+    rating: Number(get("rating") || 0),
     // `accepted` was a short-lived second flag; a note that carries it means the
     // same thing as reviewed, so it is folded in on read and never written again.
     // Three states, kept distinct on purpose: true (the trader's word closes
     // it), false (the trader's word holds it open), absent (the checklist
     // decides). Folding absent into false was what pinned finished trades in
     // the review queue.
-    reviewed: has("reviewed") || has("accepted")
-      ? get("reviewed") === "true" || get("accepted") === "true"
+    reviewed: has("reviewed")
+      ? get("reviewed") === "true"
+      : has("accepted") ? get("accepted") === "true" : undefined,
+    review_context_unavailable: has("review_context_unavailable")
+      ? get("review_context_unavailable") === "true"
       : undefined,
+    review_evidence_source: get("review_evidence_source") === "human" ? "human" : undefined,
     origin: (get("origin") as Trade["origin"]) || undefined,
     dataSource: (get("data_source") || get("dataSource") || undefined) as Trade["dataSource"],
     tags: legacyTags,
@@ -455,8 +563,8 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     // old `tags`/`mistake` meaning until the review UI writes the new keys.
     psychology_tags: has("psychology_tags") ? parseInlineArray(get("psychology_tags")) : legacyTags,
     mistake_tags: has("mistake_tags") ? parseInlineArray(get("mistake_tags")) : mistake.trim() ? [mistake.trim()] : [],
-    psychologyAcknowledged: get("psychology_acknowledged") === "true",
-    mistakesAcknowledged: get("mistakes_acknowledged") === "true",
+    psychologyAcknowledged: has("psychology_acknowledged") ? get("psychology_acknowledged") === "true" : undefined,
+    mistakesAcknowledged: has("mistakes_acknowledged") ? get("mistakes_acknowledged") === "true" : undefined,
     isCopiedTrade: get("is_copied_trade") === "true" || get("isCopiedTrade") === "true",
     copiedFromAccount: get("copied_from_account") || get("copiedFromAccount"),
     copyBaseKey: get("copy_base_key") || get("copyBaseKey"),
@@ -485,32 +593,129 @@ const quoteYaml = (value: string): string =>
     .replace(/\r?\n/g, "\\n")
     .replace(/\t/g, "\\t")}"`;
 
-export async function updateTradeFields(app: App, file: TFile, fields: Record<string, string | number | boolean>): Promise<void> {
+/** Correct manual actuals atomically; never rewrite broker facts or unrelated note content. */
+export async function updateManualTradeExecutions(
+  app: App, file: TFile, expected: Trade,
+  entry: { quantity: number; entryPrice: number; entryTime: string },
+  exits: ManualExitFillInput[],
+): Promise<Trade> {
+  let saved: Trade | undefined;
+  const executionIdentity = (t: Partial<Trade>) => JSON.stringify([
+    (t.fills ?? []).map((f) => [f.side, f.time, f.qty, f.price, f.instant, f.pnl, f.fees, f.orderType, f.fillId, f.exitType, f.exitTypeSource]), t.quantity, t.entryPrice, t.exitPrice, t.entryTime, t.exitTime,
+    t.entryInstant, t.exitInstant, t.direction, t.symbol, t.date, t.origin, t.dataSource,
+  ]);
+  if (expected.origin !== "manual" || expected.isCopiedTrade) throw new Error("Only original manual executions can be corrected here.");
   await app.vault.process(file, (content) => {
-    let out = content;
-    for (const [key, value] of Object.entries(fields)) {
-      if (value === undefined) continue;
-      // Booleans and numbers stay bare (clean YAML); everything else is quoted.
-      const raw =
-        typeof value === "number"
-          ? String(value)
-          : typeof value === "boolean"
-          ? value
-            ? "true"
-            : "false"
-          : quoteYaml(String(value));
-      const re = new RegExp(`^(\\s*${key}:\\s*).*$`, "m");
-      if (re.test(out)) {
-        out = out.replace(re, `$1${raw}`);
-      } else {
-        const fm = out.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (fm) {
-          out = out.replace(fm[0], fm[0].replace(/\n---\s*$/, `\n${key}: ${raw}\n---`));
-        }
+    const latest = parseTradeFromMarkdown(content) as Trade;
+    if (latest.origin !== "manual" || latest.isCopiedTrade) throw new Error("Only original manual executions can be corrected here.");
+    if (executionIdentity(latest) !== executionIdentity(expected)) throw new Error("Executions changed. Reopen the trade before correcting it.");
+    const candidate: Trade = { ...latest, ...entry };
+    const zone = latest.timezone || latest.sourceZone || "";
+    const pinned = exits.map((exit) => {
+      const pin = pinManualInstants(latest.date, entry.entryTime, exit.time, zone);
+      if (pin.status !== "ok" && pin.status !== "no-zone") throw new Error("The execution time is invalid or ambiguous in the recorded time zone.");
+      if (pin.status === "ok") candidate.entryInstant = pin.entryInstant;
+      else delete candidate.entryInstant;
+      return { ...exit, instant: pin.status === "ok" ? pin.exitInstant : undefined };
+    });
+    const result = buildManualExitFills(candidate, pinned, true);
+    if (!result.ok) throw new Error(result.error);
+    const updated = result.trade;
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+    if (!match) throw new Error("Trade frontmatter is missing.");
+    const fields = ["quantity", "entry_price", "exit_price", "entry_time", "exit_time", "entry_instant", "exit_instant", "pnl", "pnl_points"];
+    const old = match[1].split(/\r?\n/);
+    const kept: string[] = [];
+    for (let i = 0; i < old.length; i++) {
+      if (/^fills:\s*/.test(old[i])) {
+        while (i + 1 < old.length && (/^\s+/.test(old[i + 1]) || !old[i + 1].trim())) i++;
+      } else if (!fields.some((key) => old[i].startsWith(key + ":"))) kept.push(old[i]);
+    }
+    const number = (key: string, value: number) => Number.isFinite(value) ? `${key}: ${value}` : null;
+    const fresh = [number("quantity", updated.quantity), number("entry_price", updated.entryPrice), number("exit_price", updated.exitPrice),
+      `entry_time: ${updated.entryTime}`, `exit_time: ${updated.exitTime}`,
+      updated.entryInstant ? `entry_instant: ${quoteYaml(updated.entryInstant)}` : null,
+      updated.exitInstant ? `exit_instant: ${quoteYaml(updated.exitInstant)}` : null,
+      number("pnl", updated.pnl), number("pnl_points", updated.pnlPoints), ...fillLines(updated)].filter((x): x is string => x !== null);
+    const eol = content.startsWith("---\r\n") ? "\r\n" : "\n";
+    const replacement = "---" + eol + [...kept, ...fresh].join(eol) + eol + "---";
+    const next = replacement + content.slice(match[0].length);
+    saved = { ...(parseTradeFromMarkdown(next) as Trade), id: expected.id };
+    return next;
+  });
+  if (!saved) throw new Error("Execution correction was not saved.");
+  return saved;
+}
+
+function writeTradeFields(content: string, fields: Record<string, string | number | boolean>): string {
+  let out = content;
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    const plannedFields: PlannedNumberField[] = ["review_planned_entry", "review_planned_stop", "review_planned_target", "review_planned_quantity"];
+    if (plannedFields.includes(key as PlannedNumberField)) {
+      const parsed = parsePlannedNumber(value, key as PlannedNumberField);
+      if (parsed === undefined) continue;
+    }
+    // Booleans and numbers stay bare (clean YAML); everything else is quoted.
+    const raw =
+      typeof value === "number"
+        ? String(value)
+        : typeof value === "boolean"
+        ? value
+          ? "true"
+          : "false"
+        : quoteYaml(String(value));
+    const re = new RegExp(`^(${key}:[ \\t]*).*$`, "m");
+    if (re.test(out)) {
+      out = out.replace(re, (_line, prefix: string) => prefix + raw);
+    } else {
+      const fm = out.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+      if (fm) {
+        out = out.replace(fm[0], () => fm[0].replace(/\n---\s*$/, () => `\n${key}: ${raw}\n---`));
       }
     }
-    return out;
+  }
+  return out;
+}
+
+export async function updateTradeFields(app: App, file: TFile, fields: Record<string, string | number | boolean>): Promise<void> {
+  await app.vault.process(file, (content) => writeTradeFields(content, fields));
+}
+
+function writeStrategyAssignments(content: string, selected: string, assignments: string[]): string {
+  const out = writeTradeFields(content, { setup: selected });
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(out);
+  if (!match) throw new Error("Trade frontmatter is missing.");
+  const lines = match[1].split(/\r?\n/);
+  const raw = `setups: ${inlineArray(assignments)}`;
+  const index = lines.findIndex((line) => /^setups:/.test(line));
+  if (index >= 0) lines[index] = raw; else lines.push(raw);
+  const eol = out.startsWith("---\r\n") ? "\r\n" : "\n";
+  return "---" + eol + lines.join(eol) + eol + "---" + out.slice(match[0].length);
+}
+
+/** Only an explicit trade selection may resolve old multiple assignments. */
+export async function setTradeStrategy(app: App, file: TFile, choice: string): Promise<void> {
+  const selected = choice.trim();
+  await app.vault.process(file, (content) => writeStrategyAssignments(content, selected, selected ? [selected] : []));
+}
+
+/** Library rename replaces matching names while retaining unrelated historical choices. */
+export async function renameTradeStrategy(app: App, file: TFile, from: string, to: string): Promise<boolean> {
+  let changed = false;
+  const oldName = from.trim().toLowerCase();
+  const newName = to.trim();
+  if (!oldName || !newName) return false;
+  await app.vault.process(file, (content) => {
+    const latest = parseTradeFromMarkdown(content) as Trade;
+    const names = strategiesOf(latest);
+    if (!names.some((name) => name.toLowerCase() === oldName)) return content;
+    const selected = latest.setup?.trim().toLowerCase() === oldName ? newName : latest.setup ?? "";
+    const renamed = strategiesOf({ setup: selected, setups: names.map((name) => name.toLowerCase() === oldName ? newName : name) });
+    changed = true;
+    return writeStrategyAssignments(content, selected, renamed);
   });
+  return changed;
 }
 
 /**
@@ -523,12 +728,12 @@ export async function updateTradeArrayFields(app: App, file: TFile, fields: Reco
   await app.vault.process(file, (content) => {
     let out = content;
     for (const [key, raw] of entries) {
-      const re = new RegExp(`^(\\s*${key}:\\s*).*$`, "m");
+      const re = new RegExp(`^(${key}:[ \\t]*).*$`, "m");
       if (re.test(out)) {
-        out = out.replace(re, `$1${raw}`);
+        out = out.replace(re, (_line, prefix: string) => prefix + raw);
       } else {
         const fm = out.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (fm) out = out.replace(fm[0], fm[0].replace(/\n---\s*$/, `\n${key}: ${raw}\n---`));
+        if (fm) out = out.replace(fm[0], () => fm[0].replace(/\n---\s*$/, () => `\n${key}: ${raw}\n---`));
       }
     }
     return out;
@@ -541,24 +746,74 @@ export async function updateTradeArrayFields(app: App, file: TFile, fields: Reco
  * the block list with a single quoted scalar, losing every print on reload.
  * Also keeps legacy `screenshot` in sync with the first entry.
  */
+function writeScreenshotFrontmatter(content: string, validShots: PrintEntry[], filePath: string): string {
+  const block = screenshotsLines({ screenshots: validShots } as Trade);
+  const first = validShots[0]?.file;
+  const opener = /^---\r?\n/.exec(content);
+  if (!opener) throw new Error(`Cannot update screenshots without valid frontmatter: ${filePath}`);
+  const closingPattern = /^---[ \t]*(?:\r?\n|$)/gm;
+  closingPattern.lastIndex = opener[0].length;
+  const closing = closingPattern.exec(content);
+  if (!closing) throw new Error(`Cannot update screenshots without valid frontmatter: ${filePath}`);
+  const eol = opener[0].endsWith("\r\n") ? "\r\n" : "\n";
+  const rawFrontmatter = content.slice(opener[0].length, closing.index);
+  const lines = rawFrontmatter ? rawFrontmatter.replace(/\r?\n$/, "").split(/\r?\n/) : [];
+  const start = lines.findIndex((line) => /^screenshots:\s*/.test(line));
+  if (start >= 0) {
+    let end = start + 1;
+    while (end < lines.length && (/^\s+-\s+/.test(lines[end]) || /^\s+\w+:/.test(lines[end]))) end++;
+    lines.splice(start, end - start, ...block);
+  } else if (block.length) {
+    lines.push(...block);
+  }
+  const scalarIndex = lines.findIndex((line) => /^screenshot:\s*/.test(line));
+  if (first !== undefined) {
+    const scalar = `screenshot: ${quoteYaml(first)}`;
+    if (scalarIndex >= 0) lines[scalarIndex] = scalar;
+    else lines.push(scalar);
+  } else if (scalarIndex >= 0) {
+    lines.splice(scalarIndex, 1);
+  }
+  return opener[0] + lines.join(eol) + (lines.length ? eol : "") + content.slice(closing.index);
+}
+
 export async function updateTradeScreenshots(app: App, file: TFile, shots: PrintEntry[]): Promise<void> {
-  const block = screenshotsLines({ screenshots: shots } as Trade);
-  const first = shots.length ? shots[0].file : "";
+  const validShots = validScreenshotEntries(shots);
+  await app.vault.process(file, (content) => writeScreenshotFrontmatter(content, validShots, file.path));
+}
+
+/** Append screenshot references idempotently using the trade note's latest content. */
+export async function appendTradeScreenshots(
+  app: App,
+  file: TFile,
+  shots: PrintEntry[],
+): Promise<{ screenshots: PrintEntry[]; appended: number }> {
+  const additions = validScreenshotEntries(shots);
+  let saved: PrintEntry[] = [];
+  let appended = 0;
   await app.vault.process(file, (content) => {
-    const lines = content.split(/\r?\n/);
-    const start = lines.findIndex((l) => /^screenshots:\s*/.test(l));
-    if (start >= 0) {
-      // Drop the old block (its list items and their indented continuations).
-      let end = start + 1;
-      while (end < lines.length && (/^\s+-\s+/.test(lines[end]) || /^\s+\w+:/.test(lines[end]))) end++;
-      lines.splice(start, end - start, ...block);
-    } else if (block.length) {
-      const fmEnd = lines.indexOf("---", 1);
-      if (fmEnd < 0) return content;
-      lines.splice(fmEnd, 0, ...block);
+    const parsed = parseTradeFromMarkdown(content);
+    const existing = validScreenshotEntries(parsed.screenshots);
+    if (!existing.length) {
+      const legacy = String(parsed.screenshot ?? "").trim();
+      if (legacy && legacy.toLowerCase() !== "added") {
+        for (const path of legacy.split(/[,;\r\n]+/).map((part) => part.trim()).filter(Boolean)) {
+          existing.push({ file: path });
+        }
+      }
     }
-    return lines.join("\n").replace(/^(screenshot:\s*).*$/m, `$1${quoteYaml(first)}`);
+    saved = [...existing];
+    appended = 0;
+    const seen = new Set(saved.map((entry) => entry.file));
+    for (const entry of additions) {
+      if (seen.has(entry.file)) continue;
+      saved.push(entry);
+      seen.add(entry.file);
+      appended++;
+    }
+    return writeScreenshotFrontmatter(content, saved, file.path);
   });
+  return { screenshots: saved, appended };
 }
 
 /**
@@ -573,7 +828,7 @@ export async function setTradeMistakeTags(app: App, file: TFile, tags: string[])
 
 export async function deleteTradeFile(app: App, fileId: string): Promise<boolean> {  const file = app.vault.getAbstractFileByPath(fileId);
   if (file instanceof TFile) {
-    await app.vault.trash(file, true);
+    await app.fileManager.trashFile(file);
     return true;
   }
   return false;
@@ -597,7 +852,7 @@ export async function setTradeFields(app: App, path: string, fields: Record<stri
 
 // Test hook (see lib/fills.ts): lets the harness prove the note round-trip.
 if (typeof window !== "undefined") {
-  (window as any).__tjStorage = {
+  (window as unknown as { __tjStorage: { tradeToMarkdown: typeof tradeToMarkdown; parseTradeFromMarkdown: typeof parseTradeFromMarkdown; inlineArray: typeof inlineArray; updateTradeScreenshots: typeof updateTradeScreenshots; updateTradeArrayFields: typeof updateTradeArrayFields } }).__tjStorage = {
     tradeToMarkdown,
     parseTradeFromMarkdown,
     inlineArray,

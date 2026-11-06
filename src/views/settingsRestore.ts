@@ -53,7 +53,7 @@ class SettingsRestoreModal extends Modal {
         text: snap.mtime ? new Date(snap.mtime).toLocaleString() : snap.name,
       });
       const btn = row.createEl("button", { text: "Restore", attr: { type: "button" } });
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", () => void (async () => {
         btn.disabled = true;
         btn.textContent = "Restoring…";
         try {
@@ -66,7 +66,7 @@ class SettingsRestoreModal extends Modal {
           btn.disabled = false;
           btn.textContent = "Restore";
         }
-      });
+      })());
     }
 
     const actions = contentEl.createDiv({ cls: "tj-backup-actions" });

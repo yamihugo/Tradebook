@@ -8,12 +8,17 @@ data.json.bak*
 
 # Private working docs and dev material — never published
 /AGENTS.md
-/docs/
+/docs/*
+!/docs/archive/
+/docs/archive/*
+!/docs/archive/PHASE-5-REMAINING.md
 /tools/
-/tests/
 /previews/
 /assets/brand/TradebookDarkLogo.png
 /assets/brand/TradebookWhiteLogo.png
 
 *.log
 .DS_Store
+
+# Hermes agent local state (verify recipe, agent scratch) — not source
+.hermes/

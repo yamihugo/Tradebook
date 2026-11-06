@@ -1,19 +1,21 @@
-import { ItemView, Modal, Notice, setIcon, TFile, type WorkspaceLeaf } from "obsidian";
+import { ItemView, Modal, Notice, setIcon, TFile, type App, type WorkspaceLeaf } from "obsidian";
+import { hasSingleStrategy, hasValidRating } from "../lib/strategySelection";
 import type TradebookPlugin from "../main";
 import { Trade } from "../types";
 import { mountDateField } from "../lib/dates";
 import { dateInZone, periodBounds, type PeriodId } from "../lib/periods";
 import { renderAppShell, accountFilters } from "../ui";
-import { reviewStatus, hasPrint, hasText } from "../lib/review";
-import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields } from "../storage";
+import { reviewStatus, matchesReviewFilter, hasPrint, type ReviewFilter } from "../lib/review";
+import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, setTradeStrategy } from "../storage";
 import { attachTip } from "../lib/tip";
 import { renderEmptyState as renderEmptyBox } from "../lib/emptyState";
 import { analyticsTrades, journalDayKey } from "../lib/scope";
-import { legBaseKey } from "../lib/copy";
+import { legBaseKey, linkedDeletionImpact } from "../lib/copy";
 import { byEntryInstant } from "../lib/instant";
 import { netPnl } from "../lib/fees";
 import { sessionOf } from "../lib/sessions";
-import { eligibleTradeIds, tradeSelectionScopeKey } from "../lib/tradeSelection";
+import { tradeMatchesStrategies, matchesTradeLogSearch } from "../lib/tradeLogFilters";
+import { eligibleTradeIds, tradeSelectionScopeKey, visibleDecisionTrades } from "../lib/tradeSelection";
 import { mountDropdown } from "../lib/dropdown";
 import type { DropdownItem } from "../lib/dropdown";
 import { normalizeTag, normalizeTags, reviewOptions } from "../lib/tags";
@@ -92,9 +94,9 @@ function missingFlag(t: Trade, kind: string): boolean {
   // the same rule, so they cannot drift apart.
   if (reviewStatus(t).complete) return false;
   if (kind === "noprint") return !hasPrint(t);
-  if (kind === "nosetup") return !hasText(t.setup);
+  if (kind === "nosetup") return !hasSingleStrategy(t);
   if (kind === "nostop") return !(typeof t.stopLoss === "number" && t.stopLoss > 0);
-  return !((t.rating ?? 0) > 0);
+  return !hasValidRating(t);
 }
 
 /**
@@ -175,7 +177,7 @@ export class TradeLogView extends ItemView {
   mistakeFilters: string[] = [];
   /** Behavioral tags of the trade's Psychology State, same OR-per-block rule. */
   psychologyFilters: string[] = [];
-  reviewFilter: "all" | "pending" | "complete" = "all";
+  reviewFilter: ReviewFilter = "all";
   /** all | rth | overnight | none */
   sessionFilter = "all";
   /** all | demo | eval | funded | live | personal | unknown — the account class. */
@@ -250,8 +252,6 @@ export class TradeLogView extends ItemView {
   /** Shift-click needs to know where the last click landed and in what order. */
   private _lastPicked: string | null = null;
   private _renderedIds: string[] = [];
-  /** Filter population the current selection belongs to (sort/page size excluded). */
-  private _selectionScope = "";
   private _drawerKeyCleanup: (() => void) | null = null;
   /** A tag menu is body-level; keep its global listeners scoped to the view. */
   private _bulkTagCleanup: (() => void) | null = null;
@@ -268,7 +268,7 @@ export class TradeLogView extends ItemView {
     return TRADE_LOG_VIEW_TYPE;
   }
   getDisplayText(): string {
-    return "Trade Log";
+    return "Trade log";
   }
   getIcon(): string {
     return "list";
@@ -296,7 +296,7 @@ export class TradeLogView extends ItemView {
         this.resultFilter = f.result ?? this.resultFilter;
         this.mistakeFilters = f.mistakes ?? (f.mistake ? [f.mistake] : this.mistakeFilters);
         this.psychologyFilters = f.psychologies ?? this.psychologyFilters;
-        this.reviewFilter = (f.review as any) ?? this.reviewFilter;
+        this.reviewFilter = (f.review as ReviewFilter) ?? this.reviewFilter;
         this.sessionFilter = f.session ?? this.sessionFilter;
         this.accountTypeFilter = f.accountType ?? this.accountTypeFilter;
         // Missing used to be a single choice; read that once and carry on with the list.
@@ -335,7 +335,7 @@ export class TradeLogView extends ItemView {
       e.preventDefault();
       // Exactly what "Select all" selects: the filtered list, never trades the
       // filters are hiding.
-      for (const t of this.filtered()) if (t.id) this.selected.add(t.id);
+      for (const t of visibleDecisionTrades(this.filtered())) this.selected.add(t.id);
       this.syncSelection();
     });
   }
@@ -521,9 +521,13 @@ export class TradeLogView extends ItemView {
     // must not reappear under "Needs review" because of its legs. The copies
     // stay visible — every leg of a matching decision is kept, so a row can
     // still expand Original → Copied.
+    const canonicalRows = new Map(tradeRows(this.trades).map((row) => [row.key, row]));
     const keepMatchingDecisions = (predicate: (rep: Trade) => boolean): void => {
       const keys = new Set<string>();
-      for (const row of tradeRows(list)) if (predicate(row.rep)) keys.add(row.key);
+      for (const row of tradeRows(list)) {
+        const canonical = canonicalRows.get(row.key) ?? row;
+        if (predicate(canonical.rep)) keys.add(row.key);
+      }
       list = list.filter((t) => keys.has(legBaseKey(t)));
     };
     if (this.idFilter.length) {
@@ -616,8 +620,7 @@ export class TradeLogView extends ItemView {
       });
     }
     if (!opts?.skipAttention && this.reviewFilter !== "all") {
-      const wantComplete = this.reviewFilter === "complete";
-      keepMatchingDecisions((rep) => reviewStatus(rep).complete === wantComplete);
+      keepMatchingDecisions((rep) => matchesReviewFilter(rep, this.reviewFilter));
     }
     const range = this.periodRange();
     if (range) {
@@ -630,30 +633,15 @@ export class TradeLogView extends ItemView {
       });
     }
     if (this.search) {
-      const terms = this.search.toLowerCase().split(/\s+/).filter(Boolean);
-      list = list.filter((t) => {
-        const hay = [
-          t.symbol,
-          t.setup,
-          t.mistake,
-          t.notes,
-          t.review,
-          t.thesis,
-          t.orderType,
-          t.account,
-          (t.tags || []).join(" "),
-          (t.mistake_tags || []).join(" "),
-          (t.psychology_tags || []).join(" "),
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return terms.every((q) => hay.includes(q));
-      });
+      const keys = new Set<string>();
+      for (const row of tradeRows(list)) {
+        const canonical = canonicalRows.get(row.key)?.rep ?? row.rep;
+        if (matchesTradeLogSearch([...new Set([...row.legs, canonical])], this.search)) keys.add(row.key);
+      }
+      list = list.filter((t) => keys.has(legBaseKey(t)));
     }
     if (this.setupFilters.length) {
-      const wanted = this.setupFilters.map((s) => s.toLowerCase());
-      list = list.filter((t) => wanted.includes((t.setup || "").toLowerCase()));
+      keepMatchingDecisions((t) => tradeMatchesStrategies(t, this.setupFilters));
     }
     // Newest first, on the same day key the filter just used, with the
     // canonical instants breaking ties inside a day. Keys are resolved once:
@@ -776,11 +764,11 @@ export class TradeLogView extends ItemView {
   render(): void {
     const root = this.contentEl;
     const selectionScope = this.selectionScopeKey();
-    if (this._selectionScope && this._selectionScope !== selectionScope) {
+    if (this.plugin.tradeLogSelectionScope && this.plugin.tradeLogSelectionScope !== selectionScope) {
       this.selected.clear();
       this._lastPicked = null;
     }
-    this._selectionScope = selectionScope;
+    this.plugin.tradeLogSelectionScope = selectionScope;
     this.closeBulkTagMenu();
     root.empty();
     root.addClass("tj-tradelog");
@@ -813,7 +801,7 @@ export class TradeLogView extends ItemView {
     // Accounts: one title, a sentence, and the actions in the same corner.
     const head = main.createDiv({ cls: "tj-acct-header" });
     const title = head.createDiv();
-    title.createEl("h1", { cls: "tj-view-h1", text: "Trade Log" });
+    title.createEl("h1", { cls: "tj-view-h1", text: "Trade log" });
     title.createEl("p", { cls: "tj-import-info", text: "Every trade you recorded, one row each." });
 
     const actions = head.createDiv({ cls: "tj-acct-header-actions" });
@@ -927,7 +915,7 @@ export class TradeLogView extends ItemView {
     // Put the search cursor back where the reader left it.
     if (this._restoreFocus) {
       this._restoreFocus = false;
-      const el = this.contentEl.querySelector('input[type="search"]') as HTMLInputElement | null;
+      const el = this.contentEl.querySelector<HTMLInputElement>('input[type="search"]');
       if (el) {
         el.focus();
         el.setSelectionRange(el.value.length, el.value.length);
@@ -1022,14 +1010,14 @@ export class TradeLogView extends ItemView {
         .addEventListener("click", () => {
           // The page scrolls in .tj-app-main, not in the ledger: only the ledger is
           // rebuilt, so the reader's place is restored in the same frame.
-          const scroller = this.contentEl.querySelector(".tj-app-main") as HTMLElement | null;
+          const scroller = this.contentEl.querySelector<HTMLElement>(".tj-app-main");
           this.savedScrollY = scroller?.scrollTop ?? 0;
           this.limit += 50;
           this.renderLedger();
           const y = this.savedScrollY;
           this.savedScrollY = 0;
-          requestAnimationFrame(() => {
-            const sc = this.contentEl.querySelector(".tj-app-main") as HTMLElement | null;
+          window.requestAnimationFrame(() => {
+            const sc = this.contentEl.querySelector<HTMLElement>(".tj-app-main");
             if (sc && y) sc.scrollTop = y;
           });
         });
@@ -1074,7 +1062,7 @@ export class TradeLogView extends ItemView {
         s.pending,
         "Needs review",
         this.reviewFilter === "pending",
-        "Trades missing one or more review fields.",
+        "Trades missing one or more of the six review signals.",
         () => (this.reviewFilter = this.reviewFilter === "pending" ? "all" : "pending")
       );
     }
@@ -1170,7 +1158,7 @@ export class TradeLogView extends ItemView {
     };
     const selectionGroup = bar.createDiv({ cls: "tj-tl-bulkgroup" });
     act(selectionGroup, "Select all", "tj-ghost", () => {
-      for (const t of this.filtered()) if (t.id) this.selected.add(t.id);
+      for (const t of visibleDecisionTrades(this.filtered())) this.selected.add(t.id);
       this.syncSelection();
     });
     act(selectionGroup, "Clear", "tj-ghost", () => {
@@ -1200,12 +1188,12 @@ export class TradeLogView extends ItemView {
       setupHost,
       setupItems,
       "",
-      async (id) => {
+      (id) => void (async () => {
         if (id === "__new__") {
-          this.inlineInput(bar, "New strategy name", async (name) => {
+          this.inlineInput(bar, "New strategy name", (name) => void (async () => {
             const clean = await this.plugin.addStrategy(name);
             if (clean) await this.bulkField({ setup: clean });
-          });
+          })());
           return;
         }
         if (id === "__none__") {
@@ -1213,7 +1201,7 @@ export class TradeLogView extends ItemView {
           return;
         }
         await this.bulkField({ setup: id });
-      },
+      })(),
       { placeholder: "Strategy…", title: "File the selected trades under a strategy", align: "left" }
     );
     if (empty) setupHost.addClass("is-disabled");
@@ -1254,9 +1242,8 @@ export class TradeLogView extends ItemView {
     tagPicker(editGroup, "mistake_tags", "Execution…", reviewOptions(this.plugin.settings, "mistakes"));
 
     const actionsGroup = bar.createDiv({ cls: "tj-tl-bulkgroup is-separated" });
-    // The trader's word closes the queue; the checklist stays factual on each
-    // note. Marking reviewed is what makes an imported history usable.
-    act(actionsGroup, "Mark as reviewed", "", () => void this.bulkField({ reviewed: true }), empty);
+    // This is an explicit bypass of the six-signal checklist, not automatic completion.
+    act(actionsGroup, "Explicitly mark reviewed", "", () => void this.bulkField({ reviewed: true, review_evidence_source: "human" }), empty);
     act(actionsGroup, "Unmark reviewed", "", () => void this.bulkField({ reviewed: false }), empty);
     act(actionsGroup, "Duplicate", "", () => void this.bulkDuplicate(), empty);
     const destructiveGroup = bar.createDiv({ cls: "tj-tl-bulkgroup is-separated is-destructive" });
@@ -1392,7 +1379,7 @@ export class TradeLogView extends ItemView {
     action: "add" | "remove",
   ): Promise<void> {
     let n = 0;
-    const eligible = this.eligibleSelectedIds();
+    const eligible = this.reviewEligibleSelectedIds();
     const wanted = new Set(labels.map((label) => label.toLowerCase()));
     for (const id of eligible) {
       const trade = this.trades.find((item) => item.id === id);
@@ -1473,12 +1460,13 @@ export class TradeLogView extends ItemView {
 
   private async bulkField(fields: Record<string, string | number | boolean>): Promise<void> {
     let n = 0;
-    const eligible = this.eligibleSelectedIds();
+    const eligible = this.reviewEligibleSelectedIds();
     for (const id of eligible) {
       const file = this.app.vault.getAbstractFileByPath(id);
       if (file instanceof TFile) {
         try {
-          await updateTradeFields(this.app, file, fields);
+          if (Object.prototype.hasOwnProperty.call(fields, "setup")) await setTradeStrategy(this.app, file, String(fields.setup));
+          else await updateTradeFields(this.app, file, fields);
           n++;
         } catch (err) {
           console.error("[tradebook] bulk update failed", err);
@@ -1496,32 +1484,48 @@ export class TradeLogView extends ItemView {
    */
   /** Delete asks in our own dialog — a browser confirm is not our surface. */
   private confirmBulkDelete(): void {
-    const count = this.eligibleSelectedIds().size;
-    if (!count) return;
+    const selectedIds = [...this.eligibleSelectedIds()];
+    const selectedNotes = selectedIds.filter((id) => this.app.vault.getAbstractFileByPath(id) instanceof TFile);
+    const virtualCount = selectedIds.filter((id) => (this.trades.find((item) => item.id === id) as (Trade & { copyVirtual?: boolean }) | undefined)?.copyVirtual === true).length;
+    if (!selectedNotes.length) {
+      new Notice(virtualCount
+        ? "Generated copy legs have no note of their own. Delete the base trade to remove them."
+        : "No selected trade notes can be deleted from disk.");
+      return;
+    }
+    const selectedTrades = selectedNotes.map((id) => this.trades.find((item) => item.id === id)).filter((trade): trade is Trade => !!trade);
+    const selectedBaseCount = selectedTrades.filter((trade) => trade.isCopiedTrade !== true).length;
+    const impact = linkedDeletionImpact(selectedTrades, this.trades);
+    const details = [
+      `${selectedNotes.length} selected note${selectedNotes.length === 1 ? "" : "s"} will be removed`,
+      impact.generatedIds.size ? `${impact.generatedIds.size} generated copy leg${impact.generatedIds.size === 1 ? " will" : "s will"} disappear with the selected base trade${selectedBaseCount === 1 ? "" : "s"}` : "",
+      impact.importedIds.size ? `${impact.importedIds.size} imported actual-fill note${impact.importedIds.size === 1 ? " will" : "s will"} remain` : "",
+      virtualCount ? `${virtualCount} selected virtual copy leg${virtualCount === 1 ? " has" : "s have"} no note to delete and will be left alone` : "",
+    ].filter(Boolean).join("; ");
     new ConfirmModal(this.app, {
       title: "Delete these trades?",
-      body: `${count} note${count === 1 ? "" : "s"} will be removed from the vault. Obsidian moves them to its trash when "Files & Links → Deleted files" is set to trash; otherwise the delete is permanent.`,
+      body: `${details}. Obsidian moves removed notes to its trash when "Files & Links → Deleted files" is set to trash; otherwise the delete is permanent.`,
       cta: "Delete",
-      onConfirm: () => void this.bulkDelete(),
+      onConfirm: () => void this.bulkDelete(selectedNotes),
     }).open();
   }
 
-  private async bulkDelete(): Promise<void> {
+  private async bulkDelete(selectedIds: string[] = [...this.eligibleSelectedIds()]): Promise<void> {
     let n = 0;
-    const eligible = this.eligibleSelectedIds();
+    const eligible = selectedIds.filter((id) => this.app.vault.getAbstractFileByPath(id) instanceof TFile);
+    const virtualCount = selectedIds.length - eligible.length;
     for (const id of eligible) {
-      const file = this.app.vault.getAbstractFileByPath(id);
-      if (file instanceof TFile) {
-        try {
-          await this.app.vault.delete(file);
-          n++;
-        } catch (err) {
-          console.error("[tradebook] delete failed", err);
-        }
+      try {
+        // Reuse the normal deletion path: it removes generated legs with a base
+        // and deliberately preserves imported actual fills.
+        if (await this.plugin.deleteTrade(id)) n++;
+      } catch (err) {
+        console.error("[tradebook] delete failed", err);
       }
     }
-    new Notice(`${n} trade(s) deleted.`);
     this.selected.clear();
+    if (n === 0) new Notice("No trade notes were deleted.");
+    else if (virtualCount) new Notice(`${virtualCount} virtual copy leg(s) had no note to delete and were left alone.`);
     await this.refresh();
   }
 
@@ -1570,6 +1574,14 @@ export class TradeLogView extends ItemView {
     if (this.accountTypeFilter !== "all") {
       const typeName = accountFilters().find((x) => x.id === this.accountTypeFilter)?.label ?? this.accountTypeFilter;
       out.push({ label: `Account type: ${typeName}`, clear: () => (this.accountTypeFilter = "all") });
+    }
+    if (this.reviewFilter !== "all") {
+      const labels: Record<"pending" | "complete" | "explicit", string> = {
+        pending: "Needs review",
+        complete: "Reviewed",
+        explicit: "Explicitly marked reviewed",
+      };
+      out.push({ label: `Review: ${labels[this.reviewFilter]}`, clear: () => (this.reviewFilter = "all") });
     }
     if (this.qualityFilters.length) {
       const words: Record<string, string> = { noprint: "screenshot", nosetup: "strategy", nostop: "stop", norating: "rating" };
@@ -1637,6 +1649,7 @@ export class TradeLogView extends ItemView {
     this.accountTypeFilter = "all";
     this.lens = null;
     this.qualityFilters = [];
+    this.reviewFilter = "all";
     this.rFilter = "all";
     this.period = "all";
     this.customFrom = "";
@@ -1675,9 +1688,24 @@ export class TradeLogView extends ItemView {
     });
   }
 
-  /** Resolve selected rows against the full current filtered population. */
+  /** Resolve selected rows against the visible logical decisions, not hidden legs. */
   private eligibleSelectedIds(): Set<string> {
-    return eligibleTradeIds(this.filtered(), this.selected);
+    return eligibleTradeIds(visibleDecisionTrades(this.filtered()), this.selected);
+  }
+
+  /** Review edits belong to the canonical base decision even in a copier-only view. */
+  private reviewEligibleSelectedIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const id of this.eligibleSelectedIds()) {
+      const trade = this.trades.find((item) => item.id === id);
+      if (!trade?.isCopiedTrade) {
+        ids.add(id);
+        continue;
+      }
+      const base = tradeRows(this.trades).find((row) => row.key === legBaseKey(trade))?.rep;
+      ids.add(base?.id ?? id);
+    }
+    return ids;
   }
 
   renderPeriodBar(root: HTMLElement): void {
@@ -1885,7 +1913,7 @@ export class TradeLogView extends ItemView {
           row.classList.add("dragging");
           const onMove = (ev: MouseEvent) => {
             clearDragHighlights();
-            const el = (ev.target as HTMLElement).closest(".tj-tl-colitem") as HTMLElement | null;
+            const el = (ev.target as HTMLElement).closest<HTMLElement>(".tj-tl-colitem");
             if (el && el.dataset.colId && el.dataset.colId !== dragId) {
               dragOverId = el.dataset.colId;
               el.classList.add("drag-over");
@@ -2082,7 +2110,7 @@ export class TradeLogView extends ItemView {
     };
 
     const syms: [string, string][] = [["", "All"], ...[...new Set(this.trades.map((t) => t.symbol).filter(Boolean))].sort().map((x) => [x, x] as [string, string])];
-    const setups: [string, string][] = [...new Set(this.trades.map((t) => t.setup).filter(Boolean))]
+    const setups: [string, string][] = [...new Set(this.trades.flatMap((t) => [t.setup, ...(Array.isArray(t.setups) ? t.setups : [])]).filter((x): x is string => !!x))]
       .sort()
       .map((x) => [x, x] as [string, string]);
     const toggleIn = (list: string[], v: string, on: boolean): string[] => (on ? [...list, v] : list.filter((x) => x !== v));
@@ -2163,7 +2191,13 @@ export class TradeLogView extends ItemView {
     // 5 — what the note was missing. Folded with the tags below: both are the
     // second pass over a journal, not the first.
     g = section("Review status", true);
-    pills(g, setups, this.setupFilters, (v, on) => { this.setupFilters = toggleIn(this.setupFilters, v, !on); this.renderPreservingDrawerScroll(); }, "No strategy named yet");
+    pills(
+      g,
+      [["all", "All"], ["pending", "Needs review"], ["complete", "Reviewed"], ["explicit", "Explicitly marked reviewed"]],
+      [this.reviewFilter],
+      (v) => { this.reviewFilter = v as typeof this.reviewFilter; this.renderPreservingDrawerScroll(); }
+    );
+    pills(subgroup(g), setups, this.setupFilters, (v, on) => { this.setupFilters = toggleIn(this.setupFilters, v, !on); this.renderPreservingDrawerScroll(); }, "No strategy named yet");
     pills(
       subgroup(g),
       [["noprint", "Without screenshot"], ["nosetup", "Without strategy"], ["nostop", "Without stop"], ["norating", "Without rating"]],
@@ -2248,7 +2282,7 @@ export class TradeLogView extends ItemView {
 /** A small yes/no dialog in our own surface, for actions that destroy things. */
 class ConfirmModal extends Modal {
   constructor(
-    app: any,
+    app: App,
     private opts: { title: string; body: string; cta: string; onConfirm: () => void }
   ) {
     super(app);

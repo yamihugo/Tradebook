@@ -49,7 +49,7 @@ function renderAxisRows(box: HTMLElement, result: ScoreResult, animate: boolean)
       const width = `${Math.max(2, Math.min(100, axis.value))}%`;
       if (animate) {
         fill.setCssStyles({ width: "0%" });
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
           if (fill.isConnected) fill.style.width = width;
         });
       } else {
@@ -137,9 +137,9 @@ function drawRadar(svg: SVGElement, box: HTMLElement, textHost: HTMLElement, axe
       const t = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - t, 3);
       fill.setAttribute("d", shapeAt(e));
-      if (t < 1) requestAnimationFrame(step);
+      if (t < 1) window.requestAnimationFrame(step);
     };
-    requestAnimationFrame(step);
+    window.requestAnimationFrame(step);
   }
 
   for (let i = 0; i < n; i++) {
@@ -279,7 +279,7 @@ export function renderTradingScore(
   // a footer that wraps). If the SVG ends up a different size, redraw so the
   // viewBox keeps matching — a stale, larger viewBox scales the whole drawing
   // down, which is what makes the radar and its labels look shrunken.
-  requestAnimationFrame(() => {
+  window.requestAnimationFrame(() => {
     if (!svg.isConnected) return;
     const w2 = svg.clientWidth || 0;
     const h2 = svg.clientHeight || 0;

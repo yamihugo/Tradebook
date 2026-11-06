@@ -31,6 +31,8 @@ export interface CopierMatchProposal {
   ratio: number;
   /** Why the pair is proposed, in the trader's words. */
   reason: string;
+  /** A previously confirmed link has generated siblings still awaiting merge. */
+  mergePending?: boolean;
 }
 
 const minutesOf = (t: string): number => {

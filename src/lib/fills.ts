@@ -11,7 +11,6 @@
 
 import type { Trade, TradeFill } from "../types";
 import { knownFuturesSpec } from "../futures";
-import { futuresSpec } from "../futures";
 
 /** Which side opens the position, given the trade's direction. */
 export function entrySide(t: Trade): "buy" | "sell" {
@@ -161,43 +160,34 @@ export function fillSet(t: Trade): FillSet {
   };
 }
 
-/**
- * What a fill is, in the trader's words: `entry 1 of 2`, `TP1`, `TP2`, `BE`.
- * Every journal surveyed names the exits in order; that is what makes a
- * scale-out readable. Every non-break-even exit takes a TP number in order —
- * even a lone close, which is TP1 — so the tag says what happened, not how
- * many exits existed. Only break-even exits dodge the number.
- */
+/** Display the executed result automatically: profitable TP, losing SL, flat BE.
+ * These badges describe the close, not its order type or the trader's reason. */
 export function fillLabel(f: TradeFill, i: number, set: FillSet, pointValue = 0): string {
-  const isEntry = set.entries.includes(f);
-  if (isEntry) return set.entries.length > 1 ? `entry ${i + 1}` : "entry";
-  const be = (e: TradeFill) => set.explicit && isBreakEven(e, set.avgEntry, pointValue);
-  if (be(f)) return "BE";
-  const nonBe = set.exits.filter((e) => !be(e));
-  return `TP${nonBe.indexOf(f) + 1}`;
+  if (set.entries.includes(f)) return set.entries.length > 1 ? `entry ${i + 1}` : "entry";
+  const outcome = (exit: TradeFill): "TP" | "SL" | "BE" | "Exit" => {
+    if (isBreakEven(exit, set.avgEntry, pointValue)) return "BE";
+    // Prefer the matched execution's gross P&L. Costs never change its badge.
+    const movement = set.entries[0]?.side === "sell" ? set.avgEntry - exit.price : exit.price - set.avgEntry;
+    const value = Number.isFinite(exit.pnl) ? exit.pnl as number :
+      set.avgEntry > 0 && Number.isFinite(exit.price) && exit.price > 0 ? movement : Number.NaN;
+    if (!Number.isFinite(value)) return "Exit";
+    return value > 0 ? "TP" : value < 0 ? "SL" : "BE";
+  };
+  const kind = outcome(f);
+  if (kind === "BE") return kind;
+  if (kind === "Exit") return `Exit ${set.exits.indexOf(f) + 1}`;
+  return `${kind}${set.exits.filter((exit) => outcome(exit) === kind).indexOf(f) + 1}`;
 }
 
-/**
- * An exit that closed at break-even: within half a point of the entry AND flat
- * in dollars (flat to the dollars that half point is worth). There is no flag
- * on the fill — the price and the realised P&L are the whole test. A trade with
- * no stored fills (one entry, one exit) is never break-even: it really closed.
- */
-export function isBreakEven(f: TradeFill, entry: number, pointValue: number): boolean {
-  const price = num(f.price);
-  if (!Number.isFinite(price) || !(Math.abs(price - entry) <= 0.5)) return false;
-  const pnl = f.pnl;
-  if (!Number.isFinite(pnl)) return false;
-  const qty = num(f.qty) > 0 ? num(f.qty) : 1;
-  return Math.abs(pnl as number) <= Math.max(0.01, 0.5 * pointValue * qty);
+/** A flat executed close, before costs; a nearby price is not evidence of break-even. */
+export function isBreakEven(f: TradeFill, entry: number, _pointValue: number): boolean {
+  return Number.isFinite(entry) && entry > 0 && Number.isFinite(f.price) &&
+    Math.abs(f.price - entry) < 0.0000001 && Number.isFinite(f.pnl) && Math.abs(f.pnl as number) < 0.005;
 }
 
-/**
- * Points of a set of exits: the furthest an exit ACTUALLY closed from the
- * entry, signed by direction. Break-even exits don't count; contracts never
- * multiply — points are price distance, not money. No exits (or all of them
- * break-even) means 0: only the fills that exist are allowed to speak.
- */
+/** Signed realized gross points per closed contract, quantity-weighted.
+ * Explicit fills must carry realized P&L to preserve the matched-lot result;
+ * estimating from the best exit or an incomplete ledger would overstate it. */
 export function pointsOf(
   direction: "long" | "short",
   entry: number,
@@ -205,26 +195,28 @@ export function pointsOf(
   pointValue: number,
   explicit: boolean,
 ): number {
-  if (!exits.length || !(entry > 0)) return 0;
-  // With no stored fills the single exit is the whole truth — never break-even.
-  const counting = explicit ? exits.filter((f) => !isBreakEven(f, entry, pointValue)) : exits;
-  if (!counting.length) return 0;
-  const best =
-    direction === "long"
-      ? Math.max(...counting.map((f) => num(f.price)))
-      : Math.min(...counting.map((f) => num(f.price)));
-  const pts = direction === "long" ? best - entry : entry - best;
-  return Number.isFinite(pts) ? round(pts) : 0;
+  if (!exits.length || !(entry > 0)) return Number.NaN;
+  const closedQty = sumQty(exits);
+  if (!(closedQty > 0)) return Number.NaN;
+  if (explicit) {
+    if (!(pointValue > 0) || !exits.every((f) => Number.isFinite(f.pnl))) return Number.NaN;
+    const realizedPointContracts = exits.reduce((sum, f) => sum + (f.pnl as number) / pointValue, 0);
+    return round(realizedPointContracts / closedQty);
+  }
+  const exit = num(exits[0].price);
+  if (!Number.isFinite(exit)) return Number.NaN;
+  return round(direction === "long" ? exit - entry : entry - exit);
 }
 
-/** `pointsOf` for a whole trade, from its fills (or its scalars when it has none). */
+/** Realized points per closed contract, from the fill ledger or scalar actuals. */
 export function tradePoints(t: Trade): number {
   const set = fillSet(t);
+  const spec = knownFuturesSpec(t.symbol || "");
   return pointsOf(
     t.direction,
     set.avgEntry || num(t.entryPrice),
     set.exits,
-    futuresSpec(t.symbol).pointValue,
+    spec?.pointValue ?? 0,
     set.explicit,
   );
 }
@@ -276,7 +268,7 @@ function round(n: number): number {
 // Test hook, same pattern as the other pure modules (grid, review, trends):
 // the smoke harness has no bundler, so the maths is reachable from window.
 if (typeof window !== "undefined") {
-  (window as any).__tjFills = {
+  window.__tjFills = {
     fillSet, fillLabel, fillIndex, toneClass, applyFillsToTrade, entrySide,
     isBreakEven, pointsOf, tradePoints,
   };

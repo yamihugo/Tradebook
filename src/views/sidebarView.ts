@@ -1,6 +1,6 @@
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
-import { Trade } from "../types";
+import { PropAccount, Trade } from "../types";
 import { fmtMoney2, fmtMoneyCompact, fmtPrice, isFiniteNumber } from "../tz";
 import { dateSearchTokens, formatDate } from "../lib/dates";
 import { dateInZone } from "../lib/periods";
@@ -37,6 +37,8 @@ interface SearchRow {
   action: () => void;
   /** The decision was written up or marked reviewed — shown as a check. */
   reviewed?: boolean;
+  /** Accessible description of the same review state shown in Trade Detail. */
+  reviewLabel?: string;
 }
 
 interface SearchGroup {
@@ -61,8 +63,6 @@ const GROUP_TITLES: Record<NavGroup, string> = {
 
 /** Fixed destinations the catalogue can hide/reveal (Tools keep their own
  *  section and is only toggled with the eye, not the catalogue). */
-const PAGE_IDS = ["home", "tradelog", "setups", "accounts"];
-
 /**
  * The Tradebook menu — a navigable index, not a second app.
  *
@@ -146,6 +146,8 @@ export class TradebookSidebarView extends ItemView {
       case "tradebook-accounts-list-view":
       case "tradebook-account-dash-view":
         return "accounts";
+      case "tradebook-print-inbox-view":
+        return "printqueue";
       default:
         return null;
     }
@@ -155,7 +157,7 @@ export class TradebookSidebarView extends ItemView {
     try {
       const ws = this.plugin?.app?.workspace;
       if (!ws) return;
-      const view = ws.getActiveViewOfType?.(ItemView) as any;
+      const view = ws.getActiveViewOfType?.(ItemView) ?? null;
       const type = view?.getViewType?.() ?? "";
       if (type === TRADEBOOK_SIDEBAR_VIEW_TYPE) return; // sidebar itself focused
       const id = this.viewToNavId(type);
@@ -176,7 +178,7 @@ export class TradebookSidebarView extends ItemView {
   // ---------------------------------------------------------------- prefs
 
   private prefs(): { hidden?: string[]; pinned?: string[]; order?: string[] } {
-    const s: any = this.plugin.settings;
+    const s = this.plugin.settings;
     if (!s.sidebar || typeof s.sidebar !== "object") s.sidebar = {};
     return s.sidebar;
   }
@@ -227,7 +229,7 @@ export class TradebookSidebarView extends ItemView {
   // ---------------------------------------------------------------- entries
 
   private today(): string {
-    return dateInZone((this.plugin.settings as any).timeZone || "UTC");
+    return dateInZone(this.plugin.settings.timeZone || "UTC");
   }
 
   /** The fixed pages: destinations, tools and the two review shortcuts. */
@@ -238,28 +240,28 @@ export class TradebookSidebarView extends ItemView {
         label: "Home",
         icon: "home",
         group: "OVERVIEW",
-        run: () => this.plugin.openHome(),
+        run: () => void this.plugin.openHome(),
       },
       {
         id: "tradelog",
         label: "Trade Log",
         icon: "notebook-text",
         group: "OVERVIEW",
-        run: () => this.plugin.openTradeLog(),
+        run: () => void this.plugin.openTradeLog(),
       },
       {
         id: "setups",
         label: "Strategies",
         icon: "target",
         group: "OVERVIEW",
-        run: () => this.plugin.openSetups(),
+        run: () => void this.plugin.openSetups(),
       },
       {
         id: "accounts",
         label: "Accounts",
         icon: "wallet",
         group: "OVERVIEW",
-        run: () => this.plugin.openAccounts(),
+        run: () => void this.plugin.openAccounts(),
       },
       {
         id: "addtrade",
@@ -267,6 +269,13 @@ export class TradebookSidebarView extends ItemView {
         icon: "plus-circle",
         group: "TOOLS",
         run: () => this.plugin.openAddPanel(),
+      },
+      {
+        id: "printqueue",
+        label: "Print Queue",
+        icon: "images",
+        group: "TOOLS",
+        run: () => void this.plugin.ensurePrintQueueLeaf(),
       },
       {
         id: "import",
@@ -282,10 +291,10 @@ export class TradebookSidebarView extends ItemView {
    *  print queue or the tour. A pin that no longer resolves is skipped. */
   private optionalEntries(): NavEntry[] {
     const out: NavEntry[] = [];
-    const settings: any = this.plugin.settings;
+    const settings = this.plugin.settings;
     for (const id of this.pinnedList()) {
       if (id.startsWith("account:")) {
-        const acc = (settings.propAccounts ?? []).find((a: any) => a.id === id.slice(8));
+        const acc = (settings.propAccounts ?? []).find((a: PropAccount) => a.id === id.slice(8));
         if (!acc) continue;
         out.push({
           id,
@@ -294,7 +303,7 @@ export class TradebookSidebarView extends ItemView {
           group: "PINNED",
           optional: true,
           count: fmtMoneyCompact(acc.size),
-          run: () => this.plugin.openAccountDashboard(undefined, acc.id),
+          run: () => void this.plugin.openAccountDashboard(undefined, acc.id),
         });
       } else if (id === "lens:today") {
         out.push({
@@ -303,7 +312,7 @@ export class TradebookSidebarView extends ItemView {
           icon: "clock",
           group: "PINNED",
           optional: true,
-          run: () => this.plugin.openTradeLogForDay(this.today()),
+          run: () => void this.plugin.openTradeLogForDay(this.today()),
         });
       }
     }
@@ -316,14 +325,14 @@ export class TradebookSidebarView extends ItemView {
 
   /** Everything that can be shown/hidden, for the Customize catalogue. */
   private catalogGroups(): { title: string; rows: CatalogRow[] }[] {
-    const settings: any = this.plugin.settings;
+    const settings = this.plugin.settings;
     const pages: CatalogRow[] = [
       { id: "home", label: "Home", icon: "home", optional: false },
       { id: "tradelog", label: "Trade Log", icon: "folder-tree", optional: false },
       { id: "setups", label: "Strategies", icon: "target", optional: false },
       { id: "accounts", label: "Accounts", icon: "users", optional: false },
     ];
-    const accounts: CatalogRow[] = (settings.propAccounts ?? []).map((a: any) => ({
+    const accounts: CatalogRow[] = (settings.propAccounts ?? []).map((a: PropAccount) => ({
       id: `account:${a.id}`,
       label: a.name || a.type || "Account",
       icon: "wallet",
@@ -405,7 +414,7 @@ export class TradebookSidebarView extends ItemView {
     reset.addEventListener("click", () => void this.resetLayout());
     const gear = actions.createEl("button", {
       cls: "tj-nav-edittoolbar-btn",
-      attr: { type: "button", "aria-label": "Open Tradebook settings" },
+      attr: { type: "button", "aria-label": "Open tradebook settings" },
     });
     setIcon(gear, "settings");
     gear.addEventListener("click", () => this.openPluginSettings());
@@ -585,7 +594,7 @@ export class TradebookSidebarView extends ItemView {
 
   private wireDrag(item: HTMLElement, section: HTMLElement): void {
     if (!this.customizing) return;
-    item.addEventListener("dragstart", (e: any) => {
+    item.addEventListener("dragstart", (e: DragEvent) => {
       this._dragId = item.dataset.id ?? null;
       item.addClass("is-dragging");
       try {
@@ -601,13 +610,13 @@ export class TradebookSidebarView extends ItemView {
         el.removeClass("is-drop");
       });
     });
-    item.addEventListener("dragover", (e: any) => {
+    item.addEventListener("dragover", (e: DragEvent) => {
       if (!this._dragId || this._dragId === item.dataset.id) return;
       e.preventDefault();
       item.addClass("is-drop");
     });
     item.addEventListener("dragleave", () => item.removeClass("is-drop"));
-    item.addEventListener("drop", (e: any) => {
+    item.addEventListener("drop", (e: DragEvent) => {
       e.preventDefault();
       item.removeClass("is-drop");
       const dragged = this._dragId ? section.querySelector<HTMLElement>(`.tj-nav-item[data-id="${this._dragId}"]`) : null;
@@ -660,7 +669,7 @@ export class TradebookSidebarView extends ItemView {
   }
 
   private openPluginSettings(): void {
-    const setting: any = (this.plugin.app as any).setting;
+    const setting = (this.plugin.app as unknown as { setting: { open: () => void; openTabById: (id: string) => void } }).setting;
     if (setting && typeof setting.open === "function") {
       setting.open();
       if (typeof setting.openTabById === "function") setting.openTabById(this.plugin.manifest.id);
@@ -764,7 +773,7 @@ export class TradebookSidebarView extends ItemView {
         ["Thesis", t.thesis || ""],
         ["Tags", (t.tags ?? []).join(" ")],
         ["P&L", `${t.pnl} ${Math.abs(t.pnl)} ${money} ${money.replace(/[^0-9.]/g, "")}`],
-        ["Points", `${t.pnlPoints}`],
+        ["Realized points/contract", Number.isFinite(t.pnlPoints) ? `${t.pnlPoints}` : "—"],
         ["Qty", `${t.quantity}`],
         ["Entry", fmtPrice(t.entryPrice)],
         ["Exit", fmtPrice(t.exitPrice)],
@@ -783,6 +792,7 @@ export class TradebookSidebarView extends ItemView {
     const tradeRows: SearchRow[] = [];
     for (const { legs, matched } of buckets.values()) {
       const t = legs[0];
+      const review = reviewStatus(t);
       const total = legs.reduce((sum, x) => sum + x.pnl, 0);
       const accounts = [...new Set(legs.map((x) => x.account).filter(Boolean))];
       const generic = matched === "Symbol" || matched === "Account" || matched === "Date" || matched === "Direction";
@@ -796,8 +806,9 @@ export class TradebookSidebarView extends ItemView {
         sub,
         value: fmtMoney2(total),
         valueTone: total >= 0 ? "pos" : "neg",
-        action: () => this.plugin.openTradeDetail({ id: t.id }),
-        reviewed: !reviewStatus(t).unreviewed,
+        action: () => void this.plugin.openTradeDetail({ id: t.id }),
+        reviewed: review.complete,
+        reviewLabel: review.label,
       });
     }
     if (tradeRows.length) groups.push({ title: "Trades", rows: tradeRows });
@@ -898,7 +909,7 @@ export class TradebookSidebarView extends ItemView {
           else if (row.valueTone === "neg") v.addClass("tj-neg");
         }
         if (row.reviewed) {
-          const rv = el.createSpan({ cls: "tj-nav-result-reviewed", attr: { "aria-label": "Reviewed" } });
+          const rv = el.createSpan({ cls: "tj-nav-result-reviewed", attr: { "aria-label": row.reviewLabel ?? "Reviewed" } });
           setIcon(rv, "check");
         }
         const entry = { el, action: row.action };

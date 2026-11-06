@@ -39,14 +39,13 @@ mistaken for a missing feature.
 - **Support is verified against the project's canonical Tradovate export contract.** No
   anonymised real-world Tradovate exports are committed to the repository, so the formats
   are not yet confirmed against live broker files.
-- **TradeSea support is based on the export format I have checked, not a format guarantee
-  from TradeSea.** The importer requires the full header. The checked timestamps use a
-  month-first slash date with a comma before the clock. It refuses other layouts or unknown
-  zone abbreviations rather than guessing. The checked files do not
-  include an account ID, so import one TradeSea file per batch; otherwise, separate files
-  could be assigned to the same placeholder account. I do not apply the commission in the
-  export, so P&L is **before costs**. I have not verified whether an export is limited to one
-  trading day.
+- **TradeSea support is sample-based, not a vendor format contract.** The importer requires
+  the complete observed orders-file header. Validated timestamps use a month-first slash
+  date with a comma before the clock. The observed `EDT` token is fixed UTC−04:00; numeric
+  GMT/UTC offsets are applied literally. Other alphabetic zone tokens and unobserved date
+  layouts are refused. The file has no account id, so import one file per batch. Commission
+  is not applied, so reported P&L is before costs. Whether exports are limited to one day is
+  unverified.
 
 ## Copy Trading
 
@@ -59,13 +58,33 @@ mistaken for a missing feature.
 - **Deleting a base trade deletes the generated copier legs** it created. An actual broker
   fill is never removed.
 
+## Manual executions and review
+
+- Imported execution facts remain authoritative. Manual actual exits must close the full
+  position; summaries are calculated from their fill records. Trade Detail adds no separate
+  execution-correction form.
+- Choose one strategy per trade. Older multiple assignments remain visible and unchanged
+  until you resolve them; automatic Strategy completion waits for that single choice.
+  An explicit reviewed or reopened marker retains its separate meaning.
+- TP, SL and BE labels describe the executed result automatically, before costs: profitable,
+  losing or flat. They do not claim an order type or a reason for closing. No manual exit-type
+  classification is required. TP numbering skips BE and losing closes.
+- A recorded trade-cost total may have no recorded split across fills. The execution
+  total shows aggregate costs without allocating them. Account Correct fees adjustments
+  reconcile account balance and remain separate from broker-recorded per-trade net.
+
+## Print Queue
+
+- Queue groups are organizational capture containers, not trades. A timestamp does not
+  identify or attach a group to a trade; attach the group to the correct Trade Detail
+  explicitly after the trade record exists. The queue does not interpret chart images.
+
 ## Times and timezones
 
-- An imported timestamp that carries its own offset (`Z`, `±HH:MM`, a numeric TradeSea
-  GMT/UTC offset, or the observed `EDT` token) is an **absolute instant**. I interpret the
-  observed TradeSea `EDT` token as fixed UTC−04:00. Numeric offsets are used as written; an
-  unrecognized abbreviation is refused rather than guessed. The instant is stored in UTC,
-  and the selected source zone does not override an explicit offset.
+- An imported timestamp with its own offset (`Z`, `±HH:MM`, a numeric TradeSea GMT/UTC
+  offset, or the observed `EDT` token) is an **absolute instant**. TradeSea `EDT` is fixed
+  UTC−04:00; numeric offsets are used as written. Other abbreviations are refused, not
+  guessed. The source zone does not override an explicit offset; the instant is stored in UTC.
 - TradeSea timestamps with more than three fractional-second digits are refused because the
   stored representation preserves milliseconds only; extra precision is never truncated.
 - A **naive** imported timestamp (no offset) is read only in the **source zone chosen for that
@@ -90,8 +109,9 @@ mistaken for a missing feature.
 
 ## Platform
 
-- Everything stays local in your vault. The plugin makes no network requests and sends no
-  telemetry.
+- Trade notes and image attachments are stored in your vault. Settings and account
+  configuration are stored in the plugin's `data.json`. Obsidian handles Community
+  plugin update checks separately.
 - Tradebook is **not desktop-only** (`isDesktopOnly: false`): it runs in Obsidian on mobile.
   Making it genuinely comfortable on a phone and a tablet — layout, targets, navigation — is
   roadmap work, not a claim of this release.

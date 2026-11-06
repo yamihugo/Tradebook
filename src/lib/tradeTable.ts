@@ -108,6 +108,7 @@ export function holdFmtOf(t: Trade): string {
  * a missing value must read as missing, never as zero.
  */
 export function tradeR(t: Trade): number | null {
+  if (!Number.isFinite(t.pnl)) return null;
   const risk = recordedRisk(t);
   return risk ? t.pnl / risk : null;
 }
@@ -191,7 +192,7 @@ export function tradeRows(trades: Trade[]): TradeRow[] {
     const key = legBaseKey(t);
     const row = map.get(key);
     if (!row) {
-      map.set(key, { key, rep: t, legs: [t], money: Number.isFinite(t.pnl) ? t.pnl : 0 });
+      map.set(key, { key, rep: t, legs: [t], money: Number.isFinite(t.pnl) ? t.pnl : Number.NaN });
       continue;
     }
     row.legs.push(t);
@@ -200,7 +201,7 @@ export function tradeRows(trades: Trade[]): TradeRow[] {
     if (row.rep.isCopiedTrade && !t.isCopiedTrade) row.rep = t;
     // One row, one trade: the money is the winning record's own P&L, not the
     // sum of every leg. The day totals add up because each decision appears once.
-    row.money = Number.isFinite(row.rep.pnl) ? row.rep.pnl : 0;
+    row.money = Number.isFinite(row.rep.pnl) ? row.rep.pnl : Number.NaN;
   }
   return [...map.values()];
 }
@@ -361,14 +362,14 @@ export const TRADE_COLUMNS: TradeColumn[] = [
   },
   {
     id: "points",
-    label: "Points",
+    label: "Realized pts/contract",
     align: "right",
     sortValue: (t) => (Number.isFinite(t.pnlPoints) ? t.pnlPoints : null),
     firstDir: "desc",
     render: (td, t) => {
       const pts = t.pnlPoints;
       if (!Number.isFinite(pts)) { td.setText("—"); return; }
-      td.setText(`${pts >= 0 ? "+" : ""}${pts} pts`);
+      td.setText(`${pts >= 0 ? "+" : ""}${pts.toFixed(2)} pts/contract`);
     },
   },
   {
@@ -428,6 +429,10 @@ export const TRADE_COLUMNS: TradeColumn[] = [
       // A trade that nets exactly zero is neither a win nor a loss: it gets no
       // colour at all. A trade that took TP1 and TP2 and left the rest flat nets
       // positive, so it stays a win — the ledger never calls that break-even.
+      if (!Number.isFinite(money)) {
+        td.setText("—");
+        return;
+      }
       td.addClass(toneClass(money));
       // Flat money is written without a sign: "+$0" reads like a gain.
       td.setText(money === 0 ? fmtMoneyAbs(0) : fmtMoney(money));
@@ -453,6 +458,10 @@ export const TRADE_COLUMNS: TradeColumn[] = [
       // A copy's net belongs to the copy's account, not on this row.
       const money = ctx.row ? netPnl(ctx.row.rep) : netPnl(t);
       td.addClass("tj-tbl-pnl");
+      if (!Number.isFinite(money)) {
+        td.setText("—");
+        return;
+      }
       td.addClass(toneClass(money));
       td.setText(money === 0 ? fmtMoneyAbs(0) : fmtMoney(money));
     },
@@ -689,7 +698,7 @@ function groupDays(rows: TradeRow[], sort: TradeSort | null = null, plugin?: Tra
     .sort((a, b) => a[0].localeCompare(b[0]) * dayOrder)
     .map(([key, rows]) => ({
       key,
-      money: rows.reduce((s, r) => s + r.money, 0),
+      money: rows.every((row) => Number.isFinite(row.money)) ? rows.reduce((sum, row) => sum + row.money, 0) : Number.NaN,
       rows:
         sort && plugin
           ? sortTrades(rows, sort, plugin)
@@ -729,9 +738,12 @@ function dayLabel(key: string): string {
 }
 
 function dayNet(rows: TradeRow[]): number {
-  // The day answers "what did I make today?" the same way Home does: Net of
-  // recorded costs, one entry per decision. The row's Gross column is untouched.
-  return rows.reduce((s, r) => s + netPnl(r.rep), 0);
+  // A day is only complete when every included trade has a recorded result.
+  // Unknown P&L must not turn into a zero or a fabricated daily net.
+  const values = rows.map((row) => netPnl(row.rep));
+  return values.every((value) => Number.isFinite(value))
+    ? values.reduce((sum, value) => sum + value, 0)
+    : Number.NaN;
 }
 
 /**
@@ -991,7 +1003,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
       : [
           {
             key: "",
-            money: rows.reduce((s, r) => s + r.money, 0),
+            money: rows.every((row) => Number.isFinite(row.money)) ? rows.reduce((sum, row) => sum + row.money, 0) : Number.NaN,
             rows: opts.sort
               ? sortTrades(rows.slice(), opts.sort, plugin)
               : rows
@@ -1027,8 +1039,8 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
         });
         const net = dayNet(group.rows);
         const netSpan = mid.createSpan({
-          cls: "tj-tbl-daynet " + (net > 0 ? "tj-pos" : net < 0 ? "tj-neg" : ""),
-          text: fmtMoney(net),
+          cls: "tj-tbl-daynet " + (Number.isFinite(net) ? (net > 0 ? "tj-pos" : net < 0 ? "tj-neg" : "") : ""),
+          text: Number.isFinite(net) ? fmtMoney(net) : "—",
         });
         // Say which basis the day figure is, so it reads as the same number
         // Home's calendar shows and never as the row's Gross column.
@@ -1085,8 +1097,9 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
           // One dot per trade: solid, green or red, outside the figures but
           // inside the table, so the columns stay in step with the header.
           const cell = row.createEl("td", { cls: "tj-tbl-rail" });
-          const dot = cell.createEl("i", { cls: (t.pnl ?? 0) < 0 ? "loss" : "" });
-          const facts = [tradeEntryTimeInZone(t, zoneOf(plugin)).trim() || "no time", fmtMoney(t.pnl ?? 0)];
+          const pnlKnown = Number.isFinite(t.pnl);
+          const dot = cell.createEl("i", { cls: pnlKnown && t.pnl < 0 ? "loss" : "" });
+          const facts = [tradeEntryTimeInZone(t, zoneOf(plugin)).trim() || "no time", pnlKnown ? fmtMoney(t.pnl) : "P&L unavailable"];
           if (i === 0) facts.push("First of the session");
           if (i === group.rows.length - 1) facts.push("Last of the session");
           attachTip(dot, { title: facts[0], sub: facts.slice(1).join(" · ") });
@@ -1113,5 +1126,5 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
 // Test hook (see lib/fills.ts): the ledger is rendered by two views, so the
 // harness drives it directly instead of going through a whole page.
 if (typeof window !== "undefined") {
-  (window as any).__tjTradeTable = { renderTradeTable, holdFmt, tradeR, orderedTradeRows, tradeRows };
+  window.__tjTradeTable = { renderTradeTable, holdFmt, tradeR, orderedTradeRows, tradeRows };
 }

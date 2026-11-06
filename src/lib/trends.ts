@@ -499,5 +499,5 @@ export function rankTrendMoves(rows: TrendRow[], opts: { limit?: number } = {}):
 // Test hook: the harness reads the maths straight from the module. The widget
 // moved off the account page, but the numbers must keep their coverage.
 if (typeof window !== "undefined") {
-  (window as any).__tjTrends = { computeTrends, rankTrendMoves, isBetter, MIN_SAMPLE, DEFAULT_WINDOW, PERMUTATIONS };
+  window.__tjTrends = { computeTrends, rankTrendMoves, isBetter, MIN_SAMPLE, DEFAULT_WINDOW, PERMUTATIONS };
 }

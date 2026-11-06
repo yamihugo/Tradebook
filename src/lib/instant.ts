@@ -54,6 +54,8 @@ export type InstantResolution =
       instant: Date;
       iso: InstantIso;
       source: InstantSource;
+      /** Legacy provenance compatibility; fixed-offset stamps do not set a regional zone. */
+      stampZone?: string;
     })
   /** No wall clock exists here — the clock jumped over this hour. */
   | (InstantBase & { status: "gap" })

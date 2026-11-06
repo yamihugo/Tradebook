@@ -304,7 +304,7 @@ export function dateWithinPeriod(date: string, bounds: PeriodBounds | null): boo
 
 /** Small test hook used by the existing smoke harness. */
 if (typeof window !== "undefined") {
-  (window as any).__tjPeriods = {
+  window.__tjPeriods = {
     dateInZone, isValidIsoDate, periodBounds, periodAsOf, periodDataBounds,
     dateWithinPeriod, previousPeriodBounds, tradingDayAtJournalDateEnd,
     tradingDayAtJournalDateStart, periodDayBounds,

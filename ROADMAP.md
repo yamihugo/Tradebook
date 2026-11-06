@@ -17,8 +17,6 @@ feedback. Released changes are listed in the [changelog](CHANGELOG.md).
 Smaller improvements may ship first, while larger changes need more development and
 testing. The list is not a fixed release order, and there are no delivery dates yet.
 
-## Future development
-
 Once the core workflow is stable and the improvements above are in place, I want to
 build out the strategy and review side of Tradebook. This is a larger phase of development
 that will take time.

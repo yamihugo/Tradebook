@@ -122,5 +122,5 @@ export function dimensionTiles(
 
 // Test hook, same pattern as the other pure modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjBreakdown = { dimensionTiles };
+  window.__tjBreakdown = { dimensionTiles };
 }

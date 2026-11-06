@@ -103,5 +103,5 @@ export function renderTreemap(host: HTMLElement, spec: TreemapSpec): HTMLElement
 
 // Test hook, same pattern as the other pure-ish modules.
 if (typeof window !== "undefined") {
-  (window as any).__tjChartKit = { renderTreemap };
+  window.__tjChartKit = { renderTreemap };
 }

@@ -55,6 +55,12 @@ export interface Execution {
   costKey?: string;
   /** How this row's timestamp was pinned (see `InstantSource`). */
   timestampSource?: InstantSource;
+  /**
+   * The zone the row's own stamp named, when it named one (a TradeSea
+   * abbreviation). A statement about the file — the trade records this rather
+   * than the reader's `sourceZone` (see `parseTradeovateCsv`).
+   */
+  stampZone?: string;
 }
 
 /**
@@ -80,6 +86,23 @@ export interface TradeFill {
   orderType?: string;
   /** Broker fill ID — for import dedup. */
   fillId?: string;
+  /** Explicit purpose of this executed close; absent means unknown. */
+  exitType?: "tp" | "sl" | "be";
+  exitTypeSource?: "manual" | "broker";
+}
+
+/** A broker-export order record, not proof of an execution or an active order. */
+export interface RecordedOrderFact {
+  source: "orders" | "fills" | "tradesea" | "unknown";
+  recordedAt: string;
+  side?: "buy" | "sell";
+  status?: string;
+  orderId?: string;
+  orderType?: string;
+  /** Requested order quantity when the export names it; never inferred from fills. */
+  quantity?: number;
+  stopPrice?: number;
+  limitPrice?: number;
 }
 
 /** One screenshot attached to a trade. Labels are optional — the trader decides
@@ -132,6 +155,8 @@ export interface Trade {
    * claiming no stop was recorded.
    */
   stopLevels?: number[];
+  /** Order rows associated with this trade, including raw time/status when supplied. */
+  recordedOrderFacts?: RecordedOrderFact[];
   commission: number;
   fees: number;
   /** Parsed frontmatter presence for fees. Runtime metadata only; never written. */
@@ -139,6 +164,7 @@ export interface Trade {
   /** Gross result (points × pointValue × qty), before commission and fees.
    *  The net is derived, never stored: `pnl - commission - fees` (see `netPnl`). */
   pnl: number;
+  /** Signed gross realized points per closed contract; NaN when unavailable. */
   pnlPoints: number;
   /** Order type at entry (Limit, Market, Stop, etc.). Informational — for discipline review. */
   orderType?: string;
@@ -163,6 +189,32 @@ export interface Trade {
   supersededAt?: string;
   /** Free-form notes (replaces thesis/review/mistake). */
   notes?: string;
+  /** Optional manual plan context for Per Trade Review. */
+  review_plan?: string;
+  /** Optional structured manual plan snapshot, kept separate from actual facts. */
+  review_planned_entry?: number;
+  review_planned_stop?: number;
+  review_planned_target?: number;
+  review_planned_quantity?: number;
+  /** When and how the plan snapshot was recorded. */
+  review_plan_timing?: "unknown" | "before-entry" | "during-trade" | "after-exit";
+  review_plan_provenance?: "manual";
+  /** Conditional plan decision when an explicit manual plan was recorded. */
+  review_plan_adherence?: "followed" | "changed" | "not-recorded";
+  /** Required human-core reflection: what happened. */
+  review_what_happened?: string;
+  /** Required human-core reflection: what to repeat or change. */
+  review_repeat_change?: string;
+  /** Optional manually observed movement after exit. */
+  review_post_exit_observation?: string;
+  /** Optional manually observed post-exit movement in points. */
+  review_post_exit_points?: number;
+  /** Provenance for post-exit movement; calculated is reserved for a future data source. */
+  review_post_exit_source?: "manual" | "calculated";
+  /** Manual exit reason — the trader's own declaration, never inferred. */
+  exit_reason?: "stop/invalidation reached" | "target/planned objective reached" | "breakeven/scratch exit" | "trailing/managed stop" | "thesis/setup no longer valid" | "time/session ended" | "market/news context changed" | "risk/comfort changed" | "forced/external close" | "mixed/multiple reasons" | "other"
+    // Legacy values remain readable for backwards-compatible notes; new UI choices do not offer them.
+    | "planned stop" | "target hit" | "early exit" | "trailing stop" | "discretionary" | "error";
   /** IANA zone the recorded times are wall-clock in (frozen at import/entry).
    *  Older notes have none and fall back to the journal's zone. */
   timezone?: string;
@@ -179,6 +231,13 @@ export interface Trade {
   /** Manual session classification (newyork|london|asia|off). Absent/empty = auto-detect from entry time. */
   sessionOverride?: string;
   setup: string;
+  /** Declared strategies used by this trade; `setup` remains for compatibility. */
+  setups?: string[];
+  /** External market context manually declared for this trade. */
+  market_context_timing?: string[];
+  market_context_effect?: string[];
+  /** Optional link to a captured day/session context record. */
+  market_context_ref?: string;
   mistake: string;
   thesis: string;
   review: string;
@@ -187,7 +246,7 @@ export interface Trade {
    *  kept in sync with the first entry for backward compat with copy legs,
    *  the trade log print column, and external tools. */
   screenshots?: PrintEntry[];
-  /** 1-5 star rating of execution/setup quality (0 = unrated). */
+  /** 1-5 manual process self-rating, independent of P&L (0 = unrated). */
   rating?: number;
   /**
    * Where the trade came from — recorded so a number can be read with the
@@ -214,6 +273,9 @@ export interface Trade {
   dataSource?: "broker" | "manual" | "reconstructed";
   /** Manually marked as reviewed (batch action), independent of the checklist. */
   reviewed?: boolean;
+  /** Explicit declaration that relevant review context was unavailable. */
+  review_context_unavailable?: boolean;
+  review_evidence_source?: "human";
   /** Free-form labels. Legacy field: still written for backward compat, but the
    *  review UI reads/writes `psychology_tags` and falls back to this when absent. */
   tags?: string[];

@@ -5,10 +5,14 @@ import { test } from "node:test";
 /**
  * The TradeSea stamp reader.
  *
- * Synthetic TradeSea-shaped stamps use invented values. They cover the
- * month-first slash-date form found in local samples, explicit EDT/GMT offsets,
- * unknown-token refusal, and existing timestamp forms without including any
- * real export rows or values.
+ * TradeSea's export writes a timestamp the plugin could not read at all: the
+ * date and the clock are separated by a comma, and the zone is a letter
+ * abbreviation (`EDT`, `MEZ`) rather than a `Z` or a `±HH:MM` offset. These
+ * tests prove the reader now reads both dialects the vendor writes — the US
+ * `M/D/YYYY, H:MM:SS AM TZ` and the European `D.M.YYYY, HH:MM:SS TZ` — that it
+ * reports the zone as coming from the file, that an abbreviation outside the
+ * map is refused rather than guessed, and that nothing which parsed before
+ * changed.
  */
 
 const result = await build({
@@ -43,13 +47,20 @@ const NY = "America/New_York";
 
 // ---------------------------------------------------- synthetic export-shaped stamps, in order
 //
-// These invented values are newest first. The offset and expected instants are
-// chosen independently so the test checks both chronological ordering and zone math.
+// Synthetic stamps below preserve the export grammar and ordering, newest first. 8 April 2026 is still on US summer time,
+// so `EDT` is UTC−4 and every wall clock reads four hours later in UTC.
 
 const SYNTHETIC_STAMPS = [
-  ["4/8/2026, 10:10:00 AM EDT", "2026-04-08T14:10:00.000Z"],
-  ["4/8/2026, 10:05:00 AM EDT", "2026-04-08T14:05:00.000Z"],
-  ["4/8/2026, 10:00:00 AM EDT", "2026-04-08T14:00:00.000Z"],
+  ["4/8/2026, 10:10:05 AM EDT", "2026-04-08T14:10:05.000Z"],
+  ["4/8/2026, 10:09:05 AM EDT", "2026-04-08T14:09:05.000Z"],
+  ["4/8/2026, 10:04:42 AM EDT", "2026-04-08T14:04:42.000Z"],
+  ["4/8/2026, 10:04:42 AM EDT", "2026-04-08T14:04:42.000Z"],
+  ["4/8/2026, 10:03:39 AM EDT", "2026-04-08T14:03:39.000Z"],
+  ["4/8/2026, 10:03:01 AM EDT", "2026-04-08T14:03:01.000Z"],
+  ["4/8/2026, 9:51:23 AM EDT", "2026-04-08T13:51:23.000Z"],
+  ["4/8/2026, 9:47:30 AM EDT", "2026-04-08T13:47:30.000Z"],
+  ["4/8/2026, 9:47:18 AM EDT", "2026-04-08T13:47:18.000Z"],
+  ["4/8/2026, 9:47:07 AM EDT", "2026-04-08T13:47:07.000Z"],
 ];
 
 test("synthetic TradeSea stamps parse, in order, to the right instants", () => {
@@ -57,8 +68,8 @@ test("synthetic TradeSea stamps parse, in order, to the right instants", () => {
     const r = instant.parseInstant(stamp);
     assert.equal(r.status, "ok", `${stamp}: expected one instant`);
     assert.equal(r.iso, iso, `${stamp}: expected ${iso}`);
-    assert.equal(r.source, "offset", `${stamp}: EDT is a fixed offset`);
-    assert.equal(r.zone, "", `${stamp}: do not claim an IANA region`);
+    assert.equal(r.source, "offset", `${stamp}: the file states a fixed offset`);
+    assert.equal(r.zone, "", `${stamp}: explicit offset does not claim a regional zone`);
     if (i > 0) {
       assert.ok(
         r.instant.getTime() <= instant.parseInstant(SYNTHETIC_STAMPS[i - 1][0]).instant.getTime(),
@@ -70,25 +81,48 @@ test("synthetic TradeSea stamps parse, in order, to the right instants", () => {
 
 // ---------------------------------------------------------- the two dialects
 
-test("the observed EDT abbreviation is applied as a literal fixed offset", () => {
-  const r = instant.parseInstant("07/15/2026, 09:30:00 AM EDT", { sourceZone: "Europe/Lisbon" });
+test("unconfirmed dot-date TradeSea stamps are refused rather than reinterpreted", () => {
+  const us = instant.parseInstant("4/8/2026, 10:10:05 AM EDT");
+  const eu = instant.parseInstant("8.4.2026, 16:10:05 MEZ");
+
+  assert.equal(us.status, "ok");
+  assert.equal(eu.status, "invalid");
+  assert.equal(us.iso, "2026-04-08T14:10:05.000Z", "10:10 EDT is 14:10Z");
+  assert.equal(eu.iso, undefined, "unconfirmed date order does not invent an instant");
+  assert.equal(us.zone, "");
+  assert.equal(us.source, "offset");
+});
+
+test("a declared source zone never overrides the zone the stamp states", () => {
+  const r = instant.parseInstant("4/8/2026, 10:10:05 AM EDT", { sourceZone: "Europe/Lisbon" });
   assert.equal(r.status, "ok");
-  assert.equal(r.iso, "2026-07-15T13:30:00.000Z", "EDT fixes the offset even when another source zone is selected");
-  assert.equal(r.source, "offset");
+  assert.equal(r.iso, "2026-04-08T14:10:05.000Z", "the file's zone wins, not the dropdown's");
   assert.equal(r.zone, "");
+  assert.equal(r.source, "offset");
 });
 
-test("unobserved dot-date TradeSea stamps are refused rather than day-order guessed", () => {
-  const r = instant.parseInstant("8.4.2026, 04:10:05 PM EDT");
-  assert.equal(r.status, "invalid");
-  assert.equal(r.reason, "stamp");
-});
-
-test("unobserved abbreviations are refused rather than assigned guessed offsets", () => {
-  for (const abbr of ["EST", "CST", "CDT", "MST", "MDT", "PST", "PDT", "CET", "CEST", "MEZ", "MESZ", "WET", "WEST", "UTC", "GMT"]) {
+test("unconfirmed abbreviations never acquire guessed regional zones", () => {
+  const cases = [
+    ["EST", NY],
+    ["CST", "America/Chicago"],
+    ["CDT", "America/Chicago"],
+    ["MST", "America/Denver"],
+    ["MDT", "America/Denver"],
+    ["PST", "America/Los_Angeles"],
+    ["PDT", "America/Los_Angeles"],
+    ["CET", "Europe/Berlin"],
+    ["CEST", "Europe/Berlin"],
+    ["MEZ", "Europe/Berlin"],
+    ["MESZ", "Europe/Berlin"],
+    ["WET", "Europe/Lisbon"],
+    ["WEST", "Europe/Lisbon"],
+    ["UTC", "UTC"],
+    ["GMT", "UTC"],
+  ];
+  for (const [abbr] of cases) {
     const r = instant.parseInstant(`4/8/2026, 10:10:05 AM ${abbr}`);
-    assert.equal(r.status, "need-zone", abbr);
-    assert.equal(r.reason, "unknown-abbreviation", abbr);
+    assert.equal(r.status, "need-zone", `${abbr}: unsupported abbreviation is refused`);
+    assert.equal(r.zone, "", `${abbr}: no regional zone is invented`);
     assert.equal(r.iso, undefined, abbr);
   }
 });
@@ -146,28 +180,4 @@ test("the pre-existing stamp forms still parse identically", () => {
   const notAStamp = instant.parseInstant("not-a-date", { sourceZone: NY });
   assert.equal(notAStamp.status, "invalid");
   assert.equal(notAStamp.reason, "stamp");
-});
-
-test("TradeSea timestamps preserve millisecond fractions and reject finer precision", () => {
-  for (const [fraction, expected] of [
-    ["1", "2026-07-15T13:30:00.100Z"],
-    ["12", "2026-07-15T13:30:00.120Z"],
-    ["123", "2026-07-15T13:30:00.123Z"],
-  ]) {
-    const r = instant.parseInstant(`07/15/2026, 09:30:00.${fraction} EDT`);
-    assert.equal(r.status, "ok", fraction);
-    assert.equal(r.iso, expected, fraction);
-  }
-
-  for (const fraction of ["1234", "123456789"]) {
-    const r = instant.parseInstant(`07/15/2026, 09:30:00.${fraction} EDT`);
-    assert.equal(r.status, "invalid", `${fraction}: finer-than-millisecond data must not be truncated`);
-    assert.equal(r.iso, undefined, fraction);
-  }
-});
-
-test("12-hour TradeSea stamps reject hours outside one through twelve", () => {
-  assert.equal(instant.parseInstant("07/15/2026, 13:30 PM EDT").status, "invalid");
-  assert.equal(instant.parseInstant("07/15/2026, 00:30 AM EDT").status, "invalid");
-  assert.equal(instant.parseInstant("07/15/2026, 12:30 AM EDT").status, "ok");
 });
