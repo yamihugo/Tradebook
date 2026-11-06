@@ -3,12 +3,12 @@
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/yamihugo/Tradebook/refs/heads/main/assets/readme/logo-white.png">
     <img alt="Tradebook" src="https://raw.githubusercontent.com/yamihugo/Tradebook/refs/heads/main/assets/readme/logo-dark.png" width="240">
   </picture>
-  <h3>A local, private futures journal for Obsidian.</h3>
+  <h3>A futures trading journal for Obsidian.</h3>
   <p>
-    <a href="#key-features">Key features</a> &nbsp;·&nbsp;
+    <a href="#what-you-can-do">What you can do</a> &nbsp;·&nbsp;
     <a href="#installation">Installation</a> &nbsp;·&nbsp;
     <a href="#getting-started">Getting started</a> &nbsp;·&nbsp;
-    <a href="#roadmap">Roadmap</a>
+    <a href="#whats-next">What's next</a>
   </p>
 </div>
 
@@ -16,110 +16,121 @@
   <img src="assets/readme/01-home.png" alt="Tradebook Home" width="860">
 </div>
 
-**Tradebook** is a local-first futures trading journal for Obsidian. It keeps a record of
-your trading as Markdown notes in your vault and helps you review the results.
+I'm building Tradebook to keep trades, screenshots and reviews together in Obsidian. You can bring in your trades, add the context behind them and come back later to understand what happened.
 
-## Key features
+If you're new to Obsidian, a vault is simply the folder where it keeps your notes. Tradebook saves trade records as Markdown files in that folder, with screenshots as image attachments. The plugin gives you an interface for working with those files.
 
-- **A local Markdown journal.** Trades and notes are Markdown files in your vault.
-  Screenshots are image attachments.
-- **Trade Log and review.** Browse and filter trades, search strategies and reflection
-  notes, and see whether the six review signals are complete or a trade was explicitly
-  marked.
-- **Print Queue.** Capture chart screenshots in groups during a session, then attach a
-  group to its trade in Trade Detail.
-- **Accounts, evals, funded accounts and payouts.** Track evaluation, funded and
-  demo accounts with their rules and limits, and record deposits, payouts and
-  corrections separately from trading results.
-- **Tradovate imports.** Import Orders, Fills and Cash History, preview the
-  result, and reimport without creating duplicates.
-- **TradeSea imports.** Import a TradeSea orders export, preview the result, and
-  reimport without creating duplicates. P&L is before costs.
-- **Home overview.** Period filters, Net Trading P&L, an equity curve based on
-  your recorded trading data, a performance calendar, breakdowns by setup, session,
-  symbol and day, and a Trading Score.
-- **Copy Trading.** Define a leader and its copiers with a ratio and start date,
-  and match a follower's real fills against the generated records.
+## What you can do
+
+- Import supported trade exports, check the preview and bring the same file in again without creating duplicate trades.
+- Add a trade manually, including several actual partial exits with their own quantities, prices and times.
+- Capture chart screenshots in Print Queue, keep them together in a group and attach them when the trade record exists.
+- Browse and filter your Trade Log, search your strategies and review notes, and keep track of which reviews are finished.
+- Manage evaluation, funded and demo accounts, including their firms, rules and limits. Deposits, payouts and account corrections stay separate from trading results.
+- Use Home to explore your recorded results: period filters, Net Trading P&L, an equity curve, a performance calendar and breakdowns by strategy, session, symbol and day. It also includes a Trading Score.
+- Model copy trades with a leader, followers, a ratio and a start date, then match a follower's actual fills against the generated records.
+
+The sections below explain the parts that need a little more care, especially imports, reviews and costs.
 
 ## Installation
 
-Tradebook requires **Obsidian 1.7.2 or newer**. If you do not use Obsidian yet, download it
-from [obsidian.md](https://obsidian.md) and open a vault — a new, empty vault is fine. If you
-already use Obsidian, continue below.
+You'll need **Obsidian 1.7.2 or newer**. If you haven't used Obsidian before, download it from [obsidian.md](https://obsidian.md) and open a vault. You can start with a new, empty folder.
 
-1. Open Obsidian Settings.
-2. Go to Community plugins and select Browse.
-3. Search for Tradebook.
-4. Select Install, then Enable.
+1. Open **Settings** in Obsidian.
+2. Go to **Community plugins → Browse**.
+3. Search for **Tradebook**.
+4. Select **Install**, then **Enable**.
 
-Tradebook's menu opens in Obsidian's left sidebar. Use it to move between **Home**,
-**Accounts** and **Trade Log**, or to add and import trades.
-Open Print Queue from its ribbon shortcut; it appears in Obsidian's right sidebar.
+Tradebook opens in the left sidebar. From there you can visit **Home**, **Accounts** and **Trade Log**, or add and import trades. Print Queue has its own ribbon shortcut and opens in the right sidebar.
 
-To update, use *Settings → Community plugins → Check for updates* in Obsidian.
-If you installed through BRAT, use BRAT to update. For a manual installation, replace
-only `main.js`, `manifest.json` and `styles.css`; keep your existing `data.json`.
+### Updating
+
+For the normal Community plugin installation, go to **Settings → Community plugins → Check for updates**.
+
+If you installed through BRAT, update through BRAT instead. For a manual installation, replace only `main.js`, `manifest.json` and `styles.css` in the plugin folder. Keep your existing `data.json`; it holds your settings and account configuration.
 
 ## Getting started
 
-1. **Add an account.** Choose **Accounts** in the Tradebook sidebar, then **Add account**.
-   Select its type, firm, rules and limits.
-2. **Bring in your trades.** Choose **Import CSV** for Tradovate Orders/Fills and, when
-   available, Cash History. Check the preview before importing. You can also choose
-   **Manual Trade** to add a trade yourself. Record each actual partial exit with its
-   quantity, price and time. Summaries are calculated from those fills, not edited
-   independently. TP, SL and BE labels are calculated automatically.
-   For TradeSea, use one checked orders export per batch; its P&L is before costs.
-3. **Capture chart context (optional).** Use **Print Queue** to collect screenshots in a
-   group. After the trade record exists, open it in **Trade Detail** and attach the group.
-4. **Review a trade.** Select one strategy and a rating from 1–5, choose psychology
-   and execution tags or acknowledge none, and write both reflection prompts. It becomes
-   **Reviewed** automatically unless explicitly reopened. Existing multiple strategy
-   assignments stay visible until you choose one. Execution labels are automatic:
-   profitable closes are TP, losing closes are SL and flat closes are BE, before costs.
-   Recorded trade costs stay separate from any unknown per-fill split. **Correct fees**
-   on an account reconciles its balance; it does not rewrite broker-recorded trade costs.
-5. **Visit Home.** Review your results and explore the trades behind them.
+There's a short walkthrough video here: **Tradebook for Obsidian – Free Futures Trading Journal | Setup Guide**
+👉 https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s
 
-## Your data and backups
+It covers the basics from installation through your first import and review. There isn't an in-app tutorial yet, so the video is the quickest way to see how the pieces fit together.
 
-Your trade notes and image attachments are stored in your vault. Trade notes remain
-there when you disable or uninstall the plugin. Obsidian handles Community plugin
-update checks separately.
+### 1. Add an account
 
-Settings and account configuration are stored in the plugin's `data.json`. Disabling
-the plugin preserves that file; uninstalling removes the plugin folder, including it.
+Open **Accounts**, then **Add account**. Choose the account type, firm, rules and limits that apply to it.
 
-Before uninstalling, export a settings backup from *Settings → Tradebook → Advanced → Export*.
-Use **Import backup** in the same section to restore it. Keep a separate backup of your
-vault for the trade notes and attachments.
+You can keep evaluation, funded and demo accounts separate. Account deposits, payouts and corrections are also separate from the P&L of your trades.
 
-## Known limitations
+### 2. Bring in your trades
 
-Generated copy trades are models, and reported costs cannot always be assigned to an
-individual trade with certainty. TradeSea P&L is before costs: the importer does not apply
-the file's per-order commission. Other export formats are not currently supported.
-Tradebook can run on mobile, but phone and tablet layouts still need work.
-[Known limitations](KNOWN-LIMITATIONS.md) explains how these cases, missing data and
-import formats are handled.
+Open **Import CSV**, choose a supported export and check the preview before importing.
 
-If Tradebook is missing from the list, check that Restricted mode is off and search for
-it again. If it does not load, check that Obsidian is 1.7.2 or newer, Restricted mode is
-off and Tradebook is enabled. If the sidebar is hidden, expand Obsidian's left sidebar
-and select the Tradebook tab.
+Tradebook currently supports:
 
-If something is not working as expected, [open an issue](https://github.com/yamihugo/Tradebook/issues)
-with what happened and the steps to reproduce it. Please remove personal and account
-information from screenshots or sample files.
+- **Tradovate Orders and Fills**, with **Cash History** when you have it available for matching recorded costs.
+- **The TradeSea orders export**, one checked export per import batch. Its P&L is before costs: the importer does not apply the file's per-order commission.
 
-## Roadmap
+You can reimport a supported file without creating duplicate trades. Not every file or timestamp format is supported, so check [Known limitations](KNOWN-LIMITATIONS.md#import-formats) if an export is refused.
 
-Current priorities are everyday reliability, navigation, light mode, help and polish, with
-phone and tablet layouts still to improve. Later work covers strategy review and the
-analysis built around it. There are no dates and the order is not fixed.
+For trades you want to enter yourself, choose **Manual Trade**. If you closed a position in several steps, record each actual exit with its quantity, price and time. Tradebook calculates the weighted totals from those fills. On imported trades, the execution totals come from the imported records rather than a separate summary you can overwrite.
 
-See [ROADMAP.md](ROADMAP.md) for the full list, and [CHANGELOG.md](CHANGELOG.md) for what
-has already shipped.
+### 3. Keep your chart context
+
+Use **Print Queue** to collect screenshots in a group while you're working. Once the trade exists, open it in **Trade Detail** and attach the group there.
+
+This lets you capture the context first without needing the final trade record to be ready at the same moment.
+
+### 4. Review the trade
+
+Open a trade from the Trade Log to add your review. The automatic review checklist looks for:
+
+- One selected strategy.
+- A rating from 1 to 5.
+- Psychology tags, or an explicit acknowledgement that none apply.
+- Execution or mistake tags, or an explicit acknowledgement that none apply.
+- Your answer to **What happened**.
+- Your answer to **Repeat or change**.
+
+When that checklist is complete, Tradebook can mark the review finished automatically. You can also mark a trade reviewed yourself or explicitly reopen its review. That manual choice stays separate from the checklist; a review you explicitly reopen is not silently marked finished again.
+
+Older trades with several strategy assignments keep them visible until you choose one. They are not silently reduced to a single strategy for you.
+
+The execution labels are automatic too. **TP** means a profitable close, **SL** a losing close and **BE** a flat close, all before costs. They describe the result of the execution, not why you placed the order. A flat close can still have a cost after fees.
+
+### 5. Look back at your results
+
+Use **Home** to review a period and explore the trades behind the figures. You can look at the overall results or narrow them down by strategy, session, symbol or day.
+
+## A note about costs and copied trades
+
+Some exports don't provide enough information to assign costs to every individual fill. Tradebook keeps the recorded trade totals separate from an unknown split instead of inventing an allocation. Missing cost information should not be read as confirmation that the broker charged nothing.
+
+**Correct fees** on an account is a balance-reconciliation tool. It does not rewrite the broker-recorded costs of your trades.
+
+Generated copy trades are models, not a substitute for the follower's actual executions. You can match the actual follower fills against those generated records. The [limitations page](KNOWN-LIMITATIONS.md) explains how copied trades, missing data and reported costs are handled.
+
+## Your files and backups
+
+Your trade notes and image attachments are stored in your vault. They remain there if you disable or uninstall Tradebook. Obsidian handles Community plugin update checks separately.
+
+Settings and account configuration live in the plugin's `data.json`. Disabling the plugin keeps that file. Uninstalling removes the plugin folder, including `data.json`, so export a settings backup before uninstalling.
+
+You can do that in **Settings → Tradebook → Advanced → Export**. Use **Import backup** in the same section to restore those settings. Keep a separate backup of your vault for the trade notes and screenshots; the settings backup does not replace it.
+
+## Limits and help
+
+Only the export formats listed above are currently supported. Mobile loading is enabled, but phone and tablet layouts still need work. The recorded host checks for this update covered desktop, not a complete mobile test pass.
+
+If Tradebook doesn't appear in the Community plugin list, check that Restricted mode is off and search again. If it won't load, check your Obsidian version and make sure the plugin is enabled. If the menu is missing, expand the left sidebar and select the Tradebook tab.
+
+For a problem you can't resolve, [open an issue](https://github.com/yamihugo/Tradebook/issues) with what happened and the steps to reproduce it. Please remove personal and account information from screenshots or sample files before sharing them.
+
+## What's next
+
+My priority is making Tradebook reliable and comfortable to use every day. That includes navigation, light mode, help, general polish and better phone and tablet layouts. Further strategy-review tools are also planned, but I haven't set delivery dates or a fixed order.
+
+The [roadmap](ROADMAP.md) explains the direction. The [changelog](CHANGELOG.md) records the changes for each version.
 
 ## License
 
@@ -129,5 +140,4 @@ has already shipped.
 
 MIT — see [LICENSE](LICENSE).
 
-Prop-firm and broker names and logos belong to their owners and are used to identify
-accounts. Their inclusion does not imply affiliation or endorsement.
+Prop-firm and broker names and logos belong to their owners and are used to identify accounts. Their inclusion does not imply affiliation or endorsement.
