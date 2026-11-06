@@ -51,12 +51,14 @@ For a manual installation, replace only `main.js`, `manifest.json` and `styles.c
 
 ## Getting started
 
-[![Tradebook for Obsidian – Free Futures Trading Journal | Setup Guide](https://img.youtube.com/vi/4stW4AuxoLQ/maxresdefault.jpg)](https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s)
+[![Tradebook walkthrough](https://img.youtube.com/vi/4stW4AuxoLQ/hqdefault.jpg)](https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s)
 
-There's a short walkthrough video here: **Tradebook for Obsidian – Free Futures Trading Journal | Setup Guide**
+There's a short walkthrough video here: **Tradebook walkthrough**
 👉 https://www.youtube.com/watch?v=4stW4AuxoLQ&t=274s
 
 It covers the basics from installation through your first import and review. There isn't an in-app tutorial yet, so the video is the quickest way to see how the pieces fit together.
+
+The thumbnail above is a clickable link — click it to open the video on YouTube (opens in a new tab).
 
 ### 1. Add an account
 
