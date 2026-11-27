@@ -62,6 +62,11 @@ export type MultiDropdown = HTMLElement & {
   setValues: (values: string[]) => void;
 };
 
+export interface AutocompleteItem {
+  value: string;
+  label: string;
+}
+
 interface OpenMenu {
   wrap: HTMLElement;
   list: HTMLElement;
@@ -436,13 +441,14 @@ export function mountMultiDropdown(
     isOpen = false;
     btn.setAttribute("aria-expanded", "false");
     list.removeClass("is-portal");
-     list.setCssStyles({ left: "", top: "" });
-     wrap.appendChild(list);
-     if (active?.wrap === wrap) {
-       active = null;
-       stopWatching();
-     }
-   };
+    list.style.left = "";
+    list.style.top = "";
+    wrap.appendChild(list);
+    if (active?.wrap === wrap) {
+      active = null;
+      stopWatching();
+    }
+  };
   const open = (): void => {
     if (isOpen) { close(); return; }
     closeAll(wrap);
@@ -487,4 +493,207 @@ export function mountMultiDropdown(
   win.addEventListener("scroll", place, true);
   (wrap as unknown as MultiDropdown).setValues = setValues;
   return wrap as unknown as MultiDropdown;
+}
+
+/**
+ * An editable, portal-backed suggestion field. Suggestions never constrain the
+ * value: filtering is advisory, and arbitrary text remains a valid input.
+ */
+export function mountAutocomplete(
+  host: HTMLElement,
+  items: AutocompleteItem[],
+  value: string,
+  opts: { placeholder?: string; ariaLabel: string }
+): HTMLInputElement {
+  const doc = host.ownerDocument;
+  const win = doc.defaultView ?? window;
+  const wrap = host.createDiv({ cls: "tj-mg-dd tj-contract-combo" });
+  const listId = `tjac-${listSeq++}`;
+  const input = wrap.createEl("input", {
+    cls: "tj-add-input tj-contract-input",
+    type: "text",
+    attr: {
+      autocomplete: "off",
+      spellcheck: "false",
+      placeholder: opts.placeholder ?? "",
+      role: "combobox",
+      "aria-label": opts.ariaLabel,
+      "aria-autocomplete": "list",
+      "aria-haspopup": "listbox",
+      "aria-expanded": "false",
+      "aria-controls": listId,
+    },
+  });
+  input.value = value;
+  const toggle = wrap.createEl("button", {
+    cls: "tj-mg-dd-btn tj-contract-toggle",
+    attr: {
+      type: "button",
+      "aria-label": "Toggle contract suggestions",
+      "aria-haspopup": "listbox",
+      "aria-expanded": "false",
+      "aria-controls": listId,
+    },
+  });
+  toggle.createSpan({ cls: "tj-mg-dd-chev", text: "▾", attr: { "aria-hidden": "true" } });
+  const list = wrap.createDiv({
+    cls: "tj-mg-dd-list tj-contract-list",
+    attr: { id: listId, role: "listbox" },
+  });
+
+  let isOpen = false;
+  let activeIndex = -1;
+  let rows: HTMLElement[] = [];
+  let suppressInput = false;
+
+  const paintActive = (index: number, scroll = false): void => {
+    activeIndex = index;
+    rows.forEach((row, i) => row.toggleClass("is-active", i === index));
+    const row = rows[index];
+    if (row) {
+      input.setAttribute("aria-activedescendant", row.id);
+      if (scroll && typeof row.scrollIntoView === "function") row.scrollIntoView({ block: "nearest" });
+    } else {
+      input.removeAttribute("aria-activedescendant");
+    }
+  };
+
+  const renderOptions = (): void => {
+    list.empty();
+    rows = [];
+    activeIndex = -1;
+    const query = input.value.trim().toLowerCase();
+    const matches = items.filter((item) =>
+      !query || `${item.value} ${item.label}`.toLowerCase().includes(query)
+    );
+    if (!matches.length) {
+      list.createDiv({
+        cls: "tj-mg-dd-empty tj-contract-empty",
+        attr: { role: "status" },
+        text: "No matches. You can still enter any contract.",
+      });
+      input.removeAttribute("aria-activedescendant");
+      return;
+    }
+    for (const item of matches) {
+      const selected = input.value.trim().toUpperCase() === item.value.toUpperCase();
+      const row = list.createDiv({
+        cls: "tj-mg-dd-item tj-contract-option" + (selected ? " on" : ""),
+        attr: { role: "option", "aria-selected": String(selected) },
+      });
+      row.id = `${listId}-option-${rows.length}`;
+      row.dataset.acValue = item.value;
+      row.createSpan({ cls: "tj-contract-code", text: item.value });
+      row.createSpan({ cls: "tj-contract-description", text: item.label });
+      row.addEventListener("mouseenter", () => paintActive(rows.indexOf(row)));
+      row.addEventListener("mousedown", (event) => event.preventDefault());
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        choose(rows.indexOf(row));
+      });
+      rows.push(row);
+    }
+  };
+
+  const place = (): void => {
+    if (!isOpen || !list.isConnected || !wrap.isConnected) return;
+    const rect = input.getBoundingClientRect();
+    const width = list.offsetWidth;
+    const height = list.offsetHeight;
+    let left = rect.left;
+    let top = rect.bottom + 6;
+    if (left + width > win.innerWidth - 8) left = win.innerWidth - 8 - width;
+    if (left < 8) left = 8;
+    if (top + height > win.innerHeight - 8 && rect.top - height - 6 > 8) top = rect.top - height - 6;
+    list.setCssStyles({ left: `${Math.round(left)}px`, top: `${Math.round(top)}px` });
+  };
+
+  const close = (): void => {
+    if (!isOpen) return;
+    isOpen = false;
+    win.removeEventListener("resize", place);
+    win.removeEventListener("scroll", place, true);
+    stopWatching();
+    wrap.removeClass("open");
+    input.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    list.removeClass("is-portal");
+    list.setCssStyles({ left: "", top: "" });
+    wrap.appendChild(list);
+    if (active?.wrap === wrap) active = null;
+  };
+
+  const open = (): void => {
+    if (isOpen) return;
+    closeAll(wrap);
+    renderOptions();
+    isOpen = true;
+    wrap.addClass("open");
+    input.setAttribute("aria-expanded", "true");
+    toggle.setAttribute("aria-expanded", "true");
+    list.addClass("is-portal");
+    doc.body.appendChild(list);
+    active = { wrap, list, close };
+    startWatching(doc);
+    win.addEventListener("resize", place);
+    win.addEventListener("scroll", place, true);
+    place();
+  };
+
+  const choose = (index: number): void => {
+    const row = rows[index];
+    const item = row ? items.find((candidate) => candidate.value === row.dataset.acValue) : undefined;
+    if (!item) return;
+    input.value = item.value;
+    close();
+    suppressInput = true;
+    input.dispatchEvent(new win.Event("input", { bubbles: true }));
+    input.dispatchEvent(new win.Event("change", { bubbles: true }));
+    suppressInput = false;
+  };
+
+  const moveActive = (delta: number): void => {
+    if (!rows.length) return;
+    const from = activeIndex < 0 ? (delta > 0 ? -1 : 0) : activeIndex;
+    paintActive((from + delta + rows.length) % rows.length, true);
+  };
+
+  input.addEventListener("focus", open);
+  input.addEventListener("input", () => {
+    if (suppressInput) return;
+    if (!isOpen) open();
+    else {
+      renderOptions();
+      place();
+    }
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) open();
+      moveActive(event.key === "ArrowDown" ? 1 : -1);
+    } else if (event.key === "Enter" && isOpen && activeIndex >= 0) {
+      event.preventDefault();
+      choose(activeIndex);
+    } else if (event.key === "Escape" && isOpen) {
+      event.preventDefault();
+      close();
+    }
+  });
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (isOpen) close();
+    else {
+      open();
+      input.focus();
+    }
+  });
+  wrap.addEventListener("focusout", () => {
+    win.setTimeout(() => {
+      if (isOpen && !wrap.contains(doc.activeElement)) close();
+    }, 0);
+  });
+
+  return input;
 }

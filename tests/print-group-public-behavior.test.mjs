@@ -146,23 +146,23 @@ test("public behavior: adding trades creates pending groups with stable ordinal"
     // First trade
     const g1 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 1 · 09:00", 1);
     const g2 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 2 · 10:00", 2);
-
+    
     // Queue order is stable even when group display names can be edited.
     const pending = await vq.listPrintGroups(app, "");
     const count = vq.pendingGroupCount(pending);
     assert.equal(count, 2);
-
+    
     // Simulate addTrade behavior
     const ordinal = vq.nextPrintGroupOrdinal(pending);
     const g3 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), `Group ${ordinal}`, ordinal);
     assert.equal(g3.name, "Group 3");
     assert.equal(g3.ordinal, 3);
-
+    
     // Activate new group
     await vq.setActiveGroup(app, "", g3.id);
     const active = await vq.getActiveGroup(app, "");
     assert.equal(active.id, g3.id);
-
+    
     // Previous groups demoted
     const reloadedG1 = await vq.loadPrintGroup(app, "", g1.id);
     assert.equal(reloadedG1.state, "pending");
@@ -178,16 +178,16 @@ test("public behavior: selecting groups promotes to active and demotes previous"
 
     // Establish g1 as active before exercising selection of g2.
     assert.equal((await vq.getActiveGroup(app, "")).id, g1.id);
-
+    
     // Select g2
     await vq.setActiveGroup(app, "", g2.id);
-
+    
     const active = await vq.getActiveGroup(app, "");
     assert.equal(active.id, g2.id);
-
+    
     const reloadedG1 = await vq.loadPrintGroup(app, "", g1.id);
     assert.equal(reloadedG1.state, "pending");
-
+    
     // Exactly one active
     const all = await vq.listPrintGroups(app, "");
     assert.equal(all.filter(g => g.state === "active").length, 1);
@@ -199,12 +199,12 @@ test("public behavior: capturing to groups routes to active group (low-friction 
     const { app } = setupView(dir);
     const now = new Date().toISOString();
     const g1 = await vq.createPrintGroup(app, "", "2026-10-16", now, "Trade 1 · 09:00", 1);
-
+    
     // Route capture with active group
     const route = vq.routeCapture([g1]);
     assert.equal(route.kind, "use");
     assert.equal(route.groupId, g1.id);
-
+    
     // Add entry to active group
     await vq.addEntryToGroup(app, "", g1.id, "entry-1");
     const loaded = await vq.loadPrintGroup(app, "", g1.id);
@@ -216,16 +216,16 @@ test("public behavior: capturing creates new group when no active group exists",
   await withTempDir(async (dir) => {
     const { app } = setupView(dir);
     const groups = [];
-
+    
     // No active group
     const route = vq.routeCapture(groups);
     assert.equal(route.kind, "create");
     assert.equal(route.ordinal, 1);
-
+    
     // First capture creates group
     const g1 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 1 · 09:00", route.ordinal);
     assert.equal(g1.state, "active");
-
+    
     // Subsequent capture routes to active
     const route2 = vq.routeCapture([g1]);
     assert.equal(route2.kind, "use");
@@ -239,18 +239,18 @@ test("public behavior: removing prints from a group moves their files to trash",
     // Create entry
     const file = { name: "chart.png", type: "image/png", arrayBuffer: async () => new ArrayBuffer(8) };
     const entry = await vq.savePrintInboxEntry(app, "Tradebook", file, "2026-10-16", "file");
-
+    
     // Create group with entry
     const group = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 1 · 09:00", 1);
     await vq.addEntryToGroup(app, "", group.id, entry.id);
-
+    
     // Remove entry
     await view.removeEntry(entry);
-
+    
     // Verify group cleaned
     const loaded = await vq.loadPrintGroup(app, "", group.id);
     assert.deepEqual(loaded.entryIds, []);
-
+    
     // Original queue paths are gone, and both files remain recoverable in trash.
     assert.equal(existsSync(path.join(dir, entry.imagePath)), false);
     assert.equal(existsSync(path.join(dir, entry.metadataPath)), false);
@@ -266,10 +266,10 @@ test("public behavior: reordering prints persists new order", async () => {
     await vq.addEntryToGroup(app, "", group.id, "a");
     await vq.addEntryToGroup(app, "", group.id, "b");
     await vq.addEntryToGroup(app, "", group.id, "c");
-
+    
     // Move b before a
     await view.reorderEntry(group.id, "b", -1);
-
+    
     const loaded = await vq.loadPrintGroup(app, "", group.id);
     assert.deepEqual(loaded.entryIds, ["b", "a", "c"]);
   });
@@ -281,10 +281,10 @@ test("public behavior: moving prints between groups transfers membership", async
     const g1 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 1 · 09:00", 1);
     const g2 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 2 · 10:00", 2);
     await vq.addEntryToGroup(app, "", g1.id, "entry-1");
-
+    
     // Move entry
     await view.moveEntryBetweenGroups("entry-1", g1.id, g2.id);
-
+    
     const l1 = await vq.loadPrintGroup(app, "", g1.id);
     const l2 = await vq.loadPrintGroup(app, "", g2.id);
     assert.deepEqual(l1.entryIds, []);
@@ -299,18 +299,18 @@ test("public behavior: clearing queue clears all pending groups", async () => {
     const g2 = await vq.createPrintGroup(app, "", "2026-10-16", new Date().toISOString(), "Trade 2 · 10:00", 2);
     await vq.addEntryToGroup(app, "", g1.id, "e1");
     await vq.addEntryToGroup(app, "", g2.id, "e2");
-
+    
     // Simulate clearAll
     const groups = await vq.listPrintGroups(app, "");
     const pendingGroups = groups.filter(g => g.state !== "attached");
-
+    
     for (const group of pendingGroups) {
       for (const entryId of group.entryIds) {
         await vq.removeEntryFromGroup(app, "", group.id, entryId);
       }
       await vq.deletePrintGroup(app, "", group.id);
     }
-
+    
     const remaining = await vq.listPrintGroups(app, "");
     assert.equal(remaining.length, 0);
   });
@@ -323,21 +323,21 @@ test("public behavior: low-friction capture path — paste routes to hovered gro
     const gA = await vq.createPrintGroup(app, "", "2026-10-16", now, "Trade 1 · 09:00", 1);
     const gB = await vq.createPrintGroup(app, "", "2026-10-16", now, "Trade 2 · 10:00", 2);
     await vq.setActiveGroup(app, "", gA.id);
-
+    
     // Simulate hover target
     view.captureTargetGroupId = gB.id;
-
+    
     // Simulate saveFiles with target group
     const entry = await vq.savePrintInboxEntry(app, "Tradebook", makeMockImageFile(), "2026-10-16", "paste");
     const targetId = view.captureTargetGroupId || "";
     await vq.addEntryToGroup(app, "", targetId, entry.id);
-
+    
     // Verify entry went to hovered group, not active
     const loadedA = await vq.loadPrintGroup(app, "", gA.id);
     const loadedB = await vq.loadPrintGroup(app, "", gB.id);
     assert.deepEqual(loadedA.entryIds, []);
     assert.deepEqual(loadedB.entryIds, [entry.id]);
-
+    
     // Active group unchanged
     const active = await vq.getActiveGroup(app, "");
     assert.equal(active.id, gA.id);
@@ -348,17 +348,17 @@ test("public behavior: state changes persist across simulated sessions", async (
   await withTempDir(async (dir) => {
     const app1 = makeApp(dir);
     const app2 = makeApp(dir);
-
+    
     const now = new Date().toISOString();
     const g1 = await vq.createPrintGroup(app1, "", "2026-10-16", now, "Trade 1 · 09:00", 1);
     await vq.addEntryToGroup(app1, "", g1.id, "e1");
     await vq.setGroupState(app1, "", g1.id, "pending");
     await vq.setActiveGroup(app1, "", g1.id);
-
+    
     // Simulate reload
     const all = await vq.listPrintGroups(app2, "");
     assert.equal(all.length, 1);
-
+    
     const loaded = await vq.loadPrintGroup(app2, "", g1.id);
     assert.deepEqual(loaded.entryIds, ["e1"]);
     assert.equal(loaded.state, "active");

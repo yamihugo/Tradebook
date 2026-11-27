@@ -1,6 +1,7 @@
 import type { Trade } from "../types";
 import { netPnl } from "./fees";
-import { recordedRisk } from "./risk";
+import { maxExitR, recordedRisk } from "./risk";
+import { maxExitPoints } from "./fills";
 import { sessionLabel } from "./sessions";
 import { holdFmtOf } from "./tradeTable";
 import { mistakeTagsOf, normalizeTags, psychologyTagsOf } from "./tags";
@@ -76,9 +77,13 @@ function factsFor(t: Trade, zone: string, hideMoney: boolean): Pair[] {
     }
     if (Number.isFinite(t.commission) || Number.isFinite(t.fees)) add("Fees", money((t.commission || 0) + (t.fees || 0)));
   }
-  if (Number.isFinite(t.pnlPoints)) add("Points", `${t.pnlPoints >= 0 ? "+" : ""}${t.pnlPoints.toFixed(2)}`);
+  const points = maxExitPoints(t);
+  if (Number.isFinite(points)) add("Points", `${points >= 0 ? "+" : ""}${points.toFixed(2)}`);
   const risk = recordedRisk(t);
-  if (Number.isFinite(t.pnl) && risk !== null && Number.isFinite(risk) && risk > 0) add("Gross R", `${(t.pnl / risk).toFixed(2)}R`);
+  const realizedR = Number.isFinite(t.pnl) && risk !== null && Number.isFinite(risk) && risk > 0 ? t.pnl / risk : null;
+  const maximumR = maxExitR(t);
+  const rText = (value: number | null): string => value !== null ? `${value.toFixed(2)}R` : "—";
+  add("R (AVG) | R (MAX)", `${rText(realizedR)} | ${rText(maximumR)}`);
   if (Number.isFinite(t.quantity)) add("Contracts", String(t.quantity));
   add("Hold", holdFmtOf(t));
   add("Session", sessionLabel(t, zone));

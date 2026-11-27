@@ -172,7 +172,9 @@ function observedReentries(
     // "Right after" means the same day (the caller's day key) and a gap the
     // clock really had — read from the instants when the notes carry them.
     const prevNet = outcomes.get(prev) ?? netPnl(prev);
-    if (prevNet >= 0 || dayKey(prev) !== dayKey(cur)) continue;
+    const previousDay = dayKey(prev);
+    const currentDay = dayKey(cur);
+    if (prev.timeUnresolved || cur.timeUnresolved || prevNet >= 0 || !previousDay || previousDay !== currentDay) continue;
     const gap = reentryMinutes(prev, cur);
     if (gap === null || gap < 0 || gap > windowMinutes) continue;
     if ((prev.symbol || "") !== (cur.symbol || "")) continue;
@@ -323,10 +325,16 @@ export function computeProcessSignals(
   const untaggedPct = pct(trades.filter((t) => !(t.setup || "").trim()).length);
 
   const byDay = new Map<string, number>();
-  for (const t of trades) byDay.set(dayKey(t), (byDay.get(dayKey(t)) ?? 0) + 1);
+  for (const t of trades) {
+    if (t.timeUnresolved) continue;
+    const day = dayKey(t);
+    if (!day) continue;
+    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+  }
   const daysWithTrades = byDay.size;
+  const datedTradeCount = [...byDay.values()].reduce((sum, count) => sum + count, 0);
   const maxTradesInDay = daysWithTrades ? Math.max(...byDay.values()) : 0;
-  const tradesPerDay = daysWithTrades ? tradeCount / daysWithTrades : 0;
+  const tradesPerDay = daysWithTrades ? datedTradeCount / daysWithTrades : 0;
 
   // Classified once, then read by every run-shaped signal below.
   const outcomes = netOutcomes(trades, financials);
@@ -334,9 +342,10 @@ export function computeProcessSignals(
 
   const revenge = revengeStats(trades, dayKey, financials, windowMinutes);
 
+  const holdPopulation = trades.filter((trade) => !trade.timeUnresolved);
   // impulsive: finished within 1 minute — the instants when there are any, so
   // the answer does not depend on how the note spells its clock.
-  const fastCount = trades.filter((t) => {
+  const fastCount = holdPopulation.filter((t) => {
     const minutes = holdMinutesOf(t);
     return minutes !== null && minutes >= 0 && minutes < 1;
   }).length;
@@ -358,7 +367,7 @@ export function computeProcessSignals(
     reviewedPct,
     stopDefinedPct,
     untaggedPct,
-    fastTradesPct: pct(fastCount),
+    fastTradesPct: holdPopulation.length ? (fastCount / holdPopulation.length) * 100 : 0,
     afterTwoLosses,
     revengeCount: revenge.count,
     revengeRate: revenge.rate,

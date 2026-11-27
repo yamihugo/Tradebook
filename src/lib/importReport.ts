@@ -7,6 +7,34 @@
  * counts and the write outcome can be pinned by tests.
  */
 
+import type { Trade } from "../types";
+
+/** Match only the newly created physical notes, one-to-one, against Replay facts. */
+export function confirmReplayWrites(expected: Trade[], paths: string[], actual: Trade[]): number {
+  const allowed = new Set(paths);
+  const used = new Set<string>();
+  let confirmed = 0;
+  for (const trade of expected) {
+    const match = actual.find((note) => allowed.has(note.id) && !used.has(note.id)
+      && note.account === trade.account && note.dataSource === "replay"
+      && note.importKey === trade.importKey && note.symbol === trade.symbol
+      && note.direction === trade.direction && note.quantity === trade.quantity
+      && note.entryPrice === trade.entryPrice && note.exitPrice === trade.exitPrice
+      && note.pnl === trade.pnl && Number.isFinite(trade.pnlPoints) && note.pnlPoints === trade.pnlPoints
+      && trade.costCoverage?.commission !== false && trade.costCoverage?.fees !== false
+      && note.costCoverage?.commission === true && note.costCoverage?.fees === true
+      && Number.isFinite(trade.commission) && note.commission === trade.commission
+      && Number.isFinite(trade.fees) && note.fees === trade.fees
+      && (note.date || "") === (trade.date || "") && (note.exitDate || "") === (trade.exitDate || "")
+      && (note.entryTime || "") === (trade.entryTime || "") && (note.exitTime || "") === (trade.exitTime || "")
+      && (note.entryInstant || "") === (trade.entryInstant || "")
+      && (note.exitInstant || "") === (trade.exitInstant || "")
+      && Boolean(note.timeUnresolved) === Boolean(trade.timeUnresolved));
+    if (match) { used.add(match.id); confirmed++; }
+  }
+  return confirmed;
+}
+
 export interface ImportSummaryInput {
   /** Trades the parser could read and fill. */
   detected: number;
@@ -19,6 +47,7 @@ export interface ImportSummaryInput {
   /** Copy legs generated beside the base notes. */
   copyLegs: number;
   duplicates: number;
+  conflicts?: number;
   unfilled: number;
   unpaired: number;
   unreadable: number;
@@ -45,6 +74,7 @@ export function importSummary(input: ImportSummaryInput): ImportSummary {
   const unassigned = Math.max(0, input.importable - input.assigned);
   const skipped: string[] = [];
   if (input.duplicates) skipped.push(`${input.duplicates} already in the journal`);
+  if (input.conflicts) skipped.push(`${input.conflicts} conflict${input.conflicts === 1 ? "" : "s"} held`);
   if (unassigned) skipped.push(`${unassigned} without an account`);
   if (input.unfilled) skipped.push(`${input.unfilled} order(s) never filled`);
   if (input.unpaired) skipped.push(`${input.unpaired} fill(s) not paired`);

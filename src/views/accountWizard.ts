@@ -284,27 +284,73 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
     });
   };
 
+  const bindRadioKeys = (group: HTMLElement, selector: string): void => {
+    group.addEventListener("keydown", (event) => {
+      const key = (event as KeyboardEvent).key;
+      const target = event.target as HTMLElement | null;
+      if (!target?.matches(selector)) return;
+      if (key === " " || key === "Spacebar" || key === "Enter") {
+        event.preventDefault();
+        target.click();
+        return;
+      }
+      const direction = key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
+      if (!direction) return;
+      const items = Array.from(group.querySelectorAll<HTMLElement>(selector));
+      const index = items.indexOf(target);
+      if (index < 0 || items.length < 2) return;
+      event.preventDefault();
+      const next = items[(index + direction + items.length) % items.length];
+      next.click();
+      if (next.isConnected) next.focus();
+    });
+  };
+
   const renderType = () => {
-    const grid = body.createDiv({ cls: "tj-wz-types", attr: { "data-tour": "wizard-type" } });
+    const grid = body.createDiv({
+      cls: "tj-wz-types",
+      attr: { "data-tour": "wizard-type", role: "radiogroup", "aria-label": "Account type" },
+    });
+    const syncSelection = (): void => {
+      grid.querySelectorAll<HTMLElement>(".tj-wz-type[role='radio']").forEach((card) => {
+        const selected = card.getAttribute("data-account-type") === values.type;
+        card.classList.toggle("on", selected);
+        card.setAttribute("aria-checked", String(selected));
+        card.tabIndex = selected ? 0 : -1;
+      });
+    };
     for (const t of CREATION_TYPES) {
-      const card = grid.createDiv({ cls: "tj-wz-type" + (values.type === t.id ? " on" : ""), attr: { "data-tour": `wizard-type-${t.id}` } });
+      const selected = values.type === t.id;
+      const card = grid.createDiv({
+        cls: "tj-wz-type" + (selected ? " on" : ""),
+        attr: {
+          role: "radio",
+          "aria-checked": String(selected),
+          tabindex: selected ? "0" : "-1",
+          "data-account-type": t.id,
+          "data-tour": `wizard-type-${t.id}`,
+        },
+      });
       const ico = card.createDiv({ cls: "tj-wz-type-ico", attr: { "aria-hidden": "true" } });
       setIcon(ico, t.icon);
       card.createDiv({ cls: "tj-wz-type-l", text: t.label });
       card.createDiv({ cls: "tj-wz-type-d", text: t.desc });
       card.addEventListener("click", () => {
-        values.type = t.id;
-        values.rules = {};
-        if (isProp(t.id) && values.size > 0) applySizeRules(values.size);
-        if (!isProp(t.id)) {
-          values.logoId = "own";
-          values.custom = false;
-        } else if (values.logoId === "own") {
-          values.logoId = "topstep";
+        if (values.type !== t.id) {
+          values.type = t.id;
+          values.rules = {};
+          if (isProp(t.id) && values.size > 0) applySizeRules(values.size);
+          if (!isProp(t.id)) {
+            values.logoId = "own";
+            values.custom = false;
+          } else if (values.logoId === "own") {
+            values.logoId = "topstep";
+          }
         }
-        renderStep();
+        syncSelection();
       });
     }
+    bindRadioKeys(grid, ".tj-wz-type[role='radio']");
   };
 
   /** The small visual inside a logo tile: packaged image, CSS symbol or initials. */
@@ -331,7 +377,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
    * picking the firm is one decision and nothing else competes for the eye.
    */
   const renderBrand = () => {
-    const sect = body.createDiv({ cls: "tj-wz-sect" });
+    const sect = body.createDiv({ cls: "tj-wz-sect", attr: { role: "radiogroup", "aria-label": "Account brand" } });
     sect.createDiv({ cls: "tj-wz-sectitle", text: "Brand" });
 
     // ---- logo grid ----
@@ -342,25 +388,54 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
       { id: "practice", title: "Practice" },
     ];
     const grid = logoWrap.createDiv({ cls: "tj-wz-logogrid" });
+    let customWrap: HTMLElement | null = null;
+    const syncBrandSelection = (): void => {
+      logoWrap.querySelectorAll<HTMLElement>(".tj-wz-logotile[role='radio']").forEach((tile) => {
+        const selected = tile.hasAttribute("data-custom-brand")
+          ? values.custom
+          : !values.custom && tile.getAttribute("data-logo-id") === values.logoId;
+        tile.classList.toggle("on", selected);
+        tile.setAttribute("aria-checked", String(selected));
+        tile.tabIndex = selected ? 0 : -1;
+      });
+    };
     for (const g of groups) {
       const gWrap = grid.createDiv({ cls: "tj-wz-logogroup" });
       gWrap.createDiv({ cls: "tj-wz-logoglbl", text: g.title });
       const tiles = gWrap.createDiv({ cls: "tj-wz-logotiles" });
       for (const entry of FIRM_CATALOG.filter((f) => f.group === g.id)) {
         const on = !values.custom && values.logoId === entry.id;
-        const tile = tiles.createDiv({ cls: "tj-wz-logotile" + (on ? " on" : ""), attr: { title: entry.label } });
+        const tile = tiles.createDiv({
+          cls: "tj-wz-logotile" + (on ? " on" : ""),
+          attr: {
+            role: "radio",
+            "aria-checked": String(on),
+            tabindex: on ? "0" : "-1",
+            "data-logo-id": entry.id,
+            title: entry.label,
+          },
+        });
         tileVisual(tile, entry.id, entry.label);
         tile.createSpan({ cls: "tj-wz-logotile-lbl", text: entry.label });
         tile.addEventListener("click", () => {
           values.logoId = entry.id;
           values.custom = false;
-          renderStep();
+          customWrap?.querySelector(".tj-wz-field")?.remove();
+          syncBrandSelection();
         });
       }
     }
     // Custom initials tile.
-    const customWrap = logoWrap.createDiv({ cls: "tj-wz-logocustom" });
-    const customTile = customWrap.createDiv({ cls: "tj-wz-logotile" + (values.custom ? " on" : "") });
+    customWrap = logoWrap.createDiv({ cls: "tj-wz-logocustom" });
+    const customTile = customWrap.createDiv({
+      cls: "tj-wz-logotile" + (values.custom ? " on" : ""),
+      attr: {
+        role: "radio",
+        "aria-checked": String(values.custom),
+        tabindex: values.custom ? "0" : "-1",
+        "data-custom-brand": "true",
+      },
+    });
     customTile.createSpan({
       cls: "tj-wz-logotile-init",
       text: values.custom && values.initials ? values.initials.slice(0, 2).toUpperCase() : "AB",
@@ -383,6 +458,7 @@ export function openAccountWizard(plugin: TradebookPlugin, opts: AccountWizardOp
       });
       window.setTimeout(() => initInput.focus(), 0);
     }
+    bindRadioKeys(sect, ".tj-wz-logotile[role='radio']");
   };
 
   /** Value of a target/max-loss field, preferring an explicit $ then a %. */

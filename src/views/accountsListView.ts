@@ -564,7 +564,10 @@ export class AccountsListView extends ItemView {
     // of trading days immediately before it.
     const allDays = new Map<string, number>();
     for (const { list } of perAccount) {
-      for (const t of list) allDays.set(t.date, (allDays.get(t.date) ?? 0) + netPnl(t));
+      for (const t of list) {
+        if (t.timeUnresolved) continue;
+        allDays.set(t.date, (allDays.get(t.date) ?? 0) + netPnl(t));
+      }
     }
     const inWindow = (d: string) => !w.from || d >= w.from;
 

@@ -164,5 +164,5 @@ export function accountScope(trades: Trade[], options: AccountScopeOptions): Fin
  * is the note's representation, not a source of time.
  */
 export function journalDayKey(timeZone: string): (trade: Trade) => string {
-  return (trade) => tradeDayInZone(trade, timeZone);
+  return (trade) => trade.timeUnresolved ? "" : tradeDayInZone(trade, timeZone);
 }

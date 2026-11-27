@@ -117,7 +117,12 @@ export function largestNetLoss(trades: Trade[]): number {
 /** Net P&L grouped by the caller's trading-day convention. */
 export function netByDay(trades: Trade[], dayKey: DayKey = dateKey): Map<string, number> {
   const days = new Map<string, number>();
-  for (const t of scoped(trades)) days.set(dayKey(t), (days.get(dayKey(t)) ?? 0) + netPnl(t));
+  for (const t of scoped(trades)) {
+    if (t.timeUnresolved) continue;
+    const day = dayKey(t);
+    if (!day) continue;
+    days.set(day, (days.get(day) ?? 0) + netPnl(t));
+  }
   return days;
 }
 
@@ -487,7 +492,7 @@ export function summarizeFinancials(
     if (money.costCoverage.commission && money.costCoverage.fees) completeLegs++;
     if (!money.costCoverage.commission) missingCommission++;
     if (!money.costCoverage.fees) missingFees++;
-    const day = options.dayKey(leg.trade);
+    const day = leg.trade.timeUnresolved ? "" : options.dayKey(leg.trade);
     if (typeof day === "string" && day) {
       byDayGross.set(day, (byDayGross.get(day) ?? 0) + money.gross);
       byDayNet.set(day, (byDayNet.get(day) ?? 0) + money.net);
@@ -520,7 +525,7 @@ export function summarizeFinancials(
   // aggregated decision, not the sign of its representative's Gross.
   const decisionsByDay = new Map<string, { count: number; wins: number; losses: number; breakeven: number }>();
   for (const legs of groups.values()) {
-    const day = options.dayKey(legs[0].trade);
+    const day = legs[0].trade.timeUnresolved ? "" : options.dayKey(legs[0].trade);
     if (!day) continue;
     const net = legs.reduce((sum, leg) => sum + tradeMoney(leg.trade, "net")!.net, 0);
     const bucket = decisionsByDay.get(day) ?? { count: 0, wins: 0, losses: 0, breakeven: 0 };

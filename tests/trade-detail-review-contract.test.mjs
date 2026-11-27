@@ -207,8 +207,8 @@ test("manual plan fields keep visible labels and post-exit data stays optional",
 });
 
 test("debounced review writes retain the trade identity across navigation", () => {
-  assert.match(detailSource, /saveField\(key, val, tradeId\)/);
-  assert.match(detailSource, /saveField\("rating", String\(next\), ratingTradeId\)/);
+  assert.match(detailSource, /persistTradeField\(key, val, tradeId\)/);
+  assert.match(detailSource, /persistTradeField\("rating", String\(next\), ratingTradeId\)/);
   assert.match(detailSource, /targetId = this\.trade\?\.id/);
 });
 

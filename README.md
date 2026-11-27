@@ -23,6 +23,7 @@ If you're new to Obsidian, a vault is simply the folder where it keeps your note
 ## What you can do
 
 - Import supported trade exports, check the preview and bring the same file in again without creating duplicate trades.
+- Correct the recorded executions of a trade from Trade Detail, including on an imported trade. The fills that were replaced stay in the note as the original record.
 - Add a trade manually, including several actual partial exits with their own quantities, prices and times.
 - Capture chart screenshots in Print Queue, keep them together in a group and attach them when the trade record exists.
 - Browse and filter your Trade Log, search your strategies and review notes, and keep track of which reviews are finished.
@@ -70,10 +71,11 @@ Tradebook currently supports:
 
 - **Tradovate Orders and Fills**, with **Cash History** when you have it available for matching recorded costs.
 - **The TradeSea orders export**, one checked export per import batch. Its P&L is before costs: the importer does not apply the file's per-order commission.
+- **The TradingView Replay trade list.** Replay trades are labelled **TradingView Replay** and kept apart from your live and broker records. The file's commission and net P&L are held back until their treatment has been checked, so those trades arrive for review rather than being saved with a cost you didn't confirm.
 
 You can reimport a supported file without creating duplicate trades. Not every file or timestamp format is supported, so check [Known limitations](KNOWN-LIMITATIONS.md#import-formats) if an export is refused.
 
-For trades you want to enter yourself, choose **Manual Trade**. If you closed a position in several steps, record each actual exit with its quantity, price and time. Tradebook calculates the weighted totals from those fills. On imported trades, the execution totals come from the imported records rather than a separate summary you can overwrite.
+For trades you want to enter yourself, choose **Manual Trade**. If you closed a position in several steps, record each actual exit with its quantity, price and time. Tradebook calculates the weighted totals from those fills. On a trade that already has recorded executions, the totals come from those fill records, and Trade Detail lets you correct them: the executions that were replaced are kept in the note as the original record.
 
 ### 3. Keep your chart context
 

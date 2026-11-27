@@ -82,7 +82,15 @@ export class SettingsTab extends PluginSettingTab {
 
     const list = containerEl.createDiv({ cls: "tj-set-list" });
     for (const sec of SECTIONS) {
-      const row = list.createDiv({ cls: "tj-set-item" });
+      const row = list.createDiv({
+        cls: "tj-set-item",
+        attr: {
+          role: "button",
+          tabindex: "0",
+          "aria-label": sec.title,
+          "aria-description": sec.desc,
+        },
+      });
       const icon = row.createDiv({ cls: "tj-set-item-icon" });
       setIcon(icon, sec.icon);
       const left = row.createDiv({ cls: "tj-set-item-left" });
@@ -93,6 +101,13 @@ export class SettingsTab extends PluginSettingTab {
       row.addEventListener("click", () => {
         this.active = sec.id;
         this.refresh();
+        this.containerEl.querySelector<HTMLButtonElement>(".tj-set-back")?.focus();
+      });
+      row.addEventListener("keydown", (event) => {
+        const key = (event as KeyboardEvent).key;
+        if (key !== "Enter" && key !== " " && key !== "Spacebar") return;
+        event.preventDefault();
+        row.click();
       });
     }
     this.renderAbout(containerEl);
@@ -332,7 +347,7 @@ export class SettingsTab extends PluginSettingTab {
 
   renderTimezone(containerEl: HTMLElement): void {
     containerEl.createEl("p", {
-      text: "One clock for the whole journal: every trade is shown and stored in the zone below, so the times you read are the times you typed — on any machine. New york (eastern) is the default because futures trade on et.",
+      text: "Trade times use one journal timezone across devices. New York (Eastern Time) is the default.",
       cls: "tj-set-note",
     });
     this.select(

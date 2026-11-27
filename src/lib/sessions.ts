@@ -99,6 +99,7 @@ function minutesOf(time: string): number {
  * Asia wraps around midnight (19:00–03:00), so we check both sides of 00:00.
  */
 export function sessionOf(trade: Trade, zone: string): SessionKey | "" {
+  if (trade.timeUnresolved) return "";
   // A manual classification wins until it is cleared back to Auto-detect.
   const override = String(trade.sessionOverride ?? "").trim();
   if (override) return override as SessionKey;
@@ -133,6 +134,7 @@ export function sessionOf(trade: Trade, zone: string): SessionKey | "" {
 
 /** The human-readable label the UI shows. */
 export function sessionLabel(trade: Trade, zone: string): string {
+  if (trade.timeUnresolved) return "";
   const s = sessionOf(trade, zone);
   return SESSION_LABELS[s] ?? SESSION_UNKNOWN;
 }

@@ -4,6 +4,31 @@ I keep the changes for each Tradebook release here.
 
 To update, open Obsidian's Settings → Community plugins, check for updates and update Tradebook. Back up your vault before updating.
 
+## [1.1.2] - 2026-11-26
+
+This update adds a second import source, corrections for recorded executions, and a review
+pass across Home, Trade Detail and the trade card.
+
+### Added
+
+- TradingView Replay import. Bring in a Replay trade list, check the preview and then save it. Replay trades carry the TradingView Replay account label and stay separate from your live and broker records. The file's commission and net P&L are held for review rather than applied, and a group that is not one entry and one exit is left out and counted instead of being guessed at.
+- Execution editing in Trade Detail. Correct the recorded executions of a trade that is not a copied leg and not a reconstructed model, with a manual editor for each price and time. The executions that were replaced are kept in the note as the original record, so a recorded fact is amended rather than overwritten.
+- R (MAX) beside the realized R on Trade Detail and on the trade card: the furthest executed exit measured against that trade's own recorded initial risk. When a trade records no initial risk, both R values read as a dash rather than a number derived from an assumed stop.
+- Keyboard and screen-reader support in Home and Focus. Metric and Focus elements are reachable with Tab and describe themselves, and the Focus card keeps its gap rows usable on a short card.
+
+### Improved
+
+- Home labels say what they count. The metric labels no longer carry their (decision) suffixes, and the Without stop tooltip matches the row it belongs to.
+- A Replay time that cannot be resolved to an instant is no longer given a date, hour or session it does not have. Those trades stay out of the day, hour and session figures instead of landing on a plausible one.
+- Renaming keeps a print family together, for the legacy single screenshot field and for the structured screenshot list.
+
+### Fixed
+
+- Notes written by an earlier version keep their reflection text, their own frontmatter keys, their screenshots and their links when the trade is edited, corrected or renamed.
+- A save whose write reports an error after the file has already landed is confirmed instead of reported as failed, so a retry cannot leave a duplicate note beside it.
+- A screenshot block written as blank-separated entries is read back correctly, so the screenshots after the first are no longer dropped on the next save.
+- Screenshot lookup uses one shared resolver in Trade Detail, the trade card and the trade table, so a legacy link and a structured entry resolve the same way.
+
 ## [1.1.1] - 2026-11-06
 
 ### Fixed

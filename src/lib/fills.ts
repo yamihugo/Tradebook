@@ -85,6 +85,7 @@ function inferred(t: Trade, side: "buy" | "sell", isEntry: boolean): TradeFill {
   const canonical = isEntry ? t.entryInstant : t.exitInstant;
   const fill: TradeFill = {
     side: isEntry ? side : side === "buy" ? "sell" : "buy",
+    date: isEntry ? t.date : t.exitDate ?? t.date,
     time: isEntry ? t.entryTime : t.exitTime,
     qty,
     price,
@@ -121,6 +122,7 @@ export function compareFills(a: TradeFill, b: TradeFill): number {
   const ia = Number(Date.parse(String(a.instant ?? "")));
   const ib = Number(Date.parse(String(b.instant ?? "")));
   if (Number.isFinite(ia) && Number.isFinite(ib) && ia !== ib) return ia - ib;
+  if (a.date && b.date && a.date !== b.date) return a.date.localeCompare(b.date);
   return String(a.time ?? "").localeCompare(String(b.time ?? ""));
 }
 
@@ -220,6 +222,37 @@ export function tradePoints(t: Trade): number {
     set.explicit,
   );
 }
+/** Maximum signed price distance at an actual exit; never changes realized ledger points. */
+export function maxExitPoints(t: Trade): number {
+  if (t.direction !== "long" && t.direction !== "short") return Number.NaN;
+  if (t.fills != null && !Array.isArray(t.fills)) return Number.NaN;
+  const ledger = Array.isArray(t.fills) ? t.fills : [];
+  if (!ledger.length) {
+    if (typeof t.entryTime !== "string" || !t.entryTime.trim() || typeof t.exitTime !== "string" || !t.exitTime.trim()) return Number.NaN;
+    const entry = t.entryPrice, exit = t.exitPrice, qty = t.quantity;
+    if (!Number.isFinite(entry) || !Number.isFinite(exit) || !Number.isFinite(qty) || qty <= 0) return Number.NaN;
+    const distance = t.direction === "long" ? exit - entry : entry - exit;
+    return Number.isFinite(distance) ? distance : Number.NaN;
+  }
+  const entries: TradeFill[] = [], exits: TradeFill[] = [];
+  for (const fill of ledger) {
+    if (!fill || (fill.side !== "buy" && fill.side !== "sell") || !Number.isFinite(fill.qty) || fill.qty <= 0 || !Number.isFinite(fill.price)) return Number.NaN;
+    const isEntry = t.direction === "long" ? fill.side === "buy" : fill.side === "sell";
+    (isEntry ? entries : exits).push(fill);
+  }
+  if (!entries.length || !exits.length) return Number.NaN;
+  const totalQty = entries.reduce((sum, fill) => sum + fill.qty, 0);
+  if (!Number.isFinite(totalQty) || totalQty <= 0) return Number.NaN;
+  const weightedEntry = entries.reduce((sum, fill) => sum + fill.price * fill.qty, 0) / totalQty;
+  if (!Number.isFinite(weightedEntry)) return Number.NaN;
+  let maximum = Number.NEGATIVE_INFINITY;
+  for (const fill of exits) {
+    const distance = t.direction === "long" ? fill.price - weightedEntry : weightedEntry - fill.price;
+    if (!Number.isFinite(distance)) return Number.NaN;
+    maximum = Math.max(maximum, distance);
+  }
+  return maximum;
+}
 
 /**
  * Tone for a number: green up, red down, and neither when it is exactly flat.
@@ -252,6 +285,15 @@ export function applyFillsToTrade(t: Trade): void {
   if (set.avgExit > 0) t.exitPrice = round(set.avgExit);
   if (set.firstEntryTime) t.entryTime = set.firstEntryTime;
   if (set.lastExitTime) t.exitTime = set.lastExitTime;
+  const firstEntry = set.entries[0];
+  const lastExit = set.exits[set.exits.length - 1];
+  if (firstEntry?.date) t.date = firstEntry.date;
+  if (firstEntry?.instant) t.entryInstant = firstEntry.instant;
+  else delete t.entryInstant;
+  if (lastExit?.date) t.exitDate = lastExit.date;
+  else if (!lastExit) delete t.exitDate;
+  if (lastExit?.instant) t.exitInstant = lastExit.instant;
+  else delete t.exitInstant;
   if (set.exits.length && set.exits.every((f) => Number.isFinite(f.pnl))) {
     // The fill P&L is gross; the trade's own P&L is gross too, so it is simply
     // their sum. Costs live on commission/fees, never folded into the result.

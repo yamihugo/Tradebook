@@ -146,6 +146,7 @@ export function recentScoreWindow(trades: Trade[], options: RecentScoreWindowOpt
     (t) =>
       Number.isFinite(t.pnl) &&
       !!t.date &&
+      !t.timeUnresolved &&
       (!options.throughDate || t.date <= options.throughDate) &&
       options.dayKey(t) <= asOf
   );

@@ -294,8 +294,9 @@ export function computeRecordedAccountMovement(input: RecordedAccountMovementInp
   const start = input.trackingStart && /^\d{4}-\d{2}-\d{2}$/.test(input.trackingStart) ? input.trackingStart : "";
   const tradeByDay = new Map<string, number>();
   for (const trade of input.trades) {
-    if (!Number.isFinite(trade.pnl) || !trade.date) continue;
+    if (!Number.isFinite(trade.pnl) || !trade.date || trade.timeUnresolved) continue;
     const date = input.dayKey(trade);
+    if (!date) continue;
     if (start && date < start) continue;
     tradeByDay.set(date, (tradeByDay.get(date) ?? 0) + netPnl(trade));
   }
@@ -447,7 +448,9 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
   // loss line and the day win rate are all answers about the same Net day.
   const byDay = new Map<string, { net: number }>();
   for (const t of scoped) {
+    if (t.timeUnresolved) continue;
     const k = input.dayKey(t);
+    if (!k) continue;
     const b = byDay.get(k) ?? { net: 0 };
     b.net += netPnl(t);
     byDay.set(k, b);
@@ -467,20 +470,24 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
     cum += v;
     cumSeries.push(cum);
   }
-  const net = cum;
+  const datedNet = cum;
+  const undatedNet = scoped
+    .filter((trade) => trade.timeUnresolved || !input.dayKey(trade))
+    .reduce((sum, trade) => sum + netPnl(trade), 0);
+  const net = datedNet + undatedNet;
   // ---- balance timeline (trades plus cash movements) ----
   // A payout lowers the balance while the peak stays where it was, so it eats
   // the distance to the loss limit. That is the firm's view of the account, and
   // it is the only reason we record payouts at all. Trading numbers never see
   // these: money leaving is not a loss.
   const accountMovement = computeRecordedAccountMovement({
-    trades: scoped,
+    trades: scoped.filter((trade) => !trade.timeUnresolved && !!input.dayKey(trade)),
     size: capital,
     dayKey: input.dayKey,
     cashflows: input.cashflows,
     trackingStart,
   });
-  const balance = accountMovement.balance;
+  const balance = accountMovement.balance + undatedNet;
   const balancePeak = accountMovement.peakChange;
   // ---- The loss floor: a rule, read against a value it may not fully know ----
   //
@@ -526,7 +533,7 @@ export function computeAccountMetrics(input: AccountMetricsInput): AccountMetric
             ? lockPoint
             : Math.min(lockPoint, (peakBalance as number) - maxLoss);
   const peak = Math.max(0, ...cumSeries);
-  const ddCurrent = Math.max(0, peak - net);
+  const ddCurrent = Math.max(0, peak - datedNet);
   /** Dollars between the real balance and the loss limit — what the firm sees. */
   const ddToLimit = peakBalance === null ? 0 : Math.max(0, peakBalance - balance);
   /** Dollars between the real balance and the floor — the room left before failing. */

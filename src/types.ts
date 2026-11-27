@@ -12,9 +12,10 @@ export type AccountType = "demo" | "eval" | "funded" | "live" | "personal" | "un
  *   computer" import option). The instant is pinned and reproducible, but the
  *   zone is a **choice of the reader**, not something the source told us — so it
  *   is never written as if the platform had declared it.
- * - `journal-zone`: a time the trader typed, read in the journal's zone.
+ * - `journal-zone`: a timestamp interpreted in the selected journal zone.
+ * - `mixed`: executions for one trade resolved from more than one source kind.
  */
-export type InstantSource = "offset" | "source-zone" | "system-zone" | "journal-zone";
+export type InstantSource = "offset" | "source-zone" | "system-zone" | "journal-zone" | "mixed";
 
 export interface FuturesSpec {
   pointValue: number; // dollar value of 1.0 point movement
@@ -72,6 +73,8 @@ export interface Execution {
 export interface TradeFill {
   /** The broker's side, not "entry/exit": which one it is comes from the trade's direction. */
   side: "buy" | "sell";
+  /** Civil execution date as reported or corrected; absent on legacy fills. */
+  date?: string;
   /** Wall clock, as reported: `HH:MM:SS`. */
   time: string;
   /** Canonical UTC instant of this fill, `…Z`. Present only when it was pinned. */
@@ -89,6 +92,28 @@ export interface TradeFill {
   /** Explicit purpose of this executed close; absent means unknown. */
   exitType?: "tp" | "sl" | "be";
   exitTypeSource?: "manual" | "broker";
+}
+
+/** Original actuals retained when a trader corrects execution facts. */
+export interface TradeExecutionSnapshot {
+  date: string;
+  direction?: "long" | "short";
+  exitDate?: string;
+  entryTime: string;
+  exitTime: string;
+  quantity?: number;
+  entryPrice?: number;
+  exitPrice?: number;
+  pnl?: number;
+  pnlPoints?: number;
+  entryInstant?: string;
+  exitInstant?: string;
+  fills: TradeFill[];
+}
+
+export interface TradeExecutionCorrection {
+  correctedAt: string;
+  original: TradeExecutionSnapshot;
 }
 
 /** A broker-export order record, not proof of an execution or an active order. */
@@ -120,6 +145,8 @@ export interface Trade {
    *  `backtest`). The plugin discovers notes by this key, not by folder. */
   type?: string;
   date: string; // YYYY-MM-DD (entry date)
+  /** YYYY-MM-DD of the final exit; unlike `date`, may be the next day. */
+  exitDate?: string;
   entryTime: string;
   exitTime: string;
   symbol: string;
@@ -226,6 +253,8 @@ export interface Trade {
   exitInstant?: string;
   /** Zone the *source* timestamps were written in — provenance, not a reader. */
   sourceZone?: string;
+  /** True when Replay civil timestamps have neither a usable source nor Journal timezone. */
+  timeUnresolved?: boolean;
   /** How the instants above were pinned (`InstantSource`). */
   instantSource?: InstantSource;
   /** Manual session classification (newyork|london|asia|off). Absent/empty = auto-detect from entry time. */
@@ -256,7 +285,7 @@ export interface Trade {
    * Absent on notes written before this key existed: an old note is not
    * evidence of either, and the journal does not back-fill a guess.
    */
-  origin?: "manual" | "broker";
+  origin?: "manual" | "broker" | "replay";
   /**
    * How this record came to exist — a finer provenance than `origin`, and the
    * one the copy engine and the importer speak:
@@ -270,7 +299,7 @@ export interface Trade {
    * any of the three, and the journal does not back-fill a guess. Readers fall
    * back to the current behaviour (`origin` + `copyOrigin`).
    */
-  dataSource?: "broker" | "manual" | "reconstructed";
+  dataSource?: "broker" | "manual" | "reconstructed" | "replay";
   /** Manually marked as reviewed (batch action), independent of the checklist. */
   reviewed?: boolean;
   /** Explicit declaration that relevant review context was unavailable. */
@@ -295,6 +324,8 @@ export interface Trade {
    * engine need no special case — the fills are the detail underneath.
    */
   fills?: TradeFill[];
+  /** Original execution facts retained after a manual correction. */
+  executionCorrection?: TradeExecutionCorrection;
 
   // ---- copy trading (this note is a "leg" when isCopiedTrade is true) ----
   isCopiedTrade?: boolean;

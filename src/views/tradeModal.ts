@@ -5,6 +5,7 @@ import { updateTradeFields } from "../storage";
 import { fmtMoney2, fmtPrice } from "../tz";
 import { attachTip } from "../lib/tip";
 import { hasPrint } from "../lib/review";
+import { resolveTradeScreenshotFile, tradeScreenshotEntries } from "../lib/tradeScreenshotResolver";
 
 /**
  * Big, focused pop-up for viewing + editing a single trade.
@@ -31,11 +32,7 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
   const left = cols.createDiv({ cls: "tj-trade-modal-left" });
   // The array is the source of truth; the legacy scalar is the fallback, and
   // "added" is a present-but-unrenderable sentinel.
-  const arrayFiles = (trade.screenshots ?? []).map((s) => (s.file ?? "").trim()).filter(Boolean);
-  const legacy = (trade.screenshot || "").trim();
-  const legacySentinel = legacy.toLowerCase() === "added";
-  const legacyParts = legacy && !legacySentinel ? legacy.split(/[,;\n]+/).map((p) => p.trim()).filter(Boolean) : [];
-  const links = arrayFiles.length ? arrayFiles : legacyParts;
+  const links = tradeScreenshotEntries(trade).map(({ entry }) => entry.file);
   if (!hasPrint(trade)) {
     left.createDiv({ cls: "tj-empty", text: "No print/screenshot attached yet." });
   } else if (!links.length) {
@@ -43,7 +40,11 @@ export function openTradeModal(plugin: TradebookPlugin, trade: Trade): void {
   } else {
     let foundAny = false;
     for (const link of links) {
-      const resolved = resolveImage(plugin, link, trade.date);
+      const resolvedFile = resolveTradeScreenshotFile(plugin, trade, link);
+      let resolved: string | null = null;
+      if (resolvedFile) {
+        try { resolved = plugin.app.vault.getResourcePath(resolvedFile); } catch { /* stale during vault shutdown */ }
+      }
       if (resolved) {
         foundAny = true;
         const img = left.createEl("img", { attr: { src: resolved, alt: "trade screenshot" }, cls: "tj-trade-modal-img" });
@@ -147,31 +148,4 @@ function saveTradeField(plugin: TradebookPlugin, trade: Trade, key: string, valu
     console.error("[tradebook] failed to save trade field:", err);
     new Notice("Could not save — check the file still exists.");
   });
-}
-
-function resolveImage(plugin: TradebookPlugin, link: string, date?: string): string | null {
-  const raw = (link || "").trim();
-  if (!raw) return null;
-  const inner = raw.replace(/^\[\[/, "").replace(/\]\]$/, "");
-  const target = inner.split("|")[0].split("#")[0].trim();
-  const candidates = [raw, target, ...plugin.attachmentCandidates(target, date)];
-  for (const c of candidates) {
-    try {
-      const file = plugin.app.vault.getAbstractFileByPath(c);
-      if (file instanceof TFile && file.extension && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(file.extension.toLowerCase())) {
-        return plugin.app.vault.getResourcePath(file);
-      }
-    } catch {
-      // ignore (mock environments may lack getResourcePath)
-    }
-  }
-  try {
-    const f = plugin.app.vault.getAbstractFileByPath(target);
-    if (f instanceof TFile && ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes((f.extension || "").toLowerCase())) {
-      return plugin.app.vault.getResourcePath(f);
-    }
-  } catch {
-    // ignore
-  }
-  return null;
 }
