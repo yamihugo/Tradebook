@@ -60,6 +60,7 @@ mistaken for a missing feature.
   - Each trade number must be one entry and one exit. Any other shape is left out and counted in the import receipt instead of being reconstructed.
   - The file's commission and net P&L are held for review rather than applied, so a Replay trade is not written silently with a cost treatment that has not been checked.
   - A Replay stamp that cannot be resolved to an instant is stored as unresolved and left out of the day, hour and session figures rather than placed on a guessed one.
+  - Replay comes in on its own. A selection that mixes a Replay file with broker reports or cash history is refused, so every trade keeps one clear source.
 
 ### How to export from supported platforms
 
