@@ -5,7 +5,7 @@
 // a timeline rail with one dot per trade, columns aligned so figures can be
 // compared straight down the page.
 
-import { TFile, setIcon } from "obsidian";
+import { setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { Trade, TradeFill } from "../types";
 import { fmtMoney, fmtMoneyAbs, fmtPrice } from "../tz";
@@ -17,6 +17,7 @@ import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass } from "
 import { legBaseKey } from "./copy";
 import { netPnl } from "./fees";
 import { holdMinutesOf, tradeDayInZone, tradeEntryTimeInZone } from "./instant";
+import { resolveFirstTradeScreenshot } from "./tradeScreenshotResolver";
 
 /** The Journal Timezone a row is read in. Empty means "as recorded". */
 const zoneOf = (plugin?: TradebookPlugin): string => plugin?.settings?.timeZone ?? "";
@@ -84,7 +85,8 @@ function fmtDuration(seconds: number): string {
  * range rule, one answer for the same two stamps. No entry/exit to read, or an
  * out-of-range clock, reads as an em dash — never a guess at midnight.
  */
-export function holdFmt(entryTime?: string, exitTime?: string): string {
+export function holdFmt(entryTime?: string, exitTime?: string, timeUnresolved = false): string {
+  if (timeUnresolved) return "—";
   const minutes = holdMinutesOf({ entryTime, exitTime });
   return minutes === null ? "—" : fmtDuration(Math.round(minutes * 60));
 }
@@ -115,28 +117,9 @@ export function tradeR(t: Trade): number | null {
 
 /** The first print attached to a trade, as a resource URL (null when there is none). */
 export function shotUrl(plugin: TradebookPlugin, t: Trade): string | null {
-  const raw = (t.screenshot || "").trim();
-  if (!raw || raw.toLowerCase() === "added") return null;
-  const first = raw.split(/[,;\n]+/)[0].trim();
-  const inner = first.replace(/^\[\[/, "").replace(/\]\]$/, "");
-  const target = inner.split("|")[0].split("#")[0].trim();
-  const folder = plugin.getTradesFolder();
-  const candidates = [first, target, ...plugin.attachmentCandidates(target, t.date), `${folder}/${target}`];
-  for (const c of candidates) {
-    try {
-      const f = plugin.app.vault.getAbstractFileByPath(c);
-      if (f instanceof TFile) return plugin.app.vault.getResourcePath(f);
-    } catch {
-      /* the path may simply not exist */
-    }
-  }
-  try {
-    const f = plugin.app.metadataCache.getFirstLinkpathDest(target, t.id || "");
-    if (f instanceof TFile) return plugin.app.vault.getResourcePath(f);
-  } catch {
-    /* metadata cache can be empty during startup */
-  }
-  return null;
+  const file = resolveFirstTradeScreenshot(plugin, t);
+  if (!file) return null;
+  try { return plugin.app.vault.getResourcePath(file); } catch { return null; }
 }
 
 export interface TradeColumn {
@@ -821,7 +804,7 @@ export function renderTradeTable(host: HTMLElement, opts: TradeTableOpts): void 
           cell.setText(fmtPrice(f.price));
           break;
         case "hold":
-          cell.setText(set.entries.includes(f) ? "—" : holdFmt(set.firstEntryTime, f.time));
+          cell.setText(set.entries.includes(f) ? "—" : holdFmt(set.firstEntryTime, f.time, t.timeUnresolved));
           break;
         case "r": {
           if (!set.exits.includes(f) || !Number.isFinite(f.pnl) || riskPerContract <= 0) {

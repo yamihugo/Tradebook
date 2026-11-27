@@ -664,6 +664,7 @@ export function buildLeg(base: Trade, account: PropAccount, cfg: CopyConfigEntry
     // group with no timeline to speak of.
     entryInstant: base.entryInstant,
     exitInstant: base.exitInstant,
+    timeUnresolved: base.timeUnresolved,
     sourceZone: base.sourceZone,
     instantSource: base.instantSource,
     symbol,

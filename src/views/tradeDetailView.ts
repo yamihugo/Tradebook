@@ -1,11 +1,13 @@
 import { ItemView, Notice, TFile, normalizePath, setIcon, type WorkspaceLeaf } from "obsidian";
 import type TradebookPlugin from "../main";
-import { Trade } from "../types";
+import type { Trade, TradeFill } from "../types";
+import type { ExecutionEditCandidate } from "../lib/executionEdits";
+import { applyExecutionEdits } from "../lib/executionEdits";
 import { renderAppShell } from "../ui";
-import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice } from "../tz";
-import { formatDate } from "../lib/dates";
+import { fmtMoney, fmtMoney2, fmtMoneyAbs, fmtPrice, zoneShortLabel } from "../tz";
+import { formatDate, mountDateField, parseDateInput } from "../lib/dates";
 import { legBaseKey } from "../lib/copy";
-import { setTradeMistakeTags, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots, setTradeStrategy } from "../storage";
+import { setTradeMistakeTags, updateTradeExecutions, updateTradeArrayFields, updateTradeFields, updateTradeScreenshots, setTradeStrategy } from "../storage";
 import { normalizeTags, reviewOptions, reviewTagGroups } from "../lib/tags";
 
 /**
@@ -24,7 +26,18 @@ function isScreenshotEntry(entry: { file?: unknown } | null | undefined): boolea
   return typeof entry?.file === "string" && entry.file.trim().length > 0;
 }
 
+/** Keep a manual execution's civil clock when preparing a price-only correction. */
+function manualExecutionClock(value: unknown): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  const match = /^(?:(?:\d{4}-\d{2}-\d{2})[T ])?(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/.exec(text);
+  if (!match) return "";
+  const [hour, minute, second] = [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+  if (hour > 23 || minute > 59 || second > 59) return "";
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:${String(second).padStart(2, "0")}`;
+}
+
 import { reviewHtmlToMarkdown, reviewMarkdownToHtml } from "../lib/reviewRichText";
+import { resolveTradeScreenshotFile, tradeScreenshotEntries } from "../lib/tradeScreenshotResolver";
 
 import { PrintAnnotator } from "./printAnnotator";
 import {
@@ -36,12 +49,15 @@ import {
 } from "../lib/printGroupAttach";
 import { type PrintGroup } from "../lib/printGroup";
 import { attachTip } from "../lib/tip";
-import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, toneClass, tradePoints } from "../lib/fills";
+import { fillIndex, fillLabel, fillSet, FillSet, isBreakEven, maxExitPoints, toneClass, tradePoints } from "../lib/fills";
+import { maxExitR } from "../lib/risk";
 import { knownFuturesSpec } from "../futures";
 import { sessionOf } from "../lib/sessions";
 import { holdFmtOf } from "../lib/tradeTable";
 import { recordedRisk } from "../lib/risk";
 import { mountDropdown, mountMultiDropdown, DropdownItem, MultiDropdown } from "../lib/dropdown";
+import { mountManualTimeInput, parseManualTimeInput } from "./manualTimeInput";
+import { closeCalendar } from "../lib/calendar";
 import { freeNumeric } from "../lib/numeric";
 import { strategiesOf } from "../lib/strategySelection";
 import { feeForTrade, netPnl, round2, splitFeeTotal } from "../lib/fees";
@@ -78,6 +94,17 @@ export class TradeDetailView extends ItemView {
   setupOptions: string[] = [];
   /** Pending debounced review saves, keyed by field — flushed on switch/close. */
   private _saveTimers: Record<string, { timer: number; run: () => Promise<void> }> = {};
+  /** Review writes already running, so close/update cannot abandon them. */
+  private _pendingReviewWrites = new Set<Promise<void>>();
+  /** A manual execution correction must finish before switching or closing this view. */
+  private _pendingExecutionWrite: Promise<void> | null = null;
+  private _topPriceCleanup: (() => void) | null = null;
+  /** Serialize review-field writes so concurrent frontmatter updates cannot overwrite each other. */
+  private _reviewWriteQueue: Promise<void> = Promise.resolve();
+  /** Failed writes remain retryable; a later edit for the same field replaces its failed value. */
+  private _failedReviewWrites = new Map<string, () => Promise<void>>();
+  /** Visible save state for the currently rendered review editors. */
+  private _reviewSaveStatusNodes = new Map<string, HTMLElement>();
   /** Last local write; the global vault invalidation should not redraw this view immediately. */
   private _lastLocalWriteAt = 0;
   private _refreshRetry: number | null = null;
@@ -166,9 +193,12 @@ export class TradeDetailView extends ItemView {
   }
 
   async setTrade(trade: Trade): Promise<void> {
-    // Any pending review edit belongs to the trade we are leaving — write it
-    // before the view switches, or it is lost to the debounce.
-    this.flushReviewSaves();
+    // Do not switch records until the previous trade's pending review writes settle.
+    if (!await this.flushReviewSaves()) {
+      new Notice("Review save failed. This trade stays open so you can retry or copy the text.");
+      return;
+    }
+    if (this._pendingExecutionWrite) await this._pendingExecutionWrite;
     this._activePrint = 0;
     this.trade = trade;
     // Recompute the derived realized-points value from actual fills/scalars;
@@ -216,7 +246,10 @@ export class TradeDetailView extends ItemView {
   }
 
   async onClose(): Promise<void> {
-    this.flushReviewSaves();
+    if (!await this.flushReviewSaves()) {
+      new Notice("A review edit could not be saved before closing. Check the note and recover the text if needed.");
+    }
+    if (this._pendingExecutionWrite) await this._pendingExecutionWrite;
     if (this._refreshRetry !== null) window.clearTimeout(this._refreshRetry);
     this._refreshRetry = null;
     window.removeEventListener("keydown", this.keydownHandler);
@@ -237,7 +270,7 @@ export class TradeDetailView extends ItemView {
     const active = this.contentEl.ownerDocument.activeElement;
     const editing = active instanceof HTMLElement && this.contentEl.contains(active) &&
       (active.isContentEditable || active.tagName === "INPUT" || active.tagName === "TEXTAREA");
-    if (editing || Object.keys(this._saveTimers).length || Date.now() - this._lastLocalWriteAt < 1500) {
+    if (editing || Object.keys(this._saveTimers).length || this._pendingExecutionWrite || Date.now() - this._lastLocalWriteAt < 1500) {
       if (this._refreshRetry !== null) window.clearTimeout(this._refreshRetry);
       this._refreshRetry = window.setTimeout(() => { this._refreshRetry = null; if (this.trade?.id === id) void this.refresh(); }, 1600);
       return;
@@ -253,15 +286,13 @@ export class TradeDetailView extends ItemView {
   }
   async prev(): Promise<void> {
     if (this.index <= 0) return;
-    this.index -= 1;
-    const t = this.allTrades[this.index];
+    const t = this.allTrades[this.index - 1];
     if (t) await this.setTrade(t);
   }
 
   async next(): Promise<void> {
     if (this.index < 0 || this.index >= this.allTrades.length - 1) return;
-    this.index += 1;
-    const t = this.allTrades[this.index];
+    const t = this.allTrades[this.index + 1];
     if (t) await this.setTrade(t);
   }
 
@@ -299,6 +330,17 @@ export class TradeDetailView extends ItemView {
           return captured;
         })()
       : null;
+    const richEditorStates = this._renderedTradeId === this.trade?.id
+      ? Array.from(root.querySelectorAll<HTMLElement>(".tj-td-rich-editor"))
+        .map((area) => ({
+          key: area.getAttribute("data-review-field"),
+          markdown: reviewHtmlToMarkdown(area),
+          active: document.activeElement === area,
+          scrollTop: area.scrollTop,
+          scrollLeft: area.scrollLeft,
+        }))
+        .filter(({ key, active }) => !!key && (active || !!this._saveTimers[key as string]))
+      : [];
     const editorStates = this._renderedTradeId === this.trade?.id
       ? Array.from(root.querySelectorAll<HTMLTextAreaElement>(".tj-td-textarea"))
       .map((area) => ({
@@ -317,6 +359,7 @@ export class TradeDetailView extends ItemView {
         active,
       }))
       : [];
+    this._reviewSaveStatusNodes.clear();
     root.empty();
     root.addClass("tj-trade-detail");
     const main = renderAppShell(root, this.plugin, "");
@@ -417,15 +460,17 @@ export class TradeDetailView extends ItemView {
     refresh.addEventListener("click", () => void (async () => {
       const currentId = this.trade?.id;
       if (!currentId) return;
+      if (!await this.flushReviewSaves()) {
+        new Notice("Review save failed. The note was not reloaded so your edit stays open.");
+        return;
+      }
       this.plugin.clearTradeCache();
       const fresh = await this.loadScope();
       this.allTrades = fresh;
       const found = fresh.find((x) => x.id === currentId);
       if (found) {
-        this.trade = found;
-        this.index = fresh.findIndex((x) => x.id === currentId);
+        await this.setTrade(found);
       }
-      this.render();
     })());
     const delBtn = headActions.createEl("button", {
       cls: "tj-iconbtn",
@@ -470,24 +515,29 @@ export class TradeDetailView extends ItemView {
     // explicit statement; `origin` is the legacy fallback for notes written
     // before it existed. A reconstructed copy is the one that must never read
     // as a broker fill.
-    const source = t.dataSource ?? (t.origin === "broker" ? "broker" : t.origin === "manual" ? "manual" : undefined);
+    const source = t.dataSource ?? (t.origin === "broker" ? "broker" : t.origin === "manual" ? "manual" : t.origin === "replay" ? "replay" : undefined);
     if (source) {
       const origin = heroTitle.createSpan({
-        cls: "tj-td-origin" + (source === "reconstructed" ? " is-reconstructed" : ""),
+        cls: "tj-td-origin" + (source === "reconstructed" ? " is-reconstructed" : source === "replay" ? " is-replay" : ""),
       });
-      setIcon(origin, source === "broker" ? "download" : source === "reconstructed" ? "sparkles" : "pencil");
+      setIcon(origin, source === "broker" ? "download" : source === "reconstructed" ? "sparkles" : source === "replay" ? "play" : "pencil");
+      if (source === "replay") origin.createSpan({ cls: "tj-td-origin-label", text: "Replay · simulated" });
       attachTip(origin, {
         title:
           source === "broker"
             ? "Written by an import"
             : source === "reconstructed"
             ? "Reconstructed copy"
+            : source === "replay"
+            ? "TradingView Replay · simulated"
             : "Recorded by hand",
         sub:
           source === "broker"
             ? "This trade came in from the platform's own CSV export."
             : source === "reconstructed"
             ? "Generated by the copy engine from the configuration — a model of the leader's trade, not the follower's own fill."
+            : source === "replay"
+            ? "Imported from a simulated TradingView Replay ledger. This is not a broker fill or live trade."
             : "This trade was typed into the journal.",
       });
     }
@@ -510,7 +560,7 @@ export class TradeDetailView extends ItemView {
       metric.createSpan({ cls: "tj-td-hero-v" + (tone ? " " + tone : ""), text: value });
       return metric;
     };
-    const heroPts = t.pnlPoints;
+    const heroPts = maxExitPoints(t);
     const heroPtsStr = typeof heroPts === "number" && Number.isFinite(heroPts)
       ? `${heroPts >= 0 ? "+" : ""}${heroPts.toFixed(2)} pts`
       : "—";
@@ -667,23 +717,39 @@ export class TradeDetailView extends ItemView {
     const eeRow = execFacts.createDiv({ cls: "tj-td-flip-row tj-td-exec-wide" });
     eeRow.dataset.execLabel = "Entry → Exit";
     eeRow.createSpan({ cls: "tj-td-flip-key", text: "Entry → Exit" });
-    const eeVal = eeRow.createSpan({ cls: "tj-td-flip-val" });
-    eeVal.createSpan({ cls: "tj-td-ee-part", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—" });
+    const eeVal = eeRow.createSpan({ cls: "tj-td-flip-val tj-td-top-prices" });
+    const entryButton = eeVal.createEl("button", { cls: "tj-td-ee-part tj-td-top-price", text: t.entryPrice ? fmtPrice(t.entryPrice) : "—", attr: { type: "button", "aria-label": "Edit entry price" } });
     eeVal.createSpan({ cls: "tj-td-ee-arrow", text: " → " });
-    eeVal.createSpan({ cls: "tj-td-ee-part", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—" });
-    attachTip(eeVal, { title: "Recorded executions", sub: "These prices come from the executions. Correct original manual executions below; imported executions remain authoritative." });
+    const entrySideForEdit = t.direction === "long" ? "buy" : "sell";
+    const exitExists = fillSet(t).fills.some((fill) => fill.side !== entrySideForEdit);
+    const exitButton = eeVal.createEl("button", { cls: "tj-td-ee-part tj-td-top-price", text: t.exitPrice ? fmtPrice(t.exitPrice) : "—", attr: { type: "button", "aria-label": "Edit exit price" } });
+    const topEditable = !t.isCopiedTrade && t.dataSource !== "reconstructed" && !t.supersededBy;
+    entryButton.disabled = !topEditable || fillSet(t).entries.length === 0;
+    exitButton.disabled = !topEditable || !exitExists;
+    entryButton.addEventListener("click", () => this.mountTopPriceEditor(entryButton, t, entrySideForEdit));
+    exitButton.addEventListener("click", () => this.mountTopPriceEditor(exitButton, t, entrySideForEdit === "buy" ? "sell" : "buy"));
 
     // ---- Gross result and R (gross P&L over the recorded risk basis) ----
     const rMultiple = Number.isFinite(t.pnl) && riskDollar !== null && riskDollar > 0 ? t.pnl / riskDollar : null;
     const rTone = rMultiple !== null ? (rMultiple >= 0 ? "pos" : "neg") : "";
     row(execRisk, "Gross P&L", Number.isFinite(t.pnl) ? fmtMoney2(t.pnl) : "—", Number.isFinite(t.pnl) ? (t.pnl >= 0 ? "pos" : "neg") : "");
-    const rRow = execRisk.createDiv({ cls: "tj-td-flip-row" });
+    const maxR = maxExitR(t);
+    const rRow = execRisk.createDiv({ cls: "tj-td-flip-row tj-td-r-pair" });
     rRow.dataset.execLabel = "R";
-    rRow.createSpan({ cls: "tj-td-flip-key", text: "R" });
-    rRow.createSpan({
+    rRow.createSpan({ cls: "tj-td-flip-key", text: "R (AVG) | R (MAX)" });
+    const rValues = rRow.createSpan({ cls: "tj-td-flip-val tj-td-r-values" });
+    rValues.createSpan({
       cls: "tj-td-flip-val" + (rTone ? " " + rTone : "") + (rMultiple !== null ? " is-hero" : ""),
+      attr: { "data-r-kind": "avg" },
       text: rMultiple !== null ? `${rMultiple >= 0 ? "+" : ""}${rMultiple.toFixed(2)}R` : "—",
     });
+    rValues.createSpan({ text: " | ", attr: { "aria-hidden": "true" } });
+    rValues.createSpan({
+      cls: "tj-td-flip-val" + (maxR !== null ? maxR >= 0 ? " pos is-hero" : " neg is-hero" : ""),
+      attr: { "data-r-kind": "max" },
+      text: maxR !== null ? `${maxR >= 0 ? "+" : ""}${maxR.toFixed(2)}R` : "—",
+    });
+    attachTip(rRow, { title: "R (AVG) | R (MAX)", sub: "AVG: realized gross result / initial risk. MAX: furthest executed exit / initial risk distance." });
     execRisk.createDiv({ cls: "tj-td-exec-subseparator" });
 
     // ---- Contracts (derived) ----
@@ -851,7 +917,7 @@ export class TradeDetailView extends ItemView {
         paintStars(next);
         setStarHover(-1);
         this.refreshReviewHeader();
-        this.debounceReview("rating", () => this.saveField("rating", String(next), ratingTradeId), 400);
+        this.debounceReview("rating", () => this.persistTradeField("rating", String(next), ratingTradeId), 400);
       });
       starEls.push(star);
     }
@@ -905,22 +971,17 @@ export class TradeDetailView extends ItemView {
         const id = this.trade?.id;
         if (!id) return Promise.resolve();
         const file = this.app.vault.getAbstractFileByPath(id);
-        if (!(file instanceof TFile)) return Promise.resolve();
+        if (!(file instanceof TFile)) return this.queueReviewWrite(key, async () => { throw new Error("Trade note no longer exists."); });
         const run = async () => {
-          try {
-            this._lastLocalWriteAt = Date.now();
-            if (mistake) await setTradeMistakeTags(this.app, file, tags);
-            else await updateTradeArrayFields(this.app, file, { psychology_tags: tags });
-          } catch (err) {
-            console.error("[tradebook] failed to save tags:", err);
-            new Notice("Could not save tags — check the file still exists.");
-          }
+          this._lastLocalWriteAt = Date.now();
+          if (mistake) await setTradeMistakeTags(this.app, file, tags);
+          else await updateTradeArrayFields(this.app, file, { psychology_tags: tags });
         };
         if (immediate) {
           const pending = this._saveTimers[key];
           if (pending) window.clearTimeout(pending.timer);
           delete this._saveTimers[key];
-          return run();
+          return this.queueReviewWrite(key, run);
         }
         this.debounceReview(key, run);
         return Promise.resolve();
@@ -1214,6 +1275,11 @@ export class TradeDetailView extends ItemView {
       const fieldLabel = group.createDiv({ cls: "tj-td-field-label" });
       fieldLabel.createSpan({ text: label });
       if (optional) fieldLabel.createSpan({ cls: "tj-td-char-count", text: "Optional" });
+      const saveStatus = fieldLabel.createSpan({
+        cls: "tj-td-review-save-status",
+        attr: { role: "status", "aria-live": "polite" },
+      });
+      this._reviewSaveStatusNodes.set(key, saveStatus);
       const toolbar = group.createDiv({ cls: "tj-td-markdown-toolbar", attr: { "aria-label": "Formatting" } });
       const area = group.createDiv({
         cls: "tj-td-rich-editor",
@@ -1249,12 +1315,14 @@ export class TradeDetailView extends ItemView {
         const val = reviewHtmlToMarkdown(area);
         this.trade![key] = val;
         onInput?.(val);
+        saveStatus.setText("Saving…");
+        saveStatus.classList.remove("is-error");
         this.debounceReview(key, async () => {
-          await this.saveField(key, val, tradeId);
+          await this.persistTradeField(key, val, tradeId);
           this.refreshReviewHeader();
         });
       });
-      area.addEventListener("blur", () => this.flushReviewSaves());
+      area.addEventListener("blur", () => { void this.flushReviewSaves(); });
     };
     reviewTextField("review_plan", "Plan / context", "What did you intend before or during the trade?", true);
     const manualPlan = optionalReviewGroup.createDiv({ cls: "tj-td-field tj-td-manual-plan" });
@@ -1343,7 +1411,7 @@ export class TradeDetailView extends ItemView {
       true,
       (value) => {
         t.review_post_exit_source = value.trim() || typeof t.review_post_exit_points === "number" ? "manual" : undefined;
-        this.debounceReview("review_post_exit_source", () => this.saveField("review_post_exit_source", t.review_post_exit_source ?? "", postExitTradeId), 400);
+        this.debounceReview("review_post_exit_source", () => this.persistTradeField("review_post_exit_source", t.review_post_exit_source ?? "", postExitTradeId), 400);
       },
     );
 
@@ -1641,6 +1709,16 @@ export class TradeDetailView extends ItemView {
       nextEditor.scrollLeft = editorState.scrollLeft;
       if (editorState.active) nextEditor.focus({ preventScroll: true });
     }
+    for (const editorState of richEditorStates) {
+      const nextEditor = Array.from(root.querySelectorAll<HTMLElement>(".tj-td-rich-editor"))
+        .find((area) => area.getAttribute("data-review-field") === editorState.key);
+      if (!nextEditor) continue;
+      const parsedReview = new DOMParser().parseFromString(reviewMarkdownToHtml(editorState.markdown), "text/html");
+      nextEditor.replaceChildren(...Array.from(parsedReview.body.childNodes).map((node) => document.importNode(node, true)));
+      nextEditor.scrollTop = editorState.scrollTop;
+      nextEditor.scrollLeft = editorState.scrollLeft;
+      if (editorState.active) nextEditor.focus({ preventScroll: true });
+    }
     // Retained focus for the non-textarea review controls. The captured control
     // may have been rebuilt or removed for another trade, so only restore when
     // the element still exists in this render. No values are replayed.
@@ -1758,7 +1836,7 @@ export class TradeDetailView extends ItemView {
     const box = host.createDiv({ cls: "tj-td-panel tj-td-execs" });
     const head = box.createDiv({ cls: "tj-td-panel-head tj-td-execs-head" });
     head.createDiv({ cls: "tj-td-panel-title", text: "Executions" });
-    head.createSpan({
+    const countNode = head.createSpan({
       cls: "tj-td-execs-count",
       text: set.isMulti
         ? `${set.entries.length} in · ${set.exits.length} out`
@@ -1767,10 +1845,11 @@ export class TradeDetailView extends ItemView {
 
     const fillCosts = set.fills.reduce((s, f) => s + (f.fees || 0), 0);
 
-    const table = box.createEl("table", { cls: "tj-td-execs-table" });
+    const tableWrap = box.createDiv({ cls: "tj-td-execs-table-wrap" });
+    const table = tableWrap.createEl("table", { cls: "tj-td-execs-table" });
     const headRow = table.createEl("thead").createEl("tr");
     for (const col of [
-      { label: "Time", align: "" }, { label: "Side", align: "" },
+      { label: "Date / time", align: "" }, { label: "Side", align: "" },
       { label: "Qty", align: "r" }, { label: "Price", align: "r" },
       { label: "Points/contract", align: "r" }, { label: "P&L", align: "r" },
       { label: "Fees", align: "r" }, { label: "Fill", align: "" },
@@ -1783,11 +1862,15 @@ export class TradeDetailView extends ItemView {
     for (const f of set.fills) {
       const isExit = set.exits.includes(f);
       const row = tbody.createEl("tr", { cls: "tj-td-execrow" + (isExit ? " is-exit" : " is-entry") });
-      row.createEl("td", { text: f.time || "—" });
+      const executionDate = f.date ?? (isExit ? t.exitDate ?? t.date : t.date);
+      const dateTimeCell = row.createEl("td");
+      dateTimeCell.createSpan({ text: executionDate || "—", attr: { "data-execution-field": "date" } });
+      dateTimeCell.createSpan({ text: " " });
+      dateTimeCell.createSpan({ text: f.time || "—", attr: { "data-execution-field": "time" } });
       const sideCell = row.createEl("td");
-      sideCell.createSpan({ cls: "tj-tbl-fill-side", text: f.side });
-      row.createEl("td", { cls: "r", text: `${f.qty}` });
-      row.createEl("td", { cls: "r", text: fmtPrice(f.price) });
+      sideCell.createSpan({ cls: "tj-tbl-fill-side", text: f.side, attr: { "data-execution-field": "side" } });
+      row.createEl("td", { cls: "r", text: `${f.qty}`, attr: { "data-execution-field": "qty" } });
+      row.createEl("td", { cls: "r", text: fmtPrice(f.price), attr: { "data-execution-field": "price" } });
       const be = isExit && set.explicit && isBreakEven(f, set.avgEntry, pointValue);
       // Exit points use that fill's matched-lot gross P&L, divided by its own
       // contracts and point value. This keeps scale-ins and break-even exits
@@ -1842,32 +1925,649 @@ export class TradeDetailView extends ItemView {
       note.setText("Single fill from entry to exit. Add fills to your trade note for a detailed breakdown.");
     }
     if (set.openQty > 0) attachTip(note, { title: `${set.openQty} contracts still open`, sub: "The open part counts nowhere until it is closed." });
+    const canCorrectExecutions = !t.isCopiedTrade && t.dataSource !== "reconstructed" && !t.supersededBy && set.fills.length > 0;
+    if (canCorrectExecutions) this.renderExecutionEditor(box, head, table, t, set, countNode);
+  }
+
+  private renderExecutionEditor(
+    box: HTMLElement,
+    head: HTMLElement,
+    table: HTMLTableElement,
+    trade: Trade,
+    set: FillSet,
+    countNode: HTMLElement,
+  ): void {
+    const actions = head.createDiv({ cls: "tj-td-execs-actions" });
+    const editButton = actions.createEl("button", {
+      cls: "tj-btn tj-td-execs-edit",
+      text: "Edit executions",
+      attr: { type: "button", "aria-expanded": "false" },
+    });
+    const savedCount = countNode.textContent ?? "";
+    const savedTable = table.cloneNode(true) as HTMLTableElement;
+    const noteStates = Array.from(box.querySelectorAll<HTMLElement>(".tj-td-execs-note"))
+      .map((note) => ({ note, hidden: note.hidden }));
+    const correctionZone = this.plugin.settings.timeZone || trade.timezone || trade.sourceZone || "";
+    const correctionZoneLabel = zoneShortLabel(correctionZone) || correctionZone;
+    const entrySide = trade.direction === "long" ? "buy" : "sell";
+
+    type DraftExecution = {
+      original?: TradeFill;
+      originalIndex?: number;
+      isNew: boolean;
+      date: string;
+      time: string;
+      side: TradeFill["side"];
+      qty: string;
+      price: string;
+    };
+    const makeDrafts = (): DraftExecution[] => set.fills.map((fill, originalIndex) => {
+      const isExit = set.exits.includes(fill);
+      return {
+        original: fill,
+        originalIndex,
+        isNew: false,
+        date: fill.date ?? (isExit ? trade.exitDate ?? trade.date : trade.date),
+        time: manualExecutionClock(fill.time),
+        side: fill.side,
+        qty: String(fill.qty),
+        price: String(fill.price),
+      };
+    });
+    let drafts = makeDrafts();
+    const status = box.createDiv({
+      cls: "tj-td-execution-edit-status",
+      attr: { role: "status", "aria-live": "polite" },
+    });
+    status.hidden = true;
+    let addButton: HTMLButtonElement | null = null;
+    let cancelButton: HTMLButtonElement | null = null;
+    let saveButton: HTMLButtonElement | null = null;
+    let activeCell: HTMLElement | null = null;
+    const invalidFields = new Set<string>();
+    const invalidText = new Map<string, string>();
+    const fieldKey = (index: number, field: string): string => `${index}:${field}`;
+    let latestValidPreview = trade;
+
+    const candidates = (): ExecutionEditCandidate[] => drafts.map((draft) => ({
+      ...(draft.originalIndex !== undefined ? { originalIndex: draft.originalIndex } : {}),
+      fill: {
+        ...(draft.original ?? {}),
+        side: draft.side,
+        date: draft.date,
+        time: draft.time,
+        qty: draft.qty.trim() ? Number(draft.qty) : Number.NaN,
+        price: draft.price.trim() ? Number(draft.price) : Number.NaN,
+      },
+    }));
+
+    const paintPreview = (preview: Trade): void => {
+      const previewSet = fillSet(preview);
+      const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.is-total)"));
+      const pointValue = knownFuturesSpec(trade.symbol)?.pointValue ?? 0;
+      const previewFills = preview.fills ?? [];
+      previewSet.fills.forEach((fill) => {
+        const candidateIndex = previewFills.indexOf(fill);
+        const draft = drafts[candidateIndex];
+        const identity = draft?.originalIndex !== undefined ? `saved:${draft.originalIndex}` : `draft:${candidateIndex}`;
+        const row = rows.find((candidate) => candidate.dataset.executionIdentity === identity);
+        if (!row) return;
+        const dateCell = row.cells[0];
+        const fields = dateCell.querySelectorAll<HTMLElement>("[data-execution-field]");
+        const dateNode = fields[0];
+        const timeNode = fields[1];
+        const sideNode = row.cells[1].querySelector<HTMLElement>("[data-execution-field]");
+        const qtyNode = row.cells[2];
+        const priceNode = row.cells[3];
+        const fieldsByKey: Record<string, HTMLElement | null> = {
+          date: dateNode, time: timeNode, side: sideNode, qty: qtyNode, price: priceNode,
+        };
+        for (const [key, node] of Object.entries(fieldsByKey)) {
+          if (!node || (activeCell && activeCell.contains(node))) continue;
+          const invalid = invalidFields.has(fieldKey(candidateIndex, key));
+          node.setAttribute("aria-invalid", String(invalid));
+          if (invalid) {
+            node.setText(invalidText.get(fieldKey(candidateIndex, key)) || "—");
+            continue;
+          }
+          if (key === "date") node.setText(draft.date || "—");
+          else if (key === "time") node.setText(draft.time || "—");
+          else if (key === "side") node.setText(draft.side);
+          else if (key === "qty") node.setText(draft.qty || "—");
+          else if (key === "price") node.setText(draft.price.trim() ? fmtPrice(Number(draft.price)) : "—");
+        }
+        row.classList.toggle("is-exit", previewSet.exits.includes(fill));
+        row.classList.toggle("is-entry", !previewSet.exits.includes(fill));
+        const isExit = previewSet.exits.includes(fill);
+        const breakeven = isExit && previewSet.explicit && isBreakEven(fill, previewSet.avgEntry, pointValue);
+        const points = breakeven ? 0 : isExit && Number.isFinite(fill.pnl) && pointValue > 0 && fill.qty > 0
+          ? (fill.pnl as number) / (pointValue * fill.qty)
+          : !previewSet.explicit && isExit && previewSet.avgEntry > 0
+          ? preview.direction === "long" ? fill.price - previewSet.avgEntry : previewSet.avgEntry - fill.price
+          : NaN;
+        row.cells[4].setText(Number.isFinite(points) ? `${points >= 0 ? "+" : ""}${points.toFixed(2)}` : "—");
+        const pnlCell = row.cells[5];
+        pnlCell.className = "r tj-tbl-pnl";
+        if (Number.isFinite(fill.pnl)) {
+          pnlCell.addClass(toneClass(fill.pnl));
+          pnlCell.setText(fill.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(fill.pnl as number));
+        } else pnlCell.setText("—");
+        row.cells[6].setText(fill.fees ? `$${fill.fees.toFixed(2)}` : "—");
+        const label = row.cells[7].querySelector<HTMLElement>(".tj-tbl-fill-tag");
+        if (label) {
+          label.setText(fillLabel(fill, fillIndex(fill, previewSet), previewSet, pointValue));
+          label.classList.toggle("is-flat", breakeven || (isExit && fill.pnl === 0));
+        }
+        row.setAttribute("data-draft-index", String(candidateIndex));
+      });
+      const totals = table.querySelector<HTMLTableRowElement>("tbody tr.is-total");
+      if (!totals) return;
+      totals.cells[2].setText(String(previewSet.entryQty));
+      totals.cells[3].setText(previewSet.avgExit > 0 ? fmtPrice(previewSet.avgExit) : "—");
+      totals.cells[4].setText(Number.isFinite(preview.pnlPoints) ? `${preview.pnlPoints >= 0 ? "+" : ""}${preview.pnlPoints.toFixed(2)}` : "—");
+      const totalPnl = totals.cells[5];
+      totalPnl.className = "r tj-tbl-pnl";
+      if (Number.isFinite(preview.pnl)) {
+        totalPnl.addClass(toneClass(preview.pnl));
+        totalPnl.setText(preview.pnl === 0 ? fmtMoneyAbs(0) : fmtMoney2(preview.pnl));
+      } else totalPnl.setText("—");
+      totals.cells[6].setText(`$${((preview.commission || 0) + (preview.fees || 0)).toFixed(2)}`);
+      countNode.setText(`${previewSet.entries.length} in · ${previewSet.exits.length} out · draft`);
+    };
+
+    const refreshPreview = (): void => {
+      try {
+        if (invalidFields.size) throw new Error("Finish or correct the highlighted execution field before saving.");
+        const preview = applyExecutionEdits(trade, candidates(), this.plugin.settings.timeZone || trade.timezone || "");
+        latestValidPreview = preview;
+        status.classList.remove("is-error");
+        status.setText(correctionZone
+          ? `Draft · ${correctionZoneLabel} (Journal timezone). Entry side sets trade direction.`
+          : "Draft · no Journal timezone selected; times remain unresolved. Entry side sets trade direction.");
+        if (saveButton) saveButton.disabled = false;
+        paintPreview(preview);
+      } catch (error) {
+        status.classList.add("is-error");
+        status.setText(error instanceof Error ? error.message : "Execution draft is invalid.");
+        if (saveButton) saveButton.disabled = true;
+      }
+    };
+
+    const restoreReadOnly = (): void => {
+      finishActive?.();
+      activeCell = null;
+      invalidFields.clear();
+      invalidText.clear();
+      drafts = makeDrafts();
+      latestValidPreview = trade;
+      table.replaceChildren(...Array.from(savedTable.childNodes).map((node) => node.cloneNode(true)));
+      table.classList.remove("is-editing");
+      countNode.setText(savedCount);
+      for (const state of noteStates) state.note.hidden = state.hidden;
+      status.hidden = true;
+      status.empty();
+      status.classList.remove("is-error");
+      addButton?.remove();
+      cancelButton?.remove();
+      saveButton?.remove();
+      addButton = null;
+      cancelButton = null;
+      saveButton = null;
+      editButton.disabled = false;
+      editButton.setText("Edit executions");
+      editButton.setAttr("aria-expanded", "false");
+      editButton.focus({ preventScroll: true });
+    };
+    let finishActive: (() => void) | null = null;
+    const activate = (index: number, field: string, target: HTMLElement): void => {
+      if (!addButton || addButton.disabled) return;
+      if (activeCell) finishActive?.();
+      if (activeCell) return;
+      const draft = drafts[index];
+      if (!draft) return;
+      activeCell = target.closest<HTMLElement>("td") ?? target;
+      const cell = activeCell;
+      const before = { ...draft };
+      const key = fieldKey(index, field);
+      const previousInvalid = invalidText.get(key);
+      activeCell.classList.add("is-active");
+      activeCell.setAttribute("data-active-field", field);
+      activeCell.empty();
+      const rowLabel = `Execution ${index + 1}`;
+      const commit = (value: string): void => {
+        invalidFields.delete(key);
+        invalidText.delete(key);
+        if (field === "date") draft.date = value;
+        else if (field === "time") draft.time = value;
+        else if (field === "side") draft.side = value as TradeFill["side"];
+        else if (field === "qty") draft.qty = value;
+        else if (field === "price") draft.price = value;
+        refreshPreview();
+      };
+      const finish = (): void => {
+        if (activeCell !== cell || finishActive !== finish) return;
+        if (field === "date") closeCalendar();
+        const openTrigger = cell.querySelector<HTMLButtonElement>('button[aria-expanded="true"]');
+        openTrigger?.click();
+        cell.classList.remove("is-active");
+        cell.removeAttribute("data-active-field");
+        activeCell = null;
+        const draft = drafts[index];
+        if (field === "date" || field === "time") {
+          const dateCell = cell;
+          dateCell.empty();
+          const dateNode = dateCell.createSpan({ text: latestValidPreview.fills?.[index]?.date ?? draft.date ?? "—", attr: { "data-execution-field": "date" } });
+          const spacer = dateCell.createSpan({ text: " " });
+          const timeNode = dateCell.createSpan({ text: latestValidPreview.fills?.[index]?.time ?? draft.time ?? "—", attr: { "data-execution-field": "time" } });
+          void dateNode; void spacer; void timeNode;
+        } else if (field === "side") {
+          cell.empty();
+          cell.createSpan({ cls: "tj-tbl-fill-side", text: draft.side, attr: { "data-execution-field": "side" } });
+        } else {
+          cell.setText(field === "qty" ? draft.qty : fmtPrice(Number(draft.price)));
+          cell.setAttribute("data-execution-field", field);
+        }
+        installActivation();
+        paintPreview(latestValidPreview);
+        finishActive = null;
+      };
+      finishActive = finish;
+      const onKey = (event: KeyboardEvent): void => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          Object.assign(draft, before);
+          invalidFields.delete(key);
+          invalidText.delete(key);
+          if (previousInvalid !== undefined) {
+            invalidFields.add(key);
+            invalidText.set(key, previousInvalid);
+          }
+          refreshPreview();
+          finish();
+          cell.querySelector<HTMLElement>(`[data-execution-field="${field}"]`)?.focus();
+          if (cell.dataset.executionField === field) cell.focus();
+        } else if (event.key === "Enter" && field !== "side") {
+          event.preventDefault();
+          event.stopPropagation();
+          finish();
+          if (cell.dataset.executionField === field) cell.focus();
+        }
+      };
+      if (field === "date") {
+        const input = mountDateField(activeCell, {
+          value: draft.date, format: this.plugin.settings.dateFormat, zone: correctionZone,
+          onChange: (iso) => { invalidFields.delete(fieldKey(index, field)); commit(iso); },
+          className: "tj-td-execution-input",
+        });
+        input.setAttribute("aria-label", `${rowLabel} date`);
+        if (invalidText.has(key)) input.value = invalidText.get(key)!;
+        input.addEventListener("keydown", onKey);
+        input.addEventListener("input", () => {
+          const parsed = parseDateInput(input.value, this.plugin.settings.dateFormat);
+          if (!input.value.trim()) draft.date = "";
+          if (parsed) {
+            draft.date = parsed;
+            invalidFields.delete(key);
+            invalidText.delete(key);
+          } else {
+            invalidFields.add(key);
+            invalidText.set(key, input.value);
+          }
+          refreshPreview();
+        });
+        input.addEventListener("blur", () => {
+          const win = input.ownerDocument.defaultView;
+          win?.setTimeout(() => { if (!input.closest(".tj-datefield")?.querySelector(":focus") && !input.ownerDocument.querySelector(".tj-cal")) finish(); }, 0);
+        });
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      } else if (field === "time") {
+        const input = mountManualTimeInput(activeCell, draft.time, commit, `${rowLabel} time`, { portal: true });
+        input.classList.add("tj-td-execution-input");
+        if (invalidText.has(key)) input.value = invalidText.get(key)!;
+        input.addEventListener("keydown", onKey);
+        input.addEventListener("input", () => {
+          const parsed = parseManualTimeInput(input.value);
+          if (parsed) commit(parsed);
+          else {
+            invalidFields.add(key);
+            invalidText.set(key, input.value);
+            refreshPreview();
+          }
+        });
+        input.addEventListener("blur", () => {
+          const win = input.ownerDocument.defaultView;
+          win?.setTimeout(() => {
+            const focused = input.ownerDocument.activeElement;
+            if (!cell.contains(focused) && !cell.querySelector('.tj-time-toggle[aria-expanded="true"]')) finish();
+          }, 0);
+        });
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      } else if (field === "side") {
+        activeCell.empty();
+        const dropdown = mountDropdown(activeCell, [{ id: "buy", label: "Buy" }, { id: "sell", label: "Sell" }], draft.side, (side) => {
+          commit(side); finish();
+        }, { block: true, size: "sm" });
+        activeCell.querySelector<HTMLElement>("button")?.setAttribute("aria-label", `${rowLabel} side`);
+        dropdown.addEventListener("keydown", onKey);
+      } else {
+        const input = activeCell.createEl("input", {
+          cls: "tj-td-execution-input",
+          attr: { type: "text", inputmode: "decimal", "aria-label": `${rowLabel} ${field === "qty" ? "quantity" : "price"}` },
+        });
+        input.value = field === "qty" ? draft.qty : draft.price;
+        input.addEventListener("keydown", onKey);
+        const update = (): void => commit(input.value);
+        input.addEventListener("input", update);
+        input.addEventListener("change", update);
+        input.addEventListener("blur", () => finish());
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    };
+
+    const installActivation = (): void => {
+      const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.is-total)"));
+      rows.forEach((row, index) => {
+        const draftIndex = Number(row.dataset.draftIndex ?? index);
+        const draft = drafts[draftIndex];
+        row.dataset.executionIdentity = draft?.originalIndex !== undefined ? `saved:${draft.originalIndex}` : `draft:${draftIndex}`;
+        const map: Array<[HTMLElement, string]> = [
+          [row.cells[0].querySelector<HTMLElement>("[data-execution-field='date']")!, "date"],
+          [row.cells[0].querySelector<HTMLElement>("[data-execution-field='time']")!, "time"],
+          [row.cells[1].querySelector<HTMLElement>("[data-execution-field='side']")!, "side"],
+          [row.cells[2], "qty"], [row.cells[3], "price"],
+        ];
+        for (const [target, field] of map) {
+          if (!target) continue;
+          if (target.dataset.executionActivation === "true") continue;
+          target.dataset.executionActivation = "true";
+          target.setAttribute("data-execution-field", field);
+          target.setAttribute("tabindex", "0");
+          target.setAttribute("role", "button");
+          target.setAttribute("aria-label", `Edit Execution ${draftIndex + 1} ${field === "qty" ? "quantity" : field}`);
+          target.addEventListener("click", (event) => {
+            if (activeCell === target.closest("td")) return;
+            event.stopPropagation();
+            activate(draftIndex, field, target);
+          });
+          target.addEventListener("keydown", (event) => {
+            if (event.target !== target) return;
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            activate(draftIndex, field, target);
+          });
+        }
+      });
+    };
+
+
+    editButton.addEventListener("click", () => {
+      if (addButton) return;
+      const widths = Array.from(table.querySelectorAll("thead th"), (cell) => cell.getBoundingClientRect().width);
+      const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+      if (totalWidth > 0) {
+        const columns = table.createEl("colgroup");
+        table.insertBefore(columns, table.firstChild);
+        for (const width of widths) columns.createEl("col").setCssStyles({ width: `${width / totalWidth * 100}%` });
+      }
+      editButton.disabled = true;
+      editButton.setText("Editing");
+      editButton.setAttr("aria-expanded", "true");
+      for (const state of noteStates) state.note.hidden = true;
+      status.hidden = false;
+      const timezone = correctionZone
+        ? `Enter execution times in ${correctionZoneLabel} (Journal timezone).`
+        : "No Journal timezone is selected; edited times remain unresolved.";
+      status.setText(`${timezone} Valid draft changes preview in the table; nothing is saved until Save executions.`);
+
+      addButton = actions.createEl("button", { cls: "tj-btn", text: "Add execution", attr: { type: "button" } });
+      cancelButton = actions.createEl("button", { cls: "tj-btn", text: "Cancel", attr: { type: "button" } });
+      saveButton = actions.createEl("button", { cls: "tj-btn mod-cta", text: "Save executions", attr: { type: "button" } });
+      saveButton.setAttribute("aria-label", "Save executions");
+      addButton.addEventListener("click", () => {
+        const draft: DraftExecution = {
+          isNew: true,
+          date: trade.exitDate ?? trade.date,
+          time: "",
+          side: entrySide === "buy" ? "sell" : "buy",
+          qty: "",
+          price: "",
+        };
+        drafts.push(draft);
+        const body = table.querySelector("tbody");
+        const total = body?.querySelector("tr.is-total");
+        const row = body?.insertBefore(table.ownerDocument.createElement("tr"), total ?? null);
+        if (row) {
+          row.className = "tj-td-execrow is-exit is-new";
+          const date = row.insertCell();
+          const dateLabel = date.createSpan({ text: draft.date || "—", attr: { "data-execution-field": "date" } });
+          date.createSpan({ text: " " });
+          date.createSpan({ text: "—", attr: { "data-execution-field": "time" } });
+          const side = row.insertCell();
+          side.createSpan({ cls: "tj-tbl-fill-side", text: draft.side, attr: { "data-execution-field": "side" } });
+          for (const field of ["qty", "price"]) { const cell = row.insertCell(); cell.className = "r"; cell.dataset.executionField = field; cell.textContent = "—"; }
+          for (let cell = 0; cell < 4; cell++) row.insertCell().textContent = "—";
+          void dateLabel;
+          installActivation();
+        }
+        countNode.setText(`${drafts.length} executions · draft`);
+        refreshPreview();
+      });
+      cancelButton.addEventListener("click", restoreReadOnly);
+      saveButton.addEventListener("click", () => {
+        if (saveButton!.disabled || invalidFields.size) return;
+        finishActive?.();
+        const pending = this.saveTradeExecutionEdits(
+          trade, candidates(), saveButton!, cancelButton!, editButton, addButton!, status,
+        );
+        this._pendingExecutionWrite = pending;
+        void pending.finally(() => {
+          if (this._pendingExecutionWrite === pending) this._pendingExecutionWrite = null;
+        });
+      });
+      table.classList.add("is-editing");
+      installActivation();
+      refreshPreview();
+    });
+  }
+
+  private mountTopPriceEditor(anchor: HTMLButtonElement, trade: Trade, side: TradeFill["side"]): void {
+    if (this._pendingExecutionWrite || this._topPriceCleanup || this.contentEl.querySelector("table.is-editing")) return;
+    if (trade.isCopiedTrade || trade.dataSource === "reconstructed" || trade.supersededBy) return;
+    const set = fillSet(trade);
+    const indexed = set.fills.map((fill, originalIndex) => ({ fill, originalIndex }));
+    const selected = indexed.filter(({ fill }) => fill.side === side);
+    if (!selected.length) return;
+    const doc = anchor.ownerDocument;
+    const win = doc.defaultView;
+    if (!win) return;
+    const panel = doc.body.createDiv({ cls: "tj-td-price-editor", attr: { role: "dialog", "aria-label": side === (trade.direction === "long" ? "buy" : "sell") ? "Edit entry price" : "Edit exit price" } });
+    panel.createDiv({ cls: "tj-td-price-editor-title", text: side === (trade.direction === "long" ? "buy" : "sell") ? "Entry prices" : "Exit prices" });
+    const inputs: HTMLInputElement[] = [];
+    for (const [ordinal, { fill }] of selected.entries()) {
+      const row = panel.createDiv({ cls: "tj-td-price-editor-row" });
+      row.createSpan({ text: `${ordinal + 1} · ${fill.qty} contracts · ${fill.date ?? trade.date}${fill.time ? ` ${fill.time}` : ""}` });
+      const input = row.createEl("input", { cls: "tj-td-flip-input", attr: { type: "number", step: "any", "aria-label": `${side === (trade.direction === "long" ? "buy" : "sell") ? "Entry" : "Exit"} execution ${ordinal + 1} price` } });
+      input.value = String(fill.price);
+      freeNumeric(input);
+      inputs.push(input);
+    }
+    const status = panel.createDiv({ cls: "tj-td-price-editor-status", attr: { role: "status", "aria-live": "polite" } });
+    const actions = panel.createDiv({ cls: "tj-td-price-editor-actions" });
+    const cancel = actions.createEl("button", { cls: "tj-btn", text: "Cancel", attr: { type: "button", "data-action": "cancel" } });
+    const save = actions.createEl("button", { cls: "tj-btn mod-cta", text: "Save", attr: { type: "button", "data-action": "save" } });
+
+    const lowerButtons = Array.from(this.contentEl.querySelectorAll<HTMLButtonElement>(".tj-td-execs-actions button"));
+    const previousDisabled = lowerButtons.map((button) => button.disabled);
+    lowerButtons.forEach((button) => { button.disabled = true; });
+    let closed = false;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      panel.remove();
+      doc.removeEventListener("keydown", onKey, true);
+      doc.removeEventListener("scroll", position, true);
+      win.removeEventListener("resize", position);
+      lowerButtons.forEach((button, index) => { button.disabled = previousDisabled[index]; });
+      this._topPriceCleanup = null;
+      this._pasteCleanups = this._pasteCleanups.filter((fn) => fn !== cleanup);
+      if (anchor.isConnected) anchor.focus();
+    };
+    const cleanup = (): void => close();
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !this._pendingExecutionWrite) {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    };
+    const position = (): void => {
+      const rect = anchor.getBoundingClientRect();
+      const bounds = panel.getBoundingClientRect();
+      const left = Math.max(12, Math.min(rect.right - bounds.width, win.innerWidth - bounds.width - 12));
+      const below = rect.bottom + 8;
+      const top = Math.max(12, Math.min(below + bounds.height <= win.innerHeight - 12 ? below : rect.top - bounds.height - 8, win.innerHeight - bounds.height - 12));
+      panel.setCssStyles({ left: `${left}px`, top: `${top}px` });
+    };
+    const validate = (): boolean => {
+      const valid = inputs.every((input) => input.value.trim() !== "" && Number.isFinite(Number(input.value)));
+      save.disabled = !valid || !!this._pendingExecutionWrite;
+      return valid;
+    };
+    inputs.forEach((input) => input.addEventListener("input", () => { validate(); }));
+    doc.addEventListener("keydown", onKey, true);
+    doc.addEventListener("scroll", position, true);
+    win.addEventListener("resize", position);
+    this._topPriceCleanup = cleanup;
+    this._pasteCleanups.push(cleanup);
+    cancel.addEventListener("click", close);
+    save.addEventListener("click", () => {
+      if (this._pendingExecutionWrite) return;
+      const prices = inputs.map((input) => input.value.trim());
+      if (prices.some((value) => value === "" || !Number.isFinite(Number(value)))) {
+        status.setText("Enter a finite price for every execution.");
+        status.addClass("is-error");
+        return;
+      }
+      const changes = new Map(selected.map(({ originalIndex }, index) => [originalIndex, Number(prices[index])]));
+      const candidates: ExecutionEditCandidate[] = indexed.map(({ fill, originalIndex }) => ({ originalIndex, fill: {
+        ...fill,
+        date: fill.date ?? (fill.side === (trade.direction === "long" ? "buy" : "sell") ? trade.date : trade.exitDate ?? trade.date),
+        time: manualExecutionClock(fill.time),
+        price: changes.get(originalIndex) ?? fill.price,
+      } }));
+      inputs.forEach((input) => { input.disabled = true; });
+      const pending = this.saveTradeExecutionEdits(trade, candidates, save, cancel, anchor, null, status, "Save");
+      this._pendingExecutionWrite = pending;
+      void pending.finally(() => {
+        if (this._pendingExecutionWrite === pending) this._pendingExecutionWrite = null;
+        if (!closed) {
+          inputs.forEach((input) => { input.disabled = false; });
+          validate();
+          position();
+        }
+      });
+    });
+    validate();
+    position();
+    inputs[0]?.focus();
+  }
+
+  private async saveTradeExecutionEdits(
+    expected: Trade,
+    candidates: ExecutionEditCandidate[],
+    saveButton: HTMLButtonElement,
+    cancelButton: HTMLButtonElement,
+    editButton: HTMLButtonElement,
+    addButton: HTMLButtonElement | null,
+    status: HTMLElement,
+    saveLabel = "Save executions",
+  ): Promise<void> {
+    saveButton.disabled = true;
+    cancelButton.disabled = true;
+    editButton.disabled = true;
+    if (addButton) addButton.disabled = true;
+    saveButton.setText("Saving…");
+    try {
+      const file = this.app.vault.getAbstractFileByPath(expected.id);
+      if (!(file instanceof TFile)) throw new Error("The trade note is no longer available.");
+      const updated = await updateTradeExecutions(
+        this.app,
+        file,
+        expected,
+        candidates,
+        this.plugin.settings.timeZone || expected.timezone || "",
+      );
+      this._lastLocalWriteAt = Date.now();
+      this.trade = updated;
+      this.allTrades = this.allTrades.map((trade) => trade.id === updated.id ? updated : trade);
+      this.index = this.allTrades.findIndex((trade) => trade.id === updated.id);
+      this.render();
+    } catch (err) {
+      status.addClass("is-error");
+      status.setText(err instanceof Error ? err.message : "Could not save corrected executions.");
+      saveButton.disabled = false;
+      cancelButton.disabled = false;
+      editButton.disabled = false;
+      if (addButton) addButton.disabled = false;
+      saveButton.setText(saveLabel);
+    }
   }
 
   // ---- Debounced review save ----
-  /**
-   * Coalesce rapid review edits (typing in notes, clicking through stars, adding
-   * tags) into one write per field. The trade object is updated immediately so
-   * the UI never waits on disk; the note catches up a moment later.
-   */
+  /** Queue review writes and retain them until they settle, even after a timer fires. */
+  private queueReviewWrite(key: string, run: () => Promise<void>): Promise<void> {
+    this._failedReviewWrites.delete(key);
+    const write = this._reviewWriteQueue.then(run, run).then(() => {
+      this._failedReviewWrites.delete(key);
+      const status = this._reviewSaveStatusNodes.get(key);
+      if (status?.isConnected) {
+        status.setText("Saved");
+        status.classList.remove("is-error");
+      }
+    }, (err: unknown) => {
+      this._failedReviewWrites.set(key, run);
+      console.error("[tradebook] review write failed:", err);
+      const status = this._reviewSaveStatusNodes.get(key);
+      if (status?.isConnected) {
+        status.setText("Not saved");
+        status.classList.add("is-error");
+      } else {
+        new Notice("TradeBook could not save a review change. Retry before leaving this trade.");
+      }
+    });
+    this._reviewWriteQueue = write;
+    this._pendingReviewWrites.add(write);
+    void write.then(() => this._pendingReviewWrites.delete(write));
+    return write;
+  }
+
+  /** Coalesce rapid review edits (typing in notes, clicking through stars, adding tags). */
   private debounceReview(key: string, run: () => Promise<void>, ms = 600): void {
     const prev = this._saveTimers[key];
     if (prev) window.clearTimeout(prev.timer);
+    this._failedReviewWrites.delete(key);
     const timer = window.setTimeout(() => {
       delete this._saveTimers[key];
-      void run();
+      void this.queueReviewWrite(key, run);
     }, ms);
     this._saveTimers[key] = { timer, run };
   }
 
-  /** Write every pending review edit now (leaving the trade, closing the view). */
-  flushReviewSaves(): void {
-    for (const key of Object.keys(this._saveTimers)) {
-      const pending = this._saveTimers[key];
-      window.clearTimeout(pending.timer);
-      delete this._saveTimers[key];
-      void pending.run();
-    }
+  /** Flush pending edits, retry any failed field once, and report whether all settled. */
+  async flushReviewSaves(): Promise<boolean> {
+    const scheduled = Object.entries(this._saveTimers).map(([key, pending]) => ({ key, ...pending }));
+    for (const pending of scheduled) window.clearTimeout(pending.timer);
+    this._saveTimers = {};
+    const writes = [...this._pendingReviewWrites];
+    for (const pending of scheduled) writes.push(this.queueReviewWrite(pending.key, pending.run));
+    await Promise.all(writes);
+    const retry = [...this._failedReviewWrites.entries()];
+    if (retry.length) await Promise.all(retry.map(([key, run]) => this.queueReviewWrite(key, run)));
+    return this._failedReviewWrites.size === 0;
   }
 
   /** Re-paint the automatic review state after a structured field edit. */
@@ -1896,15 +2596,22 @@ export class TradeDetailView extends ItemView {
   }
 
   // ---- Save ----
+  private async persistTradeField(key: string, value: string | number | boolean, targetId?: string): Promise<void> {
+    if (!targetId) throw new Error("Trade note is not available.");
+    const file = this.app.vault.getAbstractFileByPath(targetId);
+    if (!(file instanceof TFile)) throw new Error("Trade note no longer exists.");
+    this._lastLocalWriteAt = Date.now();
+    await updateTradeFields(this.app, file, { [key]: value });
+  }
+
   async saveField(key: "setup" | "review" | "mistake" | "thesis" | "notes" | "review_plan" | "review_planned_entry" | "review_planned_stop" | "review_planned_target" | "review_planned_quantity" | "review_plan_timing" | "review_plan_provenance" | "review_plan_adherence" | "review_what_happened" | "review_repeat_change" | "review_post_exit_observation" | "review_post_exit_points" | "review_post_exit_source" | "review_evidence_source" | "review_context_unavailable" | "rating" | "reviewed" | "orderType" | "direction" | "exit_reason", value: string | number | boolean, targetId = this.trade?.id): Promise<void> {
+    const reviewField = key.startsWith("review_") || ["rating", "reviewed", "exit_reason"].includes(key);
+    if (reviewField) {
+      await this.queueReviewWrite(key, () => this.persistTradeField(key, value, targetId));
+      return;
+    }
     try {
-      if (targetId) {
-        const f = this.app.vault.getAbstractFileByPath(targetId);
-        if (f instanceof TFile) {
-          this._lastLocalWriteAt = Date.now();
-          await updateTradeFields(this.app, f, { [key]: value });
-        }
-      }
+      await this.persistTradeField(key, value, targetId);
     } catch (err) {
       console.error("[tradebook] failed to save trade field:", err);
       new Notice("Could not save — check the file still exists.");
@@ -1920,10 +2627,18 @@ export class TradeDetailView extends ItemView {
     if (!t?.id) return false;
     const file = this.app.vault.getAbstractFileByPath(t.id);
     if (!(file instanceof TFile)) return false;
-    const shots = t.screenshots ?? [];
+    const shots = (t.screenshots ?? []).map((entry) => {
+      if (!isScreenshotEntry(entry) || typeof entry.file !== "string") return entry;
+      const inner = entry.file.trim().replace(/^\[\[/, "").replace(/\]\]$/, "");
+      const target = inner.split("|")[0].split("#")[0].trim();
+      const targetName = target.split("/").pop() ?? "";
+      const resolved = resolveTradeScreenshotFile(this.plugin, t, entry.file);
+      return resolved && resolved.name !== targetName ? { ...entry, file: resolved.path } : entry;
+    });
     try {
       this._lastLocalWriteAt = Date.now();
       await updateTradeScreenshots(this.app, file, shots);
+      t.screenshots = shots;
       if (this.trade?.id === t.id) t.screenshot = shots.find(isScreenshotEntry)?.file ?? "";
       return true;
     } catch (err) {
@@ -1935,14 +2650,7 @@ export class TradeDetailView extends ItemView {
 
   /** Resolve valid structured entries, or legacy scalar references, without mutating the trade. */
   private resolveScreenshotEntries(t: Trade): Array<{ entry: NonNullable<Trade['screenshots']>[number]; sourceIndex: number }> {
-    const shots = t.screenshots ?? [];
-    const resolved = shots.map((entry, sourceIndex) => ({ entry, sourceIndex }))
-      .filter(({ entry }) => isScreenshotEntry(entry));
-    if (resolved.length) return resolved;
-    const legacy = (t.screenshot || "").trim();
-    if (!legacy || legacy.toLowerCase() === "added") return [];
-    return legacy.split(/[,;\n]+/).map((part) => part.trim()).filter(Boolean)
-      .map((file, offset) => ({ entry: { file }, sourceIndex: shots.length + offset }));
+    return tradeScreenshotEntries(t);
   }
 
   /** Materialize only the valid legacy fallback, after an explicit screenshot edit. */
@@ -2170,21 +2878,11 @@ export class TradeDetailView extends ItemView {
     }
   }
 
-  /** Persist an optional-step acknowledgement as a bare YAML boolean. */
+  /** Persist an optional-step acknowledgement in the serialized review queue. */
   async saveAck(key: "mistakesAcknowledged" | "psychologyAcknowledged", value: boolean): Promise<void> {
     const yamlKey = key === "mistakesAcknowledged" ? "mistakes_acknowledged" : "psychology_acknowledged";
-    try {
-      if (this.trade?.id) {
-        const f = this.app.vault.getAbstractFileByPath(this.trade.id);
-        if (f instanceof TFile) {
-          this._lastLocalWriteAt = Date.now();
-          await updateTradeFields(this.app, f, { [yamlKey]: value });
-        }
-      }
-    } catch (err) {
-      console.error("[tradebook] failed to save acknowledgement:", err);
-      new Notice("Could not save — check the file still exists.");
-    }
+    const tradeId = this.trade?.id;
+    await this.queueReviewWrite(`ack:${yamlKey}`, () => this.persistTradeField(yamlKey, value, tradeId));
   }
 
   async openNote(): Promise<void> {
@@ -2225,20 +2923,13 @@ export class TradeDetailView extends ItemView {
   }
 
   resolveImageFile(link: string): TFile | null {
-    const raw = (link || "").trim();
-    if (!raw) return null;
-    const inner = raw.replace(/^\[\[/, "").replace(/\]\]$/, "");
-    const target = inner.split("|")[0].split("#")[0].trim();
-    const candidates = [
-      raw,
-      target,
-      ...this.plugin.attachmentCandidates(target, this.trade?.date),
-    ];
-    for (const c of candidates) {
-      try { const f = this.app.vault.getAbstractFileByPath(c); if (f instanceof TFile) return f; } catch { /* */ }
-    }
-    try { const f = this.app.metadataCache.getFirstLinkpathDest(target, this.trade?.id || ""); if (f instanceof TFile) return f; } catch { /* */ }
-    return null;
+    const trade = this.trade;
+    if (!trade) return null;
+    return resolveTradeScreenshotFile({
+      app: this.app,
+      attachmentCandidates: (target, date) => this.plugin.attachmentCandidates(target, date),
+      getTradesFolder: () => this.plugin.getTradesFolder?.() ?? "",
+    }, trade, link);
   }
 
   resolveImage(link: string): string | null {

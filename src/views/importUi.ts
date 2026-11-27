@@ -1,7 +1,7 @@
 import { Modal, Notice, setIcon } from "obsidian";
 import type TradebookPlugin from "../main";
 import { csvKind, hasTradeSeaBatchConflict, mergeCashCosts, parseCashHistoryCsv, parseTradeovateCsv } from "../csv";
-import type { CashCosts } from "../csv";
+import type { CashCosts, CsvKind } from "../csv";
 import type { ImportCosts, ParsedResult, PropAccount, TimeIssues, Trade } from "../types";
 import { TIMEZONE_OPTIONS, detectSystemZone, fmtMoney2, zoneShortLabel } from "../tz";
 import { copierPresentation } from "../lib/copy";
@@ -22,9 +22,22 @@ import { trackingStartOf } from "../lib/tracking";
 import { mountDropdown } from "../lib/dropdown";
 import { attachTip } from "../lib/tip";
 import { netPnl } from "../lib/fees";
-import { importSummary, writeOutcome } from "../lib/importReport";
+import { confirmReplayWrites, importSummary, writeOutcome } from "../lib/importReport";
 import { applyAssumedRisk, type AssumedRiskResult } from "../lib/risk";
 import type { DropdownItem } from "../lib/dropdown";
+import {
+  parseTradingViewReplayCsv,
+  parseTradingViewReplayWorkbook,
+  type TradingViewReplayParseResult,
+} from "../lib/tradingViewReplay";
+
+interface TradeImportFile {
+  name: string;
+  kind: CsvKind;
+  format: "csv" | "xlsx";
+  text?: string;
+  bytes?: Uint8Array;
+}
 
 /**
  * "Import CSV" as a pop-up.
@@ -46,6 +59,9 @@ interface ParsedFile {
   /** Rows left out because their timestamp has no single instant (never guessed). */
   timeIssues?: TimeIssues;
   warnings: string[];
+  isReplay?: boolean;
+  heldForReview?: number;
+  unsupportedPatterns?: number;
   /** What the default-risk rules did to this file, shown in the preview. */
   risk?: AssumedRiskResult;
   accountsSeen: { name: string; type: string }[];
@@ -53,6 +69,17 @@ interface ParsedFile {
   costs?: ImportCosts;
   /** Name of the cash history file, when one was dropped alongside. */
   costFileName?: string;
+}
+
+function importAccountTypeLabel(account: PropAccount): string {
+  switch (account.type) {
+    case "demo": return "Demo";
+    case "eval": return "Eval";
+    case "funded": return "Funded";
+    case "live": return "Live";
+    case "personal": return "Personal";
+    default: return "Type not set";
+  }
 }
 
 export function openImportCsvModal(plugin: TradebookPlugin, onChange?: () => void): void {
@@ -94,7 +121,9 @@ class ImportCsvModal extends Modal {
   // The trades and the costs are two separate decisions: the files with the
   // trades, and — only if the trader wants the exact bill — the platform's own
   // cash history for the same period.
-  private tradeFiles: { name: string; text: string }[] = [];
+  private tradeFiles: TradeImportFile[] = [];
+  private replayMode = false;
+  private replaySourceZone = "";
   private wantCosts = false;
   private cashName = "";
   private cashCosts: CashCosts | null = null;
@@ -135,7 +164,7 @@ class ImportCsvModal extends Modal {
     } catch {
       this.knownSetups = [];
     }
-    if (!this.setupPick && this.knownSetups.length === 1) this.setupPick = this.knownSetups[0];
+    if (!this.replayMode && !this.setupPick && this.knownSetups.length === 1) this.setupPick = this.knownSetups[0];
     if (this.parsed && this.bodyEl) await this.renderReview();
   }
 
@@ -152,12 +181,12 @@ class ImportCsvModal extends Modal {
     const head = c.createDiv({ cls: "tj-import-head" });
     setIcon(head.createSpan({ cls: "tj-import-headico" }), "upload");
     const txt = head.createDiv({ cls: "tj-import-headtxt" });
-    txt.createEl("h2", { text: "Import trades from CSV" });
+    txt.createEl("h2", { text: "Import trades" });
     // One recommendation, one line. The longer explanation belongs to the
     // moment a file is being read, not to the moment it is being chosen.
     this.headSubEl = txt.createEl("p", {
       cls: "tj-import-sub",
-      text: "Reports → Orders is recommended. Reports → Fills works too. The observed TradeSea orders format is supported.",
+      text: "Import Tradovate, TradeSea or TradingView Replay reports.",
     });
 
     // The journey, so the reader always knows where he is and what is left. It
@@ -189,7 +218,16 @@ class ImportCsvModal extends Modal {
    * cost at all, because a half-counted one would be a number nobody was billed.
    */
   private renderCosts(host: HTMLElement): void {
-    const onlyTradeSea = this.tradeFiles.length > 0 && this.tradeFiles.every((f) => csvKind(f.text) === "tradesea");
+    if (this.replayMode) {
+      this.stepHead(host, "Costs", { text: "Checked", tone: "ready" });
+      const box = host.createDiv({ cls: "tj-import-costsbox" });
+      box.createDiv({
+        cls: "tj-import-costssub",
+        text: "Replay trades are imported with zero recorded costs only when the report's Net P&L matches the gross calculation. Nonzero or unreadable commission trades are held out for review.",
+      });
+      return;
+    }
+    const onlyTradeSea = this.tradeFiles.length > 0 && this.tradeFiles.every((f) => f.kind === "tradesea");
     if (onlyTradeSea) {
       this.stepHead(host, "Costs", { text: "Not recorded", tone: "optional" });
       const box = host.createDiv({ cls: "tj-import-costsbox" });
@@ -308,9 +346,18 @@ class ImportCsvModal extends Modal {
    */
   private renderZone(host: HTMLElement): void {
     const detected = detectSystemZone();
+    const sourceZone = this.replayMode ? this.replaySourceZone : this.plugin.settings.importZone;
+    const journalZone = this.plugin.settings.timeZone || "";
+    const journalLabel = zoneShortLabel(journalZone);
     // Its own box, with a title: the zone is the one thing a reader has to get
     // right before the numbers mean anything, so it does not share a line.
-    this.stepHead(host, "Time", { text: "Automatic", tone: "auto" });
+    this.stepHead(host, "Time", this.replayMode
+      ? sourceZone
+        ? { text: "Source zone", tone: "ready" }
+        : journalZone
+          ? { text: `Journal ${journalLabel}`, tone: "auto" }
+          : { text: "No zone", tone: "warn" }
+      : { text: "Automatic", tone: "auto" });
     const box = host.createDiv({ cls: "tj-import-zonebox" });
     // One row: the label, the zone, and where it lands. The zone is one answer,
     // not a form, so it does not get a form's worth of space.
@@ -318,23 +365,28 @@ class ImportCsvModal extends Modal {
     box.createSpan({ text: "Time files are in", cls: "tj-import-zonetitle" });
     const row = box;
     const items: DropdownItem[] = [
-      { id: "", label: `This computer (${detected})` },
+      ...(this.replayMode
+        ? [{ id: "", label: journalZone ? `Journal timezone (${journalLabel})` : "Leave unresolved" }]
+        : [{ id: "", label: `This computer (${detected})` }]),
       ...TIMEZONE_OPTIONS.filter((o) => !!o.zone).map((o) => ({ id: o.zone, label: o.label })),
     ];
     const dd = mountDropdown(
       row,
       items,
-      this.plugin.settings.importZone || "",
+      sourceZone || "",
       (id) => {
-        this.plugin.settings.importZone = id;
-        void this.plugin.saveSettings();
+        if (this.replayMode) this.replaySourceZone = id;
+        else {
+          this.plugin.settings.importZone = id;
+          void this.plugin.saveSettings();
+        }
         // A file's times carry no zone of their own, so changing this changes
         // every timestamp in the list below. Re-read it now instead of waiting
         // for the next import. A TradeSea file is the exception: its stamps name
         // their own zone, so nothing here moves them.
         if (this.tradeFiles.length) void this.parseTrades();
       },
-      { placeholder: "This computer", title: "The zone this file's times were written in" }
+      { placeholder: this.replayMode ? (journalZone ? `Journal timezone (${journalLabel})` : "Leave unresolved") : "This computer", title: "Choose the file's timezone if known; otherwise use the Journal timezone" }
     );
     dd.addClass("tj-import-zone-dd");
     // Saved the moment it is picked, so nothing has to be confirmed twice.
@@ -343,7 +395,11 @@ class ImportCsvModal extends Modal {
       cls: "tj-import-zonenote",
     });
     box.createDiv({
-      text: "This applies to times that carry no zone. A zone written in the export takes precedence; an abbreviation the importer does not recognize is refused rather than guessed.",
+      text: this.replayMode
+        ? journalZone
+          ? `Without a timezone in the file, Replay times use your Journal timezone (${journalLabel}). If you know the file used another timezone, choose it here; correct times in the Journal timezone.`
+          : "No Journal timezone is selected. Replay times without a file timezone remain unresolved until a timezone is set."
+        : "This applies to times that carry no zone. A zone written in the export takes precedence; an abbreviation the importer does not recognize is refused rather than guessed.",
       cls: "tj-import-zonenote",
     });
   }
@@ -351,18 +407,14 @@ class ImportCsvModal extends Modal {
   private renderDropzone(host: HTMLElement): void {
     host.empty();
     const drop = host.createEl("div", { cls: "tj-dropzone" });
-    drop.createDiv({ text: "Drop your CSV files here", cls: "tj-drop-text" });
-    const sub = drop.createDiv({
-      text: "One file or many supported reports — read as one batch. One TradeSea export per batch.",
+    drop.createDiv({ text: "Drop CSV or XLSX files here", cls: "tj-drop-text" });
+    drop.createDiv({
+      text: "or click to choose files",
       cls: "tj-drop-sub",
-    });
-    attachTip(sub, {
-      title: "Which report",
-      sub: "Reports → Orders carries every ticket with its fill time, price, status, order type and stop. Reports → Fills is the raw executions. The supported TradeSea orders format carries tickets and fills in one file. Any supported report pairs round-trips; the Performance report cannot be read.",
     });
     const fileInput = drop.createEl("input", {
       type: "file",
-      attr: { accept: ".csv,.txt,text/csv", multiple: "true" },
+      attr: { accept: ".csv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     });
     fileInput.setCssStyles({ display: "none" });
     drop.addEventListener("click", () => fileInput.click());
@@ -445,6 +497,8 @@ class ImportCsvModal extends Modal {
    */
   private resetTradesFile(): void {
     this.tradeFiles = [];
+    this.replayMode = false;
+    this.replaySourceZone = "";
     this.batchFiles = [];
     this.parsed = null;
     this.plan = null;
@@ -459,7 +513,7 @@ class ImportCsvModal extends Modal {
     this.goBtn = null;
     this.actionsEl = null;
     if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
-    if (this.headSubEl) this.headSubEl.setText("Reports → Orders is recommended. Reports → Fills works too. The observed TradeSea orders format is supported.");
+    if (this.headSubEl) this.headSubEl.setText("Import supported broker reports or TradingView Replay CSV/workbooks.");
     if (this.bodyEl) this.bodyEl.empty();
     if (this.pickEl) this.pickEl.empty();
     if (this.setupEl) this.setupEl.empty();
@@ -484,11 +538,24 @@ class ImportCsvModal extends Modal {
       text: files.length > 1 ? `Recognising ${files.length} files…` : `Recognising "${files[0].name}"…`,
     });
     try {
-      const texts: { name: string; text: string }[] = [];
-      for (const f of files) texts.push({ name: f.name, text: await f.text() });
+      const csvFiles: TradeImportFile[] = [];
+      const replayFiles: TradeImportFile[] = [];
+      const cashTexts: { name: string; text: string }[] = [];
+      const unknownTexts: { name: string; text: string }[] = [];
+      for (const file of files) {
+        if (/\.xlsx$/i.test(file.name)) {
+          replayFiles.push({ name: file.name, kind: "tradingview-replay", format: "xlsx", bytes: new Uint8Array(await file.arrayBuffer()) });
+          continue;
+        }
+        const text = await file.text();
+        const kind = csvKind(text);
+        if (kind === "cash") cashTexts.push({ name: file.name, text });
+        else if (kind === "tradingview-replay") replayFiles.push({ name: file.name, kind, format: "csv", text });
+        else if (kind === "orders" || kind === "fills" || kind === "tradesea") csvFiles.push({ name: file.name, kind, format: "csv", text });
+        else unknownTexts.push({ name: file.name, text });
+      }
 
-      const classified = texts.map((t) => ({ ...t, kind: csvKind(t.text) }));
-      if (hasTradeSeaBatchConflict(classified.map((t) => t.kind))) {
+      if (hasTradeSeaBatchConflict(csvFiles.map((file) => file.kind))) {
         body.empty();
         const err = body.createDiv({ cls: "tj-error" });
         err.createEl("h3", { text: "Import one TradeSea export at a time" });
@@ -500,31 +567,39 @@ class ImportCsvModal extends Modal {
         return;
       }
 
-      const cashTexts = classified.filter((t) => t.kind === "cash");
-      const execTexts = classified.filter((t) => t.kind === "orders" || t.kind === "fills" || t.kind === "tradesea");
-      if (!execTexts.length) {
+      if (replayFiles.length && (csvFiles.length || cashTexts.length || unknownTexts.length)) {
         body.empty();
         const err = body.createDiv({ cls: "tj-error" });
-        const stray = texts.find((t) => csvKind(t.text) === "unknown");
+        err.createEl("h3", { text: "This selection mixes Replay and broker reports" });
+        err.createDiv({
+          text: "Replay is simulated data; broker reports and cash history have different sources. Choose one source type for this file selection so every trade keeps its provenance clear.",
+          cls: "tj-error-detail",
+        });
+        this.busy = false;
+        return;
+      }
+
+      if (!replayFiles.length && !csvFiles.length) {
+        body.empty();
+        const err = body.createDiv({ cls: "tj-error" });
+        const stray = unknownTexts[0];
         if (cashTexts.length && !stray) {
-          // The one file is the money ledger: it belongs in the costs slot, and
-          // without the Orders/Fills export there are no trades to reconstruct.
           err.createEl("h3", { text: "That is the cash history" });
           err.createDiv({
-            text: "The cash history is the money ledger, not the trades. It goes in its own slot below, together with the Orders or Fills export of the same period.",
+            text: "The cash history is the money ledger, not the trades. It goes in its own slot together with an Orders, Fills or TradeSea export of the same period.",
             cls: "tj-error-detail",
           });
         } else {
           err.createEl("h3", { text: "No trades export recognised" });
           if (stray) {
             err.createDiv({
-              text: `"${stray.name}" is not an Orders, Fills or TradeSea report — its header carries none of the columns those exports are read by.`,
+              text: `"${stray.name}" is not a supported Orders, Fills, TradeSea or TradingView Replay report.`,
               cls: "tj-error-detail",
             });
           }
         }
         err.createDiv({
-          text: "Export from Tradovate → Reports → Orders (recommended) or Fills, or from TradeSea → Export orders.",
+          text: "Use a supported broker CSV, a TradingView Replay CSV, or a Replay workbook with a Trades sheet.",
           cls: "tj-error-detail",
         });
         this.busy = false;
@@ -540,14 +615,22 @@ class ImportCsvModal extends Modal {
         this.renderCostsBlock();
       }
 
-      // A new batch is a new decision. Nothing is pre-picked: a name in the CSV
-      // matching an account in the journal is a coincidence of text, not an
-      // instruction, and guessing it here is how trades land in the wrong place
-      // while the screen says everything went fine.
+      // Mapping and extra-target choices belong to this batch only.
       this.mapping.clear();
+      this.includeIds.clear();
       this.selection = newImportSelection();
-
-      this.tradeFiles = execTexts;
+      this.replayMode = replayFiles.length > 0;
+      this.replaySourceZone = "";
+      if (this.replayMode) {
+        this.setupPick = "";
+        this.markAllReviewed = false;
+      }
+      this.tradeFiles = this.replayMode ? replayFiles : csvFiles;
+      if (this.headSubEl) {
+        this.headSubEl.setText(this.replayMode
+          ? "TradingView Replay data is simulated. Choose the account you intend."
+          : "Nothing is written until you press the button.");
+      }
       await this.parseTrades();
       this.busy = false;
     } catch (err) {
@@ -576,7 +659,7 @@ class ImportCsvModal extends Modal {
 
   /** Fold the parsed results of every file into one batch view. */
   private combineParsed(
-    results: { name: string; result: ParsedResult }[],
+    results: { name: string; result: ParsedResult & Partial<Pick<TradingViewReplayParseResult, "heldForReview" | "unsupportedPatterns">> }[],
     names: string[]
   ): Omit<ParsedFile, "risk" | "costFileName"> {
     const trades: Trade[] = [];
@@ -587,6 +670,8 @@ class ImportCsvModal extends Modal {
     let skipped = 0;
     let unfilled = 0;
     let unpaired = 0;
+    let heldForReview = 0;
+    let unsupportedPatterns = 0;
     const costList: ImportCosts[] = [];
     for (const { result } of results) {
       trades.push(...result.trades);
@@ -599,6 +684,8 @@ class ImportCsvModal extends Modal {
       skipped += result.skipped;
       unfilled += result.unfilled;
       unpaired += result.unpaired;
+      heldForReview += result.heldForReview ?? 0;
+      unsupportedPatterns += result.unsupportedPatterns ?? 0;
       if (result.timeIssues) {
         timeIssues.gap += result.timeIssues.gap;
         timeIssues.ambiguous += result.timeIssues.ambiguous;
@@ -607,8 +694,7 @@ class ImportCsvModal extends Modal {
       }
       if (result.costs) costList.push(result.costs);
     }
-    const totalIssues =
-      timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone + timeIssues.unknownZone;
+    const totalIssues = timeIssues.gap + timeIssues.ambiguous + timeIssues.noZone + timeIssues.unknownZone;
     const costs = costList.length ? this.mergeImportCosts(costList) : undefined;
     return {
       name: names.length === 1 ? names[0] : `${names.length} files`,
@@ -619,6 +705,8 @@ class ImportCsvModal extends Modal {
       skipped,
       unfilled,
       unpaired,
+      isReplay: this.replayMode,
+      ...(this.replayMode ? { heldForReview, unsupportedPatterns } : {}),
       ...(totalIssues ? { timeIssues } : {}),
       costs,
     };
@@ -658,56 +746,82 @@ class ImportCsvModal extends Modal {
   private async parseTrades(): Promise<void> {
     if (!this.bodyEl || !this.tradeFiles.length) return;
     const body = this.bodyEl;
+    this.parsed = null;
+    this.plan = null;
+    this.importable = [];
+    this.duplicates = 0;
+    this.updateGo();
+    if (this.replayMode && this.setupEl && !this.setupEl.childElementCount) {
+      this.renderZone(this.setupEl);
+      this.renderCosts(this.setupEl);
+    }
+
     const importZone = this.plugin.settings.importZone;
     const zones = {
-      sourceZone: importZone || detectSystemZone(),
-      // "This computer" (the default) is the reader's answer, not the file's:
-      // the note must not later read it as a zone the export declared.
+      sourceZone: this.replayMode ? this.replaySourceZone : (importZone || detectSystemZone()),
       systemSource: !importZone,
       journalZone: this.plugin.settings.timeZone,
     };
     const rules = this.plugin.getAccountRules();
-    const results: { name: string; result: ParsedResult }[] = [];
+    const results: { name: string; result: ParsedResult & Partial<Pick<TradingViewReplayParseResult, "heldForReview" | "unsupportedPatterns">> }[] = [];
     const batchFiles: BatchFileTrades[] = [];
-    for (const f of this.tradeFiles) {
-      const result = parseTradeovateCsv(f.text, rules, zones, this.cashCosts ?? undefined);
-      results.push({ name: f.name, result });
-      batchFiles.push({ name: f.name, trades: result.trades });
+    for (const file of this.tradeFiles) {
+      let result: ParsedResult & Partial<Pick<TradingViewReplayParseResult, "heldForReview" | "unsupportedPatterns">>;
+      if (file.kind === "tradingview-replay") {
+        result = file.format === "xlsx"
+          ? parseTradingViewReplayWorkbook(file.bytes ?? new Uint8Array(), file.name, zones)
+          : parseTradingViewReplayCsv(file.text ?? "", file.name, zones);
+      } else {
+        result = parseTradeovateCsv(file.text ?? "", rules, zones, this.cashCosts ?? undefined);
+      }
+      results.push({ name: file.name, result });
+      batchFiles.push({ name: file.name, trades: result.trades });
     }
     this.batchFiles = batchFiles;
     body.empty();
 
-    const combined = this.combineParsed(results, this.tradeFiles.map((f) => f.name));
+    const combined = this.combineParsed(results, this.tradeFiles.map((file) => file.name));
     if (!combined.trades.length) {
       const err = body.createDiv({ cls: "tj-error" });
-      err.createEl("h3", { text: "No trades recognised" });
-      for (const w of combined.warnings) err.createEl("p", { text: w });
+      err.createEl("h3", {
+        text: this.replayMode
+          ? (combined.heldForReview ? "No Replay trades ready to import" : "No supported Replay trades recognised")
+          : "No trades recognised",
+      });
+      for (const warning of combined.warnings) err.createEl("p", { text: warning });
+      const details = [
+        combined.skipped ? `${combined.skipped} row(s) could not be read` : "",
+        combined.unfilled ? `${combined.unfilled} order(s) never filled` : "",
+        combined.unpaired ? `${combined.unpaired} fill(s) still open` : "",
+        combined.heldForReview ? `${combined.heldForReview} Replay trade(s) held for review` : "",
+        combined.unsupportedPatterns ? `${combined.unsupportedPatterns} unsupported Replay trade group(s)` : "",
+      ].filter(Boolean).join(" · ");
       err.createDiv({
-        text: [
-          combined.skipped ? `${combined.skipped} row(s) could not be read` : "",
-          combined.unfilled ? `${combined.unfilled} order(s) never filled` : "",
-          combined.unpaired ? `${combined.unpaired} fill(s) still open` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ") || "The files have no executions this journal can pair.",
+        text: details || (this.replayMode ? "No supported complete trades were found in the Replay ledger." : "The files have no executions this journal can pair."),
         cls: "tj-error-detail",
       });
-      err.createDiv({
-        text: "Export from Tradovate → Reports → Orders (recommended) or Fills, or from TradeSea → Export orders, and check the columns. The Performance report cannot be read — it is a screen, not a ledger.",
-        cls: "tj-error-detail",
-      });
+      if (this.replayMode) {
+        err.createDiv({
+          text: "Without a timezone in the file, Replay uses the Journal timezone when one is selected; otherwise wall-clock times remain unresolved. Commission-bearing or P&L-mismatched trades remain out of the import.",
+          cls: "tj-error-detail",
+        });
+      } else {
+        err.createDiv({
+          text: "Export from Tradovate → Reports → Orders (recommended) or Fills, or from TradeSea → Export orders, and check the columns. The Performance report cannot be read — it is a screen, not a ledger.",
+          cls: "tj-error-detail",
+        });
+      }
       return;
     }
 
-    // A rule the trader set for the contract fills in only what the files do
-    // not say, and says so on the trade itself. It runs here, on the parsed
-    // trades, so the preview below and the notes written later read the same
-    // numbers.
-    const risk = applyAssumedRisk(combined.trades, this.plugin.settings.defaultRiskBySymbol);
-    this.parsed = { ...combined, risk, costFileName: this.cashName || undefined };
-    // Re-reading is not a new decision: only a name that no longer exists in the
-    // batch is dropped, so nothing dead is kept.
-    const names = new Set(this.parsed.accountsSeen.map((a) => a.name));
+    // Replay imports carry no inferred risk defaults; only source facts are shown.
+    const risk = this.replayMode ? undefined : applyAssumedRisk(combined.trades, this.plugin.settings.defaultRiskBySymbol);
+    this.parsed = {
+      ...combined,
+      risk,
+      costFileName: this.replayMode ? undefined : (this.cashName || undefined),
+    };
+    const names = new Set(this.parsed.accountsSeen.map((account) => account.name));
     for (const key of [...this.mapping.keys()]) {
       if (!names.has(key)) this.mapping.delete(key);
     }
@@ -722,22 +836,25 @@ class ImportCsvModal extends Modal {
    * export "CSV" would be the one place where the screen disagreed with the
    * reader about what the reader had in hand.
    */
-  private fileKind(text: string): string {
-    const kind = csvKind(text);
+  private fileKind(file: TradeImportFile): string {
+    const text = file.text ?? "";
+    const kind = file.format === "csv" ? csvKind(text) : file.kind;
+    if (kind === "tradingview-replay") return "TradingView Replay";
     if (kind === "orders") return "Orders export";
     if (kind === "fills") return "Fills export";
     if (kind === "tradesea") return "TradeSea export";
     return "CSV";
   }
 
-  /** The kind of a whole batch: one name when they agree, "CSV" when they mix. */
+  /** The kind of a whole batch: Replay CSV and workbook are one source. */
   private batchKind(): string {
-    const kinds = new Set(this.tradeFiles.map((f) => this.fileKind(f.text)));
+    if (this.replayMode) return "TradingView Replay";
+    const kinds = new Set(this.tradeFiles.map((file) => this.fileKind(file)));
     return kinds.size === 1 ? [...kinds][0] : "CSV";
   }
 
   private accounts(): PropAccount[] {
-    return (this.plugin.settings.propAccounts ?? []).filter((a) => !!a && !!a.id);
+    return (this.plugin.settings.propAccounts ?? []).filter((account) => !!account && !!account.id);
   }
 
   /**
@@ -762,9 +879,13 @@ class ImportCsvModal extends Modal {
   /** The one action wakes the moment there is somewhere for the trades to go. */
   private updateGo(): void {
     if (!this.goBtn) return;
-    const ready = !!this.parsed && this.importable.length > 0 && this.activeTargets().size > 0;
+    const noTarget = this.activeTargets().size === 0;
+    const ready = !!this.parsed && this.importable.length > 0 && !noTarget;
     this.goBtn.disabled = !ready;
-    if (this.helperEl) this.helperEl.style.display = this.activeTargets().size === 0 ? "" : "none";
+    if (this.helperEl) {
+      this.helperEl.setText("Select at least one target account to proceed.");
+      this.helperEl.setCssStyles({ display: noTarget ? "" : "none" });
+    }
   }
 
   /** How many of this batch's new trades land in a journal account. */
@@ -783,6 +904,9 @@ class ImportCsvModal extends Modal {
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const leads = (a: PropAccount) => a.copyRole === "base";
     const follows = (a: PropAccount) => a.copyRole === "copier" && !!a.copyBaseId && byId.has(a.copyBaseId);
+    const displayName = (account: PropAccount) => this.replayMode
+      ? `${account.name} · ${importAccountTypeLabel(account)}`
+      : account.name;
     const items: DropdownItem[] = [];
 
     const add = (a: PropAccount, heading?: string) => {
@@ -790,7 +914,7 @@ class ImportCsvModal extends Modal {
         const n = accounts.filter((m) => follows(m) && m.copyBaseId === a.id).length;
         items.push({
           id: a.id,
-          label: a.name,
+          label: displayName(a),
           heading,
           tag: "Leader",
           tagTone: "leader",
@@ -802,7 +926,7 @@ class ImportCsvModal extends Modal {
         const base = byId.get(a.copyBaseId as string);
         items.push({
           id: a.id,
-          label: a.name,
+          label: displayName(a),
           heading,
           tag: `Copier ×${a.copyMultiplier ?? 1}`,
           tagTone: "copier",
@@ -810,7 +934,7 @@ class ImportCsvModal extends Modal {
         });
         return;
       }
-      items.push({ id: a.id, label: a.name, heading, note: "On its own" });
+      items.push({ id: a.id, label: displayName(a), heading, note: "On its own" });
     };
 
     const leaders = accounts.filter(leads);
@@ -882,7 +1006,8 @@ class ImportCsvModal extends Modal {
       attachTip(name, { title: group.name, sub: group.files.join(", ") });
       // A remembered mapping is a suggestion, never an instruction: it is shown
       // and only written when the trader confirms it.
-      const suggested = assigned ? null : this.plugin.mappedAccount(group.name);
+      const candidate = assigned ? null : this.plugin.mappedAccount(group.name);
+      const suggested = candidate && accounts.some((account) => account.id === candidate.id) ? candidate : null;
       if (suggested) {
         const sug = name.createDiv({ cls: "tj-import-mapcount" });
         sug.createSpan({ text: `Suggested account: ${suggested.name}` });
@@ -917,10 +1042,17 @@ class ImportCsvModal extends Modal {
         text: `${leftOut} trade${leftOut === 1 ? "" : "s"} still without an account — those will not be written.`,
       });
     }
+    if (this.replayMode && chosen.length) {
+      const destinations = accounts.filter((account) => chosen.includes(account.id));
+      box.createDiv({
+        cls: "tj-import-replay-destination",
+        text: `Simulated Replay trades will be recorded in ${destinations.map((account) => `${account.name} (${importAccountTypeLabel(account)})`).join(", ")}. They will remain labeled as simulated.`,
+      });
+    }
 
     // Everything below is a question about an answer that does not exist yet.
     if (!chosen.length) return;
-    this.renderExtraTargets(host, accounts);
+    if (!this.replayMode) this.renderExtraTargets(host, accounts);
   }
 
   /**
@@ -1091,7 +1223,9 @@ class ImportCsvModal extends Modal {
     // Step two. The file is in hand, so the reader gets what belongs to it:
     // where its times were written, and whether the platform's bill is coming
     // with it. The recommendation has done its job and shrinks to one line.
-    if (this.headSubEl) this.headSubEl.setText("Nothing is written until you press the button.");
+    if (this.headSubEl) this.headSubEl.setText(this.replayMode
+      ? "Simulated Replay trades will be recorded in the account you choose."
+      : "Nothing is written until you press the button.");
     if (this.tradesTitleEl) this.tradesTitleEl.setCssStyles({ display: "" });
     if (this.setupEl && !this.setupEl.childElementCount) {
       this.renderZone(this.setupEl);
@@ -1102,7 +1236,11 @@ class ImportCsvModal extends Modal {
     if (!accounts.length) {
       if (this.pickEl) this.pickEl.empty();
       const warn = body.createDiv({ cls: "tj-import-note" });
-      warn.createDiv({ text: "You have no accounts yet — create one first, then import." });
+      warn.createDiv({
+        text: this.replayMode
+          ? "You have no accounts yet — create one before importing Replay data."
+          : "You have no accounts yet — create one first, then import.",
+      });
       const btn = warn.createEl("button", { cls: "tj-actionbtn is-primary", text: "Create an account" });
       btn.addEventListener("click", () => {
         this.close();
@@ -1123,7 +1261,11 @@ class ImportCsvModal extends Modal {
     const orphanCount = costs ? costs.orphans.length : 0;
     const costLine = body.createDiv({ cls: "tj-import-costs" + (orphanCount > 0 ? " is-warn" : "") });
     setIcon(costLine.createSpan({ cls: "tj-import-costs-ico" }), "receipt");
-    if (!costs) {
+    if (this.replayMode) {
+      costLine.createSpan({
+        text: `Simulated Replay source. No commissions or fees are written; ${this.parsed.heldForReview ?? 0} trade(s) held for review are excluded.`,
+      });
+    } else if (!costs) {
       costLine.createSpan({
         text: "Costs are not recorded: the export carries commission but not the exchange, clearing and NFA lines, and half a cost would be a wrong number.",
       });
@@ -1183,7 +1325,7 @@ class ImportCsvModal extends Modal {
     // off a chosen account: with nothing mapped, no default and no leftover
     // lights the button. An explicit untick survives every repaint — until the
     // mapped leader set changes, when the defaults are recomputed afresh.
-    this.includeIds = effectiveSelection(accounts, this.baseIds(), this.selection);
+    this.includeIds = this.replayMode ? new Set<string>() : effectiveSelection(accounts, this.baseIds(), this.selection);
     this.renderPick();
 
     const t = this.importable;
@@ -1203,10 +1345,23 @@ class ImportCsvModal extends Modal {
         this.parsed.files.length === 1 ? "" : "s"
       }`,
     });
+    if (this.replayMode) {
+      top.createSpan({ cls: "tj-import-pill", text: "Simulated · TradingView Replay" });
+      if (this.parsed.heldForReview) {
+        top.createSpan({ cls: "tj-import-pill is-warn", text: `${this.parsed.heldForReview} held for review` });
+      }
+      if (this.parsed.unsupportedPatterns) {
+        top.createSpan({ cls: "tj-import-pill is-warn", text: `${this.parsed.unsupportedPatterns} unsupported group(s)` });
+      }
+    }
     // The reconciliation summary: what was found, what is already here, what a
     // mapping will import and what it will leave out. It adds up by design.
     if (plan && plan.duplicates) {
       top.createSpan({ cls: "tj-import-pill", text: `${plan.duplicates} already in the journal` });
+    }
+    if (plan && plan.conflicts) {
+      top.createSpan({ cls: "tj-import-pill is-warn", text: `${plan.conflicts} conflict${plan.conflicts === 1 ? "" : "s"} held — not imported` });
+      box.createDiv({ cls: "tj-import-emptyline", text: "A possible matching Replay trade has different details, or its identity cannot be verified. Check the existing trade and source file; these trades were not imported." });
     }
     if (plan && plan.assigned) {
       top.createSpan({ cls: "tj-import-pill", text: `${plan.assigned} ready to import` });
@@ -1246,31 +1401,33 @@ class ImportCsvModal extends Modal {
         sub: "A row missing a column. Nothing was written from it.",
       });
     }
-    // A row whose wall clock has no single instant is a different fact from an
-    // unreadable one: it was read, and refused. Say which hour refused it.
     const issues = this.parsed.timeIssues;
-    const timeCount = issues
-      ? issues.gap + issues.ambiguous + issues.noZone + issues.unknownZone
+    const unresolvedReplayTrades = this.replayMode
+      ? this.parsed.trades.filter((trade) => trade.timeUnresolved).length
       : 0;
-    if (issues && timeCount) {
+    const excludedTimeCount = issues ? issues.gap + issues.ambiguous + issues.unknownZone : 0;
+    if (unresolvedReplayTrades || excludedTimeCount) {
+      const labels: string[] = [];
+      if (unresolvedReplayTrades) labels.push(`${unresolvedReplayTrades} Replay trade${unresolvedReplayTrades === 1 ? "" : "s"} with unresolved times`);
+      if (excludedTimeCount) labels.push(`${excludedTimeCount} timestamp${excludedTimeCount === 1 ? "" : "s"} not imported`);
       const pill = top.createSpan({
         cls: "tj-import-pill is-warn",
-        text: `${timeCount} timestamp${timeCount === 1 ? "" : "s"} not pinned`,
+        text: labels.join(" · "),
       });
       const parts: string[] = [];
-      if (issues.gap) parts.push(`${issues.gap} in a DST gap`);
-      if (issues.ambiguous) parts.push(`${issues.ambiguous} in a repeated hour`);
-      if (issues.noZone) parts.push(`${issues.noZone} with no zone chosen`);
-      if (issues.unknownZone) parts.push(`${issues.unknownZone} naming a zone this journal does not know`);
+      if (unresolvedReplayTrades) {
+        parts.push(`${unresolvedReplayTrades} Replay trade${unresolvedReplayTrades === 1 ? " has" : "s have"} no usable source or Journal timezone. They retain wall-clock values, count in overall trade/P&L totals, and stay out of day, session, and hold analytics until a timezone is set or the times are corrected in Trade Review.`);
+      }
+      if (issues?.gap) parts.push(`${issues.gap} timestamp${issues.gap === 1 ? " falls" : "s fall"} in a DST gap; affected rows were left out.`);
+      if (issues?.ambiguous) parts.push(`${issues.ambiguous} timestamp${issues.ambiguous === 1 ? " is" : "s are"} in a repeated hour; affected rows were left out.`);
+      if (issues?.unknownZone) parts.push(`${issues.unknownZone} timestamp${issues.unknownZone === 1 ? " names" : "s name"} a zone abbreviation this journal does not know; affected rows were left out.`);
       attachTip(pill, {
-        title: "Timestamps left out",
-        sub: `These rows read fine but have no single instant (${parts.join(
-          ", "
-        )}), so nothing was written. A naive time needs "Time files are in"; an unknown zone abbreviation is refused as the file wrote it.`,
+        title: "Replay time handling",
+        sub: parts.join(" "),
       });
     }
 
-    if (t.length) {
+    if (t.length && !this.replayMode) {
       // A CSV cannot carry a strategy, so this is one answer for the whole file —
       // and it can be left empty when the trades are not all the same. The ones
       // left without a home are surfaced after the write, never guessed.
@@ -1341,7 +1498,9 @@ class ImportCsvModal extends Modal {
           "Imported trades rarely carry screenshots or notes. Mark them reviewed to clear the queue, and write up only the ones worth it."
         );
       }
+    }
 
+    if (t.length) {
       const tbl = box.createEl("table", { cls: "tj-import-tbl" });
       const thead = tbl.createEl("thead");
       const hr = thead.createEl("tr");
@@ -1391,14 +1550,16 @@ class ImportCsvModal extends Modal {
       }
 
       const foot = box.createDiv({ cls: "tj-import-reviewfoot" });
-      foot.createSpan({ text: this.tradeFiles.some((f) => csvKind(f.text) === "tradesea") ? "P&L before TradeSea costs" : "Net" });
+      foot.createSpan({ text: this.tradeFiles.some((file) => file.kind === "tradesea") ? "P&L before TradeSea costs" : "Net" });
       foot.createSpan({ cls: "tj-import-net " + (net >= 0 ? "pos" : "neg"), text: fmtMoney2(net) });
       foot.createSpan({ cls: "tj-import-dot", text: "·" });
       foot.createSpan({ text: `${new Set(t.map((x) => x.symbol)).size} symbol${new Set(t.map((x) => x.symbol)).size === 1 ? "" : "s"}` });
       foot.createSpan({ cls: "tj-import-dot", text: "·" });
       foot.createSpan({ text: `${t[t.length - 1]?.date} → ${t[0]?.date}` });
-    } else {
+    } else if (plan && plan.detected > 0 && plan.duplicates === plan.detected) {
       box.createDiv({ cls: "tj-import-emptyline", text: "Everything in this file is already in your journal." });
+    } else {
+      box.createDiv({ cls: "tj-import-emptyline", text: "No trades are available to preview." });
     }
 
     // ---- the one action ---------------------------------------------------
@@ -1514,6 +1675,28 @@ class ImportCsvModal extends Modal {
   private async commit(btn: HTMLButtonElement): Promise<void> {
     if (!this.parsed || this.busy) return;
 
+    // Re-read the journal before writing Replay: the preview may have gone stale.
+    if (this.replayMode) {
+      this.busy = true;
+      btn.disabled = true;
+      const preview = JSON.stringify(this.plan);
+      try {
+        await this.splitDuplicates();
+        if (preview !== JSON.stringify(this.plan)) {
+          this.busy = false;
+          await this.renderReview();
+          new Notice("The import plan changed since preview. Review it before importing.");
+          return;
+        }
+      } catch (err) {
+        this.busy = false;
+        btn.disabled = false;
+        new Notice(`Could not refresh the import plan: ${(err as Error).message}`);
+        return;
+      }
+      this.busy = false;
+    }
+
     // The hard guard: no target, no write. The button is already asleep, but a
     // rule that lives only in a disabled attribute is not a rule.
     const accounts = this.accounts();
@@ -1526,10 +1709,10 @@ class ImportCsvModal extends Modal {
         ...t,
         account: acc.name,
         accountType: acc.type,
-        setup: this.setupPick || t.setup || "",
+        setup: this.replayMode ? "" : (this.setupPick || t.setup || ""),
         // One answer for the whole file: reviewed, and the checklist stays as
         // the notes are.
-        ...(this.markAllReviewed ? { reviewed: true as const } : {}),
+        ...(!this.replayMode && this.markAllReviewed ? { reviewed: true as const } : {}),
       };
       // Record the identity the note is deduped by, so the next import of the
       // same trade recognises it even without a broker id.
@@ -1551,15 +1734,35 @@ class ImportCsvModal extends Modal {
       // trade would be written twice into the same account.
       const bases = new Set(this.baseIds());
       const broadcast = [...this.includeIds].filter((id) => !bases.has(id));
-      const withLegs = await this.plugin.applyBroadcast(assigned, broadcast);
-      const count = await this.plugin.storeTrades(withLegs);
+      const withLegs = this.replayMode ? assigned : await this.plugin.applyBroadcast(assigned, broadcast);
+      let count: number;
+      let replayPaths: string[] = [];
+      if (this.replayMode) {
+        const result = await this.plugin.storeReplayTrades(withLegs);
+        replayPaths = result.paths;
+        count = result.paths.length;
+        let confirmed = 0;
+        try {
+          confirmed = confirmReplayWrites(assigned, result.paths, await this.plugin.readReplayNotes(result.paths));
+        } catch {
+          // Readback failure does not imply that writes failed.
+        }
+        if (result.failed || count !== assigned.length || confirmed !== assigned.length) {
+          new Notice(`${count} note${count === 1 ? "" : "s"} confirmed created; ${confirmed} of ${assigned.length} verified. Other writes may have occurred. Close and reopen the import to refresh the plan before retrying.`);
+          btn.disabled = true;
+          btn.setText("Reopen import to retry");
+          this.busy = false;
+          return;
+        }
+      } else {
+        count = await this.plugin.storeTrades(withLegs);
+      }
 
-      // The write is not done until it can be read back. storeTrades counts what
-      // it was asked to save; this proves the notes actually landed, so "Done"
-      // can never report a file that never arrived.
-      const expected = new Set(assigned.map((t) => this.noteKey(t)));
+      // Replay has already verified exact new paths above. Preserve the broker
+      // readback behavior separately.
+      const expected = new Set(this.replayMode ? [] : assigned.map((t) => this.noteKey(t)));
       const byKey = new Map<string, string>();
-      const after = await this.plugin.loadTradesExpanded();
+      const after = this.replayMode ? [] : await this.plugin.loadTradesExpanded();
       for (const t of after) {
         const mapped = this.plugin.mappedAccount(t.account || "");
         if (mapped && this.activeTargets().has(mapped.id)) {
@@ -1614,7 +1817,7 @@ class ImportCsvModal extends Modal {
       // apart — what the file held, what was chosen, what was written, and what
       // was left out — so "imported" can never be read as "everything".
       const legs = withLegs.length - assigned.length;
-      const noStrategyIds = assigned
+      const noStrategyIds = this.replayMode ? replayPaths : assigned
         .filter((t) => !(t.setup || "").trim())
         .map((t) => byKey.get(this.noteKey(t)))
         .filter((x): x is string => !!x);
@@ -1629,6 +1832,7 @@ class ImportCsvModal extends Modal {
         written: assigned.length,
         copyLegs: legs,
         duplicates: this.duplicates,
+        conflicts: this.plan?.conflicts ?? 0,
         unfilled: this.parsed.unfilled,
         unpaired: this.parsed.unpaired,
         unreadable: this.parsed.skipped,
@@ -1690,9 +1894,15 @@ class ImportCsvModal extends Modal {
       }
       this.renderStages();
     } catch (err) {
-      new Notice(`Import failed: ${(err as Error).message}`);
-      btn.disabled = false;
-      btn.setText("Retry");
+      if (this.replayMode) {
+        new Notice(`Import could not be confirmed: ${(err as Error).message}. Notes may have been written. Close and reopen the import to refresh the plan.`);
+        btn.disabled = true;
+        btn.setText("Reopen import to retry");
+      } else {
+        new Notice(`Import failed: ${(err as Error).message}`);
+        btn.disabled = false;
+        btn.setText("Retry");
+      }
     }
     this.busy = false;
   }

@@ -67,9 +67,10 @@ test("an old or invalid default starts empty instead of falling back to NQ", () 
 // ---- the picker suggests the supported set, and only that ----------------
 
 test("the symbol field is built from the canonical supported set", () => {
-  // D. CORE_SYMBOLS is the one list: the picker reads it, it is not a second
-  // copy of it, and nothing in the panel offers the rest of the registry.
-  assert.match(panel, /for \(const sym of CORE_SYMBOLS\)/, "the datalist is filled from CORE_SYMBOLS");
+  // CORE_SYMBOLS is the one list: the app-owned picker reads it, not a copy.
+  assert.match(panel, /const contractItems: AutocompleteItem\[\] = CORE_SYMBOLS\.map/);
+  assert.match(panel, /mountAutocomplete\(symWrap, contractItems/);
+  assert.doesNotMatch(panel, /datalist/i, "native browser suggestions are not used");
   assert.match(
     panel,
     /import \{[\s\S]*?CORE_SYMBOLS,[\s\S]*?\} from "\.\.\/futures"/,

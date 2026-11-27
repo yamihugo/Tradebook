@@ -29,6 +29,14 @@ mistaken for a missing feature.
   the amount. Unmatched lines are associated the same way, and any line that still cannot be
   attributed becomes a dated cost on the account instead of a guess.
 
+## Ratios
+
+- **R is measured against the risk the trade itself records.** R (AVG) is the trade's realised
+  gross result over its recorded initial risk; R (MAX) is the furthest executed exit over that
+  same initial risk distance. Both need a recorded stop that defines the risk and a contract
+  the journal can price. Without them the values read as a dash. A later recorded stop is shown
+  separately and never rewrites the initial risk the ratios were measured against.
+
 ## Import formats
 
 ### Currently supported
@@ -45,6 +53,14 @@ mistaken for a missing feature.
   - Commission is not applied; P&L is before costs
   - `EDT` is fixed UTC−04:00; numeric GMT/UTC offsets applied literally
   - Other alphabetic zone tokens and unconfirmed date layouts are refused
+
+- **TradingView Replay trade list** — the Replay panel's exported trade list
+  - Must have the complete observed header: `Trade number, Type, Date and time, Signal, Price USD, Size (qty), Net PnL USD, Commission USD`
+  - No account column (the importer assigns "TradingView Replay" as the account label)
+  - Each trade number must be one entry and one exit. Any other shape is left out and counted in the import receipt instead of being reconstructed.
+  - The file's commission and net P&L are held for review rather than applied, so a Replay trade is not written silently with a cost treatment that has not been checked.
+  - A Replay stamp that cannot be resolved to an instant is stored as unresolved and left out of the day, hour and session figures rather than placed on a guessed one.
+  - Replay comes in on its own. A selection that mixes a Replay file with broker reports or cash history is refused, so every trade keeps one clear source.
 
 ### How to export from supported platforms
 
@@ -90,9 +106,11 @@ If you use a platform not listed above and can share an **anonymized export samp
 
 ## Manual executions and review
 
-- Imported execution facts remain authoritative. Manual actual exits must close the full
-  position; summaries are calculated from their fill records. Trade Detail adds no separate
-  execution-correction form.
+- Executions can be corrected, never silently rewritten. Trade Detail offers an inline
+  editor for the recorded fills of a trade that is not a copied leg and not a reconstructed
+  model. The executions that were replaced are kept in the note alongside the corrected ones,
+  so the original record survives the edit. Manual actual exits must still close the full
+  position, and trade summaries are calculated from the current fill records.
 - Choose one strategy per trade. Older multiple assignments remain visible and unchanged
   until you resolve them; automatic Strategy completion waits for that single choice.
   An explicit reviewed or reopened marker retains its separate meaning.
@@ -112,6 +130,7 @@ If you use a platform not listed above and can share an **anonymized export samp
 ## File names and screenshot links
 
 - The file-name repair updates stored screenshot references when it renames the matching files. It does not automatically repair links that were already broken by an earlier rename. Back up the vault before using the repair and check existing affected trades separately.
+- A rename never takes a print from another note. If a second note references the same print, that trade and its print family are left exactly where they are. If any print's destination name is already taken, the whole family is left alone as well. A note whose own new name is already taken is written to the next free name instead of overwriting the file that is there.
 
 ## Times and timezones
 

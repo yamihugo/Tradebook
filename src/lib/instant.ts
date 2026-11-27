@@ -13,13 +13,13 @@
  *
  * - A stamp with an explicit offset (`Z`, `±HH:MM`, or a recognized TradeSea
  *   abbreviation) is a true instant and wins over any source zone.
- * - A naive stamp is interpreted only in the zone the reader says it was written
- *   in. If that zone has no wall clock for the value, the result is `gap` (the
- *   hour the clock jumped over); if it has two, the result is `ambiguous` (the
- *   hour the clock played twice). Both are reported, never rounded into a
- *   plausible instant.
- * - A naive stamp with no zone is `need-zone`, never "whatever zone this
- *   computer happens to be in".
+ * - A naive stamp is interpreted in the explicitly declared source zone; readers
+ *   may deliberately supply the selected Journal timezone as a fallback. If no
+ *   configured zone has that wall clock, the result is `gap` (the hour the clock
+ *   jumped over); if it has two, the result is `ambiguous` (the hour the clock
+ *   played twice). Both are reported, never rounded into a plausible instant.
+ * - A naive stamp with neither source nor configured fallback zone is `need-zone`,
+ *   never "whatever zone this computer happens to be in".
  *
  * Nothing in here reads a system clock for its zone: the same input produces the
  * same instant on every machine.
@@ -356,21 +356,26 @@ export function secondsOfDay(time: CivilTime): number | null {
 // ---------------------------------------------------------- timestamp contract
 
 export interface ParseInstantOpts {
-  /** Zone a naive stamp was written in. Absent means "unknown", not "system". */
+  /** Explicit zone a naive stamp was written in. */
   sourceZone?: string;
+  /** Configured Journal timezone fallback when a stamp has no zone. */
+  journalZone?: string;
 }
 
 /**
- * The one timestamp reader: `Z`/offset first (a true instant), then naive in the
- * declared source zone (DST-checked), then `need-zone`. Never the OS zone.
+ * The one timestamp reader: `Z`/offset first (a true instant), then the explicit
+ * source zone, then a configured Journal timezone fallback, then `need-zone`.
+ * Never uses the OS zone.
  */
 export function parseInstant(raw: string, opts: ParseInstantOpts = {}): InstantResolution {
   const text = String(raw ?? "").trim();
   const sourceZone = (opts.sourceZone ?? "").trim();
-  if (!text) return { date: "", time: "", zone: sourceZone, status: "invalid", reason: "stamp" };
+  const journalZone = (opts.journalZone ?? "").trim();
+  const readZone = sourceZone || journalZone;
+  if (!text) return { date: "", time: "", zone: readZone, status: "invalid", reason: "stamp" };
 
   const stamp = parseStamp(text);
-  if (!stamp) return { date: "", time: "", zone: sourceZone, status: "invalid", reason: "stamp" };
+  if (!stamp) return { date: "", time: "", zone: readZone, status: "invalid", reason: "stamp" };
 
   if (stamp.offset) {
     const iso = `${stamp.date}T${stamp.time}${stamp.offset}`;
@@ -395,10 +400,10 @@ export function parseInstant(raw: string, opts: ParseInstantOpts = {}): InstantR
     };
   }
 
-  if (!sourceZone) {
+  if (!readZone) {
     return { date: stamp.date, time: stamp.time, zone: "", status: "need-zone", reason: "no-source-zone" };
   }
-  return instantFromWall(stamp.date, stamp.time, sourceZone, "source-zone");
+  return instantFromWall(stamp.date, stamp.time, readZone, sourceZone ? "source-zone" : "journal-zone");
 }
 
 // ------------------------------------------------------------- manual entries
@@ -461,6 +466,7 @@ export interface TemporalFields {
   exitTime?: string;
   entryInstant?: string;
   exitInstant?: string;
+  timeUnresolved?: boolean;
 }
 
 function instantOf(iso?: string): Date | null {
@@ -523,6 +529,7 @@ export function tradeEntryTimeInZone(t: TemporalFields, zone: string): string {
 
 /** The entry's hour (0–23) in `zone`, from the instant when there is one. */
 export function tradeHourInZone(t: TemporalFields, zone: string): number | null {
+  if (t.timeUnresolved) return null;
   const seconds = secondsOfDay(tradeEntryTimeInZone(t, zone));
   return seconds === null ? null : Math.floor(seconds / 3600);
 }
@@ -534,6 +541,7 @@ export function tradeHourInZone(t: TemporalFields, zone: string): number | null 
  * same convention `holdFmt` has always shown. Null when nothing can be measured.
  */
 export function holdMinutesOf(t: TemporalFields): number | null {
+  if (t.timeUnresolved) return null;
   const entry = entryInstantDate(t);
   const exit = exitInstantDate(t);
   if (entry && exit) {

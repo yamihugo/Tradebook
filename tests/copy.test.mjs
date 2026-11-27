@@ -141,6 +141,14 @@ test("openCopyPeriod closes the previous stretch the day before the new start", 
   }
 });
 
+test("generated copy legs preserve unresolved Replay time without inventing instants", () => {
+  const replay = { ...base(), timeUnresolved: true, entryInstant: undefined, exitInstant: undefined };
+  const leg = copy.buildLeg(replay, account(), { from: "2026-10-01", ratio: 1 });
+  assert.equal(leg.timeUnresolved, true);
+  assert.equal(leg.entryInstant, undefined);
+  assert.equal(leg.exitInstant, undefined);
+});
+
 test("buildLeg applies the config ratio to quantity and copyMultiplier", () => {
   const acc = account();
   const leg2 = copy.buildLeg(base(), acc, { from: "2026-10-01", ratio: 2 });

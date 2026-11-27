@@ -41,7 +41,7 @@ I may explore these too, but they aren't committed features. Some may never beco
 
 ## Imports
 
-Tradebook currently supports **Tradovate Orders, Fills and Cash History**, and the **TradeSea orders export**. The [import limitations](KNOWN-LIMITATIONS.md#import-formats) explain what those imports cover.
+Tradebook currently supports **Tradovate Orders, Fills and Cash History**, the **TradeSea orders export**, and the **TradingView Replay trade list**. The [import limitations](KNOWN-LIMITATIONS.md#import-formats) explain what those imports cover.
 
 I'll use reported issues and anonymized export samples to guide further import work. Before listing another format as supported, its account information, timestamps, trades and costs need to be checked against real exports. Documentation alone isn't enough to confirm that it works.
 

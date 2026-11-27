@@ -27,6 +27,7 @@ export interface ImportIdentityTrade {
   quantity?: number;
   entryInstant?: string;
   entryPrice?: number;
+  dataSource?: "broker" | "manual" | "reconstructed" | "replay";
 }
 
 const defaultAccount = (label: string): string => (label || "").trim().toLowerCase();
@@ -74,8 +75,20 @@ export function fallbackIdentity(t: ImportIdentityTrade, resolveAccount?: Accoun
  * ids live in different namespaces.
  */
 export function importIdentities(t: ImportIdentityTrade, resolveAccount?: AccountIdResolver): string[] {
-  const out: string[] = [];
   const explicit = (t.importKey || "").trim();
+  if (t.dataSource === "replay") {
+    if (!explicit.startsWith("replay:")) return [];
+    const account = resolveAccount ? resolveAccount(t.account || "") : defaultAccount(t.account || "");
+    if (!account) return [];
+    // A stored identity is already scoped; do not wrap it again on readback.
+    const scopedPrefix = `replay:${account}:`;
+    if (explicit.startsWith(scopedPrefix)) return [explicit];
+    // Replay's ledger identity is deliberately separate from broker fills and
+    // scoped to the explicitly mapped demo account. It must never suppress an
+    // otherwise identical live/broker record.
+    return [`${scopedPrefix}${explicit.slice("replay:".length)}`];
+  }
+  const out: string[] = [];
   if (explicit) out.push(explicit.includes(":") ? explicit : `key:${explicit}`);
   const broker = brokerIdentity(t);
   if (broker) out.push(broker);

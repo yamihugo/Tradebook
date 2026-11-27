@@ -1,5 +1,6 @@
 import { Trade } from "../types";
 import { knownFuturesSpec } from "../futures";
+import { maxExitPoints } from "./fills";
 
 /**
  * A risk the trader sets once for a contract, used when the file does not say.
@@ -41,6 +42,16 @@ export function recordedRisk(trade: Trade): number | null {
   if (trade.direction === "long" ? stop >= entry : stop <= entry) return null;
   const risk = Math.abs(entry - stop) * spec.pointValue * qty;
   return risk > 0 ? risk : null;
+}
+
+export function maxExitR(trade: Trade): number | null {
+  const points = maxExitPoints(trade);
+  const risk = recordedRisk(trade);
+  const spec = knownFuturesSpec(trade.symbol || "");
+  const qty = Number(trade.quantity);
+  if (!Number.isFinite(points) || risk === null || !Number.isFinite(risk) || !spec || !(spec.pointValue > 0) || !(qty > 0) || !Number.isFinite(qty)) return null;
+  const value = points * spec.pointValue * qty / risk;
+  return Number.isFinite(value) ? value : null;
 }
 
 /**

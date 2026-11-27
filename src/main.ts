@@ -2,7 +2,58 @@ import { App, Notice, Plugin, PluginManifest, type TAbstractFile, TFile, addIcon
 import { AccountRule, DEFAULT_ACCOUNT_RULES, classifyAccount, futuresSpec } from "./futures";
 import { PropAccount, Trade, Payout, Deposit, FeeAdjustment, AccountType, StrategyRecord } from "./types";
 import { saveTrade, parseTradeFromMarkdown, deleteTradeFile, tradeFilename, tradeMonthPath, setTradeAccount, setTradeFields, updateTradeFields, renameTradeStrategy, updateTradeArrayFields, updateTradeScreenshots } from "./storage";
-import { printFamilySlot, referencesPrintFile, remapPrintReference, remapTradePrintFields } from "./lib/renamePrintReferences";
+import { remapPrintReference, remapTradePrintFields } from "./lib/renamePrintReferences";
+function normalizePrintPath(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  return parts.join("/");
+}
+
+function referencePointsToFile(value: string, filePath: string, notePath: string): boolean {
+  const wrapper = /^!?\[\[([^\]]*)\]\]$/.exec(value.trim());
+  const inner = wrapper ? wrapper[1] : value.trim();
+  const split = inner.search(/[|#]/);
+  const target = split < 0 ? inner : inner.slice(0, split);
+  if (!target) return false;
+  const relative = target.startsWith("./") || target.startsWith("../");
+  if (relative) {
+    const noteDirectory = notePath.slice(0, notePath.lastIndexOf("/"));
+    return normalizePrintPath(`${noteDirectory}/${target}`) === normalizePrintPath(filePath);
+  }
+  if (target.includes("/")) return normalizePrintPath(target) === normalizePrintPath(filePath);
+  return filePath.split("/").pop() === target;
+}
+
+/** Exact screenshot-reference match, including supported wrappers and scalar lists. */
+function referencesPrintFile(value: string, filePath: string, notePath: string): boolean {
+  if (referencePointsToFile(value, filePath, notePath)) return true;
+  if (/[,;\n]/.test(value)) {
+    return value.split(/[,;\n]/).some((part) => referencePointsToFile(part.trim(), filePath, notePath));
+  }
+  return false;
+}
+
+/** Return the numbered print slot only for supported image/annotator family names. */
+function printFamilySlot(filePath: string, oldBase: string): string | null {
+  const name = filePath.split("/").pop() ?? "";
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const extension = name.slice(dot + 1).toLowerCase();
+  if (!["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "avif", "tif", "tiff", "heic", "heif", "json"].includes(extension)) return null;
+  const stem = name.slice(0, dot);
+  const annotated = stem.endsWith("-annotated");
+  if (annotated && extension === "json") return null;
+  const familyStem = annotated ? stem.slice(0, -"-annotated".length) : stem;
+  const escaped = oldBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`^${escaped} print(?: ((?:[2-9]|[1-9]\\d+)))?$`).exec(familyStem);
+  return match ? match[1] ?? "1" : null;
+}
+
+
 import { tradePoints } from "./lib/fills";
 import { strategiesOf } from "./lib/strategySelection";
 import { computeAccountMetrics } from "./lib/accountMetrics";
@@ -1412,6 +1463,38 @@ export default class TradebookPlugin extends Plugin {
    * the prints that belong to it — were renamed to the current scheme. Nothing
    * moves here, so the user gets to look before anything is touched.
    */
+  /** Check only indexed links and TradeBook's structured print fields. */
+  private async renameFamilyIsShared(owner: string, family: string[]): Promise<boolean> {
+    if (!family.length) return false;
+    const cache = this.app.metadataCache;
+    if (!cache || !cache.resolvedLinks || !cache.unresolvedLinks) return true;
+    const names = new Set(family.map((path) => path.split("/").pop()!.toLowerCase()));
+    for (const [source, links] of Object.entries(cache.resolvedLinks)) {
+      if (!links || typeof links !== "object") return true;
+      if (source !== owner && family.some((path) => Object.prototype.hasOwnProperty.call(links, path))) return true;
+    }
+    for (const links of Object.values(cache.unresolvedLinks)) {
+      if (!links || typeof links !== "object") return true;
+      for (const link of Object.keys(links)) {
+        let decoded = link;
+        try { decoded = decodeURIComponent(link); } catch { return true; }
+        const name = decoded.split("#")[0].split("/").pop()!.toLowerCase();
+        if (names.has(name) || [...names].some((candidate) => candidate.replace(/\.[^.]+$/, "") === name)) return true;
+      }
+    }
+    const folder = this.getTradesFolder();
+    for (const note of this.app.vault.getFiles()) {
+      if (note.path === owner || note.extension.toLowerCase() !== "md" || !note.path.startsWith(folder + "/")) continue;
+      try {
+        const trade = parseTradeFromMarkdown(await this.app.vault.read(note));
+        if (!trade) return true;
+        const refs = [trade.screenshot ?? "", ...(trade.screenshots ?? []).map((shot) => shot.file)];
+        if (family.some((path) => refs.some((ref) => referencesPrintFile(ref, path, note.path)))) return true;
+      } catch { return true; }
+    }
+    return false;
+  }
+
   async planFileRename(): Promise<RenamePlan> {
     const folder = this.getTradesFolder();
     const allFiles = this.app.vault.getFiles();
@@ -1427,7 +1510,8 @@ export default class TradebookPlugin extends Plugin {
     // Keep note ownership available before considering any attachment name.
     for (const note of files) {
       try {
-        const parsed = parseTradeFromMarkdown(await this.app.vault.cachedRead(note));
+        const text = await this.app.vault.cachedRead(note);
+        const parsed = parseTradeFromMarkdown(text);
         if (!parsed) { skipped++; continue; }
         const trade = parsed as unknown as Trade;
         parsedByPath.set(note.path, trade);
@@ -1482,8 +1566,7 @@ export default class TradebookPlugin extends Plugin {
             const slot = printFamilySlot(pf.path, oldBase);
             return slot !== null && referencedSlots.has(slot);
           });
-          const shared = family.some((pf) => files.some((other) => other.path !== f.path &&
-            (refsByPath.get(other.path) ?? []).some((ref) => referencesPrintFile(ref, pf.path, other.path))));
+          const shared = await this.renameFamilyIsShared(f.path, family.map((pf) => pf.path));
           if (shared) {
             if (target !== f.path) { taken.delete(target); taken.add(f.path); }
             skipped++;
@@ -1545,6 +1628,10 @@ export default class TradebookPlugin extends Plugin {
     let skipped = plan.skipped;
     try {
       for (const item of plan.items) {
+        // Recheck only this family against current metadata and structured fields.
+        if (await this.renameFamilyIsShared(item.from, item.printMoves.map((move) => move.from))) {
+          skipped++; continue;
+        }
         const file = this.app.vault.getAbstractFileByPath(item.from);
         const destinations = [...(item.to !== item.from ? [item.to] : []), ...item.printMoves.map((move) => move.to)];
         // Revalidate the preview before moving any member of this print family.
@@ -1554,6 +1641,27 @@ export default class TradebookPlugin extends Plugin {
           skipped++; continue;
         }
         const before = refsOf(await this.app.vault.read(file));
+        const currentTrade = parseTradeFromMarkdown(await this.app.vault.read(file));
+        if (!currentTrade?.date || !currentTrade.symbol ||
+          tradeFilename(currentTrade as unknown as Trade, this.settings.dateFormat) !== item.newName) {
+          skipped++; continue;
+        }
+        const printsDir = this.getAttachmentsFolder(currentTrade.date);
+        const currentFiles = this.app.vault.getFiles().filter((candidate) =>
+          candidate.path.slice(0, candidate.path.lastIndexOf("/")) === printsDir);
+        const planned = new Set(item.printMoves.map((move) => move.from));
+        const slots = new Set<string>();
+        for (const candidate of currentFiles) {
+          const slot = printFamilySlot(candidate.path, item.oldBase);
+          if (slot !== null && before.some((ref) => referencesPrintFile(ref, candidate.path, item.from))) slots.add(slot);
+        }
+        const currentFamily = currentFiles.filter((candidate) => {
+          const slot = printFamilySlot(candidate.path, item.oldBase);
+          return slot !== null && slots.has(slot);
+        });
+        if (currentFamily.length !== planned.size || currentFamily.some((candidate) => !planned.has(candidate.path))) {
+          skipped++; continue;
+        }
         const moved: Array<{ file: TFile; from: string; to: string }> = [];
         try {
           if (item.to !== item.from) {
@@ -2011,7 +2119,7 @@ export default class TradebookPlugin extends Plugin {
     const byAccount = new Map<string, Trade[]>();
 
     for (const t of trades) {
-      if (t.date) days.add(t.date);
+      if (t.date && !t.timeUnresolved) days.add(t.date);
       if (t.stopLoss && t.stopLoss > 0) stopN++;
       if (t.setup && String(t.setup).trim()) setupN++;
       if (reviewStatus(t).complete) reviewN++;
@@ -2469,6 +2577,32 @@ export default class TradebookPlugin extends Plugin {
     return created;
   }
 
+  /** Replay reports every confirmed create even if a later operation fails. */
+  async storeReplayTrades(trades: Trade[]): Promise<{ paths: string[]; failed: boolean }> {
+    const paths: string[] = [];
+    try {
+      await this.ensureFolder();
+      for (const trade of trades) {
+        await saveTrade(this.app, this.getTradesFolder(), trade, this.settings.dateFormat, (path) => paths.push(path));
+      }
+      await this.reloadAllViews();
+      return { paths, failed: false };
+    } catch {
+      return { paths, failed: true };
+    }
+  }
+
+  async readReplayNotes(paths: string[]): Promise<Trade[]> {
+    const notes: Trade[] = [];
+    for (const path of paths) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (!(file instanceof TFile)) throw new Error("A created note is not available for readback.");
+      const trade = parseTradeFromMarkdown(await this.app.vault.read(file));
+      notes.push({ ...trade, id: path } as Trade);
+    }
+    return notes;
+  }
+
   /** Copy trades onto the given prop accounts (broadcast). Returns the full list to save. */
   async applyBroadcast(trades: Trade[], accountIds: string[]): Promise<Trade[]> {
     if (!accountIds || accountIds.length === 0) return trades;
@@ -2765,7 +2899,7 @@ export default class TradebookPlugin extends Plugin {
     if (!acc) return "";
     const trades = (await this.loadTrades())
       .filter((t) => {
-        if (!Number.isFinite(t.pnl) || !t.date) return false;
+        if (!Number.isFinite(t.pnl) || !t.date || t.timeUnresolved) return false;
         // The tracked boundary when there is one, so a pre-tracking trade can
         // never put a date on a lifecycle conclusion that did not happen while
         // Tradebook was watching. No boundary = the account's start, as before.

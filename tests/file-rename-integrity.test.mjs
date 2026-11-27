@@ -30,10 +30,10 @@ function fixture(options={}) {
   files.set(noteFrom,note);
   const moves=[' print.png',' print 2.png',' print 2.json',' print 2-annotated.png'].map(suffix=>({from:`${printDir}/${oldBase}${suffix}`,to:`${printDir}/${newBase}${suffix}`}));
   for(const move of moves)files.set(move.from,Object.assign(new TFile(move.from),{bytes:'synthetic-image-or-sidecar'}));
-  const read=file=>{const meta=file.metadata||{};return `---\ndate: ${meta.date||'2026-11-06'}\nsymbol: ${meta.symbol||'MES'}\ndirection: ${meta.direction||'long'}\nentry_time: ${JSON.stringify(meta.entryTime||'10:00:00')}\nscreenshot: ${JSON.stringify(file.data?.screenshot||'')}\nscreenshots:\n${(file.data?.screenshots||[]).map(s=>`  - file: ${JSON.stringify(s.file)}\n    note: ${JSON.stringify(s.note||'')}\n`).join('')}unrelated: untouched\n---\n${file.body||''}`;};
+  const read=file=>`---\ndate: ${file.meta?.date ?? "2026-11-06"}\nsymbol: ${file.meta?.symbol ?? "MES"}\ndirection: ${file.meta?.direction ?? "long"}\nentry_time: "${file.meta?.time ?? "10:00:00"}"\nscreenshot: ${JSON.stringify(file.data?.screenshot||'')}\nscreenshots:\n${(file.data?.screenshots||[]).map(s=>`  - file: ${JSON.stringify(s.file)}\n    note: ${JSON.stringify(s.note||'')}\n`).join('')}unrelated: untouched\n---\n${file.body||''}`;
   const move=async(file,to)=>{if(options.failMove===to)throw Error('synthetic move failure');assert.ok(!files.has(to),'never overwrite');files.delete(file.path);file.path=to;files.set(to,file);};
-  const app={vault:{getFiles:()=>[...files.values()],getAbstractFileByPath:p=>files.get(p),cachedRead:async f=>read(f),read:async f=>read(f),rename:move,modify:async(file,text)=>{file.restored=text;}},fileManager:{renameFile:move,processFrontMatter:async(file,change)=>{if(options.failReferenceWrite)throw Error('synthetic reference-write failure');change(file.data);}}};
-  const product=Object.create(Product.prototype);product.app=app;product.settings={tradesFolder:'Journal',dateFormat:'DD/MM/YYYY'};product.getTradesFolder=()=> 'Journal';product.getAttachmentsFolder=()=>printDir;product.clearTradeCache=()=>{};product.reloadAllViews=async()=>{};
+  const app={metadataCache:{resolvedLinks:{},unresolvedLinks:{}},vault:{getFiles:()=>[...files.values()],getAbstractFileByPath:p=>files.get(p),cachedRead:async f=>read(f),read:async f=>read(f),rename:move,modify:async(file,text)=>{file.restored=text;}},fileManager:{renameFile:move,processFrontMatter:async(file,change)=>{if(options.failReferenceWrite)throw Error('synthetic reference-write failure');change(file.data);}}};
+  const product=Object.create(Product.prototype);product.app=app;product.settings={tradesFolder:'Journal',dateFormat:'DD/MM/YYYY'};product.clearTradeCache=()=>{};product.reloadAllViews=async()=>{};
   const plan={items:[{from:noteFrom,to:noteTo,oldBase,newName:newBase,screenshot:data.screenshot,printMoves:moves}],skipped:0};
   return {product,files,data,note,moves,plan,read};
 }
@@ -124,4 +124,53 @@ test('missing planned source skips the family before any rename',async()=>{
  const result=await f.product.applyFileRename(f.plan);
  assert.equal(result.renamed,0);assert.equal(result.prints,0);assert.ok(f.files.has(noteFrom));
  assert.ok(f.files.has(f.moves[0].from));
+});
+
+
+test('planner and apply preserve multi-digit print slots',async()=>{
+ const f=fixture(); for(const n of [10,11,100]) { const name=`${oldBase} print ${n}.png`; f.files.set(`${printDir}/${name}`,new TFile(`${printDir}/${name}`)); f.data.screenshots.push({file:name,note:`slot ${n}`}); }
+ const plan=await f.product.planFileRename(); const item=plan.items.find(x=>x.from===noteFrom); assert.ok(item);
+ for(const n of [10,11,100]) assert.ok(item.printMoves.some(x=>x.from===`${printDir}/${oldBase} print ${n}.png`));
+ await f.product.applyFileRename(plan); for(const n of [10,11,100]) { assert.ok(f.files.has(`${printDir}/${newBase} print ${n}.png`)); assert.ok(f.data.screenshots.some(x=>x.file===`${newBase} print ${n}.png`)); }
+});
+test('unreadable other markdown prevents potentially shared print moves',async()=>{
+ const f=fixture(); const other=new TFile('Journal/2026/11/trades/unreadable.md'); f.files.set(other.path,other); const read=f.product.app.vault.cachedRead; f.product.app.vault.cachedRead=f.product.app.vault.read=async file=>{if(file===other)throw Error('synthetic unreadable');return read(file)};
+ const plan=await f.product.planFileRename(); assert.equal(plan.items.some(x=>x.from===noteFrom),false);
+});
+test('a new shared reference after preview leaves the whole family unmoved',async()=>{
+ const f=fixture(); const plan=await f.product.planFileRename(); assert.ok(plan.items.some(x=>x.from===noteFrom));
+ const other=new TFile('Elsewhere/new-reference.md'); other.data={screenshot:`${oldBase} print.png`,screenshots:[]}; f.files.set(other.path,other); f.product.app.metadataCache.resolvedLinks[other.path]={[f.moves[0].from]:1};
+ const result=await f.product.applyFileRename(plan);
+ assert.equal(result.renamed,0); assert.ok(result.skipped>=1); assert.ok(f.files.has(noteFrom));
+ for(const move of f.moves) assert.ok(f.files.has(move.from));
+});
+
+test('outside markdown referencing a print prevents its family moving',async()=>{
+ const f=fixture(); const other=new TFile('Elsewhere/note.md'); other.data={screenshot:`${oldBase} print.png`,screenshots:[]}; f.files.set(other.path,other); f.product.app.metadataCache.resolvedLinks[other.path]={[f.moves[0].from]:1};
+ const plan=await f.product.planFileRename(); assert.equal(plan.items.some(x=>x.from===noteFrom),false);
+});
+
+test('unavailable metadata skips print families',async()=>{ const f=fixture(); delete f.product.app.metadataCache; assert.equal((await f.product.planFileRename()).items.some(x=>x.from===noteFrom),false); });
+test('encoded outside resolved link blocks family',async()=>{ const f=fixture(); const other=new TFile('Elsewhere/encoded.md'); f.files.set(other.path,other); f.product.app.metadataCache.resolvedLinks[other.path]={[f.moves[0].from]:1}; other.body='![x](2026-11-06%20MES%20LONG%201000%20print.png)'; assert.equal((await f.product.planFileRename()).items.some(x=>x.from===noteFrom),false); });
+test('same basename resolved elsewhere does not claim family',async()=>{ const f=fixture(); const other=new TFile('Elsewhere/note.md'); f.files.set(other.path,other); f.product.app.metadataCache.resolvedLinks[other.path]={[`Elsewhere/${oldBase} print.png`]:1}; assert.ok((await f.product.planFileRename()).items.some(x=>x.from===noteFrom)); });
+test('relevant unresolved link blocks family',async()=>{ const f=fixture(); f.product.app.metadataCache.unresolvedLinks['Elsewhere/note.md']={[`${oldBase} print.png`]:1}; assert.equal((await f.product.planFileRename()).items.some(x=>x.from===noteFrom),false); });
+
+test('preview rejects changed naming inputs without moving note or attachments',async()=>{
+ for(const [key,value] of [['symbol','NQ'],['direction','short'],['time','11:00:00'],['date','2026-11-07'],['format','YYYY-MM-DD']]) {
+  const f=fixture(); const plan=await f.product.planFileRename(); assert.ok(plan.items.some(x=>x.from===noteFrom));
+  if(key==='format') f.product.settings.dateFormat=value; else f.note.meta={[key]:value};
+  const before=f.read(f.note); const result=await f.product.applyFileRename(plan);
+  assert.equal(result.renamed,0,key); assert.equal(result.prints,0,key); assert.ok(result.skipped>=1,key);
+  assert.equal(f.read(f.note),before,key); assert.ok(f.files.has(noteFrom),key); assert.ok(!f.files.has(noteTo),key);
+  for(const move of f.moves){assert.ok(f.files.has(move.from),key); assert.ok(!f.files.has(move.to),key);}
+ }
+});
+
+test('unchanged preview preserves collision suffix and renames its family',async()=>{
+ const f=fixture(); const occupied=new TFile(noteTo); occupied.data={screenshots:[]}; f.files.set(noteTo,occupied);
+ const plan=await f.product.planFileRename(); const item=plan.items.find(x=>x.from===noteFrom); assert.ok(item);
+ assert.equal(item.to,noteTo.replace(/\.md$/,'_2.md'));
+ const result=await f.product.applyFileRename(plan); assert.equal(result.renamed,1); assert.equal(result.prints,4);
+ assert.ok(f.files.has(item.to)); assert.equal(f.files.get(noteTo),occupied);
+ for(const move of item.printMoves){assert.ok(f.files.has(move.to)); assert.ok(!f.files.has(move.from));}
 });

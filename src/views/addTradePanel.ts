@@ -29,8 +29,9 @@ import { ManualPin, pinManualInstants } from "../lib/instant";
 import { netPnl, priceFromRisk } from "../lib/fees";
 import { buildManualExitFills, isManualClock, type ManualExitFillInput } from "../lib/manualTradeFills";
 import { sessionOf } from "../lib/sessions";
-import { mountDropdown, DropdownItem } from "../lib/dropdown";
+import { mountAutocomplete, mountDropdown, type AutocompleteItem, type DropdownItem } from "../lib/dropdown";
 import { openAccountWizard } from "./accountWizard";
+import { mountManualTimeInput } from "./manualTimeInput";
 
 export interface AddTradePanelOptions {
   onSaveDone?: () => void;
@@ -263,25 +264,18 @@ export class AddTradePanel {
     paintBoundary();
 
     // ---- Symbol ----
-    // The field suggests the contracts the journal supports — the core twelve —
-    // and nothing else. Free text always works: the journal never refuses a
-    // contract, it only says when it cannot price what was typed.
+    // The app-owned list suggests the core twelve without constraining input.
+    // Free text always works; the journal only says when it cannot price it.
     const fSym = field("Symbol");
     const symWrap = fSym.createDiv({ cls: "tj-add-ctl" });
-    const listId = `tj-symbol-list-${i}`;
-    const symInput = symWrap.createEl("input", {
-      cls: "tj-add-input",
-      type: "text",
-      attr: { list: listId, spellcheck: "false", autocomplete: "off", placeholder: "Contract…" },
-    });
-    symInput.value = t.symbol || "";
-    const dl = symWrap.createEl("datalist", { attr: { id: listId } });
-    for (const sym of CORE_SYMBOLS) {
+    const contractItems: AutocompleteItem[] = CORE_SYMBOLS.map((sym) => {
       const spec = futuresSpec(sym);
-      dl.createEl("option", {
-        attr: { value: sym, label: `${contractLabel(sym)} — ${spec.name ?? sym}` },
-      });
-    }
+      return { value: sym, label: `${contractLabel(sym)} — ${spec.name ?? sym}` };
+    });
+    const symInput = mountAutocomplete(symWrap, contractItems, t.symbol || "", {
+      placeholder: "Contract…",
+      ariaLabel: "Symbol",
+    });
 
     let symRow: HTMLElement | null = null;
     const renderSymNote = (): void => {
@@ -442,31 +436,21 @@ export class AddTradePanel {
       onSet: (v: string) => void,
       ariaLabel?: string,
     ): HTMLInputElement => {
-      const input = host.createEl("input", {
-        cls: "tj-add-input",
-        type: "text",
-        attr: { placeholder: "Hh:mm:ss", inputmode: "numeric", autocomplete: "off" },
-      });
-      if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
-      input.value = value || "";
-      input.addEventListener("change", () => {
-        const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(input.value.trim());
-        if (m) {
-          const clean = `${m[1].padStart(2, "0")}:${m[2].padStart(2, "0")}:${(m[3] || "00").padStart(2, "0")}`;
-          onSet(clean);
-          input.value = clean;
-        } else {
-          input.value = value || "";
-        }
-        paint();
-      });
-      return input;
+      return mountManualTimeInput(
+        host,
+        value,
+        (v) => {
+          onSet(v);
+          paint();
+        },
+        ariaLabel,
+      );
     };
     timeInput(field("Entry time", tz), t.entryTime || "", (v) => {
       t.entryTime = v;
       // The session follows the entry time unless the trader pinned one.
       if (!t.sessionOverride) remountSession?.();
-    });
+    }, "Entry time");
     // Each row is an actual close, not a planned target. The total position
     // size stays above; when there is more than one exit, each row must account
     // for its own whole-contract quantity.

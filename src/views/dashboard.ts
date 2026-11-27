@@ -4,7 +4,7 @@ import { PropAccount, Trade } from "../types";
 import { accountFilters, renderAppShell } from "../ui";
 import { firmLabel as catalogLabel } from "../lib/firmLogos";
 import { fmtMoney2, fmtMoneyAbs, fmtMoneyCompact, isFiniteNumber, todayKey, zoneWallParts } from "../tz";
-import { attachTip } from "../lib/tip";
+import { attachTip, refreshTipDescription } from "../lib/tip";
 
 import { netPnl } from "../lib/fees";
 import { hasSingleStrategy, hasValidRating } from "../lib/strategySelection";
@@ -428,12 +428,6 @@ const PER_TRADE_METRICS = new Set([
   "m.losshold",
   "m.sharpe",
 ]);
-/**
- * Metrics whose Net is read per decision (the original trade), not summed
- * across a decision's copies. The label says so, because Home is otherwise a
- * portfolio surface and the difference matters the moment a trade was copied.
- */
-const DECISION_SCOPE_METRICS = new Set(["m.sharpe", "m.besthour", "m.worsthour"]);
 /** Metrics that show a "vs previous period" sub-stat. The eight Home headline
  *  metrics all carry one, plus the trend metrics whose sample is large enough
  *  for a comparison to mean anything — a single outlier day is not a trend. */
@@ -2940,9 +2934,7 @@ export abstract class WidgetGridView extends ItemView {
     const labelText =
       this.viewKey() === "home" && id === "m.netpnl"
         ? "Portfolio Net P&L"
-        : this.viewKey() === "home" && DECISION_SCOPE_METRICS.has(id)
-          ? `${baseLabel} (decision)`
-          : baseLabel;
+        : baseLabel;
     const labelEl = wrap.createDiv({ cls: "tj-metric-label", text: labelText });
     const val = wrap.createDiv({ cls: "tj-metric-value" });
     const financials = this.financialsFor(trades);
@@ -3013,7 +3005,14 @@ export abstract class WidgetGridView extends ItemView {
           : ` ${wins} wins · ${losses} losses · ${be} breakeven (n=${n}).` +
             (n < 10 ? " Small sample (<10 decisions) — interpret with caution." : "");
       }
-      attachTip(labelEl, { title: labelText, sub: `${tipText}${sample}${coverage}` });
+      const description = `${tipText}${sample}${coverage}`;
+      const base = `tj-metric-description-${id.replace(/[^a-z0-9]+/gi, "-")}`;
+      let descriptionId = base;
+      for (let n = 2; document.getElementById(descriptionId); n++) descriptionId = `${base}-${n}`;
+      wrap.createDiv({ cls: "tj-sr-only", text: description, attr: { id: descriptionId } });
+      labelEl.tabIndex = 0;
+      labelEl.setAttribute("aria-describedby", descriptionId);
+      attachTip(labelEl, { title: labelText, sub: description });
     }
     // Restrained colour: only metrics where colour carries real meaning.
     const tone = COLORED_METRICS.has(id) ? res.tone : "neutral";
@@ -4224,6 +4223,7 @@ export abstract class WidgetGridView extends ItemView {
   }
 
   renderFocusAreasWidget(body: HTMLElement, trades: Trade[], header?: HTMLElement): void {
+    body.classList.remove("is-focus-complete");
     if (!trades.length) {
       body.createDiv({ cls: "tj-empty", text: "No trades in this period — widen the period or clear filters." });
       return;
@@ -4241,8 +4241,7 @@ export abstract class WidgetGridView extends ItemView {
     const unreviewed = (t: Trade) => !reviewStatus(t).complete;
     // A reviewed decision is closed: it leaves the queue, so it is out of every
     // gap row — otherwise reviewing would never empty the queue. The rows still
-    // measure facts; "Without stop" counts a rule's assumed risk as defined,
-    // because the risk is, even when no stop was filed.
+    // measure facts; "Without stop" requires a positive recorded stop price.
     const open = reps.filter((t) => !reviewStatus(t).complete);
     const openTotal = open.length;
     const rows: {
@@ -4260,7 +4259,7 @@ export abstract class WidgetGridView extends ItemView {
         label: "Without stop",
         icon: "alert-triangle",
         quality: "nostop",
-        hint: "A default risk set for the symbol counts as defined — such a trade is not in this row.",
+        hint: "No positive stop price is recorded on the trade; default risk does not remove it from this row.",
         n: open.filter((t) => !hasStop(t)).length,
       },
       {
@@ -4275,15 +4274,32 @@ export abstract class WidgetGridView extends ItemView {
       .sort((a, b) => b.n - a.n);
 
     const title = header?.querySelector<HTMLElement>("h3");
+    const describe = (el: HTMLElement, text: string): void => {
+      let id = "tj-focus-description";
+      for (let n = 2; document.getElementById(id); n++) id = `tj-focus-description-${n}`;
+      const description = document.createElement("span");
+      description.className = "tj-sr-only";
+      description.id = id;
+      description.textContent = text;
+      (el === title ? header! : body).appendChild(description);
+      el.setAttribute("aria-describedby", id);
+    };
     const scopeLabel = this.homeTaskScopeLabel();
     // The heading lives in the card header, which outlives every body redraw:
     // attach once, or each resize stacks another five listeners on the same h3.
+    const focusDescription = `${scopeLabel}. Counts are decisions (copies never double-count). Each line opens the Trade Log.`;
     if (title && !title.dataset.tipAttached) {
-      attachTip(title, {
+      title.tabIndex = 0;
+      describe(title, focusDescription);
+      attachTip(title, () => ({
         title: "Focus Areas",
-        sub: `${scopeLabel}. Counts are decisions (copies never double-count). Each line opens the Trade Log.`,
-      });
+        sub: document.getElementById(title.getAttribute("aria-describedby") ?? "")?.textContent ?? "",
+      }));
       title.dataset.tipAttached = "1";
+    } else if (title) {
+      const description = document.getElementById(title.getAttribute("aria-describedby") ?? "");
+      if (description) description.textContent = focusDescription;
+      refreshTipDescription(title, focusDescription);
     }
 
     // The coverage leads the body, centred: a ring whose arc is the reviewed
@@ -4326,6 +4342,8 @@ export abstract class WidgetGridView extends ItemView {
     svg.appendChild(ringArc);
     ring.appendChild(svg);
     const ringNum = ring.createDiv({ cls: "tj-focus-ring-num", text: `${pct}%` });
+    ring.tabIndex = 0;
+    describe(ring, `Review coverage: ${pct}%. ${reviewed} of ${total} decisions are reviewed; ${writtenUp} have both reflection prompts recorded.`);
     attachTip(ring, {
       title: "Review coverage",
       value: `${pct}%`,
@@ -4336,17 +4354,21 @@ export abstract class WidgetGridView extends ItemView {
 
     const list = body.createDiv({ cls: "tj-focus-list" });
     if (!rows.length) {
+      body.classList.add("is-focus-complete");
       const clear = list.createDiv({ cls: "tj-focus-clear" });
       const icon = clear.createSpan({ cls: "tj-focus-clear-icon" });
       setIcon(icon, "check-circle");
       clear.createSpan({ cls: "tj-focus-clear-text", text: "All caught up" });
       clear.createSpan({ cls: "tj-focus-clear-sub", text: "Every decision is settled." });
+      if (body.clientHeight > 0 && list.clientHeight < clear.offsetHeight) {
+        hero.classList.add("is-compact");
+        if (list.clientHeight < clear.offsetHeight) hero.setCssStyles({ display: "none" });
+      }
       return;
     }
 
     // Each gap: a clean one-line chip — icon, label, a bar of its share of the
     // decisions, count — with no surface of its own, like the Behavioral Tags.
-    const chips: HTMLElement[] = [];
     for (const row of rows) {
       const attr: Record<string, string> = { type: "button" };
       if (row.quality) attr["data-flag"] = row.quality;
@@ -4358,6 +4380,7 @@ export abstract class WidgetGridView extends ItemView {
       const share = openTotal ? Math.round((row.n / openTotal) * 100) : 0;
       btn.createSpan({ cls: "tj-focus-chip-count", text: String(row.n) });
       // The label truncates on a two-column card, so the chip says it all.
+      describe(btn, `${row.n} of ${openTotal} decisions still open. Opens the Trade Log filtered to this gap (${share}% of the decisions still open).${row.hint ? " " + row.hint : ""}`);
       attachTip(btn, {
         title: row.label,
         value: `${row.n} of ${openTotal} decisions still open`,
@@ -4370,31 +4393,12 @@ export abstract class WidgetGridView extends ItemView {
             : { scope: this.tradeLogScope(), lens: row.lens },
         ),
       );
-      chips.push(btn);
     }
 
-    // Fit-driven: show every chip the card truly has room for; a quiet note says
-    // how many are behind. The band always sits on top, so it pays out of the
-    // chips' height — it gives way by degrees (compact, then hidden) until at
-    // least one chip shows, and with what is left over the ring grows.
-    let note: HTMLElement | null = null;
-    const overflows = (): boolean => list.clientHeight > 0 && list.scrollHeight > list.clientHeight;
-    const shown = (): number => chips.filter((el) => el.isConnected).length;
-    // Trim chips under a reserved note row, so adding the note never evicts the
-    // last chip that fit — the count hidden stays honest and one chip survives.
-    const fit = (): void => {
-      note?.remove();
-      note = null;
-      for (const el of chips) if (!el.isConnected) list.appendChild(el);
-      if (!overflows()) return;
-      note = list.createDiv({ cls: "tj-focus-note" });
-      let rendered = chips.length;
-      while (rendered > 0 && overflows()) {
-        rendered--;
-        chips[rendered].remove();
-      }
-      note.setText(`+${chips.length - rendered} more gap${chips.length - rendered === 1 ? "" : "s"}`);
-    };
+    // Keep every action in the bounded scrolling list. Give the hero less
+    // space only when it would leave too little room for even one row.
+    const overflows = (): boolean => list.scrollHeight > list.clientHeight;
+    const rowFits = (): boolean => list.clientHeight > 0 && list.clientHeight >= (list.firstElementChild as HTMLElement).offsetHeight;
     // Whatever the chips do not need goes to the hero, which is the figure the
     // card is about — never to the rows, whose height must not drift on resize.
     // scrollHeight is clamped to the box, so the free space is measured between
@@ -4418,20 +4422,12 @@ export abstract class WidgetGridView extends ItemView {
       return true;
     };
     if (body.clientHeight > 0) {
-      fit();
-      if (!shown()) {
+      if (!rowFits()) {
         hero.classList.add("is-compact");
-        fit();
-        if (!shown()) {
-          hero.setCssStyles({ display: "none" });
-          fit();
-        }
+        if (!rowFits()) hero.setCssStyles({ display: "none" });
       }
-      // The ring grows only at full size: the compact band exists precisely
-      // because there is no room to spare. Two passes — the first sizes the ring
-      // to the free space, the second re-trims if the taller hero cost a row.
-      if (shown() && !hero.classList.contains("is-compact")) {
-        for (let pass = 0; pass < 2 && growHero(); pass++) fit();
+      if (!overflows() && !hero.classList.contains("is-compact")) {
+        for (let pass = 0; pass < 2 && !overflows() && growHero(); pass++) { /* use remaining space */ }
       }
     }
   }
@@ -4846,6 +4842,7 @@ export abstract class WidgetGridView extends ItemView {
     const zone = this.plugin.settings.timeZone;
     const weekdayOf = (t: Trade): string => {
       const d = this.scoreDayKey(t);
+      if (!d) return "";
       const [y, m, day] = d.split("-").map(Number);
       return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "—";
     };
@@ -4878,12 +4875,12 @@ export abstract class WidgetGridView extends ItemView {
         },
       },
       {
-        id: "hour", label: "Hour", key: (t) => hourBlockOf(t, zone), timeline: true,
+        id: "hour", label: "Hour", key: (t) => t.timeUnresolved ? "" : hourBlockOf(t, zone), timeline: true,
         labelOf: (k) => (k === "—" ? "—" : fmtHourLabel(Number(k))),
         orderOf: hourOrder,
       },
       {
-        id: "session", label: "Session", key: (t) => sessionLabel(t, zone), timeline: true,
+        id: "session", label: "Session", key: (t) => t.timeUnresolved ? "" : sessionLabel(t, zone), timeline: true,
         orderOf: sessionOrder,
       },
     ];

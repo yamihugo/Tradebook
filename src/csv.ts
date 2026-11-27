@@ -11,8 +11,7 @@ function parseFloatSafe(v: string | undefined | null): number {
   return isNaN(n) ? 0 : n;
 }
 
-/** Complete execution cell only; never turn malformed broker facts into zero.
- * Keep cash and planned-order parsing on their existing contracts. */
+/** Complete execution cell only; do not turn malformed broker facts into zero. */
 function parseExecutionNumber(raw: string): number {
   const cell = raw.trim();
   if (!/^(?:[+-]?\$?|\$[+-]?)(?:(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d*)?|\.\d+)$/.test(cell)) return NaN;
@@ -79,7 +78,7 @@ function headerHas(cells: string[], aliases: string[]): boolean {
   return cells.some((c) => aliases.includes(c));
 }
 
-function parseCsv(text: string, canonicalHeaders: readonly string[] = []): Record<string, string>[] {
+export function parseCsv(text: string, canonicalHeaders: readonly string[] = []): Record<string, string>[] {
   const rows: Record<string, string>[] = [];
   const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return rows;
@@ -289,7 +288,18 @@ const TRADESEA_HEADER_NAMES = [
 const TRADESEA_HEADER_KEYS = TRADESEA_HEADER_NAMES.map((name) => name.toLowerCase());
 const TRADESEA_ACCOUNT_LABEL = "TradeSea";
 
-export type CsvKind = "cash" | "orders" | "fills" | "tradesea" | "unknown";
+const TRADINGVIEW_REPLAY_HEADER_KEYS = [
+  "trade number",
+  "type",
+  "date and time",
+  "signal",
+  "price usd",
+  "size (qty)",
+  "net pnl usd",
+  "commission usd",
+];
+
+export type CsvKind = "cash" | "orders" | "fills" | "tradesea" | "tradingview-replay" | "unknown";
 
 /**
  * The account a file kind files its rows under when the file names none of its
@@ -299,11 +309,12 @@ export type CsvKind = "cash" | "orders" | "fills" | "tradesea" | "unknown";
  * has one row to point at. Every other report names its account, so it adds
  * nothing here.
  */
-const KIND_ACCOUNT_LABEL: Record<"cash" | "orders" | "fills" | "tradesea" | "unknown", string> = {
+const KIND_ACCOUNT_LABEL: Record<"cash" | "orders" | "fills" | "tradesea" | "tradingview-replay" | "unknown", string> = {
   cash: "",
   orders: "",
   fills: "",
   tradesea: TRADESEA_ACCOUNT_LABEL,
+  "tradingview-replay": "TradingView Replay",
   unknown: "",
 };
 
@@ -312,6 +323,11 @@ function isTradeSeaHeader(cells: string[]): boolean {
   const hasId = (aliases: string[]) => aliases.some((alias) => normalized.has(alias.toLowerCase()));
   if (hasId(EXEC_KEYS.orderId) || hasId(EXEC_KEYS.fillId)) return false;
   return TRADESEA_HEADER_KEYS.every((key) => normalized.has(key));
+}
+
+function isTradingViewReplayHeader(cells: string[]): boolean {
+  const normalized = new Set(cells.map((cell) => cell.trim().toLowerCase()));
+  return TRADINGVIEW_REPLAY_HEADER_KEYS.every((key) => normalized.has(key));
 }
 
 /** A TradeSea export has no account id; two such files would share one label. */
@@ -351,6 +367,7 @@ export function csvKind(text: string): CsvKind {
   if (headerHas(cells, EXEC_KEYS.fillId)) return "fills";
   if (headerHas(cells, EXEC_KEYS.orderId) && cells.some((c) => c.toLowerCase() === "status")) return "orders";
   if (isTradeSeaHeader(cells)) return "tradesea";
+  if (isTradingViewReplayHeader(cells)) return "tradingview-replay";
   return "unknown";
 }
 

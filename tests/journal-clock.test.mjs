@@ -428,6 +428,7 @@ test("a fill span and a trade hold are read by the same calculator", () => {
   assert.equal(tradeTable.holdFmt("09:00", ""), "—", "no exit: no guess at midnight");
   assert.equal(tradeTable.holdFmt("09:00 trailing", "10:00"), "—", "not a time at all");
   assert.equal(tradeTable.holdFmt("25:00", "26:00"), "—", "an out-of-range clock is refused, not misread as 1h");
+  assert.equal(tradeTable.holdFmt("09:00", "09:45", true), "—", "an unresolved Replay hold is omitted");
 });
 
 // A row that wins before costs and loses after them is a loss — in the streaks,

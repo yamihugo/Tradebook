@@ -1,12 +1,14 @@
 import { App, TFile, normalizePath } from "obsidian";
-import { PrintEntry, RecordedOrderFact, Trade, TradeFill } from "./types";
+import { PrintEntry, RecordedOrderFact, Trade, TradeExecutionCorrection, TradeExecutionSnapshot, TradeFill } from "./types";
 import { formatDateFile } from "./lib/dates";
 import { normalizeOrderType } from "./lib/tradeTable";
 import { fmtPrice } from "./tz";
 import { parsePlannedNumber, type PlannedNumberField } from "./lib/review";
 import { buildManualExitFills, type ManualExitFillInput } from "./lib/manualTradeFills";
+import { fillSet } from "./lib/fills";
 import { pinManualInstants } from "./lib/instant";
 import { strategiesOf } from "./lib/strategySelection";
+import { applyExecutionEdits, executionSnapshot, type ExecutionEditCandidate } from "./lib/executionEdits";
 
 /**
  * The `fills:` block, written only when a position was scaled in or out.
@@ -26,18 +28,19 @@ function fillLines(t: Trade): string[] {
   const out = ["fills:"];
   for (const f of fills) {
     out.push(`  - side: ${f.side === "sell" ? "sell" : "buy"}`);
-    out.push(`    time: "${f.time ?? ""}"`);
-    if (f.instant) out.push(`    instant: "${f.instant}"`);
+    if (f.date) out.push(`    date: ${quoteYaml(f.date)}`);
+    out.push(`    time: ${quoteYaml(f.time ?? "")}`);
+    if (f.instant) out.push(`    instant: ${quoteYaml(f.instant)}`);
     out.push(`    qty: ${f.qty}`);
     out.push(`    price: ${f.price}`);
     if (Number.isFinite(f.pnl)) out.push(`    pnl: ${f.pnl}`);
     if (Number.isFinite(f.fees)) out.push(`    fees: ${f.fees}`);
     if (f.orderType) out.push(`    order_type: ${quoteYaml(f.orderType)}`);
     if (f.exitType && f.exitTypeSource) {
-      out.push(`    exit_type: "${f.exitType}"`);
-      out.push(`    exit_type_source: "${f.exitTypeSource}"`);
+      out.push(`    exit_type: ${quoteYaml(f.exitType)}`);
+      out.push(`    exit_type_source: ${quoteYaml(f.exitTypeSource)}`);
     }
-    if (f.fillId) out.push(`    fill_id: "${f.fillId.replace(/"/g, '\\"')}"`);
+    if (f.fillId) out.push(`    fill_id: ${quoteYaml(f.fillId)}`);
   }
   return out;
 }
@@ -130,6 +133,7 @@ export function tradeToMarkdown(t: Trade): string {
     // folder, so the notes can be reorganised without ever breaking the journal.
     `type: trade`,
     `date: ${t.date}`,
+    ...(t.exitDate ? [`exit_date: ${quoteYaml(t.exitDate)}`] : []),
     `symbol: ${t.symbol}`,
     `account: ${quoteYaml(t.account)}`,
     `account_type: ${t.accountType}`,
@@ -148,10 +152,10 @@ export function tradeToMarkdown(t: Trade): string {
     num("pnl_points", t.pnlPoints),
     // The platform's bill lives at the trade level as well as inside each fill:
     // without it a reload loses every cost the cash history brought, and the
-    // fees card reads $0.00 on a trade that was charged. Zero is omitted so a
-    // note with no cost stays clean.
-    t.commission ? num("commission", t.commission) : null,
-    t.fees ? num("fees", t.fees) : null,
+    // fees card reads $0.00 on a trade that was charged. Replay retains known
+    // zero costs so a later reimport can distinguish them from missing facts.
+    t.commission || (t.dataSource === "replay" && t.costCoverage?.commission !== false) ? num("commission", t.commission) : null,
+    t.fees || (t.dataSource === "replay" && t.costCoverage?.fees !== false) ? num("fees", t.fees) : null,
     `entry_time: ${t.entryTime}`,
     `exit_time: ${t.exitTime}`,
     ...fillLines(t),
@@ -168,6 +172,7 @@ export function tradeToMarkdown(t: Trade): string {
     // The import's stable identity, written only when it exists. A note that
     // predates the key keeps its absence; the importer recomputes it then.
     t.importKey ? `import_key: ${quoteYaml(t.importKey)}` : null,
+    t.executionCorrection ? `execution_correction: ${quoteYaml(JSON.stringify(t.executionCorrection))}` : null,
     t.notes ? `notes: ${quoteYaml(t.notes)}` : null,
     t.review_plan ? `review_plan: ${quoteYaml(t.review_plan)}` : null,
     num("review_planned_entry", t.review_planned_entry),
@@ -190,6 +195,7 @@ export function tradeToMarkdown(t: Trade): string {
     t.entryInstant ? `entry_instant: "${t.entryInstant}"` : null,
     t.exitInstant ? `exit_instant: "${t.exitInstant}"` : null,
     t.sourceZone ? `source_zone: "${t.sourceZone}"` : null,
+    t.timeUnresolved ? `time_unresolved: true` : null,
     t.instantSource ? `instant_source: "${t.instantSource}"` : null,
     t.sessionOverride ? `session_override: ${quoteYaml(t.sessionOverride)}` : null,
     `screenshot: ${quoteYaml(t.screenshot ?? "")}`,
@@ -309,13 +315,35 @@ async function ensureDir(app: App, dir: string): Promise<void> {
   }
 }
 
-export async function saveTrade(app: App, folder: string, t: Trade, dateFormat?: string): Promise<boolean> {
+export async function saveTrade(app: App, folder: string, t: Trade, dateFormat?: string, onCreated?: (path: string) => void): Promise<boolean> {
   const dir = tradeMonthPath(folder, t.date);
   await ensureDir(app, dir);
   const base = normalizePath(`${dir}/${tradeFilename(t, dateFormat)}.md`);
   const content = tradeToMarkdown(t);
+  // A create that rejects after the bytes have landed must not be reported as a
+  // failure: the note is on disk, and reporting it failed makes the caller
+  // retry, which writes a duplicate beside it. Confirm the exact content by
+  // reading it back before treating the rejection as a real error. A rejection
+  // that left a different file at this path (a raced collision) still throws.
+  const persistedExactly = async (path: string): Promise<boolean> => {
+    const file = app.vault.getAbstractFileByPath(path);
+    if (!(file instanceof TFile)) return false;
+    try {
+      return (await app.vault.read(file)) === content;
+    } catch {
+      return false;
+    }
+  };
+  const createConfirmed = async (path: string): Promise<void> => {
+    try {
+      await app.vault.create(path, content);
+    } catch (err) {
+      if (!(await persistedExactly(path))) throw err;
+    }
+    onCreated?.(path);
+  };
   if (!app.vault.getAbstractFileByPath(base)) {
-    await app.vault.create(base, content);
+    await createConfirmed(base);
     return true;
   }
   let n = 2;
@@ -324,7 +352,8 @@ export async function saveTrade(app: App, folder: string, t: Trade, dateFormat?:
   }
   // Same format as the first file — a collision must not silently switch the
   // date back to the default shape (YYYY-MM-DD) the user did not choose.
-  await app.vault.create(normalizePath(`${dir}/${tradeFilename(t, dateFormat)}_${n}.md`), content);
+  const path = normalizePath(`${dir}/${tradeFilename(t, dateFormat)}_${n}.md`);
+  await createConfirmed(path);
   return true;
 }
 
@@ -369,19 +398,21 @@ function parseFills(fm: string): TradeFill[] {
   const out: TradeFill[] = [];
   let cur: Partial<TradeFill> | null = null;
   const assign = (key: string, raw: string): void => {
-    const value = raw.replace(/^"|"$/g, "").trim();
+    const scalar = decodeScreenshotScalar(raw);
+    const value = scalar.trim();
     if (!cur) return;
     if (key === "side") cur.side = value === "sell" ? "sell" : "buy";
-    else if (key === "time") cur.time = value;
-    else if (key === "instant") cur.instant = value;
+    else if (key === "date") cur.date = scalar;
+    else if (key === "time") cur.time = scalar;
+    else if (key === "instant") cur.instant = scalar;
     else if (key === "qty") cur.qty = parseFloat(value);
     else if (key === "price") cur.price = parseFloat(value);
     else if (key === "pnl") cur.pnl = parseFloat(value);
     else if (key === "fees") cur.fees = parseFloat(value);
-    else if (key === "order_type") cur.orderType = decodeScreenshotScalar(raw);
+    else if (key === "order_type") cur.orderType = scalar;
     else if (key === "exit_type" && (value === "tp" || value === "sl" || value === "be")) cur.exitType = value;
     else if (key === "exit_type_source" && (value === "manual" || value === "broker")) cur.exitTypeSource = value;
-    else if (key === "fill_id") cur.fillId = value;
+    else if (key === "fill_id") cur.fillId = scalar;
   };
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i];
@@ -432,6 +463,10 @@ function parseScreenshots(fm: string): PrintEntry[] {
   let cur: Partial<PrintEntry> | null = null;
   for (let i = start + 1; i < lines.length; i++) {
     const line = lines[i];
+    // A blank line between two items is formatting, not the end of the list: a
+    // hand edit and a host frontmatter rewrite both produce it. Walk past it, so
+    // the entries below the gap are not silently dropped on the next save.
+    if (!line.trim()) continue;
     // New list item
     if (/^\s+-\s+/.test(line)) {
       if (cur?.file) out.push(cur as PrintEntry);
@@ -452,10 +487,60 @@ function parseScreenshots(fm: string): PrintEntry[] {
       else if (cont[1] === "note") cur.note = val;
       continue;
     }
-    break; // top-level key or closing fence
+    // Anything else ends the block. A key at the note's own level (or the closing
+    // fence) belongs to the note, not to this list, and must not be swallowed.
+    break;
   }
   if (cur?.file) out.push(cur as PrintEntry);
   return out;
+}
+
+function storedRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function storedFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parseExecutionCorrection(raw: string): TradeExecutionCorrection | undefined {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!storedRecord(value) || typeof value.correctedAt !== "string" || !storedRecord(value.original)) return undefined;
+  const source = value.original;
+  if (typeof source.date !== "string" || typeof source.entryTime !== "string" || typeof source.exitTime !== "string" || !Array.isArray(source.fills)) return undefined;
+  const fills: TradeFill[] = [];
+  for (const item of source.fills) {
+    if (!storedRecord(item) || (item.side !== "buy" && item.side !== "sell") || typeof item.time !== "string" ||
+      typeof item.qty !== "number" || !Number.isFinite(item.qty) || item.qty <= 0 ||
+      typeof item.price !== "number" || !Number.isFinite(item.price)) return undefined;
+    if ((item.date !== undefined && typeof item.date !== "string") ||
+      (item.instant !== undefined && typeof item.instant !== "string") ||
+      (item.orderType !== undefined && typeof item.orderType !== "string") ||
+      (item.fillId !== undefined && typeof item.fillId !== "string")) return undefined;
+    fills.push(item as unknown as TradeFill);
+  }
+  if (!fills.length) return undefined;
+  const original: TradeExecutionSnapshot = {
+    date: source.date,
+    ...(source.direction === "long" || source.direction === "short" ? { direction: source.direction } : {}),
+    ...(typeof source.exitDate === "string" ? { exitDate: source.exitDate } : {}),
+    entryTime: source.entryTime,
+    exitTime: source.exitTime,
+    ...(storedFiniteNumber(source.quantity) !== undefined ? { quantity: storedFiniteNumber(source.quantity) } : {}),
+    ...(storedFiniteNumber(source.entryPrice) !== undefined ? { entryPrice: storedFiniteNumber(source.entryPrice) } : {}),
+    ...(storedFiniteNumber(source.exitPrice) !== undefined ? { exitPrice: storedFiniteNumber(source.exitPrice) } : {}),
+    ...(storedFiniteNumber(source.pnl) !== undefined ? { pnl: storedFiniteNumber(source.pnl) } : {}),
+    ...(storedFiniteNumber(source.pnlPoints) !== undefined ? { pnlPoints: storedFiniteNumber(source.pnlPoints) } : {}),
+    ...(typeof source.entryInstant === "string" ? { entryInstant: source.entryInstant } : {}),
+    ...(typeof source.exitInstant === "string" ? { exitInstant: source.exitInstant } : {}),
+    fills,
+  };
+  return { correctedAt: value.correctedAt, original };
 }
 
 export function parseTradeFromMarkdown(content: string): Partial<Trade> {
@@ -481,6 +566,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
   return {
     type: get("type"),
     date: get("date"),
+    exitDate: get("exit_date") || undefined,
     symbol: get("symbol"),
     account: get("account"),
     accountType: get("account_type") as Trade["accountType"],
@@ -506,6 +592,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     entryTime: get("entry_time"),
     exitTime: get("exit_time"),
     fills: parseFills(fm),
+    executionCorrection: parseExecutionCorrection(get("execution_correction")),
     setup: has("setup") ? get("setup") : bodySection(body, "Setup"),
     setups: has("setups") ? parseInlineArray(get("setups")) : (get("setup") ? [get("setup")] : []),
     market_context_timing: has("market_context_timing") ? parseInlineArray(get("market_context_timing")) : [],
@@ -538,6 +625,7 @@ export function parseTradeFromMarkdown(content: string): Partial<Trade> {
     entryInstant: get("entry_instant") || undefined,
     exitInstant: get("exit_instant") || undefined,
     sourceZone: get("source_zone") || undefined,
+    timeUnresolved: get("time_unresolved") === "true" ? true : undefined,
     instantSource: (get("instant_source") || undefined) as Trade["instantSource"],
     sessionOverride: get("session_override") || get("sessionOverride") || undefined,
     screenshot: decodeScreenshotScalar(fm.match(/^screenshot:[ \t]*(.*)$/m)?.[1] ?? ""),
@@ -609,6 +697,7 @@ export async function updateManualTradeExecutions(
     const latest = parseTradeFromMarkdown(content) as Trade;
     if (latest.origin !== "manual" || latest.isCopiedTrade) throw new Error("Only original manual executions can be corrected here.");
     if (executionIdentity(latest) !== executionIdentity(expected)) throw new Error("Executions changed. Reopen the trade before correcting it.");
+    const wasScalarSingleFill = !fillSet(latest).explicit && exits.length === 1;
     const candidate: Trade = { ...latest, ...entry };
     const zone = latest.timezone || latest.sourceZone || "";
     const pinned = exits.map((exit) => {
@@ -621,6 +710,9 @@ export async function updateManualTradeExecutions(
     const result = buildManualExitFills(candidate, pinned, true);
     if (!result.ok) throw new Error(result.error);
     const updated = result.trade;
+    // Keep the established storage shape: one entry and one exit are represented
+    // by scalar actuals, while multiple execution legs remain an explicit ledger.
+    if (wasScalarSingleFill) delete updated.fills;
     const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
     if (!match) throw new Error("Trade frontmatter is missing.");
     const fields = ["quantity", "entry_price", "exit_price", "entry_time", "exit_time", "entry_instant", "exit_instant", "pnl", "pnl_points"];
@@ -637,6 +729,122 @@ export async function updateManualTradeExecutions(
       updated.entryInstant ? `entry_instant: ${quoteYaml(updated.entryInstant)}` : null,
       updated.exitInstant ? `exit_instant: ${quoteYaml(updated.exitInstant)}` : null,
       number("pnl", updated.pnl), number("pnl_points", updated.pnlPoints), ...fillLines(updated)].filter((x): x is string => x !== null);
+    const eol = content.startsWith("---\r\n") ? "\r\n" : "\n";
+    const replacement = "---" + eol + [...kept, ...fresh].join(eol) + eol + "---";
+    const next = replacement + content.slice(match[0].length);
+    saved = { ...(parseTradeFromMarkdown(next) as Trade), id: expected.id };
+    return next;
+  });
+  if (!saved) throw new Error("Execution correction was not saved.");
+  return saved;
+}
+
+/** Correct actual execution rows for an original trade, preserving its note and source identity. */
+export async function updateTradeExecutions(
+  app: App, file: TFile, expected: Trade, proposed: Array<TradeFill | ExecutionEditCandidate>, journalZone = "",
+): Promise<Trade> {
+  if (expected.id && expected.id !== file.path) throw new Error("Trade identity changed. Reopen the trade before correcting executions.");
+  const fingerprint = (trade: Trade): string => {
+    const side = trade.direction === "long" ? "buy" : "sell";
+    const fills = fillSet(trade).fills.map((fill) => [
+      fill.side,
+      fill.date ?? (fill.side === side ? trade.date : trade.exitDate ?? trade.date),
+      fill.time,
+      fill.qty,
+      fill.price,
+      fill.instant ?? null,
+      Number.isFinite(fill.pnl) ? fill.pnl : null,
+      Number.isFinite(fill.fees) ? fill.fees : null,
+      fill.orderType ?? null,
+      fill.fillId ?? null,
+      fill.exitType ?? null,
+      fill.exitTypeSource ?? null,
+    ]);
+    return JSON.stringify({
+      id: trade.id ?? null,
+      origin: trade.origin ?? null,
+      dataSource: trade.dataSource ?? null,
+      importKey: trade.importKey ?? null,
+      fillId: trade.fillId || null,
+      orderType: trade.orderType || null,
+      timezone: trade.timezone || null,
+      sourceZone: trade.sourceZone || null,
+      instantSource: trade.instantSource || null,
+      isCopiedTrade: trade.isCopiedTrade ?? false,
+      copyBaseKey: trade.copyBaseKey || null,
+      supersededBy: trade.supersededBy || null,
+      direction: trade.direction,
+      symbol: trade.symbol,
+      date: trade.date,
+      exitDate: trade.exitDate ?? null,
+      entryTime: trade.entryTime,
+      exitTime: trade.exitTime,
+      entryInstant: trade.entryInstant ?? null,
+      exitInstant: trade.exitInstant ?? null,
+      quantity: Number.isFinite(trade.quantity) ? trade.quantity : null,
+      entryPrice: Number.isFinite(trade.entryPrice) ? trade.entryPrice : null,
+      exitPrice: Number.isFinite(trade.exitPrice) ? trade.exitPrice : null,
+      pnl: Number.isFinite(trade.pnl) ? trade.pnl : null,
+      pnlPoints: Number.isFinite(trade.pnlPoints) ? trade.pnlPoints : null,
+      fills,
+    });
+  };
+
+  const expectedFingerprint = fingerprint(expected);
+  let saved: Trade | undefined;
+  await app.vault.process(file, (content) => {
+    const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
+    if (!match) throw new Error("Trade frontmatter is missing.");
+    const parsed = parseTradeFromMarkdown(content);
+    if (!parsed.date || !parsed.symbol || (parsed.direction !== "long" && parsed.direction !== "short")) {
+      throw new Error("Trade executions could not be read safely.");
+    }
+    const latest = { ...parsed, id: expected.id } as Trade;
+    if (fingerprint(latest) !== expectedFingerprint) throw new Error("Executions changed. Reopen the trade before correcting them.");
+
+    const before = fillSet(latest);
+    const updated = applyExecutionEdits(latest, proposed, journalZone);
+    const after = fillSet(updated);
+    if (!before.explicit && after.entries.length === 1 && after.exits.length === 1) delete updated.fills;
+    updated.executionCorrection = {
+      correctedAt: new Date().toISOString(),
+      original: latest.executionCorrection?.original ?? executionSnapshot(latest),
+    };
+
+    const fields = new Set([
+      "direction", "date", "exit_date", "quantity", "entry_price", "exit_price", "entry_time", "exit_time",
+      "entry_instant", "exit_instant", "timezone", "instant_source", "time_unresolved", "pnl", "pnl_points", "fills", "execution_correction",
+    ]);
+    const old = match[1].split(/\r?\n/);
+    const kept: string[] = [];
+    for (let i = 0; i < old.length; i++) {
+      if (/^fills:\s*/.test(old[i])) {
+        while (i + 1 < old.length && (/^\s+/.test(old[i + 1]) || !old[i + 1].trim())) i++;
+        continue;
+      }
+      const key = /^([A-Za-z_][A-Za-z0-9_-]*):/.exec(old[i])?.[1];
+      if (!key || !fields.has(key)) kept.push(old[i]);
+    }
+    const number = (key: string, value: number) => Number.isFinite(value) ? `${key}: ${value}` : null;
+    const fresh = [
+      `direction: ${updated.direction}`,
+      `date: ${updated.date}`,
+      updated.exitDate ? `exit_date: ${quoteYaml(updated.exitDate)}` : null,
+      number("quantity", updated.quantity),
+      number("entry_price", updated.entryPrice),
+      number("exit_price", updated.exitPrice),
+      `entry_time: ${quoteYaml(updated.entryTime)}`,
+      `exit_time: ${quoteYaml(updated.exitTime)}`,
+      updated.entryInstant ? `entry_instant: ${quoteYaml(updated.entryInstant)}` : null,
+      updated.exitInstant ? `exit_instant: ${quoteYaml(updated.exitInstant)}` : null,
+      updated.timezone ? `timezone: ${quoteYaml(updated.timezone)}` : null,
+      updated.instantSource ? `instant_source: ${quoteYaml(updated.instantSource)}` : null,
+      updated.timeUnresolved ? `time_unresolved: true` : null,
+      number("pnl", updated.pnl),
+      number("pnl_points", updated.pnlPoints),
+      ...fillLines(updated),
+      `execution_correction: ${quoteYaml(JSON.stringify(updated.executionCorrection))}`,
+    ].filter((line): line is string => line !== null);
     const eol = content.startsWith("---\r\n") ? "\r\n" : "\n";
     const replacement = "---" + eol + [...kept, ...fresh].join(eol) + eol + "---";
     const next = replacement + content.slice(match[0].length);
@@ -760,8 +968,28 @@ function writeScreenshotFrontmatter(content: string, validShots: PrintEntry[], f
   const lines = rawFrontmatter ? rawFrontmatter.replace(/\r?\n$/, "").split(/\r?\n/) : [];
   const start = lines.findIndex((line) => /^screenshots:\s*/.test(line));
   if (start >= 0) {
+    // Consume the whole existing block, gaps included: a hand edit or a host
+    // rewrite can leave a blank line between two items, and stopping there would
+    // leave the old entries behind and duplicate them. A gap only counts when an
+    // item follows it, so the note's own spacing before the next key is kept, and
+    // a key at the note's own level always ends the block.
     let end = start + 1;
-    while (end < lines.length && (/^\s+-\s+/.test(lines[end]) || /^\s+\w+:/.test(lines[end]))) end++;
+    while (end < lines.length) {
+      const line = lines[end];
+      if (/^\s+-\s+/.test(line) || /^\s+\w+:/.test(line)) {
+        end++;
+        continue;
+      }
+      if (!line.trim()) {
+        let next = end;
+        while (next < lines.length && !lines[next].trim()) next++;
+        if (next < lines.length && /^\s+-\s+/.test(lines[next])) {
+          end = next;
+          continue;
+        }
+      }
+      break;
+    }
     lines.splice(start, end - start, ...block);
   } else if (block.length) {
     lines.push(...block);

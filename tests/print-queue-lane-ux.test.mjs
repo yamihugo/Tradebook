@@ -758,9 +758,17 @@ test("selected print More menu moves a print to another group without dragging",
 
     more.open = true;
     const move = findByClass(more, "tj-print-group-film-move");
+    const moveEntryBetweenGroups = view.moveEntryBetweenGroups.bind(view);
+    const movePromises = [];
+    view.moveEntryBetweenGroups = (...args) => {
+      const promise = moveEntryBetweenGroups(...args);
+      movePromises.push(promise);
+      return promise;
+    };
     move.value = gB.id;
     move.dispatch("change", { stopPropagation() {} });
-    await waitFor(async () => (await vq.loadPrintGroup(app, "", gB.id)).entryIds.includes(entry.id), "print moved to the selected group");
+    assert.equal(movePromises.length, 1, "the change starts one move operation");
+    await movePromises[0];
 
     assert.deepEqual((await vq.loadPrintGroup(app, "", gA.id)).entryIds, []);
     assert.deepEqual((await vq.loadPrintGroup(app, "", gB.id)).entryIds, [entry.id]);
@@ -781,10 +789,18 @@ test("selected unsorted print More menu can place a legacy print into a group", 
     assert.equal(more.hidden, false);
     more.open = true;
     const move = findByClass(more, "tj-print-group-film-move");
+    const moveEntryBetweenGroups = view.moveEntryBetweenGroups.bind(view);
+    const movePromises = [];
+    view.moveEntryBetweenGroups = (...args) => {
+      const promise = moveEntryBetweenGroups(...args);
+      movePromises.push(promise);
+      return promise;
+    };
     move.value = group.id;
     move.dispatch("change", { stopPropagation() {} });
 
-    await waitFor(async () => (await vq.loadPrintGroup(app, "", group.id)).entryIds.includes(entry.id), "unsorted print grouped");
+    assert.equal(movePromises.length, 1, "the change starts one move operation");
+    await movePromises[0];
     assert.deepEqual((await vq.loadPrintGroup(app, "", group.id)).entryIds, [entry.id]);
   });
 });

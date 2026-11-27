@@ -103,7 +103,7 @@ export class AccountDashboardView extends ItemView {
   }
 
   dayKey(t: Trade): string {
-    return tradeDayInZone(t, this.plugin.settings.timeZone);
+    return t.timeUnresolved ? "" : tradeDayInZone(t, this.plugin.settings.timeZone);
   }
 
   todayKey(): string {
@@ -942,6 +942,7 @@ export class AccountDashboardView extends ItemView {
     const byDay = new Map<string, { net: number; gross: number; count: number; wins: number }>();
     for (const t of scoped) {
       const key = this.dayKey(t);
+      if (!key) continue;
       let bucket = byDay.get(key);
       if (!bucket) {
         bucket = { net: 0, gross: 0, count: 0, wins: 0 };
@@ -995,7 +996,7 @@ export class AccountDashboardView extends ItemView {
     const valueCurve = accountValueSeries(movement.days, capital);
     // Trading performance (target, consistency, win rate) ignores cash flows;
     // the balance does not.
-    const net = [...byDay.values()].reduce((s, b) => s + b.net, 0);
+    const net = scoped.reduce((sum, trade) => sum + netPnl(trade), 0);
     const balance = movement.balance;
     // The header's correction square reads this when it is pressed.
     balanceNow = balance;
@@ -2080,6 +2081,7 @@ export class AccountDashboardView extends ItemView {
 
   /** Hour bucket label for a trade (used by the "By hour" widget). */
   private hourBlockOf(t: Trade): string {
+    if (t.timeUnresolved) return "";
     const m = /^(\d{1,2}):/.exec(t.entryTime || "");
     return m ? this.hourLabel(parseInt(m[1], 10)) : "—";
   }
@@ -2087,6 +2089,7 @@ export class AccountDashboardView extends ItemView {
   /** Weekday label for a trade (used by the breakdown bars). */
   private weekdayOf(t: Trade): string {
     const d = this.dayKey(t);
+    if (!d) return "";
     const [y, m, day] = d.split("-").map(Number);
     return WEEKDAYS[new Date(y, m - 1, day).getDay()] ?? "—";
   }
