@@ -4,7 +4,7 @@ I keep the changes for each Tradebook release here.
 
 To update, open Obsidian's Settings → Community plugins, check for updates and update Tradebook. Back up your vault before updating.
 
-## [1.1.2] - 2026-11-26
+## [1.1.2] - 2026-11-27
 
 This update adds a second import source, corrections for recorded executions, and a review
 pass across Home, Trade Detail and the trade card.
@@ -21,6 +21,7 @@ pass across Home, Trade Detail and the trade card.
 - Home labels say what they count. The metric labels no longer carry their (decision) suffixes, and the Without stop tooltip matches the row it belongs to.
 - A Replay time that cannot be resolved to an instant is no longer given a date, hour or session it does not have. Those trades stay out of the day, hour and session figures instead of landing on a plausible one.
 - Renaming keeps a print family together, for the legacy single screenshot field and for the structured screenshot list.
+- Light mode. Text, status colours and backgrounds are corrected across Home, Trade Detail, the trade add and time pickers, accounts and the import screens, so the same information stays readable on a light background.
 
 ### Fixed
 
