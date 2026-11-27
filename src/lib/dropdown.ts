@@ -441,8 +441,8 @@ export function mountMultiDropdown(
     isOpen = false;
     btn.setAttribute("aria-expanded", "false");
     list.removeClass("is-portal");
-    list.style.left = "";
-    list.style.top = "";
+    list.style.removeProperty("left");
+    list.style.removeProperty("top");
     wrap.appendChild(list);
     if (active?.wrap === wrap) {
       active = null;
